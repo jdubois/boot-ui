@@ -2733,9 +2733,6 @@ public class BootUiProperties {
          */
         private String instancesDir;
 
-        /** Handshake-verified local instance discovery settings ({@code bootui instances} / {@code --app}). */
-        private InstanceDiscovery instanceDiscovery = new InstanceDiscovery();
-
         public boolean isEnabled() {
             return enabled;
         }
@@ -2776,54 +2773,6 @@ public class BootUiProperties {
 
         public void setInstancesDir(String instancesDir) {
             this.instancesDir = instancesDir;
-        }
-
-        public InstanceDiscovery getInstanceDiscovery() {
-            return instanceDiscovery;
-        }
-
-        public void setInstanceDiscovery(InstanceDiscovery instanceDiscovery) {
-            this.instanceDiscovery = instanceDiscovery == null ? new InstanceDiscovery() : instanceDiscovery;
-        }
-
-        /** Resolves the configured instances directory from {@code bootui.cli.instances-dir} or nested discovery settings. */
-        public String resolveInstancesDir() {
-            if (instancesDir != null && !instancesDir.isBlank()) {
-                return instancesDir.trim();
-            }
-            String nested = instanceDiscovery.getInstancesDir();
-            return (nested != null && !nested.isBlank()) ? nested.trim() : null;
-        }
-
-        /**
-         * Settings for local instance discovery lease files written after web server port binding.
-         */
-        public static class InstanceDiscovery {
-
-            /**
-             * Whether this instance writes a local discovery lease file after port binding.
-             * When unset ({@code null}), enabled in development runs and disabled under test frameworks.
-             */
-            private Boolean enabled;
-
-            /** Optional override for the lease directory path (alias of {@code bootui.cli.instances-dir}). */
-            private String instancesDir;
-
-            public Boolean getEnabled() {
-                return enabled;
-            }
-
-            public void setEnabled(Boolean enabled) {
-                this.enabled = enabled;
-            }
-
-            public String getInstancesDir() {
-                return instancesDir;
-            }
-
-            public void setInstancesDir(String instancesDir) {
-                this.instancesDir = instancesDir;
-            }
         }
     }
 

@@ -6,11 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientException;
-import io.github.jdubois.bootui.client.BootUiInstance;
-import io.github.jdubois.bootui.client.BootUiInstances;
 import io.github.jdubois.bootui.client.JsonValue;
-import io.github.jdubois.bootui.engine.cli.InstanceLease;
-import io.github.jdubois.bootui.engine.cli.InstanceLeaseManager;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -83,46 +79,43 @@ class BootUiInstancesTests {
         // 1. Live matching lease
         writeLease(
                 instancesDir,
-                new InstanceLease(
-                        "a1b2c3d4",
-                        "run00001",
-                        currentPid,
-                        currentStart,
-                        "order-service",
-                        "Spring Boot",
-                        "http://127.0.0.1:" + server.getAddress().getPort(),
-                        "/bootui/api",
-                        1700000000000L));
+                "a1b2c3d4",
+                "run00001",
+                currentPid,
+                currentStart,
+                "order-service",
+                "Spring Boot",
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "/bootui/api",
+                1700000000000L);
 
         // 2. Dead PID lease -> must be deleted
         Path deadFile = writeLease(
                 instancesDir,
-                new InstanceLease(
-                        "dead0001",
-                        "run00002",
-                        Long.MAX_VALUE - 7,
-                        currentStart,
-                        "dead-service",
-                        "Spring Boot",
-                        "http://127.0.0.1:18080",
-                        "/bootui/api",
-                        1700000000000L));
+                "dead0001",
+                "run00002",
+                Long.MAX_VALUE - 7,
+                currentStart,
+                "dead-service",
+                "Spring Boot",
+                "http://127.0.0.1:18080",
+                "/bootui/api",
+                1700000000000L);
 
         // 3. Reused PID with mismatched startInstant (> 2s tolerance) -> must be deleted
         Path reusedPidFile = writeLease(
                 instancesDir,
-                new InstanceLease(
-                        "beef0002",
-                        "run00003",
-                        currentPid,
-                        currentStart - 10_000L,
-                        "stale-service",
-                        "Quarkus",
-                        "http://127.0.0.1:18081",
-                        "/bootui/api",
-                        1700000000000L));
+                "beef0002",
+                "run00003",
+                currentPid,
+                currentStart - 10_000L,
+                "stale-service",
+                "Quarkus",
+                "http://127.0.0.1:18081",
+                "/bootui/api",
+                1700000000000L);
 
-        List<BootUiInstance> live = BootUiInstances.list(instancesDir);
+        List<BootUiInstances.Instance> live = BootUiInstances.list(instancesDir);
 
         assertThat(live).singleElement().satisfies(instance -> {
             assertThat(instance.instanceId()).isEqualTo("a1b2c3d4");
@@ -173,6 +166,20 @@ class BootUiInstancesTests {
         assertThat(requests.get(1).method).isEqualTo("POST");
         assertThat(requests.get(1).path).isEqualTo("/custom/bootui/api/cli/tools/get_beans");
         assertThat(requests.get(1).authorization).isEqualTo("Bearer secret-token");
+
+        // init --app also verifies handshake and resolves the leased baseUrl + apiPath
+        requests.clear();
+        CliResult initApp = runCli(instancesDir, true, "init", "--app", "order-service", "--vscode", "--print");
+        assertThat(initApp.exitCode).isZero();
+        assertThat(JsonValue.parseStrict(initApp.out)
+                        .get("servers")
+                        .get("bootui")
+                        .get("url")
+                        .asString(""))
+                .isEqualTo("http://127.0.0.1:" + server.getAddress().getPort() + "/custom/bootui/api/mcp");
+        assertThat(requests)
+                .singleElement()
+                .satisfies(req -> assertThat(req.path).isEqualTo("/custom/bootui/api/overview"));
     }
 
     @Test
@@ -242,9 +249,11 @@ class BootUiInstancesTests {
         // Bypass ambient HTTP proxy when --app is used
         String oldProxyHost = System.getProperty("http.proxyHost");
         String oldProxyPort = System.getProperty("http.proxyPort");
+        String oldNonProxy = System.getProperty("http.nonProxyHosts");
         try {
             System.setProperty("http.proxyHost", "127.0.0.1");
             System.setProperty("http.proxyPort", "1");
+            System.setProperty("http.nonProxyHosts", "");
             CliResult proxied = runCli(instancesDir, true, "--app", "order-service", "beans");
             assertThat(proxied.exitCode).isZero();
         } finally {
@@ -257,6 +266,11 @@ class BootUiInstancesTests {
                 System.clearProperty("http.proxyPort");
             } else {
                 System.setProperty("http.proxyPort", oldProxyPort);
+            }
+            if (oldNonProxy == null) {
+                System.clearProperty("http.nonProxyHosts");
+            } else {
+                System.setProperty("http.nonProxyHosts", oldNonProxy);
             }
         }
     }
@@ -310,21 +324,44 @@ class BootUiInstancesTests {
                 .orElse(1700000000000L);
         return writeLease(
                 instancesDir,
-                new InstanceLease(
-                        instanceId,
-                        "run12345",
-                        currentPid,
-                        currentStart,
-                        appName,
-                        "Spring Boot",
-                        "http://127.0.0.1:" + server.getAddress().getPort(),
-                        apiPath,
-                        1700000000000L));
+                instanceId,
+                "run12345",
+                currentPid,
+                currentStart,
+                appName,
+                "Spring Boot",
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                apiPath,
+                1700000000000L);
     }
 
-    private static Path writeLease(Path instancesDir, InstanceLease lease) throws IOException {
-        InstanceLeaseManager manager = new InstanceLeaseManager(instancesDir);
-        return manager.write(lease);
+    private static Path writeLease(
+            Path instancesDir,
+            String instanceId,
+            String runId,
+            long pid,
+            long processStartEpochMillis,
+            String appName,
+            String framework,
+            String baseUrl,
+            String apiPath,
+            long startedAt)
+            throws IOException {
+        Files.createDirectories(instancesDir);
+        Path target = instancesDir.resolve(instanceId + ".json");
+        String json = "{\n"
+                + "  \"instanceId\": \"" + instanceId + "\",\n"
+                + "  \"runId\": \"" + runId + "\",\n"
+                + "  \"pid\": " + pid + ",\n"
+                + "  \"processStartEpochMillis\": " + processStartEpochMillis + ",\n"
+                + "  \"appName\": \"" + appName + "\",\n"
+                + "  \"framework\": \"" + framework + "\",\n"
+                + "  \"baseUrl\": \"" + baseUrl + "\",\n"
+                + "  \"apiPath\": \"" + apiPath + "\",\n"
+                + "  \"startedAt\": " + startedAt + "\n"
+                + "}\n";
+        Files.writeString(target, json, StandardCharsets.UTF_8);
+        return target;
     }
 
     private static CliResult runCli(Path instancesDir, boolean terminal, String... args) {

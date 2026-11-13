@@ -1,10 +1,7 @@
-package io.github.jdubois.bootui.autoconfigure.cli;
+package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration;
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.BootUiReactiveAutoConfiguration;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import java.nio.file.Files;
 import java.nio.file.Path;

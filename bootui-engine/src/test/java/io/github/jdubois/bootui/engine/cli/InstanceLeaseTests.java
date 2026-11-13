@@ -95,49 +95,47 @@ class InstanceLeaseTests {
         InstanceLease lease = InstanceLease.forCurrentProcess(
                 run, "payment-service", "Spring Boot", "http://127.0.0.1:8085/", "/pay/bootui/api");
 
-        Path written;
-        try (InstanceLeaseManager manager = new InstanceLeaseManager(instancesDir)) {
-            written = manager.write(lease);
-            assertThat(written).isEqualTo(instancesDir.resolve(RunIdentity.instanceId() + ".json"));
-            assertThat(written).exists();
-            String json = Files.readString(written);
-            assertThat(json)
-                    .contains("\"instanceId\": \"" + RunIdentity.instanceId() + "\"")
-                    .contains("\"runId\": \"" + run.id() + "\"")
-                    .contains("\"appName\": \"payment-service\"")
-                    .contains("\"framework\": \"Spring Boot\"")
-                    .contains("\"baseUrl\": \"http://127.0.0.1:8085\"")
-                    .contains("\"apiPath\": \"/pay/bootui/api\"")
-                    .doesNotContain("token")
-                    .doesNotContain("mcpEnabled");
+        Path written = lease.writeTo(instancesDir);
+        assertThat(written).isEqualTo(instancesDir.resolve(RunIdentity.instanceId() + ".json"));
+        assertThat(written).exists();
+        String json = Files.readString(written);
+        assertThat(json)
+                .contains("\"instanceId\": \"" + RunIdentity.instanceId() + "\"")
+                .contains("\"runId\": \"" + run.id() + "\"")
+                .contains("\"appName\": \"payment-service\"")
+                .contains("\"framework\": \"Spring Boot\"")
+                .contains("\"baseUrl\": \"http://127.0.0.1:8085\"")
+                .contains("\"apiPath\": \"/pay/bootui/api\"")
+                .doesNotContain("token")
+                .doesNotContain("mcpEnabled");
 
-            if (Files.getFileStore(instancesDir).supportsFileAttributeView("posix")) {
-                Set<PosixFilePermission> dirPerms = Files.getPosixFilePermissions(instancesDir);
-                Set<PosixFilePermission> parentPerms = Files.getPosixFilePermissions(bootUiHome);
-                Set<PosixFilePermission> filePerms = Files.getPosixFilePermissions(written);
-                assertThat(dirPerms).isEqualTo(PosixFilePermissions.fromString("rwx------"));
-                assertThat(parentPerms).isEqualTo(PosixFilePermissions.fromString("rwx------"));
-                assertThat(filePerms).isEqualTo(PosixFilePermissions.fromString("rw-------"));
-            }
+        if (Files.getFileStore(instancesDir).supportsFileAttributeView("posix")) {
+            Set<PosixFilePermission> dirPerms = Files.getPosixFilePermissions(instancesDir);
+            Set<PosixFilePermission> parentPerms = Files.getPosixFilePermissions(bootUiHome);
+            Set<PosixFilePermission> filePerms = Files.getPosixFilePermissions(written);
+            assertThat(dirPerms).isEqualTo(PosixFilePermissions.fromString("rwx------"));
+            assertThat(parentPerms).isEqualTo(PosixFilePermissions.fromString("rwx------"));
+            assertThat(filePerms).isEqualTo(PosixFilePermissions.fromString("rw-------"));
         }
 
+        InstanceLease.deleteQuietly(written);
         assertThat(written).doesNotExist();
     }
 
     @Test
     void resolvesInstancesDirectoryFromExplicitConfigBootUiHomeOrUserHome() {
         Path explicit = tempDir.resolve("custom-instances");
-        assertThat(InstanceLeaseManager.resolveInstancesDir(
+        assertThat(InstanceLease.resolveInstancesDir(
                         explicit.toString(), Map.of("BOOTUI_HOME", "/ignored"), "/ignored-home"))
                 .isEqualTo(explicit.toAbsolutePath().normalize());
 
         Path bootUiHome = tempDir.resolve("env-home");
-        assertThat(InstanceLeaseManager.resolveInstancesDir(
+        assertThat(InstanceLease.resolveInstancesDir(
                         null, Map.of("BOOTUI_HOME", bootUiHome.toString()), "/ignored-home"))
                 .isEqualTo(bootUiHome.resolve("instances").toAbsolutePath().normalize());
 
         Path userHome = tempDir.resolve("user-home");
-        assertThat(InstanceLeaseManager.resolveInstancesDir(null, Map.of(), userHome.toString()))
+        assertThat(InstanceLease.resolveInstancesDir(null, Map.of(), userHome.toString()))
                 .isEqualTo(userHome.resolve(".bootui")
                         .resolve("instances")
                         .toAbsolutePath()
@@ -153,8 +151,6 @@ class InstanceLeaseTests {
         InstanceLease lease = InstanceLease.forCurrentProcess(
                 RunIdentity.start(), "app", "Spring Boot", "http://localhost:8080", "/bootui/api");
 
-        try (InstanceLeaseManager manager = new InstanceLeaseManager(symlinkDir)) {
-            assertThatThrownBy(() -> manager.write(lease)).isInstanceOf(IOException.class);
-        }
+        assertThatThrownBy(() -> lease.writeTo(symlinkDir)).isInstanceOf(IOException.class);
     }
 }

@@ -24,7 +24,6 @@ import io.github.jdubois.bootui.quarkus.activity.QuarkusActivityCapture;
 import io.github.jdubois.bootui.quarkus.agent.AgentSessionProducer;
 import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanDependencies;
 import io.github.jdubois.bootui.quarkus.cli.BootUiCliProducer;
-import io.github.jdubois.bootui.quarkus.cli.QuarkusInstanceLeaseLifecycle;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.devservices.DevServicesRecorder;
 import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
@@ -148,40 +147,6 @@ import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.ParameterizedType;
 import org.jboss.jandex.Type;
 
-/**
- * Build-time wiring for the BootUI Quarkus extension — the analogue of the Spring adapter's
- * {@code BootUiAutoConfiguration}.
- *
- * <p>It indexes the extension runtime jar (so Arc discovers the CDI beans/producer and the Vert.x safety
- * filter, and RESTEasy discovers the {@code @Path} resources) and pins those beans as unremovable. Crucially, that registration is <strong>gated to non-production launch modes</strong>: in
- * {@link LaunchMode#NORMAL} the console is not wired at all, so BootUI stays dark in production
- * (fail-closed), matching the Spring adapter's dev/local-only activation. {@code @QuarkusTest} runs in
- * {@link LaunchMode#TEST}, so the conformance suite still exercises the wired console.</p>
- *
- * <p>One thing is <em>not</em> gated by that early return: the shared Vue bundle under
- * {@code META-INF/resources/bootui/} is served by Quarkus' built-in static-resource handler regardless of
- * launch mode — that handler is wired unconditionally by {@code quarkus-vertx-http} for any classpath
- * resource under {@code META-INF/resources/**}, completely independently of this processor, and Quarkus
- * offers no build-time mechanism to exclude a single path from that scan
- * ({@code AdditionalStaticResourceBuildItem}/{@code StaticResourcesBuildItem} are additive-only). Left
- * alone this would leave the empty SPA shell's {@code index.html}/JS/CSS reachable in production, just
- * with no working API behind it. {@link #registerProdShellGuard} closes that gap: it registers
- * {@code BootUiProdShellGuardFilter}, a global Vert.x route filter, via its own build step that is
- * deliberately <strong>not</strong> gated by launch mode — the opposite polarity from every build step
- * above, so the filter is present in {@link LaunchMode#NORMAL} too. The launch-mode decision instead lives
- * inside the filter itself (see its Javadoc): in {@link LaunchMode#NORMAL} it answers a plain 404 for
- * {@code /bootui} and any {@code /bootui/**} path (the static shell, {@code /bootui/api/**}, everything);
- * in every other launch mode it is an immediate no-op pass-through, so dev/{@code @QuarkusTest} behavior is
- * entirely unaffected. Net effect: {@code /bootui}/{@code /bootui/**} is a plain 404 in production, at
- * parity with the Spring adapter, whose {@code BootUiShellGuardAutoConfiguration} answers the same 404 for
- * the same reserved mount whenever BootUI's activation condition resolves to disabled (#856: Spring Boot's
- * default static-resource handling served the packaged shell there too, for exactly the same reason).</p>
- *
- * <p>In dev/test, the static handler only answers the directory index {@code /bootui/} (trailing slash);
- * {@code /bootui} without the trailing slash previously 404'd, so {@code QuarkusIndexResource} — a
- * {@code @Path("/bootui")} JAX-RS resource discovered from the same indexed jar and therefore gated
- * identically to the rest of the console — answers it directly instead of redirecting (see its Javadoc).</p>
- */
 class BootUiQuarkusProcessor {
 
     private static final String FEATURE = "bootui";
@@ -195,46 +160,21 @@ class BootUiQuarkusProcessor {
             DotName.createSimple("jakarta.ws.rs.HEAD"),
             DotName.createSimple("jakarta.ws.rs.OPTIONS"));
 
-    // BootUI's own resources are filtered out of the captured Mappings inventory by package and by path,
-    // mirroring the Spring BootUiSelfDataFilter (which inspects the handler class and the request path).
-    // Scoped to the Quarkus adapter's own JAX-RS resource package (`...quarkus.web`), not the whole
-    // `io.github.jdubois.bootui` root: a bare root-package prefix would also swallow any application code
-    // that happens to be packaged under that root (for example a sample/demo app using
-    // `io.github.jdubois.bootui.sample`), exactly the boundary the shared engine `InternalPackageMatcher`
-    // already draws for the Quarkus adapter (`io.github.jdubois.bootui.quarkus` + `...core`).
     private static final String BOOTUI_PACKAGE_PREFIX = "io.github.jdubois.bootui.quarkus";
 
-    /** {@code ACC_SYNTHETIC}, as defined by the JVM class-file format (not exposed by {@link Modifier}). */
     private static final int SYNTHETIC = 0x1000;
 
-    /** {@code ACC_BRIDGE}, as defined by the JVM class-file format (not exposed by {@link Modifier}). */
     private static final int BRIDGE = 0x0040;
 
     private static final String BOOTUI_PATH_PREFIX = "/bootui";
 
-    // Referenced by class name only: this is the sole OpenTelemetry-importing type in the extension, and
-    // the deployment classloader must never load it while augmenting an application that has no
-    // quarkus-opentelemetry on its classpath (loading it would resolve its SpanProcessor return type and
-    // link the OTel SDK that must stay absent — R2/BF2).
     private static final String OTEL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiOtelProducer";
 
-    // Referenced by class name only: this is the sole OpenTelemetry-importing type added for Live Activity
-    // correlation. Like OTEL_PRODUCER_CLASS, the deployment classloader must never load it while augmenting
-    // an application that has no quarkus-opentelemetry on its classpath (loading it would resolve its
-    // io.opentelemetry.api.trace.Span reference and link the OTel API that must stay absent — R2/BF2).
     private static final String OTEL_TRACE_ID_PROVIDER_CLASS =
             "io.github.jdubois.bootui.quarkus.QuarkusOtelTraceIdSource";
 
-    // Referenced by class name only: this is the sole SmallRye-Health-importing type in the extension, and the
-    // deployment classloader must never load it while augmenting an application that has no
-    // quarkus-smallrye-health on its classpath (loading it would resolve its SmallRyeHealthReporter parameter
-    // type and link a type that must stay absent — R2).
     private static final String HEALTH_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiHealthProducer";
 
-    // Referenced by class name only: this is the sole jakarta.persistence-importing type in the extension, and
-    // the deployment classloader must never load it while augmenting an application that has no
-    // quarkus-hibernate-orm on its classpath (loading it would resolve its EntityManagerFactory parameter type
-    // and link the JPA API that must stay absent — R2).
     private static final String HIBERNATE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiHibernateProducer";
 
     private static final String CACHE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiCacheProducer";
@@ -242,65 +182,34 @@ class BootUiQuarkusProcessor {
     private static final String FLYWAY_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiFlywayProducer";
     private static final String LIQUIBASE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiLiquibaseProducer";
 
-    // Referenced by class name only: BootUiAgroalProducer @Produces a ConnectionPoolProvider whose
-    // implementation (QuarkusAgroalConnectionPoolProvider) imports io.agroal.*; the deployment classloader must
-    // never load it while augmenting an application without a JDBC datasource extension on its classpath
-    // (loading it would link the Agroal API that must stay absent — R2).
     private static final String AGROAL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiAgroalProducer";
 
-    // Referenced by class name only: QuarkusSecurityEventCapture observes io.quarkus.security.spi.runtime
-    // .SecurityEvent, so the deployment classloader must never load it while augmenting an application without a
-    // security extension (loading it would link the security SPI that must stay absent — R2). The SECURITY
-    // capability gate registers it only when present.
     private static final String SECURITY_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.web.QuarkusSecurityEventCapture";
 
-    // Referenced by class name only: QuarkusKafkaProducerCapture / QuarkusKafkaConsumerCapture implement
-    // SmallRye Reactive Messaging's io.smallrye.reactive.messaging.OutgoingInterceptor / IncomingInterceptor
-    // and read io.smallrye.reactive.messaging.kafka.api metadata, so the deployment classloader must never load
-    // them while augmenting an application without quarkus-messaging-kafka (loading them would link the messaging
-    // API that must stay absent — R2). The KAFKA capability gate registers them only when present.
     private static final String KAFKA_PRODUCER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaProducerCapture";
     private static final String KAFKA_CONSUMER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaConsumerCapture";
 
-    // Referenced by class name only: QuarkusRabbitProducerCapture/QuarkusRabbitConsumerCapture observe
-    // SmallRye RabbitMQ types, so the deployment classloader must never load them while augmenting an
-    // application without quarkus-messaging-rabbitmq. The RABBITMQ capability gate registers them only
-    // when present.
     private static final String RABBIT_PRODUCER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.rabbit.QuarkusRabbitProducerCapture";
     private static final String RABBIT_CONSUMER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.rabbit.QuarkusRabbitConsumerCapture";
 
-    // Referenced by class name only: QuarkusWebSocketSessionProvider and QuarkusWebSocketConnectionCapture
-    // import io.quarkus.websockets.next, so the deployment classloader must never load them while augmenting
-    // an application without quarkus-websockets-next (loading them would link an API that must stay absent —
-    // R2). registerWebSocketBeans gates them on runtime class presence of WEBSOCKET_CONNECTION_CLASS.
     private static final String WEBSOCKET_SESSION_PROVIDER_CLASS =
             "io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketSessionProvider";
     private static final String WEBSOCKET_CONNECTION_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketConnectionCapture";
 
-    // The runtime type whose presence tells registerWebSocketBeans that quarkus-websockets-next is on the
-    // application's classpath. There is no dedicated WEBSOCKETS_NEXT Capability constant in Quarkus core, so
-    // this mirrors the Email and RabbitMQ class-presence pattern. The provided-scope quarkus-websockets-next
-    // dependency adds this class transitively, but only when the application itself declares that extension —
-    // the provided scope is not transitive (R2).
     private static final String WEBSOCKET_CONNECTION_CLASS = "io.quarkus.websockets.next.WebSocketConnection";
 
-    /** LangChain4j's listener contract, whose presence gates the AI call listener (M3-9). */
     private static final String CHAT_MODEL_LISTENER_CLASS = "dev.langchain4j.model.chat.listener.ChatModelListener";
 
     private static final String AI_CALL_LISTENER_CLASS = "io.github.jdubois.bootui.quarkus.ai.QuarkusAiCallListener";
 
     private static final DotName WEBSOCKET_ANNOTATION = DotName.createSimple("io.quarkus.websockets.next.WebSocket");
 
-    /**
-     * The WebSockets Next callback annotations, in the order the panel lists them. Read from the Jandex index
-     * by name only, so the deployment classloader never loads the annotation classes themselves.
-     */
     private static final List<DotName> WEBSOCKET_CALLBACK_ANNOTATIONS = List.of(
             DotName.createSimple("io.quarkus.websockets.next.OnOpen"),
             DotName.createSimple("io.quarkus.websockets.next.OnTextMessage"),
@@ -319,7 +228,6 @@ class BootUiQuarkusProcessor {
     private static final DotName WEBSOCKET_MESSAGE_BINDING =
             DotName.createSimple("io.github.jdubois.bootui.quarkus.websocket.BootUiWebSocketMessage");
 
-    /** The WebSockets Next callbacks that receive an application message, each of which becomes an execution. */
     private static final List<DotName> WEBSOCKET_MESSAGE_ANNOTATIONS = List.of(
             DotName.createSimple("io.quarkus.websockets.next.OnTextMessage"),
             DotName.createSimple("io.quarkus.websockets.next.OnBinaryMessage"));
@@ -343,47 +251,25 @@ class BootUiQuarkusProcessor {
     private static final DotName SCHEDULED_EXECUTION_BINDING =
             DotName.createSimple("io.github.jdubois.bootui.quarkus.scheduled.BootUiScheduledExecution");
 
-    /** {@code io.quarkus.scheduler.Scheduled} and its repeatable container, named so no scheduler type is loaded. */
     private static final List<DotName> SCHEDULED_ANNOTATIONS = List.of(
             DotName.createSimple("io.quarkus.scheduler.Scheduled"),
             DotName.createSimple("io.quarkus.scheduler.Scheduled$Schedules"));
 
-    // Referenced by class name only: QuarkusEmailCapture observes io.quarkus.mailer.SentMail, so the deployment
-    // classloader must never load it while augmenting an application without quarkus-mailer (loading it would link
-    // the mailer API that must stay absent — R2). There is no MAILER capability, so registerEmail gates on
-    // runtime class presence of io.quarkus.mailer.reactive.ReactiveMailer instead.
     private static final String EMAIL_CAPTURE_CLASS = "io.github.jdubois.bootui.quarkus.web.QuarkusEmailCapture";
 
-    // The runtime type whose presence tells registerEmail that quarkus-mailer is on the application's classpath.
     private static final String REACTIVE_MAILER_CLASS = "io.quarkus.mailer.reactive.ReactiveMailer";
 
-    // The runtime type whose presence tells registerRabbitCapture that quarkus-messaging-rabbitmq is on the
-    // application's classpath. There is no dedicated RABBITMQ Capability constant in Quarkus core, so we gate
-    // on a SmallRye RabbitMQ connector class, matching the Email-panel pattern. The provided-scope
-    // quarkus-messaging-rabbitmq dependency adds this class transitively, but only when the application
-    // itself declares that extension — the provided scope is not transitive (R2).
     private static final String INCOMING_RABBITMQ_METADATA_CLASS =
             "io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata";
 
-    // The MicroProfile REST Client Listener that hooks BootUI's filter into every @RegisterRestClient proxy.
-    // Referenced by string name only so the deployment classloader never loads it in an app without
-    // quarkus-rest-client (it implements RestClientListener from microprofile-rest-client-api,
-    // which is absent when the REST Client extension is absent — R2).
     private static final String REST_CLIENT_TRACE_LISTENER_CLASS =
             "io.github.jdubois.bootui.quarkus.restclienttrace.QuarkusRestClientTraceListener";
     private static final String REST_CLIENT_LISTENER_SERVICE =
             "org.eclipse.microprofile.rest.client.spi.RestClientListener";
 
-    // Referenced by class name only: BootUiSqlTraceProducer @Produces an Alternative DataSource that wraps the
-    // default Agroal pool, and imports io.agroal.*; the deployment classloader must never load it without a JDBC
-    // datasource extension on the classpath. Gated identically to AGROAL_PRODUCER_CLASS (AGROAL, dev/test).
     private static final String SQL_TRACE_PRODUCER_CLASS =
             "io.github.jdubois.bootui.quarkus.sqltrace.BootUiSqlTraceProducer";
 
-    // Referenced by class name only: BootUiHibernateStatementInspector implements org.hibernate.resource.jdbc
-    // .spi.StatementInspector and is marked io.quarkus.hibernate.orm.PersistenceUnitExtension, so the deployment
-    // classloader must never load it while augmenting an application without quarkus-hibernate-orm (loading it
-    // would link the Hibernate SPI that must stay absent — R2). Gated on HIBERNATE_ORM, dev/test.
     private static final String SQL_TRACE_INSPECTOR_CLASS =
             "io.github.jdubois.bootui.quarkus.sqltrace.BootUiHibernateStatementInspector";
 
@@ -400,14 +286,7 @@ class BootUiQuarkusProcessor {
         if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
             return; // production: do not expose the console
         }
-        // The extension runtime jar is not part of the application index by default; index it so Arc and
-        // RESTEasy discover the annotated console types within it.
         indexDependency.produce(new IndexDependencyBuildItem("com.julien-dubois.bootui", "bootui-quarkus"));
-        // Register the producer (which has @Produces methods) and the SPI-backed beans, and keep them even
-        // if Arc's unused-bean analysis can't see the RESTEasy-mediated injection points. The telemetry read
-        // services (Traces + AI Framework) are produced unconditionally here — they hold no OpenTelemetry types,
-        // so they wire (and render empty) whether or not the app has quarkus-opentelemetry. The OTel-importing
-        // capture producer is gated separately in {@link #registerOpenTelemetryCapture}.
         additionalBeans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClasses(
                         BootUiEngineProducer.class,
@@ -454,7 +333,6 @@ class BootUiQuarkusProcessor {
                         McpBridgeResource.class,
                         BootUiMcpProducer.class,
                         BootUiCliProducer.class,
-                        QuarkusInstanceLeaseLifecycle.class,
                         BootUiCliResource.class,
                         QuarkusMcpTools.class,
                         QuarkusMcpEnvelope.class,
@@ -468,25 +346,6 @@ class BootUiQuarkusProcessor {
                 .build());
     }
 
-    /**
-     * Registers {@link QuarkusPreMappingExceptionCaptureHandler} as a {@code PreExceptionMapperHandlerBuildItem}
-     * — the RESTEasy Reactive extension point Quarkus' own OpenTelemetry extension uses ({@code
-     * AttachExceptionHandler}) to observe an exception before it is resolved to a response. This is what
-     * closes the one capture gap {@code QuarkusExceptionLogHandler} (feeds on logged throwables) and {@code
-     * QuarkusExceptionCaptureFilter} (feeds on {@code RoutingContext.failure()}) cannot reach on their own: an
-     * exception resolved by the application's own {@code ExceptionMapper}/{@code @ServerExceptionMapper} that
-     * does not itself log the throwable — RESTEasy Reactive never sets {@code RoutingContext.failure()} for a
-     * mapper-handled exception, so neither existing feeder ever sees it. Quarkus guarantees this handler runs
-     * for every exception about to be mapped, mapped or not, so it also covers the already-handled unhandled-
-     * exception case; that overlap is harmless because {@code ExceptionStore.record} dedups by throwable
-     * identity — whichever feeder observes a given throwable first simply wins the race, same as the existing
-     * two-feeder overlap.
-     *
-     * <p>The handler is a plain object with no CDI dependencies (see its Javadoc for why), so — unlike {@link
-     * #registerConsole} — this needs no {@link AdditionalBeanBuildItem}, just the build item itself. Gated to
-     * non-production launch modes, matching every other capture build step: in {@link LaunchMode#NORMAL} the
-     * whole console is dark, so there is nothing to feed.</p>
-     */
     @BuildStep
     void registerExceptionPreMappingCapture(
             LaunchModeBuildItem launchMode,
@@ -498,23 +357,6 @@ class BootUiQuarkusProcessor {
                 new PreExceptionMapperHandlerBuildItem(new QuarkusPreMappingExceptionCaptureHandler()));
     }
 
-    /**
-     * Registers {@link BootUiProdShellGuardFilter}, the global Vert.x route filter that keeps
-     * {@code /bootui}/{@code /bootui/**} a plain 404 in production even though Quarkus' built-in
-     * static-resource handler serves the shared Vue bundle under {@code META-INF/resources/bootui/}
-     * unconditionally (see the class Javadoc for the full story). Deliberately a <strong>separate,
-     * always-on</strong> build step with no {@link LaunchModeBuildItem} parameter and no early return —
-     * the opposite polarity from {@link #registerConsole} above, which is skipped entirely in
-     * {@link LaunchMode#NORMAL}. If this bean were folded into {@code registerConsole} instead, it would be
-     * skipped in production right along with everything else, and the whole point is for it to be present
-     * there.
-     *
-     * <p>No {@link IndexDependencyBuildItem} is needed for this: unlike JAX-RS {@code @Path} resource
-     * discovery, an {@link AdditionalBeanBuildItem}'s classes are ad-hoc Jandex-indexed by Arc's own
-     * {@code BeanArchiveProcessor} regardless of whether the containing jar was separately indexed, so the
-     * filter and its {@code @Observes Filters} registration method are discovered in every launch mode from
-     * this build step alone.
-     */
     @BuildStep
     AdditionalBeanBuildItem registerProdShellGuard() {
         return AdditionalBeanBuildItem.builder()
@@ -523,38 +365,12 @@ class BootUiQuarkusProcessor {
                 .build();
     }
 
-    /**
-     * Exposes the Quarkus core version to runtime config as {@code bootui.internal.quarkus-version} so
-     * {@code QuarkusApplicationInfo} can report it as the overview {@code frameworkVersion}.
-     *
-     * <p>The version is only reliably available at build time via {@link Version#getVersion()}; the
-     * runtime {@code Package#getImplementationVersion()} returns {@code null} under the Quarkus
-     * classloader in dev/test. This default is harmless in production (the console is not wired, so the
-     * key is simply never read).</p>
-     */
     @BuildStep
     RunTimeConfigurationDefaultBuildItem quarkusVersion() {
         return new RunTimeConfigurationDefaultBuildItem(
                 QuarkusApplicationInfo.QUARKUS_VERSION_KEY, Version.getVersion());
     }
 
-    /**
-     * Discovers the host application's own base packages at build time and exposes them to runtime config as
-     * {@code bootui.internal.base-packages} (a comma-separated list) so {@link QuarkusBasePackageProvider}
-     * can hand them to the engine's ArchUnit advisors — the Quarkus analogue of the Spring adapter resolving
-     * {@code AutoConfigurationPackages}.
-     *
-     * <p>The roots are read from {@link ApplicationIndexBuildItem} — the Jandex index of the application root
-     * archive, which contains the application's <em>own</em> classes only and excludes dependency jars (so
-     * the discovered roots never leak BootUI's own or third-party packages into the scan). Each class's
-     * package name is reduced to a minimal, bounded antichain by {@link BasePackageRoots#reduce}, which drops
-     * the default and single-segment packages that would otherwise make ArchUnit scan the whole classpath.</p>
-     *
-     * <p>The step is gated to non-production launch modes: in {@link LaunchMode#NORMAL} the console is never
-     * wired, so iterating the index would be wasted build work and the key would never be read. Because the
-     * key is a runtime <em>default</em>, an application split across sibling modules (which the application
-     * root index does not span) can override it explicitly in {@code application.properties}.</p>
-     */
     @BuildStep
     void registerBasePackages(
             LaunchModeBuildItem launchMode,
@@ -576,15 +392,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Determines whether the application declares any JAX-RS resources and exposes the decision to runtime
-     * config as {@link QuarkusPanelAvailability#REST_API_PRESENT_KEY} (default {@code false}) so the REST API
-     * advisor panel is available only when there are application controllers to analyse. Counts standard and
-     * custom {@code @HttpMethod} annotations on methods in {@link ApplicationIndexBuildItem} (the app's own
-     * classes only — never BootUI's or dependency jars), resolving custom annotation metadata through the
-     * combined index. A capability gate would be tautological because BootUI itself depends on quarkus-rest.
-     * Dev/test only; in {@link LaunchMode#NORMAL} the console is dark.
-     */
     @BuildStep
     void registerRestApi(
             LaunchModeBuildItem launchMode,
@@ -628,12 +435,6 @@ class BootUiQuarkusProcessor {
         return annotationType != null && annotationType.declaredAnnotation(JAX_RS_HTTP_METHOD) != null;
     }
 
-    /**
-     * Captures build-time authorization-annotation counts for the Quarkus Security advisor: how many
-     * standard Jakarta annotations, {@code @Authenticated}, {@code @PermissionsAllowed}, and
-     * {@code @AuthorizationPolicy} sites and JAX-RS endpoints the application declares, emitted as runtime
-     * config defaults the advisor reads. Dev/test only.
-     */
     @BuildStep
     void registerSecurityAnnotations(
             LaunchModeBuildItem launchMode,
@@ -647,8 +448,6 @@ class BootUiQuarkusProcessor {
             return;
         }
         IndexView index = applicationIndex.getIndex();
-        // The validation-error producer keeps this observation ordered before Arc finishes validation.
-        // Read only bindings already materialized by initialization, never the lazy annotation store.
         var capture = SecurityDeclarationCapture.capture(
                 index,
                 combinedIndex.getIndex(),
@@ -698,13 +497,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Detects whether the {@code io.quarkus:quarkus-rest-csrf} extension is active by checking the build's
-     * registered {@link FeatureBuildItem}s for its feature name ({@code "rest-csrf"}) — fixing a previously dead
-     * {@code bootui.internal.sec.csrf-present} key that no build step ever populated (QS-CSRF-001 bug fix). The
-     * provider additionally reads the live {@code quarkus.rest-csrf.enabled} config flag (default {@code true}),
-     * since the extension can be present but explicitly disabled.
-     */
     @BuildStep
     void registerCsrfDetection(
             LaunchModeBuildItem launchMode,
@@ -718,13 +510,6 @@ class BootUiQuarkusProcessor {
                 new RunTimeConfigurationDefaultBuildItem("bootui.internal.sec.csrf-present", "" + present));
     }
 
-    /**
-     * Emits build-time presence flags for two Quarkus-specific optional capabilities the Security advisor
-     * checks: gRPC server reflection (QS-GRPC-001) and SmallRye GraphQL introspection (QS-GRAPHQL-001). Both
-     * are pure presence checks — no optional {@code io.quarkus.grpc.*}/{@code io.smallrye.graphql.*} type is
-     * imported at runtime — so unlike the Cache/Flyway/Liquibase/Hibernate ports, no {@link ExcludedTypeBuildItem}
-     * gate is needed.
-     */
     @BuildStep
     void registerQuarkusSpecificCapabilityFlags(
             LaunchModeBuildItem launchMode,
@@ -805,7 +590,6 @@ class BootUiQuarkusProcessor {
     private static final DotName REGISTER_REST_CLIENT =
             DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RegisterRestClient");
 
-    /** The seven JAX-RS HTTP-method annotations ({@code @GET}, {@code @POST}, …) by fully-qualified name. */
     private static final List<String> JAXRS_HTTP_METHODS = List.of(
             "jakarta.ws.rs.GET",
             "jakarta.ws.rs.POST",
@@ -817,29 +601,20 @@ class BootUiQuarkusProcessor {
 
     private static final DotName PRODUCES = DotName.createSimple("jakarta.ws.rs.Produces");
 
-    /** The Jakarta REST provider SPI implemented by a global exception mapper. */
     private static final DotName EXCEPTION_MAPPER = DotName.createSimple("jakarta.ws.rs.ext.ExceptionMapper");
 
-    /** Quarkus REST's per-method exception mapper, usable globally or on a {@code @Path} resource. */
     private static final DotName SERVER_EXCEPTION_MAPPER =
             DotName.createSimple("org.jboss.resteasy.reactive.server.ServerExceptionMapper");
 
-    /** {@code @Priority} — the Jakarta REST provider ordering signal (lower wins). */
     private static final DotName PRIORITY = DotName.createSimple("jakarta.annotation.Priority");
 
     private static final DotName PROVIDER = DotName.createSimple("jakarta.ws.rs.ext.Provider");
 
-    /** Quarkus REST's declarative status override on an exception-mapping method. */
     private static final DotName RESPONSE_STATUS = DotName.createSimple("org.jboss.resteasy.reactive.ResponseStatus");
 
     private static final DotName JAKARTA_RESPONSE = DotName.createSimple("jakarta.ws.rs.core.Response");
     private static final DotName REST_RESPONSE = DotName.createSimple("org.jboss.resteasy.reactive.RestResponse");
 
-    /**
-     * Async carriers unwrapped (by name, one level at a time) to reach the declared payload of an
-     * exception-mapping method. Matching on the name keeps the deployment module free of any hard reference
-     * to Mutiny or the JDK concurrency types.
-     */
     private static final Set<DotName> ERROR_CONTRACT_ASYNC_WRAPPERS = Set.of(
             DotName.createSimple("io.smallrye.mutiny.Uni"),
             DotName.createSimple("java.util.concurrent.CompletionStage"),
@@ -847,7 +622,6 @@ class BootUiQuarkusProcessor {
 
     private static final DotName CONSUMES = DotName.createSimple("jakarta.ws.rs.Consumes");
 
-    /** Captures resolved, surviving Arc beans and registered REST methods without a late synthetic-bean cycle. */
     @BuildStep
     void registerAppIdioms(
             LaunchModeBuildItem launchMode,
@@ -873,28 +647,6 @@ class BootUiQuarkusProcessor {
                 QuarkusAppMetadataStore.RESOURCE_NAME, QuarkusAppMetadataStore.encode(metadata)));
     }
 
-    /**
-     * Captures the host application's resolved Maven dependency inventory at build time and exposes it to
-     * runtime config as {@code bootui.internal.dependencies} (a comma-separated list of
-     * {@code groupId:artifactId:version} coordinates) so {@link QuarkusDependencyProvider} can feed the
-     * Vulnerabilities panel — the Quarkus analogue of the Spring adapter's {@code DependencyCatalog}
-     * classpath scan, which is unreliable under the Quarkus runtime classloader.
-     *
-     * <p>The coordinates are read from {@link CurateOutcomeBuildItem#getApplicationModel()}'s
-     * {@code getRuntimeDependencies()} — the fully-resolved runtime classpath of the application, in every
-     * packaging layout (jar / fast-jar / native), filtered to {@code jar} artifacts. The application's own
-     * artifact is intentionally excluded (it is not an OSV-published package). Each coordinate is
-     * defensively skipped if it contains a comma, {@code $} or whitespace, so the comma-delimited channel
-     * (split back as a plain {@code String}, never a config list) can never be corrupted nor trip SmallRye
-     * {@code ${...}} expression expansion — such characters do not occur in real Maven coordinates.</p>
-     *
-     * <p>This mirrors {@link #registerBasePackages} exactly: build-time discovery surfaced as a runtime
-     * config <em>default</em>. The step is gated to non-production launch modes (in {@link LaunchMode#NORMAL}
-     * the console is never wired, so the key is never read). For a typical application this is a few KB,
-     * well within the generated default config source's string-constant ceiling; a pathological app with
-     * thousands of runtime dependencies could instead use a {@code @Recorder} + {@code SyntheticBeanBuildItem}
-     * channel (the structured-data pattern reserved for the Mappings panel).</p>
-     */
     @BuildStep
     void registerDependencyInventory(
             LaunchModeBuildItem launchMode,
@@ -914,7 +666,6 @@ class BootUiQuarkusProcessor {
             if (coordinate.indexOf(',') >= 0
                     || coordinate.indexOf('$') >= 0
                     || coordinate.chars().anyMatch(Character::isWhitespace)) {
-                // Would corrupt the comma channel or trip ${...} expansion; counted so coverage is not claimed.
                 skipped++;
                 continue;
             }
@@ -930,23 +681,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Registers the in-process span-capture producer ({@code BootUiOtelProducer}) <strong>only when
-     * OpenTelemetry tracing is on the application classpath</strong> and not in production, and otherwise
-     * <strong>excludes it from bean discovery entirely</strong>.
-     *
-     * <p>{@code BootUiOtelProducer} has a {@code @Produces SpanProcessor} method, and the extension runtime
-     * jar is Jandex-indexed (so Arc discovers the always-on beans). Arc treats a producer method as
-     * bean-defining, so the indexed producer would be discovered <em>unconditionally</em> — and Arc would
-     * fail to resolve its {@code io.opentelemetry.sdk.trace.SpanProcessor} return type in an application
-     * without {@code quarkus-opentelemetry}, linking the SDK that must stay absent (R2/BF2). A missing CDI
-     * scope on the class is therefore <em>not</em> enough; the producer must be actively
-     * {@linkplain ExcludedTypeBuildItem excluded} from discovery when OTel is absent. When OTel is present,
-     * it is registered (and pinned unremovable, since its {@code SpanProcessor} is consumed by Quarkus
-     * OpenTelemetry through a build step Arc's usage analysis cannot see). Quarkus then auto-discovers the
-     * produced {@code SpanProcessor} and feeds finished spans through the engine exporter into the shared
-     * {@code TelemetryStore}, lighting up the Traces and AI Framework panels with real data.</p>
-     */
     @BuildStep
     void registerOpenTelemetryCapture(
             LaunchModeBuildItem launchMode,
@@ -956,34 +690,11 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean enableCapture = launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
-        // The run's start records whether tracing is on (docs/PLAN-v2.md §5.18), without loading an OTel type.
         runtimeDefaults.produce(
                 new RunTimeConfigurationDefaultBuildItem(QuarkusRunStart.OTEL_TRACER_PRESENT_KEY, "" + enableCapture));
-        // No OpenTelemetry tracing (or production): keep the OTel-importing producer out of bean
-        // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
-        // via BootUiTelemetryProducer and render empty.
         registerCapabilityGatedBeans(enableCapture, additionalBeans, excludedTypes, OTEL_PRODUCER_CLASS);
     }
 
-    /**
-     * Registers the OpenTelemetry-backed {@code QuarkusOtelTraceIdSource} <strong>only when OpenTelemetry
-     * tracing is on the application classpath</strong> and not in production, and otherwise
-     * <strong>excludes it from bean discovery entirely</strong>. This is the seam that lets the Live Activity
-     * timeline correlate signals on Quarkus: the provider reads the active server span's trace id (whose
-     * context propagates across the Vert.x event-loop→worker hops), and the HTTP / exception / SQL capture
-     * points stamp it so the engine assembler can nest each signal under its owning request.
-     *
-     * <p>The mechanism mirrors {@link #registerOpenTelemetryCapture} exactly. {@code QuarkusOtelTraceIdSource}
-     * has a {@code @Produces TraceIdSource} method and the extension runtime jar is Jandex-indexed, so the
-     * indexed producer would be discovered <em>unconditionally</em> — and Arc would fail to resolve the
-     * {@code io.opentelemetry.api.trace.Span} it references in an application without
-     * {@code quarkus-opentelemetry}, linking the API that must stay absent (R2/BF2). A missing CDI scope is
-     * therefore not enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from
-     * discovery when OpenTelemetry is absent. When present it is registered (and pinned unremovable, since its
-     * consumers resolve it through {@code Instance<TraceIdSource>} and degrade silently when it is absent).
-     * When excluded, no {@code TraceIdSource} bean exists, every capture point stamps {@code null}, and the
-     * feed renders flat.</p>
-     */
     @BuildStep
     void registerOpenTelemetryCorrelation(
             LaunchModeBuildItem launchMode,
@@ -992,31 +703,9 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean enableCorrelation = launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
-        // No OpenTelemetry tracing (or production): keep the OTel-importing provider out of bean discovery
-        // so Arc never tries to resolve the Span it references. The capture points then resolve no
-        // TraceIdSource and stamp null, so Live Activity stays flat (the honest status quo).
         registerCapabilityGatedBeans(enableCorrelation, additionalBeans, excludedTypes, OTEL_TRACE_ID_PROVIDER_CLASS);
     }
 
-    /**
-     * Registers the in-process health-capture producer ({@code BootUiHealthProducer}) <strong>only when SmallRye
-     * Health is on the application classpath</strong> and not in production, and otherwise <strong>excludes it
-     * from bean discovery entirely</strong>.
-     *
-     * <p>The mechanism mirrors {@link #registerOpenTelemetryCapture} exactly. {@code BootUiHealthProducer} has a
-     * {@code @Produces HealthProvider} method whose parameter is SmallRye's {@code SmallRyeHealthReporter}, and
-     * the extension runtime jar is Jandex-indexed (so Arc discovers the always-on beans). Arc treats a producer
-     * method as bean-defining, so the indexed producer would be discovered <em>unconditionally</em> — and Arc
-     * would fail to resolve its {@code SmallRyeHealthReporter} parameter in an application without
-     * {@code quarkus-smallrye-health}, linking a type that must stay absent (R2). A missing CDI scope on the
-     * class is therefore <em>not</em> enough; the producer must be actively {@linkplain ExcludedTypeBuildItem
-     * excluded} from discovery when SmallRye Health is absent. When it is present, the producer is registered
-     * (and pinned unremovable, since the engine {@code HealthService} that consumes its {@code HealthProvider}
-     * is itself injected into the RESTEasy-mediated {@code HealthResource}, which Arc's usage analysis cannot
-     * see). The always-produced {@code HealthService} (see {@link io.github.jdubois.bootui.quarkus
-     * .BootUiEngineProducer}) then receives a {@code null} provider when absent and renders the DISABLED root
-     * with setup guidance, so the Health panel works on every Quarkus app.</p>
-     */
     @BuildStep
     void registerSmallRyeHealthCapture(
             LaunchModeBuildItem launchMode,
@@ -1025,17 +714,9 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean enableCapture =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SMALLRYE_HEALTH);
-        // No SmallRye Health (or production): keep the SmallRye-importing producer out of bean discovery so
-        // Arc never tries to resolve its SmallRyeHealthReporter parameter. The Health panel still wires via
-        // the always-produced HealthService and renders setup guidance.
         registerCapabilityGatedBeans(enableCapture, additionalBeans, excludedTypes, HEALTH_PRODUCER_CLASS);
     }
 
-    /**
-     * Class-presence-gated registration of the {@code ChatModelListener} that records Quarkus LangChain4j's model calls
-     * in the runtime journal ({@code docs/PLAN-v2.md} §5.18, M3-9). Without LangChain4j, the listener is excluded, so
-     * its types are never linked (R2).
-     */
     @BuildStep
     void registerAiCalls(
             LaunchModeBuildItem launchMode,
@@ -1049,20 +730,6 @@ class BootUiQuarkusProcessor {
                 AI_CALL_LISTENER_CLASS);
     }
 
-    /**
-     * Shared implementation of the R2 capability/class-presence-gated bean registration pattern repeated
-     * throughout this processor (e.g. {@link #registerOpenTelemetryCapture}, {@link #registerHibernateAdvisor},
-     * {@link #registerCacheAdvisor}, {@link #registerFlyway}, {@link #registerLiquibase},
-     * {@link #registerConnectionPools}, {@link #registerSecurityLogs}, {@link #registerKafkaCapture},
-     * {@link #registerEmail}): when {@code present} — a non-production launch with the gating capability or
-     * class on the application classpath — the optional-dependency-importing bean class(es) are registered
-     * (pinned unremovable, since each is reached only through a CDI {@code Instance}/event lookup that Arc's
-     * static usage analysis cannot see); otherwise each bean class is actively {@linkplain ExcludedTypeBuildItem
-     * excluded} from discovery instead of merely left unannotated. A missing CDI scope alone is not enough: the
-     * extension runtime jar is Jandex-indexed, so Arc would discover an annotated producer/observer/interceptor
-     * <em>unconditionally</em> regardless of whether its optional dependency is on the classpath (R2) — the
-     * exclusion is what keeps that dependency's types unlinked.
-     */
     private static void registerCapabilityGatedBeans(
             boolean present,
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
@@ -1080,12 +747,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Variant of {@link #registerCapabilityGatedBeans(boolean, BuildProducer, BuildProducer, String...)} for
-     * build steps that also publish a {@code bootui.internal.*-present=true} runtime-config default when
-     * present, so a dynamically-available panel lights up in the {@code /bootui/api/panels} manifest (see
-     * {@link QuarkusPanelAvailability}).
-     */
     private static void registerCapabilityGatedBeans(
             boolean present,
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
@@ -1099,26 +760,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Registers the optional Hibernate-entity-discovery producer ({@code BootUiHibernateProducer})
-     * <strong>only when Hibernate ORM is on the application classpath</strong> and not in production, otherwise
-     * <strong>excludes it from bean discovery entirely</strong>, and feeds the build-time capability decision
-     * back to {@link QuarkusPanelAvailability} so the dynamically-available Hibernate advisor panel lights up.
-     *
-     * <p>{@code BootUiHibernateProducer} has a {@code @Produces EntityDiscoverySource} method whose parameter
-     * type is {@code jakarta.persistence.EntityManagerFactory}, and the extension runtime jar is Jandex-indexed
-     * (so Arc discovers the always-on beans). Arc treats a producer method as bean-defining, so the indexed
-     * producer would be discovered <em>unconditionally</em> — and Arc would fail to resolve its
-     * {@code EntityManagerFactory} parameter type in an application without {@code quarkus-hibernate-orm},
-     * linking the JPA API that must stay absent (R2). A missing CDI scope on the class is therefore <em>not</em>
-     * enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from discovery when
-     * Hibernate ORM is absent. When it is present, the producer is registered (and pinned unremovable, since the
-     * engine {@code HibernateScanner} that consumes its {@code EntityDiscoverySource} is itself injected into the
-     * RESTEasy-mediated {@code HibernateResource}, which Arc's usage analysis cannot see). The always-produced
-     * {@code HibernateScanner} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives
-     * an empty discovery when absent and renders a not-configured report, so the panel never fails — it is simply
-     * reported unavailable in the manifest until the extension is added.</p>
-     */
     @BuildStep
     void registerHibernateAdvisor(
             LaunchModeBuildItem launchMode,
@@ -1128,10 +769,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.HIBERNATE_ORM);
-        // No Hibernate ORM (or production): keep the jakarta.persistence-importing producer out of bean
-        // discovery so Arc never tries to resolve its EntityManagerFactory parameter. The Hibernate scanner
-        // still wires via the always-produced HibernateScanner and renders a not-configured report; the panel
-        // is reported unavailable in the manifest (HIBERNATE_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -1157,8 +794,6 @@ class BootUiQuarkusProcessor {
 
     static boolean hasPanacheExtension(Iterable<ResolvedDependency> dependencies) {
         for (ResolvedDependency dependency : dependencies) {
-            // Only a resolved Quarkus extension proves the platform transformation is installed.
-            // A matching API class on the runtime classpath does not.
             if (dependency.isRuntimeExtensionArtifact()
                     && "io.quarkus".equals(dependency.getGroupId())
                     && Set.of("quarkus-hibernate-orm-panache", "quarkus-hibernate-orm-panache-kotlin")
@@ -1167,24 +802,6 @@ class BootUiQuarkusProcessor {
         return false;
     }
 
-    /**
-     * Wires the Quarkus SQL Trace ORM-capture path: a Hibernate {@code StatementInspector}
-     * ({@code BootUiHibernateStatementInspector}) Quarkus registers into the persistence unit so
-     * Hibernate-issued SQL — which bypasses the wrapped CDI {@code DataSource} that
-     * {@code BootUiSqlTraceProducer} traces — is recorded into the same shared engine {@code SqlTraceRecorder}
-     * the panel and SSE stream serve. This brings the Quarkus panel to parity with Spring (whose Hibernate
-     * uses the wrapped {@code DataSource} bean) for ORM SQL.
-     *
-     * <p>Gated exactly like {@link #registerHibernateAdvisor}: the inspector statically references
-     * {@code org.hibernate.resource.jdbc.spi.StatementInspector} and
-     * {@code io.quarkus.hibernate.orm.PersistenceUnitExtension}, optional types that must stay absent without
-     * {@code quarkus-hibernate-orm} (R2). When the {@code HIBERNATE_ORM} capability is present (dev/test) it is
-     * pinned unremovable so Quarkus discovers it as a persistence-unit extension; otherwise it is
-     * {@linkplain ExcludedTypeBuildItem excluded} from discovery so Arc never links the Hibernate SPI. The
-     * recorder it feeds is the AGROAL-gated {@code BootUiSqlTraceProducer} bean — always present when Hibernate
-     * is (an ORM needs a datasource) — and the inspector resolves it through an {@code Instance}, no-opping if
-     * absent.</p>
-     */
     @BuildStep
     void registerHibernateSqlTrace(
             LaunchModeBuildItem launchMode,
@@ -1196,26 +813,6 @@ class BootUiQuarkusProcessor {
         registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, SQL_TRACE_INSPECTOR_CLASS);
     }
 
-    /**
-     * Captures the host application's {@code @io.quarkus.scheduler.Scheduled} methods at build time and exposes
-     * them to the runtime as a synthetic {@link QuarkusScheduledTasks} bean (via {@link ScheduledTasksRecorder}),
-     * plus a {@code bootui.internal.scheduled-present=true} runtime-config default that lights up the Scheduled
-     * Tasks panel in the manifest. This is the build-time-capture pattern (like Architecture base packages and
-     * the Vulnerabilities dependency inventory), chosen because the {@code ScheduledTaskDto} contract carries
-     * only the static cron/every/initial-delay configuration and target method — all known at build time —
-     * whereas the runtime {@code io.quarkus.scheduler.Scheduler} exposes only trigger ids and next-fire times,
-     * which the contract does not carry. So no runtime class imports {@code io.quarkus.scheduler.*} (no R2
-     * classloading trap, no provided-scope dependency, no {@link ExcludedTypeBuildItem}); the
-     * {@link Capability#SCHEDULER} capability gate is the entire safety mechanism.
-     *
-     * <p>Gated to a non-production launch with {@code quarkus-scheduler} present: when absent (or in
-     * {@link LaunchMode#NORMAL}) the synthetic bean is not produced, so {@link QuarkusScheduledTaskProvider}'s
-     * {@code Instance} is unsatisfied and the panel is reported unavailable ({@code SCHEDULED_PRESENT_KEY}
-     * defaults to {@code false}). The annotation metadata is read from the {@link BeanArchiveIndexBuildItem}
-     * Jandex index (the bean archives, which span the application beans the scheduler enhances), and only
-     * annotation-discovered jobs are captured — programmatic {@code Scheduler.newJob()} jobs are not, matching
-     * the panel's documented scope.</p>
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void registerScheduledTasks(
@@ -1240,15 +837,6 @@ class BootUiQuarkusProcessor {
                 new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.SCHEDULED_PRESENT_KEY, "true"));
     }
 
-    /**
-     * Claims the BootUI Java agent at static init in dev and test launch modes ({@code docs/PLAN-v2.md} D34), so
-     * startup's first class loads and executors are already the claim's, and a live reload claims again in the same
-     * slot. Everything the claim needs is read here, at build time: the application name, the mode (test launch mode
-     * claims as {@code test}, which a dev application takes over), the application archive's packages reduced to their
-     * common prefixes without BootUI's own modules, and the build-time {@code bootui.agent.*} properties. With
-     * {@code bootui.agent.enabled=false} the recorder releases the agent instead. The synthetic
-     * {@link QuarkusAgentClaim} bean keeps the claim reachable for the run; production claims nothing.
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void claimJavaAgent(
@@ -1286,7 +874,6 @@ class BootUiQuarkusProcessor {
                                 .orElse(defaults.ringCapacity()),
                         agentBeanClasses(rootIndex, packages))
                 : recorder.release(application, mode);
-        // Request-value matching is opt-in (docs/PLAN-v2.md M5-6b, D37).
         recorder.requestValues(enabled
                 && config.getOptionalValue("bootui.agent.security-sinks.request-values", Boolean.class)
                         .orElse(false));
@@ -1297,11 +884,6 @@ class BootUiQuarkusProcessor {
                 .done());
     }
 
-    /**
-     * A list property, its defaults when it is not set, and an empty list when it is set to an empty value, as
-     * {@code bootui.agent.sensors=} asks for no sensor ({@code docs/PROPERTIES.md}). MicroProfile Config reads an empty
-     * value as no value, so the raw value tells the two apart.
-     */
     static List<String> listOrDefaults(Config config, String name, List<String> defaults) {
         Optional<List<String>> values = config.getOptionalValues(name, String.class);
         if (values.isPresent()) {
@@ -1311,7 +893,6 @@ class BootUiQuarkusProcessor {
         return raw != null && raw.getRawValue() != null ? List.of() : defaults;
     }
 
-    /** {@code bootui.agent.mode}, or with {@code auto}, test in the test launch mode and dev otherwise. */
     static String agentMode(String configured, LaunchMode launchMode) {
         String mode = configured == null ? "auto" : configured.trim().toLowerCase(Locale.ROOT);
         if (mode.equals(AgentClaim.DEV) || mode.equals(AgentClaim.TEST)) {
@@ -1320,11 +901,6 @@ class BootUiQuarkusProcessor {
         return launchMode == LaunchMode.TEST ? AgentClaim.TEST : AgentClaim.DEV;
     }
 
-    /**
-     * Annotations that make a class an ArC bean, or a Quarkus REST resource, read for the agent's {@code code-paths}
-     * sensor from the root archive's index, which this build step already consumes, rather than from ArC's bean
-     * discovery, so no build-step cycle arises.
-     */
     static final List<DotName> AGENT_BEAN_ANNOTATIONS = List.of(
             DotName.createSimple("jakarta.enterprise.context.ApplicationScoped"),
             DotName.createSimple("jakarta.enterprise.context.RequestScoped"),
@@ -1335,10 +911,6 @@ class BootUiQuarkusProcessor {
             DotName.createSimple("jakarta.ws.rs.Path"),
             DotName.createSimple("jakarta.ws.rs.ext.Provider"));
 
-    /**
-     * The application archive's bean classes in {@code packages} ({@code docs/PLAN-v2.md} M5-4a): the classes carrying
-     * a bean-defining annotation or {@code @Path} at class level, interfaces left out. Sorted.
-     */
     static List<String> agentBeanClasses(IndexView index, List<String> packages) {
         Set<String> names = new TreeSet<>();
         for (DotName annotation : AGENT_BEAN_ANNOTATIONS) {
@@ -1365,7 +937,6 @@ class BootUiQuarkusProcessor {
         return false;
     }
 
-    /** The packages of the application archive's classes, reduced, then the configured extra packages. */
     static List<String> agentPackages(IndexView index, List<String> extra) {
         Set<String> packages = new TreeSet<>();
         for (ClassInfo type : index.getKnownClasses()) {
@@ -1383,31 +954,6 @@ class BootUiQuarkusProcessor {
         return claimed;
     }
 
-    /**
-     * Captures the host application's JAX-RS route mappings at build time and replays them into a synthetic
-     * {@link QuarkusMappings} bean for the Mappings panel. The per-route method/produces/consumes detail this
-     * panel needs has no clean Quarkus <em>runtime</em> enumeration API, so the routes are read from the
-     * {@link BeanArchiveIndexBuildItem} Jandex index (the bean archives, which span the application's own
-     * {@code @Path} resources) — the same build-time-capture strategy the Scheduled Tasks, Architecture and
-     * Vulnerabilities panels use. {@code quarkus-rest} is a hard dependency of the BootUI extension, so the
-     * Mappings panel is statically available (see {@code QuarkusPanelAvailability}); no capability gate or
-     * present-key is needed.
-     *
-     * <p>The deployment {@code ResteasyReactiveResourceMethodEntriesBuildItem} carries the same per-route
-     * detail pre-resolved, but it is produced <em>after</em> the Arc bean container is built, so consuming it
-     * here while producing a {@link SyntheticBeanBuildItem} (which Arc must see <em>before</em> it builds the
-     * container) forms a build-step cycle. Reading the Jandex index — available early, before bean
-     * registration — avoids that cycle, exactly as {@link #registerScheduledTasks} does for {@code @Scheduled}.
-     * Only annotation-discovered JAX-RS resources are captured; programmatic Vert.x routes and non-bean
-     * resource classes are not, matching the panel's documented scope.</p>
-     *
-     * <p>BootUI's own {@code /bootui} routes are filtered out here at build time, where both the request path
-     * <em>and</em> the resource class FQN are available — the two things the Spring
-     * {@code BootUiSelfDataFilter} inspects when it filters the Mappings panel. The step runs only in a
-     * non-production launch mode (in {@link LaunchMode#NORMAL} the whole BootUI API is dark, so the captured
-     * mappings would be unused); when it does not run, the runtime {@code QuarkusMappingProvider} sees an
-     * unsatisfied {@code Instance} and the engine renders an empty report.</p>
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void registerMappings(
@@ -1426,23 +972,6 @@ class BootUiQuarkusProcessor {
                 .done());
     }
 
-    /**
-     * Captures the host application's <em>declared</em> exception handlers at build time and replays them
-     * into a synthetic {@link QuarkusErrorContract} bean for the REST API panel's error-contract catalogue.
-     *
-     * <p>Two declaration families are indexed: Jakarta REST {@code ExceptionMapper} implementations (global
-     * providers) and Quarkus REST {@code @ServerExceptionMapper} methods (global when declared on a plain
-     * bean, resource-local when declared on a {@code @Path} resource). Discovery has to happen here because
-     * Quarkus exposes no runtime enumeration of resolved mappers, and because only the Jandex index carries
-     * the generic signature ({@code ExceptionMapper<X>}) and the annotations the catalogue reports. Nothing
-     * is instantiated or invoked: this reads declarations only, so exception handling itself is unchanged.</p>
-     *
-     * <p>BootUI's own mappers are filtered out by package, mirroring {@code registerMappings} and the Spring
-     * provider. The step only runs in a non-production launch mode (in {@link LaunchMode#NORMAL} the whole
-     * BootUI API is dark); when it does not run, the runtime {@code QuarkusErrorContractProvider} sees an
-     * unsatisfied {@code Instance} and the engine renders an explicitly unavailable report rather than a
-     * misleading empty one.</p>
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void registerErrorContract(
@@ -1461,11 +990,6 @@ class BootUiQuarkusProcessor {
                 .done());
     }
 
-    /**
-     * Captures Arc's resolved injection graph after validation and exposes it to the runtime adapter as a
-     * generated classpath resource. Arc intentionally keeps this model at build time; a generated resource
-     * avoids a late synthetic-bean cycle and is loaded into Quarkus' dev/test runtime classloader.
-     */
     @BuildStep
     void captureBeanDependencies(
             LaunchModeBuildItem launchMode,
@@ -1474,7 +998,6 @@ class BootUiQuarkusProcessor {
         if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
             return;
         }
-        // BeanSummary and the shared graph intentionally aggregate duplicate definitions by display name.
         Map<String, Set<String>> graph = new TreeMap<>();
         for (BeanInfo bean : validationPhase.getContext().beans()) {
             String source = arcBeanName(bean);
@@ -1510,11 +1033,6 @@ class BootUiQuarkusProcessor {
         return simpleName.substring(0, 1).toLowerCase(Locale.ROOT) + simpleName.substring(1);
     }
 
-    /**
-     * Builds the raw JAX-RS route list from the Jandex index: every method on a class-level {@code @Path}
-     * resource that carries an HTTP-method annotation (or its own method-level {@code @Path}) becomes one
-     * {@link RawMapping}. BootUI's own resources are skipped by class FQN and by path.
-     */
     private static List<RawMapping> scanMappings(IndexView index) {
         List<RawMapping> mappings = new ArrayList<>();
         for (AnnotationInstance pathAnnotation : index.getAnnotations(PATH)) {
@@ -1549,13 +1067,6 @@ class BootUiQuarkusProcessor {
         return mappings;
     }
 
-    /**
-     * Builds the raw declared-exception-handler list from the Jandex index: every concrete
-     * {@code @Provider} {@code ExceptionMapper} implementation plus every {@code @ServerExceptionMapper}
-     * method. An {@code ExceptionMapper} that carries no {@code @Provider} is never consulted at runtime, so
-     * reporting it would claim a contract the application does not have. BootUI's own classes are skipped by
-     * FQN.
-     */
     static List<RawErrorHandler> scanErrorHandlers(IndexView index) {
         List<RawErrorHandler> handlers = new ArrayList<>();
         for (ClassInfo mapper : index.getAllKnownImplementations(EXCEPTION_MAPPER)) {
@@ -1633,10 +1144,6 @@ class BootUiQuarkusProcessor {
         return false;
     }
 
-    /**
-     * Returns the declared return type of {@code method}, unwrapping the trailing
-     * {@code kotlin.coroutines.Continuation<? super T>} parameter of a Kotlin {@code suspend fun}.
-     */
     private static Type declaredReturnType(MethodInfo method) {
         if (method == null) {
             return null;
@@ -1663,21 +1170,11 @@ class BootUiQuarkusProcessor {
         return method.returnType();
     }
 
-    /** {@code true} when the class belongs to BootUI's own Quarkus adapter (mirrors the mappings filter). */
     private static boolean isBootUiClass(ClassInfo classInfo) {
         String name = classInfo.name().toString();
         return name.equals(BOOTUI_PACKAGE_PREFIX) || name.startsWith(BOOTUI_PACKAGE_PREFIX + ".");
     }
 
-    /**
-     * The {@code toResponse(X)} implementation of an {@code ExceptionMapper}, skipping compiler-generated
-     * bridge methods.
-     *
-     * <p>Bridge methods are matched on their {@code SYNTHETIC}/{@code BRIDGE} class-file flags rather than
-     * on an erased parameter type: {@code ExceptionMapper<E extends Throwable>} erases {@code E} to
-     * {@code java.lang.Throwable}, not to {@code java.lang.Object}, so a parameter-name check would let the
-     * bridge through and report {@code Throwable} as the handled type.</p>
-     */
     private static MethodInfo exceptionMapperMethod(IndexView index, ClassInfo mapper) {
         MethodInfo fallback = null;
         for (ClassInfo current = mapper; current != null; current = superClass(index, current)) {
@@ -1695,7 +1192,6 @@ class BootUiQuarkusProcessor {
         return fallback;
     }
 
-    /** The indexed superclass, or {@code null} at {@code Object} or when the superclass is not indexed. */
     private static ClassInfo superClass(IndexView index, ClassInfo classInfo) {
         DotName superName = classInfo.superName();
         if (superName == null || DotName.OBJECT_NAME.equals(superName)) {
@@ -1704,16 +1200,10 @@ class BootUiQuarkusProcessor {
         return index.getClassByName(superName);
     }
 
-    /** Whether a method is compiler-generated (synthetic or a generics bridge). */
     private static boolean isBridgeMethod(MethodInfo method) {
         return (method.flags() & (SYNTHETIC | BRIDGE)) != 0;
     }
 
-    /**
-     * The handled exception type of an {@code ExceptionMapper}, read from the {@code ExceptionMapper<X>}
-     * generic signature — walking the superclass chain, because a mapper may inherit the interface — and
-     * falling back to the {@code toResponse} parameter when the signature is not readable.
-     */
     private static List<String> exceptionMapperTypes(IndexView index, ClassInfo mapper, MethodInfo toResponse) {
         for (ClassInfo current = mapper; current != null; current = superClass(index, current)) {
             for (Type interfaceType : current.interfaceTypes()) {
@@ -1733,10 +1223,6 @@ class BootUiQuarkusProcessor {
         return List.of();
     }
 
-    /**
-     * The handled exception types of a {@code @ServerExceptionMapper} method: the annotation's explicit
-     * {@code value()} when present, otherwise the method's {@code Throwable} parameters (Quarkus' own rule).
-     */
     private static List<String> serverExceptionMapperTypes(
             IndexView index, AnnotationInstance annotation, MethodInfo method) {
         AnnotationValue declared = annotation.value();
@@ -1759,12 +1245,6 @@ class BootUiQuarkusProcessor {
         return List.copyOf(fromParameters);
     }
 
-    /**
-     * Whether a parameter type is an exception. The class hierarchy is walked in the index when it is
-     * present; JDK and library exceptions are not in the application's bean archive, so the walk falls back
-     * to the universally-followed {@code …Exception}/{@code …Error}/{@code Throwable} naming convention. A
-     * false positive here can only ever add an over-reported declaration, never invoke anything.
-     */
     private static boolean isThrowable(IndexView index, DotName typeName) {
         DotName current = typeName;
         for (int depth = 0; depth < 20 && current != null; depth++) {
@@ -1781,7 +1261,6 @@ class BootUiQuarkusProcessor {
         return false;
     }
 
-    /** The {@code @Priority} value, or {@code null} when the declaration carries none. */
     private static Integer priorityOf(AnnotationInstance priority) {
         if (priority == null || priority.value() == null) {
             return null;
@@ -1789,16 +1268,11 @@ class BootUiQuarkusProcessor {
         return priority.value().asInt();
     }
 
-    /**
-     * The priority declared on {@code @ServerExceptionMapper} itself, which is the only ordering signal
-     * Quarkus REST consults for these methods. {@code null} when the declaration relies on the default.
-     */
     private static Integer declaredPriority(AnnotationInstance serverExceptionMapper) {
         AnnotationValue priority = serverExceptionMapper.value("priority");
         return priority == null ? null : priority.asInt();
     }
 
-    /** The statically declared status, or {@code null} when the annotation carries no readable value. */
     private static String statusOf(AnnotationInstance responseStatus) {
         if (responseStatus == null || responseStatus.value() == null) {
             return null;
@@ -1806,21 +1280,12 @@ class BootUiQuarkusProcessor {
         return String.valueOf(responseStatus.value().asInt());
     }
 
-    /**
-     * Whether the response status is only decided at runtime, which is the case when the method hands back a
-     * {@code Response} or {@code RestResponse} (possibly wrapped in an async carrier) that carries its own
-     * status.
-     */
     private static boolean isDynamicStatus(Type returnType) {
         Type payload = unwrapAsync(returnType);
         return payload != null
                 && (payload.name().equals(JAKARTA_RESPONSE) || payload.name().equals(REST_RESPONSE));
     }
 
-    /**
-     * The declared response-body type where the signature exposes it: the {@code RestResponse<T>} argument,
-     * the plain returned type, or {@code null} for {@code void} and for the opaque {@code Response}.
-     */
     private static String bodyTypeOf(Type returnType) {
         Type payload = unwrapAsync(returnType);
         if (payload == null
@@ -1848,7 +1313,6 @@ class BootUiQuarkusProcessor {
         return payload.name().toString();
     }
 
-    /** Peels {@code Uni}/{@code CompletionStage}/{@code CompletableFuture} wrappers off a return type. */
     private static Type unwrapAsync(Type type) {
         Type current = type;
         for (int depth = 0; depth < 3; depth++) {
@@ -1865,7 +1329,6 @@ class BootUiQuarkusProcessor {
         return current;
     }
 
-    /** The declared media types of a {@code @Produces} annotation as a sorted list, empty when unset. */
     private static List<String> mediaTypeList(AnnotationInstance annotation) {
         if (annotation == null || annotation.value() == null) {
             return List.of();
@@ -1878,7 +1341,6 @@ class BootUiQuarkusProcessor {
                 .toList();
     }
 
-    /** The simple HTTP verb ({@code GET}, {@code POST}, …) of a JAX-RS method, or {@code null} if it has none. */
     private static String httpMethodOf(MethodInfo method) {
         for (String httpMethod : JAXRS_HTTP_METHODS) {
             if (method.hasAnnotation(DotName.createSimple(httpMethod))) {
@@ -1888,7 +1350,6 @@ class BootUiQuarkusProcessor {
         return null;
     }
 
-    /** Combines a class- and method-level {@code @Path} into a single slash-normalized, leading-slash path. */
     private static String joinPaths(String classPath, String methodPath) {
         String combined = (classPath == null ? "" : classPath) + "/" + (methodPath == null ? "" : methodPath);
         combined = combined.replaceAll("/{2,}", "/");
@@ -1901,7 +1362,6 @@ class BootUiQuarkusProcessor {
         return combined;
     }
 
-    /** Sorted, comma-joined media types from a {@code @Produces}/{@code @Consumes} annotation, or null. */
     private static String mediaTypes(AnnotationInstance annotation) {
         if (annotation == null) {
             return null;
@@ -1913,13 +1373,11 @@ class BootUiQuarkusProcessor {
         return Arrays.stream(values).sorted().collect(Collectors.joining(", "));
     }
 
-    /** The {@code value} of a single-string annotation member (e.g. {@code @Path}), or "" when absent. */
     private static String annotationString(AnnotationInstance annotation) {
         AnnotationValue value = annotation.value();
         return value == null ? "" : value.asString();
     }
 
-    /** Reads an annotation member as a string array, tolerating the single-string form. */
     private static String[] stringArray(AnnotationValue value) {
         if (value == null) {
             return new String[0];
@@ -1931,22 +1389,6 @@ class BootUiQuarkusProcessor {
         return first != null ? first : second;
     }
 
-    /**
-     * Lights up the Dev Services panel from the build-time {@code DevServicesResultBuildItem}s. Quarkus exposes
-     * Dev Services only at build time (no runtime container-listing API), so each result's name, description,
-     * container id and injected config map is recorded into the runtime {@code CapturedDevServices} snapshot;
-     * {@code QuarkusDevServicesProvider} masks the config values and {@code QuarkusPanelAvailability} lights the
-     * panel when the snapshot exists. The build step runs only in non-production launch modes (Dev Services
-     * never start in production). It records even an empty list, which clears the snapshot, so a dev-mode
-     * restart without Dev Services does not keep the previous start's services; the panel then reports an
-     * honest hint.
-     *
-     * <p>This step must produce nothing but recorded bytecode: no {@code SyntheticBeanBuildItem}, no
-     * {@code RunTimeConfigurationDefaultBuildItem}, nothing else the bean container consumes. Dev Services wait
-     * for logging setup, and logging setup waits for the bean container when a CDI-backed log handler is
-     * installed (OpenTelemetry logs), so feeding Dev Services results into ArC is a build-step cycle that stops
-     * the application from starting.</p>
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void captureDevServices(
@@ -1981,27 +1423,6 @@ class BootUiQuarkusProcessor {
     private static final DotName FT_CIRCUIT_BREAKER_NAME =
             DotName.createSimple("io.smallrye.faulttolerance.api.CircuitBreakerName");
 
-    /**
-     * Captures the host application's MicroProfile / SmallRye Fault Tolerance policies at build time and
-     * replays them into a synthetic {@link QuarkusFaultTolerancePolicies} bean for the Fault Tolerance panel, mirroring
-     * {@link #registerScheduledTasks} exactly. SmallRye keeps no runtime registry of guarded methods — its only
-     * runtime API, {@code CircuitBreakerMaintenance}, can answer for a breaker only when the developer gave it
-     * a {@code @CircuitBreakerName} — so the declared policies are read from the
-     * {@link BeanArchiveIndexBuildItem} Jandex index, which spans the application beans the fault-tolerance
-     * interceptors enhance.
-     *
-     * <p>The same capability gate also decides two other things. It lights the Fault Tolerance panel up in the
-     * manifest ({@link QuarkusPanelAvailability#FAULT_TOLERANCE_PRESENT_KEY}), true even with zero annotated
-     * methods, and it registers {@code SmallRyeCircuitBreakerStates} — the one BootUI class that imports
-     * {@code io.smallrye.faulttolerance} — or {@linkplain ExcludedTypeBuildItem excludes} it from discovery
-     * otherwise, so Arc never links the fault-tolerance API in an application that does not have it (R2).</p>
-     *
-     * <p>When the gate is closed the synthetic bean is not produced, so
-     * {@code QuarkusFaultTolerancePolicyProvider}'s {@code Instance} is unsatisfied, the panel is reported
-     * unavailable, and the always-produced {@code FaultToleranceEventRecorder} simply stays empty — Live Activity
-     * renders no {@code FAULT_TOLERANCE} entries. Only annotation-discovered policies are captured; programmatic
-     * {@code Guard}/{@code FaultTolerance} builders are not, matching the panel's documented scope.</p>
-     */
     @BuildStep
     void registerFaultToleranceBeans(
             LaunchModeBuildItem launchMode,
@@ -2009,9 +1430,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
-        // No quarkus-smallrye-fault-tolerance (or production): keep the io.smallrye.faulttolerance-importing
-        // state port out of bean discovery so Arc never links the fault-tolerance API, and leave the panel
-        // unavailable (FAULT_TOLERANCE_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 faultTolerancePresent(launchMode, capabilities),
                 additionalBeans,
@@ -2021,14 +1439,6 @@ class BootUiQuarkusProcessor {
                 CIRCUIT_BREAKER_STATES_CLASS);
     }
 
-    /**
-     * Second half of the Fault Tolerance build-time wiring: the Jandex scan and the synthetic policy bean.
-     *
-     * <p>This is deliberately a separate build step from {@link #registerFaultToleranceBeans}. Arc's own
-     * {@code BeanArchiveProcessor} consumes {@link AdditionalBeanBuildItem} to produce the
-     * {@link BeanArchiveIndexBuildItem}, so a single step that both reads the index and registers an
-     * additional bean would form a build-chain cycle and fail augmentation.</p>
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void registerFaultTolerancePolicies(
@@ -2048,24 +1458,11 @@ class BootUiQuarkusProcessor {
                 .done());
     }
 
-    /** Both Fault Tolerance build steps gate on exactly the same decision, so they cannot drift apart. */
     private static boolean faultTolerancePresent(LaunchModeBuildItem launchMode, Capabilities capabilities) {
         return launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && capabilities.isPresent(Capability.SMALLRYE_FAULT_TOLERANCE);
     }
 
-    /**
-     * Reads every MicroProfile / SmallRye Fault Tolerance annotation from {@code index} into a
-     * {@link RawFaultTolerancePolicy} list. Both method- and class-level annotations are captured (a class-level
-     * annotation guards every business method of the bean, which is exactly how SmallRye applies it), and each
-     * annotation contributes its own policy row so a method guarded by {@code @Retry} <em>and</em>
-     * {@code @CircuitBreaker} shows both protections rather than one merged approximation.
-     *
-     * <p>Members absent from the Jandex instance fall back to the specification's documented defaults and are
-     * reported with {@code DEFAULT} provenance; members written in the annotation are reported as
-     * {@code CONFIGURED}. Values overridden through MicroProfile Fault Tolerance configuration keys are
-     * resolved later, at request time, by {@code QuarkusFaultTolerancePolicyProvider}.</p>
-     */
     static List<RawFaultTolerancePolicy> scanFaultTolerancePolicies(IndexView index) {
         List<RawFaultTolerancePolicy> policies = new ArrayList<>();
         collectFaultTolerancePolicies(index, FT_CIRCUIT_BREAKER, "CIRCUIT_BREAKER", policies);
@@ -2104,7 +1501,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /** The {@code @CircuitBreakerName} value, or {@code ""} when the breaker is anonymous. */
     private static String circuitBreakerNameOf(AnnotationInstance circuitBreakerName) {
         if (circuitBreakerName == null || circuitBreakerName.value() == null) {
             return "";
@@ -2112,15 +1508,6 @@ class BootUiQuarkusProcessor {
         return circuitBreakerName.value().asString();
     }
 
-    /**
-     * Maps one scanned annotation onto the raw policy record.
-     *
-     * <p>A circuit breaker carrying {@code @CircuitBreakerName} is named by that name rather than by the
-     * method it guards: the name is what SmallRye's {@code CircuitBreakerMaintenance} is keyed by, what the
-     * developer wrote, and what state-transition events report — so naming the policy anything else would
-     * split one breaker across two identities in the panel. The guarded method stays visible as
-     * {@code target}.</p>
-     */
     private static RawFaultTolerancePolicy toRawFaultTolerancePolicy(
             AnnotationInstance annotation,
             String type,
@@ -2142,11 +1529,6 @@ class BootUiQuarkusProcessor {
                 faultToleranceSettings(annotation, simpleAnnotation));
     }
 
-    /**
-     * The annotation members the panel reports, in a fixed per-annotation order. Class-array members
-     * ({@code failOn}, {@code retryOn}, …) are deliberately omitted: they are exception-type filters rather
-     * than the thresholds and budgets the panel explains, and rendering them adds unbounded identifiers.
-     */
     private static List<RawFaultToleranceSetting> faultToleranceSettings(
             AnnotationInstance annotation, String simpleName) {
         List<RawFaultToleranceSetting> settings = new ArrayList<>();
@@ -2184,18 +1566,11 @@ class BootUiQuarkusProcessor {
                 addFaultToleranceSetting(settings, annotation, "unit", "MILLIS");
             }
             case "Fallback" -> addFaultToleranceSetting(settings, annotation, "fallbackMethod", "");
-            default -> {
-                // An annotation BootUI does not model contributes no settings rather than a guessed shape.
-            }
+            default -> {}
         }
         return settings;
     }
 
-    /**
-     * Adds one member row: the value written in the annotation ({@code CONFIGURED}) or the specification
-     * default ({@code DEFAULT}). A defaulted member with an empty default (an unset {@code fallbackMethod})
-     * is omitted entirely rather than rendered as a blank row.
-     */
     private static void addFaultToleranceSetting(
             List<RawFaultToleranceSetting> settings,
             AnnotationInstance annotation,
@@ -2214,13 +1589,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Renders a Jandex annotation value the way a developer wrote it. {@code AnnotationValue#toString()} is
-     * deliberately not used: it renders {@code member = value} and quotes strings, so a threshold would reach
-     * the panel as {@code requestVolumeThreshold = 4} and a fallback as {@code "recover"}. Typed accessors are
-     * used per kind instead, and an unmodelled kind falls back to an empty string so the row is omitted rather
-     * than showing Jandex internals.
-     */
     private static String renderAnnotationValue(AnnotationValue value) {
         return switch (value.kind()) {
             case ENUM -> value.asEnum();
@@ -2242,37 +1610,6 @@ class BootUiQuarkusProcessor {
     private static final DotName SCHEDULES_ANNOTATION =
             DotName.createSimple("io.quarkus.scheduler.Scheduled$Schedules");
 
-    /**
-     * Reads every {@code @Scheduled} method from {@code index} into a verbatim {@link RawScheduledTask} list.
-     * Both a directly-declared {@code @Scheduled} and the {@code @Schedules} repeatable container (whose nested
-     * instances are unwrapped manually — {@code getAnnotationsWithRepeatable} is avoided because the container
-     * type is not necessarily indexed) are handled; the nested instances inherit the container's method target.
-     * Annotation members absent from the Jandex instance fall back to the annotation defaults ({@code ""} for
-     * the strings, {@code 0} for {@code delay}, {@code MINUTES} for {@code delayUnit}).
-     */
-    /**
-     * Captures the host application's {@code @WebSocket} endpoints at build time and exposes them to the
-     * runtime as a synthetic {@link QuarkusWebSockets} bean (via {@link WebSocketsRecorder}), registers the
-     * two {@code io.quarkus.websockets.next}-importing runtime beans, and publishes
-     * {@code bootui.internal.websockets-present=true} so the WebSockets panel lights up in the manifest.
-     *
-     * <p>Build-time capture is used for the same reason as Mappings and Scheduled Tasks: WebSockets Next has
-     * no runtime API that enumerates declared endpoints with their callbacks, and reading the Jandex index
-     * avoids a build-step cycle with {@link SyntheticBeanBuildItem}. The index is read by
-     * {@link DotName} only, so the deployment classloader never loads a WebSockets Next class while
-     * augmenting an application that does not have the extension (R2).</p>
-     *
-     * <p>{@link QuarkusWebSocketSessionProvider} and {@link QuarkusWebSocketConnectionCapture} are
-     * {@code @ApplicationScoped} beans in the Jandex-indexed extension runtime jar, so Arc would discover
-     * them unconditionally; they are therefore actively {@linkplain ExcludedTypeBuildItem excluded} when the
-     * extension is absent, exactly like the Kafka and RabbitMQ capture beans. The present-key is emitted only
-     * when an endpoint was actually found, so an application that adds the extension without declaring an
-     * endpoint gets an honestly unavailable panel rather than an empty one that looks broken.</p>
-     *
-     * <p>Capture here is connection lifecycle only. WebSockets Next exposes no message-interception SPI, so
-     * the report states {@code frameCaptureSupported=false} with a reason; no message payload is read on any
-     * stack.</p>
-     */
     @BuildStep
     void registerWebSocketBeans(
             LaunchModeBuildItem launchMode,
@@ -2286,11 +1623,6 @@ class BootUiQuarkusProcessor {
                 WEBSOCKET_CONNECTION_CAPTURE_CLASS);
     }
 
-    /**
-     * Companion of {@link #registerWebSocketBeans} that reads the endpoint topology. It is a separate build
-     * step because {@link BeanArchiveIndexBuildItem} is produced <em>after</em> the bean archive is assembled
-     * from {@link AdditionalBeanBuildItem}s: producing both from one step is a build-chain cycle.
-     */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
     void registerWebSocketEndpoints(
@@ -2314,12 +1646,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Binds {@code QuarkusWebSocketMessageInterceptor} to every {@code @OnTextMessage} and {@code @OnBinaryMessage}
-     * method of an {@code @WebSocket} endpoint, so each message is an execution ({@code docs/PLAN-v2.md} §5.18, M4-10).
-     * Gated like the rest of the WebSockets panel: WebSockets Next present, outside normal (production) mode. The
-     * binding is added at build time, so the application's sources are untouched.
-     */
     @BuildStep
     void bindWebSocketMessageInterceptor(
             LaunchModeBuildItem launchMode,
@@ -2341,13 +1667,6 @@ class BootUiQuarkusProcessor {
                         .buildWithTarget(context.declaration())))));
     }
 
-    /**
-     * Makes Hibernate create BootUI's session listener for every session of the default persistence unit, the {@code
-     * orm} journal source ({@code docs/PLAN-v2.md} §5.18, M4-9), through Hibernate's {@code hibernate.session.events.auto}
-     * property passed as a runtime configuration default, for the default unit and each named unit the build configuration
-     * declares, so an application's own value wins. Gated on the Hibernate ORM
-     * capability, outside normal (production) mode; the listener class is named, never loaded, here.
-     */
     @BuildStep
     void registerOrmSessionListener(
             LaunchModeBuildItem launchMode,
@@ -2367,10 +1686,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * The named persistence units the build configuration declares, from their {@code datasource} or {@code packages}
-     * property, such as {@code quarkus.hibernate-orm."users".datasource}; the default unit's own keys have no name segment.
-     */
     static java.util.Set<String> namedPersistenceUnits(Iterable<String> propertyNames) {
         java.util.regex.Pattern named = java.util.regex.Pattern.compile(
                 "^quarkus\\.hibernate-orm\\.(?:\"([^\"]+)\"|([^.\"]+))\\.(?:datasource|packages)$");
@@ -2392,11 +1707,6 @@ class BootUiQuarkusProcessor {
                 && QuarkusClassLoader.isClassPresentAtRuntime(WEBSOCKET_CONNECTION_CLASS);
     }
 
-    /**
-     * Reads every {@code @WebSocket} class from the index and renders it, plus its callback methods, into the
-     * recordable carriers. Only annotation-declared endpoints are captured, matching the panel's documented
-     * scope; nothing about the messages those callbacks handle is read.
-     */
     private static List<RawWebSocketEndpoint> scanWebSocketEndpoints(IndexView index) {
         List<RawWebSocketEndpoint> endpoints = new ArrayList<>();
         for (AnnotationInstance annotation : index.getAnnotations(WEBSOCKET_ANNOTATION)) {
@@ -2438,9 +1748,7 @@ class BootUiQuarkusProcessor {
         return callbacks;
     }
 
-    /** Renders {@code io.quarkus.websockets.next.OnTextMessage} as {@code ON_TEXT_MESSAGE}. */
     private static String callbackType(DotName annotation) {
-        // DotName.local() only strips the package for componentized names, and Jandex hands these back simple.
         String name = annotation.toString();
         String simpleName = name.substring(name.lastIndexOf('.') + 1);
         StringBuilder rendered = new StringBuilder();
@@ -2507,24 +1815,6 @@ class BootUiQuarkusProcessor {
         return value == null ? defaultValue : value.asEnum();
     }
 
-    /**
-     * Capability-gated registration of the Cache panel's cache-API-importing producer (R2), mirroring
-     * {@link #registerHibernateAdvisor} exactly.
-     *
-     * <p>{@code BootUiCacheProducer} has a {@code @Produces CacheProvider} method whose parameter type is
-     * {@code io.quarkus.cache.CacheManager}, and the extension runtime jar is Jandex-indexed (so Arc discovers
-     * the always-on beans). Arc treats a producer method as bean-defining, so the indexed producer would be
-     * discovered <em>unconditionally</em> — and Arc would fail to resolve its {@code CacheManager} parameter
-     * type in an application without {@code quarkus-cache}, linking the {@code io.quarkus.cache} API that must
-     * stay absent (R2). A missing CDI scope on the class is therefore <em>not</em> enough; the producer must be
-     * actively {@linkplain ExcludedTypeBuildItem excluded} from discovery when the {@code CACHE} capability is
-     * absent. When it is present, the producer is registered (and pinned unremovable, since the engine
-     * {@code CacheService} that consumes its {@code CacheProvider} is itself injected into the RESTEasy-mediated
-     * {@code CacheResource}, which Arc's usage analysis cannot see). The always-produced {@code CacheService}
-     * (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives a {@code null} provider
-     * when absent and renders the panel unavailable, so it never fails — it is simply reported unavailable in
-     * the manifest until {@code quarkus-cache} is added.</p>
-     */
     @BuildStep
     void registerCacheAdvisor(
             LaunchModeBuildItem launchMode,
@@ -2533,10 +1823,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.CACHE);
-        // No quarkus-cache (or production): keep the io.quarkus.cache-importing producer out of bean
-        // discovery so Arc never tries to resolve its CacheManager parameter. The cache service still wires
-        // via the always-produced CacheService and renders the panel unavailable; the panel is reported
-        // unavailable in the manifest (CACHE_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -2546,31 +1832,6 @@ class BootUiQuarkusProcessor {
                 CACHE_PRODUCER_CLASS);
     }
 
-    /**
-     * Capability-gated registration of the Live Activity Kafka capture interceptors (R2), mirroring
-     * {@link #registerCacheAdvisor} exactly.
-     *
-     * <p>{@code QuarkusKafkaProducerCapture} and {@code QuarkusKafkaConsumerCapture} are
-     * {@code @ApplicationScoped} beans implementing SmallRye Reactive Messaging's {@code OutgoingInterceptor}
-     * / {@code IncomingInterceptor} SPI (which SmallRye discovers as CDI beans and applies to every channel),
-     * and they read {@code io.smallrye.reactive.messaging.kafka.api} record metadata. Because the extension
-     * runtime jar is Jandex-indexed, Arc would discover these {@code @ApplicationScoped} interceptors
-     * <em>unconditionally</em> — and loading them in an application without {@code quarkus-messaging-kafka}
-     * would link the SmallRye messaging API that must stay absent (R2). A CDI scope on the class is therefore
-     * exactly what makes it discoverable and dangerous, so the interceptors must be actively
-     * {@linkplain ExcludedTypeBuildItem excluded} from discovery when the {@code KAFKA} capability is absent
-     * (a Kafka connector implies reactive messaging, so gating on {@code KAFKA} alone is sufficient). When it
-     * is present, both are registered and pinned unremovable (SmallRye resolves them via {@code Instance}
-     * lookups Arc's usage analysis cannot see).</p>
-     *
-     * <p>This same capability gate also lights up the dedicated Kafka panel: {@link
-     * QuarkusPanelAvailability#KAFKA_PRESENT_KEY} is emitted alongside the interceptor registration, exactly
-     * as {@link #registerCacheAdvisor} emits {@code CACHE_PRESENT_KEY}. The always-produced {@code
-     * KafkaActivityRecorder} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays
-     * empty when no capture interceptor is wired, so both the Kafka panel and {@code LiveActivityResource}
-     * render no messages/{@code MESSAGING} entries until {@code quarkus-messaging-kafka} is added — exactly as
-     * on Spring without {@code spring-kafka}.</p>
-     */
     @BuildStep
     void registerKafkaCapture(
             LaunchModeBuildItem launchMode,
@@ -2579,10 +1840,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.KAFKA);
-        // No quarkus-messaging-kafka (or production): keep the SmallRye-messaging-importing interceptors out
-        // of bean discovery so Arc never loads them and links the messaging API. The recorder still wires via
-        // the always-produced KafkaActivityRecorder and stays empty, so Live Activity renders no MESSAGING
-        // entries and the Kafka panel reports itself unavailable (KAFKA_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -2593,17 +1850,6 @@ class BootUiQuarkusProcessor {
                 KAFKA_CONSUMER_CAPTURE_CLASS);
     }
 
-    /**
-     * Class-presence-gated registration of the Live Activity RabbitMQ capture interceptors (R2). Mirrors
-     * {@link #registerKafkaCapture} exactly, except there is no dedicated {@code RABBITMQ}
-     * {@link io.quarkus.deployment.Capability} constant in Quarkus core, so the gate uses the runtime class
-     * presence of {@link #INCOMING_RABBITMQ_METADATA_CLASS} — the same pattern
-     * {@link #registerEmail} uses for the absence of a MAILER capability. The always-produced
-     * {@link io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder} (see
-     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays empty when no capture
-     * interceptor is wired, so both the RabbitMQ panel and {@code LiveActivityResource} render no messages
-     * / {@code MESSAGING} entries until {@code quarkus-messaging-rabbitmq} is added.
-     */
     @BuildStep
     void registerRabbitCapture(
             LaunchModeBuildItem launchMode,
@@ -2622,15 +1868,6 @@ class BootUiQuarkusProcessor {
                 RABBIT_CONSUMER_CAPTURE_CLASS);
     }
 
-    /**
-     * Capability-gated registration of the Security Logs capture observer (R2). {@code QuarkusSecurityEventCapture}
-     * observes {@code io.quarkus.security.spi.runtime.SecurityEvent}, so it must be excluded from bean discovery
-     * when no security extension is present; the {@code SecurityEventBuffer} and {@code SecurityLogsResource} are
-     * neutral (no security imports), so they wire unconditionally in dev/test and the resource simply reports the
-     * panel unavailable. When {@code SECURITY} is present in dev/test, the observer is registered and
-     * {@code SECURITY_LOGS_PRESENT_KEY} is set; the panel lights up only when {@code quarkus.security.events.enabled}
-     * is also true (decided by {@link QuarkusPanelAvailability}). Mirrors {@link #registerCacheAdvisor}.
-     */
     @BuildStep
     void registerSecurityLogs(
             LaunchModeBuildItem launchMode,
@@ -2649,18 +1886,6 @@ class BootUiQuarkusProcessor {
                 SECURITY_CAPTURE_CLASS);
     }
 
-    /**
-     * Capability-gated registration of the Live Activity scheduled-task-run capture observer (R2).
-     * {@code QuarkusScheduledTaskRunRecorder} observes {@code io.quarkus.scheduler.SuccessfulExecution}/
-     * {@code FailedExecution}, so it must be excluded from bean discovery when no scheduler extension is
-     * present; the always-produced engine {@code ScheduledTaskRunStore} (see
-     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) is neutral (no scheduler imports), so
-     * it wires unconditionally and the Live Activity panel simply renders no {@code SCHEDULED}
-     * entries when the observer is absent. Mirrors {@link #registerSecurityLogs} exactly; unlike
-     * {@link #registerScheduledTasks} (the static-definitions capture, which needs no exclusion at all
-     * since it imports no {@code io.quarkus.scheduler.*} type), this observer is the first runtime
-     * importer of that API in the module.
-     */
     @BuildStep
     void registerScheduledTaskRunCapture(
             LaunchModeBuildItem launchMode,
@@ -2677,12 +1902,6 @@ class BootUiQuarkusProcessor {
                 SCHEDULED_EXECUTION_INTERCEPTOR_CLASS);
     }
 
-    /**
-     * Records the application's CDI events in the runtime journal's {@code app-event} source ({@code docs/PLAN-v2.md}
-     * §5.18, M4-8): binds {@code QuarkusObserverInterceptor} at build time to every {@code @Observes} and {@code
-     * @ObservesAsync} method of the application's own classes, so its sources are untouched and framework observers are
-     * never bound. Outside normal (production) mode only, like every other capture.
-     */
     @BuildStep
     void bindObserverInterceptor(
             LaunchModeBuildItem launchMode,
@@ -2707,12 +1926,6 @@ class BootUiQuarkusProcessor {
                         AnnotationInstance.builder(OBSERVED_EVENT_BINDING).buildWithTarget(context.declaration())))));
     }
 
-    /**
-     * Binds {@code QuarkusScheduledExecutionInterceptor} to every {@code @Scheduled} method, so each run gets its own
-     * BootUI execution context ({@code docs/PLAN-v2.md} §5.1). Gated exactly like the run recorder it hands the id to:
-     * the scheduler capability outside normal (production) mode. The binding is added at build time, so the
-     * application's sources are untouched.
-     */
     @BuildStep
     void bindScheduledExecutionInterceptor(
             LaunchModeBuildItem launchMode,
@@ -2727,19 +1940,6 @@ class BootUiQuarkusProcessor {
                         .buildWithTarget(context.declaration())))));
     }
 
-    /**
-     * Class-presence-gated registration of the Email Viewer capture observer (R2), the mailer analogue of
-     * {@link #registerSecurityLogs}. {@code QuarkusEmailCapture} observes {@code io.quarkus.mailer.SentMail}, so
-     * it must be excluded from bean discovery when {@code quarkus-mailer} is absent; the {@code EmailResource} and
-     * the engine {@code EmailCaptureService} are neutral (no mailer imports) and wire unconditionally in dev/test,
-     * so the resource simply reports the panel unavailable.
-     *
-     * <p>Unlike Cache/Flyway/Liquibase there is no {@code MAILER} {@link Capability}, so this gates on the runtime
-     * presence of {@link #REACTIVE_MAILER_CLASS} via {@link QuarkusClassLoader#isClassPresentAtRuntime(String)}
-     * instead. When present in dev/test the observer is registered (pinned unremovable, since it is only referenced
-     * through the CDI event bus that Arc's usage analysis cannot see) and {@code EMAIL_PRESENT_KEY} is set so the
-     * panel lights up; otherwise the observer is excluded and the key defaults to {@code false}.</p>
-     */
     @BuildStep
     void registerEmail(
             LaunchModeBuildItem launchMode,
@@ -2757,16 +1957,6 @@ class BootUiQuarkusProcessor {
                 EMAIL_CAPTURE_CLASS);
     }
 
-    /**
-     * Conditionally registers the MicroProfile {@code RestClientListener} SPI implementation that hooks
-     * BootUI's {@code QuarkusRestClientTraceFilter} into every {@code @RegisterRestClient} proxy, and emits
-     * the {@code REST_CLIENT_TRACE_PRESENT_KEY} runtime default so the panel lights up in the manifest.
-     *
-     * <p>The listener imports the optional MicroProfile REST Client API, so this build step both omits its
-     * service-provider entry and excludes it from Arc discovery when the capability is absent (R2). The
-     * framework-neutral recorder and BootUI resource remain wired so an absent extension produces a clear
-     * unavailable report rather than a linkage failure.</p>
-     */
     @BuildStep
     void registerRestClientTrace(
             LaunchModeBuildItem launchMode,
@@ -2784,7 +1974,6 @@ class BootUiQuarkusProcessor {
         }
         byte[] descriptor = (REST_CLIENT_TRACE_LISTENER_CLASS + "\n").getBytes(StandardCharsets.UTF_8);
         String path = "META-INF/services/" + REST_CLIENT_LISTENER_SERVICE;
-        // Quarkus 3.33 lacks the service-provider build item; newer releases require this explicit resource factory.
         try {
             generatedResources.produce((GeneratedResourceBuildItem) GeneratedResourceBuildItem.class
                     .getMethod("allowingMetaInfServices", String.class, byte[].class)
@@ -2796,24 +1985,6 @@ class BootUiQuarkusProcessor {
         }
     }
 
-    /**
-     * Capability-gated registration of the Flyway panel's Flyway-API-importing producer (R2), mirroring
-     * {@link #registerCacheAdvisor} exactly.
-     *
-     * <p>{@code BootUiFlywayProducer} has a {@code @Produces FlywayProvider} method whose body constructs
-     * {@code QuarkusFlywayProvider}, which imports {@code org.flywaydb.*} and {@code io.quarkus.flyway.*}
-     * types, and the extension runtime jar is Jandex-indexed (so Arc discovers the always-on beans). Arc
-     * treats a producer method as bean-defining, so the indexed producer would be discovered
-     * <em>unconditionally</em> — and loading it in an application without {@code quarkus-flyway} would link the
-     * Flyway API that must stay absent (R2). A missing CDI scope on the class is therefore <em>not</em> enough;
-     * the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from discovery when the
-     * {@code FLYWAY} capability is absent. When it is present, the producer is registered (and pinned
-     * unremovable, since the engine {@code FlywayService} that consumes its {@code FlywayProvider} is itself
-     * injected into the RESTEasy-mediated {@code FlywayResource}, which Arc's usage analysis cannot see). The
-     * always-produced {@code FlywayService} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer})
-     * then receives a {@code null} provider when absent and renders the panel unavailable, so it never fails —
-     * it is simply reported unavailable in the manifest until {@code quarkus-flyway} is added.</p>
-     */
     @BuildStep
     void registerFlyway(
             LaunchModeBuildItem launchMode,
@@ -2822,10 +1993,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.FLYWAY);
-        // No quarkus-flyway (or production): keep the Flyway-importing producer out of bean discovery so Arc
-        // never loads QuarkusFlywayProvider and links the Flyway API. The Flyway service still wires via the
-        // always-produced FlywayService and renders the panel unavailable; the panel is reported unavailable
-        // in the manifest (FLYWAY_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -2835,25 +2002,6 @@ class BootUiQuarkusProcessor {
                 FLYWAY_PRODUCER_CLASS);
     }
 
-    /**
-     * Capability-gated registration of the Liquibase panel's liquibase-API-importing producer (R2), mirroring
-     * {@link #registerCacheAdvisor} and {@link #registerHibernateAdvisor} exactly.
-     *
-     * <p>{@code BootUiLiquibaseProducer} has a {@code @Produces LiquibaseProvider} method whose implementation
-     * ({@code QuarkusLiquibaseProvider}) statically references {@code io.quarkus.liquibase} / {@code liquibase}
-     * types, and the extension runtime jar is Jandex-indexed (so Arc discovers the always-on beans). Arc treats
-     * a producer method as bean-defining, so the indexed producer would be discovered <em>unconditionally</em>
-     * — and instantiating it would link the {@code io.quarkus.liquibase} API that must stay absent in an
-     * application without {@code quarkus-liquibase} (R2). A missing CDI scope on the class is therefore
-     * <em>not</em> enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from
-     * discovery when the {@code LIQUIBASE} capability is absent. When it is present, the producer is registered
-     * (and pinned unremovable, since the engine {@code LiquibaseService} that consumes its
-     * {@code LiquibaseProvider} is itself injected into the RESTEasy-mediated {@code LiquibaseResource}, which
-     * Arc's usage analysis cannot see). The always-produced {@code LiquibaseService} (see
-     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives a {@code null} provider when
-     * absent and renders the panel unavailable, so it never fails — it is simply reported unavailable in the
-     * manifest until {@code quarkus-liquibase} is added.</p>
-     */
     @BuildStep
     void registerLiquibase(
             LaunchModeBuildItem launchMode,
@@ -2863,10 +2011,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.LIQUIBASE);
-        // No quarkus-liquibase (or production): keep the io.quarkus.liquibase-importing producer out of bean
-        // discovery so Arc never instantiates QuarkusLiquibaseProvider. The liquibase service still wires via
-        // the always-produced LiquibaseService and renders the panel unavailable; the panel is reported
-        // unavailable in the manifest (LIQUIBASE_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -2876,31 +2020,6 @@ class BootUiQuarkusProcessor {
                 LIQUIBASE_PRODUCER_CLASS);
     }
 
-    /**
-     * Capability-gated registration of the Database Connection Pools panel's Agroal-API-importing producer
-     * (R2), mirroring {@link #registerCacheAdvisor} exactly.
-     *
-     * <p>{@code BootUiAgroalProducer} has a {@code @Produces ConnectionPoolProvider} method that
-     * {@code new}-constructs {@code QuarkusAgroalConnectionPoolProvider}, the sole {@code io.agroal}-importing
-     * type in the extension, and the extension runtime jar is Jandex-indexed (so Arc discovers the always-on
-     * beans). Arc treats a producer method as bean-defining, so the indexed producer would be discovered
-     * <em>unconditionally</em> — and loading it in an application without a JDBC datasource extension would link
-     * the {@code io.agroal} API that must stay absent (R2). A missing CDI scope on the class is therefore
-     * <em>not</em> enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from
-     * discovery when the {@code AGROAL} capability is absent. When it is present, the producer is registered
-     * (and pinned unremovable, since the engine {@code ConnectionPoolService} that consumes its
-     * {@code ConnectionPoolProvider} is itself injected into the RESTEasy-mediated {@code ConnectionPoolsResource},
-     * which Arc's usage analysis cannot see). The always-produced {@code ConnectionPoolService} (see
-     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives a {@code null} provider when
-     * absent and renders the panel unavailable, so it never fails — it is simply reported unavailable in the
-     * manifest until a JDBC datasource extension is added.</p>
-     *
-     * <p>The {@code AGROAL} capability is present whenever a JDBC datasource extension (e.g.
-     * {@code quarkus-jdbc-h2}) is on the classpath, independent of whether a datasource URL is actually
-     * configured. The present-key therefore tracks Agroal availability; an application with Agroal present but
-     * no datasource configured produces an empty pool list and the panel renders its empty state, matching the
-     * Spring adapter (HikariCP on the classpath with zero pools).</p>
-     */
     @BuildStep
     void registerConnectionPools(
             LaunchModeBuildItem launchMode,
@@ -2909,10 +2028,6 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.AGROAL);
-        // No JDBC datasource extension (or production): keep the io.agroal-importing producer out of bean
-        // discovery so Arc never links the Agroal API. The connection-pool service still wires via the
-        // always-produced ConnectionPoolService and renders the panel unavailable; the panel is reported
-        // unavailable in the manifest (CONNECTION_POOLS_PRESENT_KEY defaults to false).
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -2923,13 +2038,6 @@ class BootUiQuarkusProcessor {
                 SQL_TRACE_PRODUCER_CLASS);
     }
 
-    /**
-     * Registers the JDK dynamic proxies the SQL Trace capture creates ({@code DataSource}+{@code AgroalDataSource},
-     * {@code Connection}, {@code Statement}, {@code PreparedStatement}, {@code CallableStatement}, {@code ResultSet}) as native-image
-     * proxy metadata — the Quarkus analogue of the Spring adapter's {@code SqlTraceRuntimeHints}. Without it a
-     * native image crashes at runtime building a proxy over an unregistered interface set. Gated dev/test + AGROAL,
-     * matching the producer; the interface sets come from the shared engine constants so they cannot drift.
-     */
     @BuildStep
     void registerSqlTraceProxies(
             LaunchModeBuildItem launchMode,

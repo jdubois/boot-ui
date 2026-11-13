@@ -6,7 +6,6 @@ import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProv
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
-import io.github.jdubois.bootui.autoconfigure.cli.BootUiInstanceLeaseLifecycle;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
@@ -27,6 +26,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatistic
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentProfileGuard;
+import io.github.jdubois.bootui.autoconfigure.javaagent.BootUiAgentClaimEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
@@ -64,6 +64,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.codepaths.JournalRequestOutcomes;
 import io.github.jdubois.bootui.engine.config.ConfigService;
@@ -154,12 +155,15 @@ import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.springframework.aop.scope.ScopedObject;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -170,18 +174,23 @@ import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.restclient.RestTemplateCustomizer;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
+import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.cache.interceptor.CacheOperationSource;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
@@ -193,54 +202,15 @@ import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
-/**
- * Wires framework-neutral {@code bootui-engine} services into the Spring adapter.
- *
- * <p>Engine services are annotation-free so they can be produced symmetrically by the Quarkus
- * adapter ({@code @Produces}); here they are exposed as Spring beans built from the adapter's own
- * inputs. A service that needs a <em>live</em> policy (re-read on every request) injects the
- * adapter's <em>concrete</em> SPI bean (e.g. {@link BootUiExposure}) rather than the SPI interface,
- * so adding more SPI implementations later can never make this wiring ambiguous — the engine service
- * still depends only on the neutral interface. A service that needs only <em>static</em> settings
- * (read once at construction) instead receives an immutable engine record (e.g.
- * {@link io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings}) mapped inline from
- * {@link BootUiProperties} here, so no per-slice mapper bean is required.</p>
- *
- * <p><strong>Static record vs. live policy.</strong> The record shape snapshots its values when the
- * (lazy) bean is first created, so it must be used only for settings with <em>no runtime-override
- * surface</em>. That is the case for {@code bootui.heap-dump.*}: it is plain bound configuration that
- * BootUI never re-binds at runtime (changing it requires a restart). Settings an operator can change
- * live — such as {@code bootui.expose-values}/{@code bootui.mask-secrets}, which {@link BootUiExposure}
- * resolves from the live Spring {@code Environment} (and therefore the runtime override property source)
- * — must instead go through a policy interface re-read per request; snapshotting them would silently
- * ignore the override.</p>
- *
- * <p>Every engine bean is declared {@link Lazy @Lazy} so it is created only when a (also lazy) BootUI
- * controller first needs it, preserving BootUI's zero-overhead-until-opened startup design. This is
- * the canonical laziness mechanism for engine beans (self-verifying on the factory method), distinct
- * from the {@code LAZY_BEAN_NAMES} post-processor used for pre-existing infrastructure beans.
- * {@link ConditionalOnMissingBean @ConditionalOnMissingBean} lets a host application override any
- * engine service with its own bean.</p>
- */
 @Configuration(proxyBeanMethods = false)
 public class BootUiEngineConfiguration {
 
-    /**
-     * This application-context start, as one run ({@code docs/PLAN-v2.md} §5.1). Deliberately eager, unlike the
-     * other engine beans: a DevTools restart creates a new context and so a new run, and the run must start when the
-     * context does, not when BootUI is first opened. Creating it only reads the clock and a random number.
-     */
     @Bean
     @ConditionalOnMissingBean
     RunIdentity bootUiRunIdentity() {
         return RunIdentity.start();
     }
 
-    /**
-     * The runtime journal of this run ({@code docs/PLAN-v2.md} §5.2), which every recorder publishes to. Eager, like
-     * the run it records: events are recorded from the start, not from when BootUI is first opened. Spring closes it,
-     * stopping its dispatcher, when the context closes.
-     */
     @Bean
     @ConditionalOnMissingBean
     RuntimeJournal bootUiRuntimeJournal(
@@ -251,10 +221,6 @@ public class BootUiEngineConfiguration {
         return journal;
     }
 
-    /**
-     * Binds aggregates before exposing the journal to recorders ({@code docs/PLAN-v2.md} §5.2), including application
-     * overrides of either bean. Static, as a {@code BeanPostProcessor} must be; its dependencies resolve lazily.
-     */
     @Bean
     static RuntimeEventPublisherInstaller bootUiRuntimeEventPublisherInstaller(
             ObjectProvider<RuntimeJournal> journal,
@@ -263,11 +229,6 @@ public class BootUiEngineConfiguration {
         return new RuntimeEventPublisherInstaller(journal, aggregates, properties);
     }
 
-    /**
-     * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher, and the
-     * run's resource track, fed by the resource sampler (§5.11). When the context closes, as before a DevTools restart,
-     * they keep the run's summary in the JVM's run history, and in the baseline file when one is set (§5.8).
-     */
     @Bean
     @ConditionalOnMissingBean
     JournalAggregates bootUiJournalAggregates(
@@ -288,12 +249,6 @@ public class BootUiEngineConfiguration {
         return aggregates;
     }
 
-    /**
-     * The agent evidence contract ({@code docs/PLAN-v2.md} §5.17, M5-11): Code Paths and Code Inventory read their
-     * evidence through it under the panels' live state, it bounds their memory by
-     * {@code bootui.runtime-journal.agent-evidence-max-bytes}, and, as a listener of the journal, every clear of the
-     * journal clears it too ({@link #bootUiAgentEvidenceJournalListener}).
-     */
     @Bean
     @ConditionalOnMissingBean
     AgentEvidence bootUiAgentEvidence(BootUiProperties properties) {
@@ -301,10 +256,6 @@ public class BootUiEngineConfiguration {
         return new AgentEvidence(properties::isPanelEnabled, max == null ? null : max.toBytes());
     }
 
-    /**
-     * Adds the agent evidence, BootUI's or one the application supplies, to the journal's listeners once every singleton
-     * exists, so every clear of the journal clears it (M5-11).
-     */
     @Bean
     SmartInitializingSingleton bootUiAgentEvidenceJournalListener(
             ObjectProvider<AgentEvidence> evidence, ObjectProvider<RuntimeJournal> journal) {
@@ -316,44 +267,23 @@ public class BootUiEngineConfiguration {
         };
     }
 
-    /**
-     * Carries a request's correlation into the tasks of Spring Boot's auto-configured executor and scheduler
-     * ({@code docs/PLAN-v2.md} D30, M4-15), so {@code @Async} work is owned by its request. Spring Boot composes every
-     * {@code TaskDecorator} bean into one. BootUI contributes its own only when the application defines none; otherwise
-     * {@link io.github.jdubois.bootui.autoconfigure.activity.BootUiExecutorDecoration} composes it inside the
-     * application's on each executor, and propagation is idempotent, so a task is never propagated twice.
-     */
     @Bean
     @ConditionalOnMissingBean(org.springframework.core.task.TaskDecorator.class)
     org.springframework.core.task.TaskDecorator bootUiTaskDecorator() {
         return new io.github.jdubois.bootui.autoconfigure.activity.BootUiTaskDecorator();
     }
 
-    /**
-     * Carries the same correlation into the application's own {@code ThreadPoolTaskExecutor} and
-     * {@code ThreadPoolTaskScheduler} beans ({@code docs/PLAN-v2.md} M4-22), such as JHipster's {@code AsyncConfigurer}
-     * executor, which Spring Boot's auto-configuration never sees: decorated when they have no decorator, composed inside
-     * the application's when they have one, never replacing it. Static, as a post-processor must be.
-     */
     @Bean
     static io.github.jdubois.bootui.autoconfigure.activity.BootUiExecutorDecoration bootUiExecutorDecoration() {
         return new io.github.jdubois.bootui.autoconfigure.activity.BootUiExecutorDecoration();
     }
 
-    /**
-     * Publishes the run's start to the runtime journal when the application is ready ({@code docs/PLAN-v2.md} §5.18):
-     * its time to ready, its slowest bean instantiations, and its comparability facts, which the run summary keeps.
-     */
     @Bean
     RunStartPublisher bootUiRunStartPublisher(
             RuntimeJournal journal, ApplicationContext context, ObjectProvider<BootUiSelfDataFilter> selfData) {
         return new RunStartPublisher(journal, context, selfData.getIfAvailable());
     }
 
-    /**
-     * Marks the run's availability changes, configuration refreshes, and shutdown in the runtime journal ({@code
-     * docs/PLAN-v2.md} §5.18, M4-7); BootUI's own actions are marked by its panel access filter.
-     */
     @Bean
     ControlMarkerPublisher bootUiControlMarkerPublisher(RuntimeJournal journal, ApplicationContext context) {
         return new ControlMarkerPublisher(journal, context);
@@ -366,11 +296,6 @@ public class BootUiEngineConfiguration {
         return new BootUiInstanceLeaseLifecycle(run, properties, context);
     }
 
-    /**
-     * Records application {@code WARN} and {@code ERROR} log events in the runtime journal ({@code docs/PLAN-v2.md}
-     * §5.2), when Logback is the logger. Gated on Logback's class, so an application on another logging backend loads
-     * nothing here.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
     static class RuntimeJournalLogConfiguration {
@@ -380,33 +305,22 @@ public class BootUiEngineConfiguration {
             return LogbackThreadLocalHolders.install();
         }
 
-        /** {@code null}, which Spring registers as an empty bean, when the {@code log} source is off. */
         @Bean
         RuntimeJournalLogAppender bootUiRuntimeJournalLogAppender(RuntimeJournal journal) {
             return journal.settings().records(JournalSource.LOG) ? RuntimeJournalLogAppender.install(journal) : null;
         }
 
-        /**
-         * Whether that appender sees every {@code WARN}+ log, for the caught-exception outcomes ({@code docs/PLAN-v2.md}
-         * M5-6).
-         */
         @Bean
         LogCoverage bootUiLogCoverage() {
             return LogbackLogCoverage.install();
         }
     }
 
-    /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by both web stacks. */
     @Bean
     RequestPhases bootUiRequestPhases() {
         return new RequestPhases();
     }
 
-    /**
-     * Names each GraphQL request's operation from Spring for GraphQL's {@code graphql.request} observation, so every
-     * operation is a route of its own ({@code docs/PLAN-v2.md} §5.1). Gated on both types, so an application without
-     * Spring for GraphQL or Micrometer observation loads nothing here.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(
             name = {
@@ -426,11 +340,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * Adds Spring Security's authentication time to each request's phase markers, through the observation it emits
-     * when Spring Boot's observation registry is configured ({@code docs/PLAN-v2.md} §5.1). Gated on both types, so
-     * an application without Spring Security or Micrometer observation loads nothing here.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(
             name = {
@@ -448,11 +357,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * Records each authorization decision Spring Security observes in the runtime journal's {@code authorization}
-     * source ({@code docs/PLAN-v2.md} §5.18), on Spring MVC and WebFlux. Gated on both types, so an application without
-     * Spring Security or Micrometer observation loads nothing here.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(
             name = {
@@ -470,11 +374,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * Records the model calls Spring AI observes in the runtime journal ({@code docs/PLAN-v2.md} §5.18, M3-9), stamped
-     * with their request or execution, so AI usage needs no tracing. Gated only on Micrometer's observation registry:
-     * the handler reads key values by name and loads without Spring AI.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(
             name = {
@@ -493,10 +392,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The engine side of the BootUI agent's executor propagation ({@code docs/PLAN-v2.md} M5-2), which this run's
-     * {@link AgentClaimOwner} attaches to its claim once the context is refreshed. Without the agent, nothing calls it.
-     */
     @Bean
     @ConditionalOnMissingBean
     AgentHandoffs bootUiAgentHandoffs(BootUiProperties properties, RequestPhases phases) {
@@ -506,12 +401,6 @@ public class BootUiEngineConfiguration {
                 properties.getAgent().getExecutors().getMaxHandoff());
     }
 
-    /**
-     * The engine side of the BootUI agent's opt-in {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6a):
-     * routes its records into the runtime journal, which installs itself on it as on every recorder. The run's
-     * {@link AgentClaimOwner} starts it once the context is refreshed and its claim is armed; it stops routing when the
-     * context closes. Without the agent, or without the sensor, it starts nothing.
-     */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     AgentCaughtExceptions bootUiAgentCaughtExceptions(ObjectProvider<AgentClaimOwner> owner) {
@@ -521,11 +410,6 @@ public class BootUiEngineConfiguration {
         });
     }
 
-    /**
-     * The Exceptions panel's <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6): what became of
-     * the exceptions application code caught, from the agent's {@code caught-exceptions} sensor. Without the sensor it
-     * reports why; a read drains the agent and starts nothing else.
-     */
     @Bean
     @ConditionalOnMissingBean
     CaughtExceptionsReader bootUiCaughtExceptionsReader(
@@ -534,12 +418,6 @@ public class BootUiEngineConfiguration {
                 journal, sensor::getIfUnique, logs.getIfUnique(() -> LogCoverage.UNREADABLE), RunningHandoffs.shared());
     }
 
-    /**
-     * Code Inventory ({@code docs/PLAN-v2.md} §5.15): this run's executed and changed application methods and its
-     * dependency use, from the BootUI agent's inventory sensor. The run's {@link AgentClaimOwner} starts it once the
-     * context is refreshed and its claim is armed; it stops its drain and scan threads when the context closes. Without
-     * the agent it reports the Java Agent panel's reason and starts nothing.
-     */
     @Bean(destroyMethod = "close")
     @Lazy
     @ConditionalOnMissingBean
@@ -578,7 +456,6 @@ public class BootUiEngineConfiguration {
                 },
                 properties.getCodeInventory().toSettings(),
                 CodeInventoryHistory.shared(),
-                // Its panel and HTTP Exchanges, which owns request routes, gate its reads (docs/PLAN-v2.md §8).
                 evidence);
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestRoutes(JournalRequestRoutes.of(
@@ -586,11 +463,6 @@ public class BootUiEngineConfiguration {
         return service;
     }
 
-    /**
-     * Code Paths ({@code docs/PLAN-v2.md} §5.14, M5-4a): routes the agent's {@code code-paths} fragments of this run's
-     * claim into request trees and decides the sensor's adaptive exclusion. The {@link AgentClaimOwner} starts it once
-     * the context refreshed; it is closed with the context.
-     */
     @Bean(destroyMethod = "close")
     @Lazy
     @ConditionalOnMissingBean
@@ -615,25 +487,15 @@ public class BootUiEngineConfiguration {
                             ? JavaAgentService.CODE_PATHS_REQUIREMENT + "."
                             : agent.codePathsUnavailableReason();
                 },
-                // Its panel and HTTP Exchanges, which owns route trees and request outcomes, gate its reads
-                // (docs/PLAN-v2.md §8).
                 evidence);
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         service.setRequestOutcomes(JournalRequestOutcomes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
-        // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
         service.setStructure(() -> StructureSnapshots.read(null, beans.getIfUnique(), null));
-        // Method probes' argument and return shapes follow the live bootui.expose-values (M5-8, D44).
         service.setExposure(exposure);
         return service;
     }
 
-    /**
-     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a, M5-5c): routes the agent's side-effect records of this run's claim into
-     * bounded rows per sensor, attributed to their request's route through HTTP Exchanges, under the agent evidence
-     * contract (M5-11), which gates its reads by its panel and HTTP Exchanges and clears it with the journal. The {@link AgentClaimOwner}
-     * starts it once the context refreshed; it is closed with the context.
-     */
     @Bean(destroyMethod = "close")
     @Lazy
     @ConditionalOnMissingBean
@@ -667,23 +529,13 @@ public class BootUiEngineConfiguration {
         service.setRequestRoutes(JournalRequestRoutes.of(
                 journal.getIfAvailable(), journalAggregates == null ? null : journalAggregates.declaredRoutes()));
         service.setExecutionLabels(JournalExecutions.of(journal.getIfAvailable()));
-        // Whether a panel shows a network connection's work (M5-5b).
         service.setNetworkCapture(JournalNetworkCapture.of(journal.getIfAvailable()));
-        // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(environment::getProperty);
-        // Only Spring WebFlux on Reactor Netty serves requests on event loops: elsewhere (Spring MVC, WebFlux on a
-        // servlet container, no web server) the blocking sensor is not applicable until a WebClient's Reactor Netty
-        // loop
-        // is registered (M5-5c). Asked on each read, as the server starts after this lazy bean may be created.
         service.setServerEventLoops(() -> nettyServer(applicationContext));
-        // Each request's end, as both web stacks mark it, so the thread-activity sensor checks what it left running.
         service.listenToRequestEnds(requestPhases.getIfAvailable());
         if (journalAggregates != null) {
-            // The run's side-effect keys go into its summary, for the next run's comparison (M5-7b).
             journalAggregates.setRunSideEffects(service::runSideEffects);
         }
-        // A sensor switched at run time (M5-14): the run is not compared for it (M5-7b), and a side-effect sensor
-        // switched on records from now on, even before the panel is read.
         JavaAgentService agent = javaAgent.getIfUnique();
         if (agent != null) {
             agent.onSensorSwitched(id -> {
@@ -694,7 +546,6 @@ public class BootUiEngineConfiguration {
         return service;
     }
 
-    /** Whether the application's web server is Reactor Netty's, which runs event loops; an unknown one counts as one. */
     static boolean nettyServer(org.springframework.context.ApplicationContext applicationContext) {
         if (!(applicationContext instanceof ReactiveWebApplicationContext)) {
             return false;
@@ -706,11 +557,6 @@ public class BootUiEngineConfiguration {
         return true;
     }
 
-    /**
-     * The Java Agent panel's service ({@code docs/PLAN-v2.md} §5.13). It reads this run's claim from the
-     * {@link AgentClaimOwner} that {@code BootUiAgentClaimEnvironmentPostProcessor} registered, and finds none when the
-     * JVM runs without the agent.
-     */
     @Bean
     @Lazy
     @ConditionalOnMissingBean
@@ -728,7 +574,6 @@ public class BootUiEngineConfiguration {
                 JavaAgentSettings.of(
                         AgentSetupSnippets.SPRING,
                         properties.getAgent().isEnabled(),
-                        // Why the agent was not claimed although BootUI is on, as Quarkus says in production mode.
                         AgentProfileGuard.refusal(activation.getIfAvailable(), environment)));
     }
 
@@ -785,8 +630,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     BasePackageProvider bootUiBasePackageProvider(ApplicationContext applicationContext) {
-        // Neutral seam shared by the ArchUnit-based advisors: the host application's own base packages,
-        // resolved from AutoConfigurationPackages and re-read live on every scan (fails soft to empty).
         return new SpringBasePackageProvider(applicationContext);
     }
 
@@ -795,19 +638,12 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     ArchitectureScanner bootUiArchitectureScanner(
             BasePackageProvider basePackageProvider, BootUiProperties properties) {
-        // Live policy: base packages are re-read on every scan via the BasePackageProvider SPI, and the
-        // ArchUnit classpath import runs only on demand (POST /scan), never at bean construction.
         ArchitectureScanner scanner = ArchitectureScanner.usingClasspath(
                 basePackageProvider::basePackages, ArchitecturePlatform.SPRING, Clock.systemUTC());
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return scanner;
     }
 
-    /**
-     * Driver evidence for the Database Advisor. Unconditional because it holds only neutral types: the HikariCP-typed
-     * {@link ConnectionPoolProvider} and the Hibernate observation source exist only in their own gated
-     * configurations and are reached through {@link ObjectProvider}, so an absent one simply means no evidence.
-     */
     @Bean
     @Lazy
     @ConditionalOnMissingBean
@@ -828,9 +664,6 @@ public class BootUiEngineConfiguration {
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
             ObjectProvider<DatabaseAdvisorEvidenceProvider> evidenceProvider,
             BootUiProperties properties) {
-        // javax.sql.DataSource is core JDK (unlike EntityManagerFactory), so DataSource discovery needs no
-        // @ConditionalOnClass gating; the Hibernate cross-reference half is optional and only resolved when
-        // the nested HibernateAdvisorConfiguration below is active, via the EntityDiscoverySource seam.
         SpringDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
@@ -841,9 +674,6 @@ public class BootUiEngineConfiguration {
                             ? EntityDiscovery.absent("Hibernate/JPA metamodel not detected on the classpath.")
                             : source.discover();
                 },
-                // Statement evidence for the runtime-SQL checks, read from the SQL Trace buffer that is
-                // already being filled. Empty when SQL Trace is off, and those rules then skip rather than
-                // report a clean result they have no basis for.
                 () -> {
                     SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
                     return recorder == null ? List.of() : recorder.entries(false);
@@ -861,9 +691,6 @@ public class BootUiEngineConfiguration {
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             BootUiExposure exposure,
             BootUiProperties properties) {
-        // javax.sql.DataSource is core JDK, so DataSource discovery needs no @ConditionalOnClass gating; the
-        // same Spring discovery that feeds the Database Advisor is reused, and the read runs on demand
-        // (POST /read), never at bean construction.
         SpringDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
         BootUiProperties.Postgresql postgresql = properties.getPostgresql();
@@ -913,10 +740,6 @@ public class BootUiEngineConfiguration {
             Environment environment,
             ApplicationContext applicationContext,
             BootUiProperties properties) {
-        // Live policy: base packages are re-read on every scan via the shared BasePackageProvider SPI, the
-        // OpenAPI annotation presence (Swagger's @Operation, honored by springdoc) is probed live, and the
-        // ArchUnit import runs only on demand (POST /scan). The Quarkus adapter probes for the equivalent
-        // MicroProfile OpenAPI @Operation annotation instead (see BootUiEngineProducer).
         RestApiScanner scanner = RestApiScanner.usingClasspath(
                 basePackageProvider::basePackages,
                 () -> ClassUtils.isPresent(
@@ -932,10 +755,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     ErrorContractProvider bootUiErrorContractProvider(ListableBeanFactory beanFactory) {
-        // The advice/controller declarations behind the REST API panel's error-contract catalogue live in
-        // spring-web, which both the servlet and the reactive stacks always have, so one provider serves
-        // Spring MVC and Spring WebFlux. Discovery is metadata-only: bean types are resolved without
-        // initializing FactoryBeans, and no handler is instantiated, invoked, or made to throw.
         return new SpringErrorContractProvider(beanFactory);
     }
 
@@ -951,11 +770,6 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     GraalVmReadinessScanner bootUiGraalVmReadinessScanner(
             BasePackageProvider basePackageProvider, BootUiProperties properties) {
-        // Reuses the shared BasePackageProvider SPI (live base packages) and snapshots the static
-        // bootui.graalvm.* gating into an engine value record. Reachability-metadata repository lookups go
-        // through the engine's ReachabilityMetadataRepository seam; this adapter supplies the Jackson + HTTP
-        // implementation so bootui-engine stays free of any JSON library. The ArchUnit import and any
-        // dependency-repository lookups run only on demand (POST /scan), never at bean construction.
         BootUiProperties.Graalvm graalvm = properties.getGraalvm();
         return GraalVmReadinessScanner.usingClasspath(
                 basePackageProvider::basePackages,
@@ -969,11 +783,6 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     CracReadinessScanner bootUiCracReadinessScanner(
             BasePackageProvider basePackageProvider, ApplicationContext applicationContext) {
-        // Reuses the shared BasePackageProvider SPI (live base packages) and reads a live runtime inventory of
-        // auto-configured resources (connection pools, Hikari lifecycle evidence, local caches, and partial-lifecycle
-        // task executors) through the engine's CracRuntimeInventory supplier seam; this adapter supplies the Spring
-        // bean inspection so bootui-engine stays framework-neutral.
-        // The ArchUnit import runs only on demand (POST /scan), never at bean construction.
         return CracReadinessScanner.usingClasspath(
                 basePackageProvider::basePackages,
                 () -> CracRuntimeInventoryCollector.collect(applicationContext),
@@ -985,18 +794,6 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     PentestingScanner bootUiPentestingScanner(
             ApplicationContext applicationContext, Environment environment, BootUiProperties properties) {
-        // The Spring observation (endpoint inventory, security wiring, config snapshot, server port/context path)
-        // is collected live on every scan through the SpringPentestingObservationCollector adapter, so the random
-        // local.server.port is read after startup; the engine owns the probe methodology (synthetic URI assembly +
-        // GET/OPTIONS loopback probes) and fires them only on demand (POST /scan), never at bean construction.
-        //
-        // RequestMappingInfoHandlerMapping is an MVC-only type (spring-webmvc), genuinely absent from a
-        // WebFlux-only classpath (bootui-spring-boot-starter brings no web stack, so spring-webmvc is absent).
-        // The presence check must run BEFORE the .class literal below: referencing
-        // RequestMappingInfoHandlerMapping.class unconditionally would resolve that constant-pool entry
-        // as soon as this @Lazy factory method runs, throwing NoClassDefFoundError on such a classpath
-        // (confirmed against the reactive WebFlux sample app). Passing null here is safe:
-        // SpringPentestingObservationCollector marks the MVC endpoint inventory unavailable.
         ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider =
                 SpringPentestingObservationCollector.isServletContext(applicationContext)
                                 && ClassUtils.isPresent(
@@ -1028,8 +825,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     HttpProbeService bootUiHttpProbeService(Environment environment) {
-        // Live policy: the bound port is only known after startup (e.g. a random-port test exposes it as
-        // local.server.port), so it is re-read on every probe rather than snapshotted at construction.
         return new HttpProbeService(() -> environment.getProperty(
                 "local.server.port", Integer.class, environment.getProperty("server.port", Integer.class, 8080)));
     }
@@ -1038,17 +833,9 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     MemoryReportProvider bootUiMemoryReportProvider(Environment environment, BootUiExposure exposure) {
-        // Live policy: virtual-threads and Kubernetes health-probe settings are read from the live
-        // Environment (and thus the runtime override property source) on every report, not snapshotted,
-        // and the exposure policy masking JVM input arguments is re-read the same way.
         return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment), exposure);
     }
 
-    /**
-     * <b>Free BootUI memory</b> for the Live Memory, JVM Tuning, Heap Dump, and Memory panels. It reads the singletons
-     * the context has already created, on each call, so it never instantiates a lazy capture store nor links an
-     * optional integration that is absent; the engine keeps only the {@link MemoryOffloadable} ones.
-     */
     @Bean
     @Lazy
     @ConditionalOnMissingBean
@@ -1056,10 +843,6 @@ public class BootUiEngineConfiguration {
         return new MemoryOffloadService(() -> createdOffloadables(beanFactory));
     }
 
-    /**
-     * Low-footprint mode: pauses the recorders that implement {@code LowFootprintSuspendable} or the idle-reclaim SPI,
-     * then runs the offload above. Like the offload it reads only the singletons the context has already created.
-     */
     @Bean
     @Lazy
     @ConditionalOnMissingBean
@@ -1086,7 +869,6 @@ public class BootUiEngineConfiguration {
         List<Object> offloadables = new ArrayList<>();
         for (String name : beanFactory.getSingletonNames()) {
             Object singleton = beanFactory.getSingleton(name);
-            // A scoped proxy is a singleton, but calling it would create its request- or session-scoped target.
             if (singleton instanceof MemoryOffloadable && !(singleton instanceof ScopedObject)) {
                 offloadables.add(singleton);
             }
@@ -1096,7 +878,6 @@ public class BootUiEngineConfiguration {
     }
 
     private static void addCreatedLogTailBuffer(ConfigurableListableBeanFactory beanFactory, List<Object> candidates) {
-        // Log Tail's controller owns its buffer; it is not a Spring singleton itself.
         if (ClassUtils.isPresent("ch.qos.logback.classic.LoggerContext", beanFactory.getBeanClassLoader())) {
             var appender = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find();
             if (appender != null) {
@@ -1110,9 +891,6 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     MetricsReportProvider bootUiMetricsReportProvider(
             ObjectProvider<MeterRegistry> registries, BootUiSelfDataFilter selfDataFilter) {
-        // Live handle: the MeterRegistry is resolved per request (it may be absent until metrics are
-        // configured), and BootUI's own self-data filter is fed as the engine's meter-visibility predicate
-        // so the console never reports its own traffic.
         return new MetricsReportProvider(() -> resolveRegistry(registries), selfDataFilter::shouldIncludeMeter);
     }
 
@@ -1129,11 +907,6 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     LoggersService bootUiLoggersService(
             ObjectProvider<LoggerProvider> loggerProviders, BootUiSelfDataFilter selfDataFilter) {
-        // R2 optional-dependency port: the actuator-typed SpringLoggerProvider is gated below, so this
-        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
-        // class-absent case) by serving an empty report. BootUI's self-data filter feeds two distinct
-        // predicates: read-visibility (honors bootui.monitoring.exclude-self) and a write guard pinned to
-        // BootUI-owned loggers (independent of that preference, so it can never fail open).
         return new LoggersService(
                 loggerProviders.getIfAvailable(),
                 selfDataFilter::shouldIncludeLogger,
@@ -1144,11 +917,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     HealthService bootUiHealthService(ObjectProvider<HealthProvider> healthProviders) {
-        // R2 optional-dependency port: the actuator-typed SpringHealthProvider is gated below, so this
-        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
-        // class-absent case) by rendering the DISABLED root with setup guidance. The platform-specific
-        // defaults and copy come from SpringHealthGuidance, which references only neutral DTOs so it is
-        // available even when Actuator is absent (exactly when the unavailable guidance is needed).
         return new HealthService(healthProviders.getIfAvailable(), SpringHealthGuidance.INSTANCE);
     }
 
@@ -1156,11 +924,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     MappingsService bootUiMappingsService(ObjectProvider<MappingProvider> mappingProviders) {
-        // R2 optional-dependency port: the actuator-typed SpringMappingProvider is gated below, so this
-        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
-        // class-absent case) by serving an empty report. The provider flattens and self-filters the raw
-        // mappings (where the predicate string still exists, for byte-identical filtering); the engine
-        // service only sorts, queries and pages.
         return new MappingsService(mappingProviders.getIfAvailable());
     }
 
@@ -1168,11 +931,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     BeansService bootUiBeansService(ObjectProvider<BeanProvider> beanProviders) {
-        // R2 optional-dependency port: the actuator-typed SpringBeanProvider is gated below, so this
-        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
-        // class-absent case) by serving an empty list. The provider maps, self-filters and classifies the
-        // raw beans (where the live Class and the Spring-specific FRAMEWORK prefix matter, for
-        // byte-identical behavior); the engine service only sorts, filters and pages.
         return new BeansService(beanProviders.getIfAvailable());
     }
 
@@ -1180,9 +938,6 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     ConfigService bootUiConfigService(ConfigurableEnvironment environment, BootUiExposure exposure) {
-        // The engine ConfigService owns masking, sorting, filtering, paging and profile grouping; the
-        // SpringConfigProvider only enumerates the live environment and supplies suggestion metadata (read
-        // via Jackson, which the engine must not touch). Built inline like MemoryReportProvider.
         SpringConfigProvider provider = new SpringConfigProvider(
                 environment, new ConfigMetadataCatalog(BootUiEngineConfiguration.class.getClassLoader()));
         return new ConfigService(provider, exposure);
@@ -1204,19 +959,9 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     ScheduledTasksService bootUiScheduledTasksService(ObjectProvider<ScheduledTaskProvider> scheduledTaskProviders) {
-        // R2 optional-dependency port: the scheduling-typed SpringScheduledTaskProvider is gated below, so this
-        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
-        // class-absent case) by serving an empty report. The provider maps and self-filters the raw tasks
-        // (where the framework trigger types and the runnable description still exist, for byte-identical
-        // filtering); the engine service only sorts and wraps.
         return new ScheduledTasksService(scheduledTaskProviders.getIfAvailable());
     }
 
-    /**
-     * The {@code orm} journal source ({@code docs/PLAN-v2.md} §5.18, M4-9): installs the journal and correlation for the
-     * {@code BootUiHibernateSessionListener} Hibernate creates per session, once the journal exists, and uninstalls
-     * them when the context closes, so a DevTools restart's next run installs its own.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.hibernate.SessionEventListener")
     static class OrmJournalConfiguration {
@@ -1227,12 +972,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
-     * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
-     * gated configuration (never inline in the always-active root config), so their types are never linked
-     * in a JPA-absent application.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = {"jakarta.persistence.EntityManagerFactory", "org.hibernate.SessionFactory"})
     static class HibernateAdvisorConfiguration {
@@ -1245,7 +984,6 @@ public class BootUiEngineConfiguration {
                         ListableBeanFactory beanFactory,
                         Environment environment,
                         ObjectProvider<ConnectionPoolProvider> connectionPools) {
-            // Resolving factories, pools and repository metadata remains deferred to an explicit scan.
             return new io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateAdvisorObservationSource(
                     beanFactory, environment, connectionPools);
         }
@@ -1261,15 +999,6 @@ public class BootUiEngineConfiguration {
             return scanner;
         }
 
-        /**
-         * The Hibernate Statistics panel service, additive to the static Hibernate Advisor above.
-         * Gated identically (JPA + Hibernate on the classpath): the {@code org.hibernate.SessionFactory}
-         * /{@code org.hibernate.stat.Statistics}-typed {@link SpringHibernateStatisticsProvider} lives only
-         * in this nested, conditional configuration, so those Hibernate ORM types are never linked in a
-         * Hibernate-absent application (R2). The engine {@code HibernateStatisticsService} owns the neutral
-         * shaping (unavailable-report gating, DTO mapping); the provider owns resolving the
-         * {@code EntityManagerFactory} bean and reading its live statistics.
-         */
         @Bean
         @Lazy
         @ConditionalOnMissingBean
@@ -1284,19 +1013,10 @@ public class BootUiEngineConfiguration {
         EntityDiscoverySource bootUiEntityDiscoverySource(
                 ObjectProvider<EntityManagerFactory> entityManagerFactories,
                 ObjectProvider<ListableBeanFactory> beanFactories) {
-            // Shared with the Database Advisor: the same JPA metamodel read used by the Hibernate advisor,
-            // exposed through the pure-JDK EntityDiscoverySource seam so the always-active
-            // DatabaseAdvisorScanner (below) can consult it without linking jakarta.persistence types.
             return () -> SpringHibernateDiscovery.discover(entityManagerFactories, beanFactories);
         }
     }
 
-    /**
-     * R2 optional-dependency port: the Actuator-backed logger provider is only wired when the Actuator
-     * loggers endpoint type is on the classpath. The {@code LoggersEndpoint}-typed parameter lives in this
-     * nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root
-     * config), so the type is never linked in an Actuator-absent application.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.boot.actuate.logging.LoggersEndpoint")
     static class LoggersBackendConfiguration {
@@ -1305,18 +1025,10 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         SpringLoggerProvider bootUiSpringLoggerProvider(ObjectProvider<LoggersEndpoint> endpoints) {
-            // The endpoint bean may be absent (Actuator present but the loggers endpoint disabled); the
-            // provider resolves it live so it can report itself unavailable in that case.
             return new SpringLoggerProvider(endpoints::getIfAvailable);
         }
     }
 
-    /**
-     * R2 optional-dependency port: the Actuator-backed health provider is only wired when the Actuator
-     * {@code HealthEndpoint} type is on the classpath. The {@code HealthEndpoint}-typed parameter lives in
-     * this nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root
-     * config), so the type is never linked in an Actuator-absent application.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.boot.health.actuate.endpoint.HealthEndpoint")
     static class HealthBackendConfiguration {
@@ -1325,22 +1037,10 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         SpringHealthProvider bootUiSpringHealthProvider(ObjectProvider<HealthEndpoint> endpoints) {
-            // The endpoint bean may be absent (Actuator present but the health endpoint not exposed); the
-            // provider resolves it live so it reports the backend unavailable (engine renders DISABLED).
             return new SpringHealthProvider(endpoints::getIfAvailable);
         }
     }
 
-    /**
-     * R2 optional-dependency port: the Actuator-backed mappings provider and the raw descriptor
-     * passthrough controller are only wired when the Actuator {@code MappingsEndpoint} type is on the
-     * classpath. The {@code MappingsEndpoint}-typed parameters live in this nested,
-     * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so
-     * the type is never linked in an Actuator-absent application, and the provider reads the Web MVC and
-     * WebFlux mapping descriptor types only when their module is present. The neutral
-     * {@code MappingsController} ({@code /flat}) stays unconditional and serves an empty report when this
-     * backend is absent.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.boot.actuate.web.mappings.MappingsEndpoint")
     static class MappingsBackendConfiguration {
@@ -1350,8 +1050,6 @@ public class BootUiEngineConfiguration {
         @ConditionalOnMissingBean
         SpringMappingProvider bootUiSpringMappingProvider(
                 ObjectProvider<MappingsEndpoint> endpoints, BootUiSelfDataFilter selfDataFilter) {
-            // The endpoint bean may be absent (Actuator present but the mappings endpoint not exposed);
-            // the provider resolves it live so it reports itself unavailable in that case.
             return new SpringMappingProvider(endpoints::getIfAvailable, selfDataFilter);
         }
 
@@ -1359,21 +1057,10 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         ActuatorMappingsController bootUiActuatorMappingsController(ObjectProvider<MappingsEndpoint> endpoints) {
-            // The raw GET /bootui/api/mappings descriptor passthrough (not used by the UI). It is the only
-            // touch-point for the Actuator MappingsEndpoint on this path, so it is registered here rather
-            // than imported unconditionally, keeping the neutral MappingsController actuator-free.
             return new ActuatorMappingsController(endpoints);
         }
     }
 
-    /**
-     * R2 optional-dependency port: the Actuator-backed beans provider is only wired when the Actuator
-     * {@code BeansEndpoint} type is on the classpath. The {@code BeansEndpoint}-typed parameter lives in
-     * this nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root
-     * config), so the type and the beans descriptor types are never linked in an Actuator-absent
-     * application. The neutral {@code BeansController} stays unconditional and serves an empty list when
-     * this backend is absent.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.boot.actuate.beans.BeansEndpoint")
     static class BeansBackendConfiguration {
@@ -1383,23 +1070,10 @@ public class BootUiEngineConfiguration {
         @ConditionalOnMissingBean
         SpringBeanProvider bootUiSpringBeanProvider(
                 ObjectProvider<BeansEndpoint> endpoints, BootUiSelfDataFilter selfDataFilter) {
-            // The endpoint bean may be absent (Actuator present but the beans endpoint not exposed); the
-            // provider resolves it live so it reports itself unavailable in that case.
             return new SpringBeanProvider(endpoints::getIfAvailable, selfDataFilter);
         }
     }
 
-    /**
-     * R2 optional-dependency port: the scheduling-backed task provider is only wired when the scheduling
-     * infrastructure type ({@code ScheduledTaskHolder}) is on the classpath. The {@code ScheduledTaskHolder}-
-     * typed parameter (and the {@code org.springframework.scheduling.config.*} trigger types the provider maps)
-     * live in this nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active
-     * root config), so they are never linked in an application without the scheduling infrastructure. The
-     * always-active {@code bootUiScheduledTasksService} resolves this provider through an {@code ObjectProvider}
-     * and serves an empty report when it is absent — though the {@code ScheduledController} that exposes the
-     * panel is itself {@code @ConditionalOnClass(ScheduledTaskHolder)}, so the endpoint is only registered when
-     * this provider can exist (byte-identical to the original controller's bean-presence).
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.scheduling.config.ScheduledTaskHolder")
     static class ScheduledTasksBackendConfiguration {
@@ -1430,11 +1104,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * Declared here (rather than per-adapter) so both the servlet {@link BootUiAutoConfiguration} and
-     * reactive {@link BootUiReactiveAutoConfiguration} — which both {@code @Import} this shared
-     * configuration — reuse the exact same recorder bean and Spring Boot client decoration.
-     */
     @Configuration(proxyBeanMethods = false)
     static class RestClientTraceBackendConfiguration {
 
@@ -1458,11 +1127,6 @@ public class BootUiEngineConfiguration {
             return recorder;
         }
 
-        /**
-         * Bridges the framework-neutral {@link RestClientTraceRecorder} (implements {@code
-         * spi.IdleReclaimable}) to BootUI's Spring idle-reclaim mechanism so the console keeps suspending
-         * and resuming outbound HTTP call capture while idle.
-         */
         @Bean
         IdleReclaimable bootUiRestClientTraceRecorderIdleReclaimable(RestClientTraceRecorder recorder) {
             return new IdleReclaimable() {
@@ -1478,16 +1142,6 @@ public class BootUiEngineConfiguration {
             };
         }
 
-        /**
-         * Registers Spring Boot's {@link RestClientCustomizer} and {@link RestTemplateCustomizer} hooks so
-         * every {@code RestClient}/{@code RestTemplate} built through Spring Boot's auto-configured
-         * builders carries a {@link RestClientTraceInterceptor}. Both customizer types live in the optional
-         * {@code spring-boot-restclient} module, so this configuration (and the interceptor it wires) is
-         * skipped entirely when that module is not on the classpath. The interceptor is attached from
-         * inside the {@code customize(...)} callback - invoked once per builder construction - rather than
-         * unconditionally in the {@code @Bean} factory method, and only when the recorder is enabled, so a
-         * disabled panel (or {@code bootui.rest-client-trace.enabled=false}) adds no interceptor at all.
-         */
         @Configuration(proxyBeanMethods = false)
         @ConditionalOnClass(
                 name = {
@@ -1517,14 +1171,6 @@ public class BootUiEngineConfiguration {
             }
         }
 
-        /**
-         * Registers Spring Boot's {@link WebClientCustomizer} hook so every {@code WebClient} built
-         * through Spring Boot's auto-configured builder carries a {@link RestClientTraceExchangeFilter}.
-         * {@code WebClientCustomizer} lives in the optional {@code spring-boot-webclient} module (the
-         * reactive stack), so this configuration is skipped entirely when that module - or {@code
-         * WebClient} itself - is not on the classpath. As above, the filter is attached inside the {@code
-         * customize(...)} callback and only when the recorder is enabled.
-         */
         @Configuration(proxyBeanMethods = false)
         @ConditionalOnClass(
                 name = {
@@ -1545,14 +1191,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Spring Cache panel backend is only wired when the Spring {@code CacheManager} type is on the
-     * classpath. The cache-specific parameters live in this nested, {@code @ConditionalOnClass}-gated
-     * configuration (never inline in the always-active root config), so the cache types are never linked in
-     * a cache-absent application. The engine {@code CacheService} owns the neutral concerns (metric overlay,
-     * ordering, clear orchestration); the byte-identical {@code SpringCacheProvider} owns the Spring-specific
-     * topology + operation discovery.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.cache.CacheManager")
     static class CacheBackendConfiguration {
@@ -1566,9 +1204,6 @@ public class BootUiEngineConfiguration {
                 ObjectProvider<MeterRegistry> meterRegistries,
                 BootUiProperties properties,
                 BootUiSelfDataFilter selfDataFilter) {
-            // The provider reproduces the former SpringCacheService manager/cache/operation discovery
-            // byte-for-byte; the engine reads cache meters from the same registry the old service used
-            // (unique-or-first) and applies the identical self-filter predicate.
             SpringCacheProvider provider =
                     new SpringCacheProvider(beanFactoryProvider, cacheOperationSources, properties, selfDataFilter);
             return new CacheService(
@@ -1582,14 +1217,6 @@ public class BootUiEngineConfiguration {
                     selfDataFilter::shouldIncludeMeter);
         }
 
-        /**
-         * Framework-neutral cache-access recorder feeding the Live Activity panel's {@code CACHE} event
-         * type. Declared here (rather than per-adapter) so both the servlet {@code BootUiAutoConfiguration}
-         * and {@code BootUiReactiveAutoConfiguration} — which both {@code @Import} this class — share the
-         * exact same bean and decoration, since {@code CacheManager}/{@code Cache} are the same abstraction
-         * under either web stack (see {@code LiveActivityAssembler}'s class Javadoc for why Quarkus has no
-         * equivalent).
-         */
         @Bean
         CacheActivityRecorder bootUiCacheActivityRecorder(BootUiProperties properties) {
             BootUiProperties.Cache cache = properties.getCache();
@@ -1606,27 +1233,9 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Live Activity Kafka capture backend is framework-neutral (a bounded in-memory recorder plus two
-     * Spring-specific post-processors) and is needed by both servlet and reactive stacks, so it is wired
-     * here in the shared engine configuration rather than under the servlet-only auto-configuration. The
-     * recorder and two {@code BeanPostProcessor}s keep method-level
-     * {@code @ConditionalOnClass(KafkaTemplate)} guards so a Spring-Kafka-absent application neither
-     * exposes an inactive source nor links those types. The recorder feeds both the Live Activity
-     * {@code MESSAGING} entries and the dedicated Kafka panel from the same buffer (see {@code
-     * bootUiKafkaActivityRecorder}'s Javadoc for why it is gated on the Kafka panel rather than Live
-     * Activity's, mirroring {@code bootUiCacheActivityRecorder} above).
-     */
     @Configuration(proxyBeanMethods = false)
     static class KafkaBackendConfiguration {
 
-        /**
-         * Gated on the dedicated Kafka panel ({@link BootUiPanels#KAFKA}), not Live Activity's — exactly
-         * like {@code bootUiCacheActivityRecorder} above — because this single recorder now backs two
-         * consumers (Live Activity's {@code MESSAGING} entries and the Kafka panel's own report), and
-         * disabling the Kafka panel should stop the underlying capture entirely rather than merely hide
-         * it from one of the two views.
-         */
         @Bean
         @Lazy
         @ConditionalOnMissingBean
@@ -1653,30 +1262,9 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Fault Tolerance panel backend is shared by the servlet and reactive stacks, so it is wired here rather
-     * than under the servlet-only auto-configuration.
-     *
-     * <p>Every fault tolerance library binding sits behind a method-level {@code @ConditionalOnClass} guard, and
-     * {@link Resilience4jPolicyProvider} additionally defers each Resilience4j module to its own reader
-     * class, because Resilience4j ships circuit breakers, retries, rate limiters, bulkheads and time
-     * limiters as independent artifacts that applications adopt one at a time.</p>
-     *
-     * <p>The service is wired with the providers that exist; when none does, it reports the panel as
-     * unavailable instead of an empty success.</p>
-     */
     @Configuration(proxyBeanMethods = false)
     static class FaultToleranceBackendConfiguration {
 
-        /**
-         * Gated on the Fault Tolerance panel itself: disabling the panel should stop the underlying capture
-         * entirely rather than merely hide it, and the same buffer also feeds Live Activity.
-         *
-         * <p>Also gated on a supported library actually being present, using the same class-presence signal
-         * the panel catalog reports availability with. Without that gate an application with no fault tolerance
-         * library at all would still advertise {@code Fault Tolerance} as a feeding Live Activity source, which
-         * is exactly the kind of claim BootUI must not make.</p>
-         */
         @Bean
         @Lazy
         @ConditionalOnMissingBean
@@ -1694,13 +1282,6 @@ public class BootUiEngineConfiguration {
                     || ClassUtils.isPresent("org.springframework.retry.annotation.Retryable", classLoader);
         }
 
-        /**
-         * Deliberately not {@code @Lazy}: this provider subscribes BootUI's metadata-only consumers to the
-         * Resilience4j event publishers from {@code SmartInitializingSingleton}, a callback that only fires
-         * for singletons that exist at the end of refresh. A lazy bean would therefore never capture an
-         * event. Creating it eagerly resolves no application registry bean by itself — the registries are
-         * only looked up once every other singleton already exists.
-         */
         @Bean
         @ConditionalOnMissingBean
         @ConditionalOnClass(name = "io.github.resilience4j.core.Registry")
@@ -1709,15 +1290,6 @@ public class BootUiEngineConfiguration {
             return new Resilience4jPolicyProvider(beanFactory, recorder);
         }
 
-        /**
-         * The Spring Retry bindings live in their own class-level {@code @ConditionalOnClass} configuration
-         * rather than behind method-level guards on the enclosing class, because
-         * {@link BootUiRetryListener} <em>implements</em> {@code RetryListener}: merely introspecting the
-         * declared methods of a class that returns it - which Spring does for every other condition
-         * evaluated on the same class - would load that type and fail with {@code NoClassDefFoundError} in
-         * a Spring-Retry-free application. A class-level guard is evaluated from ASM metadata, so the
-         * member class is never loaded when Spring Retry is absent.
-         */
         @Configuration(proxyBeanMethods = false)
         @ConditionalOnClass(
                 name = {"org.springframework.retry.annotation.Retryable", "org.springframework.retry.RetryListener"})
@@ -1730,11 +1302,6 @@ public class BootUiEngineConfiguration {
                 return new SpringRetryPolicyProvider(beanFactory);
             }
 
-            /**
-             * Spring Retry collects every {@code RetryListener} bean, so publishing one is enough to observe
-             * retries additively. It is not {@code @ConditionalOnMissingBean}: an application that declares
-             * its own listener must keep both.
-             */
             @Bean
             BootUiRetryListener bootUiRetryListener(FaultToleranceEventRecorder recorder) {
                 return new BootUiRetryListener(recorder);
@@ -1755,16 +1322,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The JMS panel and Live Activity share two Spring-specific post-processors across the servlet
-     * and reactive stacks, so the backend lives here rather than under the servlet-only
-     * auto-configuration. The post-processors are method-level
-     * {@code @ConditionalOnClass}-guarded so a JMS-absent application never links
-     * {@code spring-jms} types.
-     *
-     * <p>JMS has its own framework-neutral recorder and settings, so its traffic cannot evict Kafka
-     * or RabbitMQ history and each transport can be configured independently.</p>
-     */
     @Configuration(proxyBeanMethods = false)
     static class JmsBackendConfiguration {
 
@@ -1794,26 +1351,9 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Live Activity RabbitMQ capture backend is framework-neutral (a bounded in-memory recorder
-     * plus two Spring-specific post-processors) and is needed by both servlet and reactive stacks,
-     * so it is wired here in the shared engine configuration rather than under the servlet-only
-     * auto-configuration. The recorder and two {@code BeanPostProcessor}s keep method-level
-     * {@code @ConditionalOnClass(RabbitTemplate)} guards so a Spring-AMQP-absent application neither
-     * exposes an inactive source nor links those types. The recorder feeds both the Live Activity
-     * {@code MESSAGING} entries and the dedicated RabbitMQ panel from the same buffer — exactly the
-     * same dual-consumer model as the Kafka backend above.
-     */
     @Configuration(proxyBeanMethods = false)
     static class RabbitBackendConfiguration {
 
-        /**
-         * Gated on the dedicated RabbitMQ panel ({@link BootUiPanels#RABBITMQ}), not Live
-         * Activity's — exactly like {@code bootUiKafkaActivityRecorder} above — because this
-         * single recorder now backs two consumers (Live Activity's {@code MESSAGING} entries and the
-         * RabbitMQ panel's own report), and disabling the RabbitMQ panel should stop the underlying
-         * capture entirely rather than merely hide it from one of the two views.
-         */
         @Bean
         @Lazy
         @ConditionalOnMissingBean
@@ -1843,14 +1383,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The WebSockets panel's framework-neutral backend: the settings record and the bounded activity
-     * recorder. Both are stack-agnostic and are shared by the servlet and reactive auto-configurations,
-     * which contribute their own metadata providers and {@code WebSocketService} on top.
-     *
-     * <p>The recorder has its own independent buffer, so WebSocket traffic can neither evict another
-     * panel's history nor be evicted by it.</p>
-     */
     @Configuration(proxyBeanMethods = false)
     static class WebSocketBackendConfiguration {
 
@@ -1876,11 +1408,6 @@ public class BootUiEngineConfiguration {
             return new WebSocketActivityRecorder(settings);
         }
 
-        /**
-         * Bridges the framework-neutral {@link WebSocketActivityRecorder} (implements {@code
-         * spi.IdleReclaimable}) to BootUI's Spring idle-reclaim mechanism, so an idle console releases the
-         * retained frame metadata exactly like every other capture buffer.
-         */
         @Bean
         @Lazy
         IdleReclaimable bootUiWebSocketRecorderIdleReclaimable(WebSocketActivityRecorder recorder) {
@@ -1898,14 +1425,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Spring Flyway panel backend is only wired when the Flyway {@link Flyway} type is on the classpath.
-     * The Flyway-specific wiring lives in this nested, {@code @ConditionalOnClass}-gated configuration (never
-     * inline in the always-active root config), so the Flyway types are never linked in a Flyway-absent
-     * application. The engine {@code FlywayService} owns the neutral concerns (counting, sorting, totals,
-     * action orchestration); the byte-identical {@code SpringFlywayProvider} owns the Spring-specific bean
-     * discovery, the {@code migrate}/{@code clean} primitives and the Spring-Modulith module-aware behaviour.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(Flyway.class)
     static class FlywayBackendConfiguration {
@@ -1918,15 +1437,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Liquibase panel backend is only wired when the {@code liquibase.integration.spring.SpringLiquibase}
-     * type is on the classpath. The Liquibase-specific parameters live in this nested,
-     * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so the
-     * {@code liquibase.*} types are never linked in a Liquibase-absent application. The engine
-     * {@code LiquibaseService} owns the neutral concerns (change-set assembly, ordering, update
-     * orchestration); the byte-identical {@code SpringLiquibaseProvider} owns the Spring-specific discovery,
-     * change-history reading and the update primitive.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "liquibase.integration.spring.SpringLiquibase")
     static class LiquibaseBackendConfiguration {
@@ -1939,14 +1449,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Database Connection Pools panel backend is only wired when HikariCP is on the classpath. The
-     * Hikari-typed discovery lives in {@link SpringConnectionPoolProvider}, constructed only in this nested,
-     * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so the
-     * {@code com.zaxxer.hikari} types are never linked in a pool-absent application. The engine
-     * {@code ConnectionPoolService} owns the neutral concerns (URL/username masking, sorting, assembly), so the
-     * panel's wire output is unchanged after the extraction.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "com.zaxxer.hikari.HikariDataSource")
     static class ConnectionPoolsBackendConfiguration {
@@ -1967,32 +1469,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * The Live Activity JDBC persistence option is opt-in but its beans are now unconditional (not
-     * behind {@code @ConditionalOnProperty}): with {@code bootui.activity.persistence.enabled} unset or
-     * {@code false}, {@link #bootUiActivityStore} still returns a real bean — a {@link
-     * SwitchableActivityStore} wrapping a bare {@link io.github.jdubois.bootui.engine.activity.InMemoryActivityStore}
-     * — so {@code LiveActivityController} can always inject it directly (no more {@code ObjectProvider})
-     * and later hot-switch it to durable persistence via the "Use the existing datasource" panel action
-     * (see {@code ActivitySwitchService}) without a restart. No background thread, connection, or extra
-     * bean beyond the in-memory store itself is created until persistence is actually enabled — at
-     * startup via configuration, or later via that runtime switch.
-     *
-     * <p>{@link ActivityPersistenceSettings} is exposed as its own small {@code @Bean} (not inlined into
-     * the {@link SwitchableActivityStore} bean method, unlike e.g. {@code HeapDumpSettings}) because two
-     * independent consumers need to agree on the exact same resolved settings — in particular the same
-     * resolved {@code instanceId} — to stay correctly partitioned: the store bean bakes it into the
-     * durable store's own query/prune scope, and {@code LiveActivityController} stamps it onto every entry
-     * its capture coordinator captures. A shared singleton bean is the simplest way to guarantee both see
-     * one, consistently resolved value (in particular, a generated instance id must be computed exactly
-     * once per process, not independently by each consumer).</p>
-     *
-     * <p>The {@link SwitchableActivityStore} bean is not explicitly closed anywhere in this
-     * configuration: it exposes a public no-arg {@code close()} that Spring's default
-     * inferred-destroy-method behavior detects and invokes automatically when the context shuts down,
-     * delegating to whatever the current delegate is — a durable store's flush/prune scheduler is
-     * stopped exactly the same way whether persistence was enabled from startup or switched on later.</p>
-     */
     @Configuration(proxyBeanMethods = false)
     static class ActivityPersistenceBackendConfiguration {
 
@@ -2032,15 +1508,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /**
-     * Resolves the shared {@code DataSource} to reuse for Live Activity persistence, mirroring {@link
-     * #resolveRegistry}: a host application may legitimately have more than one {@code DataSource} bean
-     * (for example a primary + an audit datasource), so {@code getIfAvailable()} throwing {@link
-     * NoUniqueBeanDefinitionException} falls back to the first one from {@code orderedStream()} rather
-     * than propagating and failing BootUI's own startup. Public (unlike the package-private
-     * {@link #resolveRegistry}) since {@code LiveActivityController} also calls this directly to resolve
-     * {@code dataSourceAvailable} and to feed the "Use the existing datasource" switch action.
-     */
     public static DataSource resolveActivityDataSource(ObjectProvider<DataSource> dataSourceProvider) {
         try {
             return dataSourceProvider.getIfAvailable();
@@ -2049,7 +1516,6 @@ public class BootUiEngineConfiguration {
         }
     }
 
-    /** The request stack actually serving this context, not merely the web classes present on the classpath. */
     static RestApiScanner.SpringWebStack springWebStack(ApplicationContext applicationContext) {
         if (applicationContext instanceof ReactiveWebApplicationContext) {
             return RestApiScanner.SpringWebStack.REACTIVE;
@@ -2085,5 +1551,147 @@ public class BootUiEngineConfiguration {
     private static boolean hasTextProperty(Environment environment, String name) {
         String value = environment.getProperty(name);
         return value != null && !value.isBlank();
+    }
+}
+
+final class BootUiInstanceLeaseLifecycle implements ApplicationListener<ApplicationEvent>, DisposableBean {
+
+    private final RunIdentity run;
+    private final BootUiProperties properties;
+    private final ApplicationContext context;
+    private final boolean startedInTest;
+    private volatile Path leaseFile;
+
+    BootUiInstanceLeaseLifecycle(RunIdentity run, BootUiProperties properties, ApplicationContext context) {
+        this(run, properties, context, BootUiAgentClaimEnvironmentPostProcessor.startedByTestFramework());
+    }
+
+    BootUiInstanceLeaseLifecycle(
+            RunIdentity run, BootUiProperties properties, ApplicationContext context, boolean startedInTest) {
+        this.run = Objects.requireNonNull(run, "run");
+        this.properties = Objects.requireNonNull(properties, "properties");
+        this.context = Objects.requireNonNull(context, "context");
+        this.startedInTest = startedInTest;
+    }
+
+    @Override
+    public void onApplicationEvent(ApplicationEvent event) {
+        if (event instanceof WebServerInitializedEvent webEvent) {
+            if (webEvent.getApplicationContext() == context && webEvent.getWebServer() != null) {
+                int port = webEvent.getWebServer().getPort();
+                if (port > 0) {
+                    registerIfEligible(port);
+                }
+            }
+        } else if (event instanceof ApplicationReadyEvent readyEvent) {
+            if (readyEvent.getApplicationContext() == context && leaseFile == null) {
+                registerIfEligible(null);
+            }
+        } else if (event instanceof ContextClosedEvent closedEvent) {
+            if (closedEvent.getApplicationContext() == context) {
+                destroy();
+            }
+        }
+    }
+
+    synchronized Path registerIfEligible(Integer boundPort) {
+        if (!properties.getCli().isEnabled()) {
+            return null;
+        }
+        Environment environment = context.getEnvironment();
+        if (!isDiscoveryEnabled(environment)) {
+            return null;
+        }
+        int port = resolvePort(environment, boundPort);
+        if (port <= 0 || port > 65535) {
+            return null;
+        }
+        boolean sslEnabled = isSslEnabled(environment);
+        String baseUrl = (sslEnabled ? "https" : "http") + "://localhost:" + port;
+        String apiPath = resolveEffectiveApiPath(environment);
+        String appName = environment.getProperty("spring.application.name", "application");
+        CliService.deleteInstanceLease(this.leaseFile);
+        this.leaseFile = CliService.writeInstanceLease(
+                run, appName, "Spring Boot", baseUrl, apiPath, resolveConfiguredDir(environment));
+        return this.leaseFile;
+    }
+
+    boolean isDiscoveryEnabled(Environment environment) {
+        if (environment != null) {
+            String raw = environment.getProperty("bootui.cli.instance-discovery.enabled");
+            if (raw != null && !raw.isBlank()) {
+                return Boolean.parseBoolean(raw.trim());
+            }
+        }
+        return !startedInTest && !BootUiAgentClaimEnvironmentPostProcessor.startedByTestFramework();
+    }
+
+    String resolveEffectiveApiPath(Environment environment) {
+        if (context instanceof ReactiveWebApplicationContext) {
+            String basePath = environment == null ? "" : environment.getProperty("spring.webflux.base-path", "");
+            return CliService.composeApiPath(properties.getApiPath(), basePath);
+        }
+        String contextPath = environment == null ? "" : environment.getProperty("server.servlet.context-path", "");
+        String servletPath = environment == null ? "" : environment.getProperty("spring.mvc.servlet.path", "");
+        return CliService.composeApiPath(properties.getApiPath(), contextPath, servletPath);
+    }
+
+    private String resolveConfiguredDir(Environment environment) {
+        String configured = properties.getCli().getInstancesDir();
+        if ((configured == null || configured.isBlank()) && environment != null) {
+            configured = environment.getProperty(
+                    "bootui.cli.instances-dir", environment.getProperty("bootui.cli.instance-discovery.instances-dir"));
+        }
+        return configured;
+    }
+
+    private static boolean isSslEnabled(Environment environment) {
+        if (environment == null) {
+            return false;
+        }
+        Boolean explicit = environment.getProperty("server.ssl.enabled", Boolean.class);
+        if (explicit != null) {
+            return explicit;
+        }
+        return isNonBlank(environment.getProperty("server.ssl.bundle"))
+                || isNonBlank(environment.getProperty("server.ssl.key-store"))
+                || isNonBlank(environment.getProperty("server.ssl.certificate"))
+                || "PKCS11"
+                        .equalsIgnoreCase(environment
+                                .getProperty("server.ssl.key-store-type", "")
+                                .trim());
+    }
+
+    private static boolean isNonBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static int resolvePort(Environment environment, Integer boundPort) {
+        if (boundPort != null && boundPort > 0) {
+            return boundPort;
+        }
+        if (environment == null) {
+            return -1;
+        }
+        String raw = environment.getProperty("local.server.port");
+        if (raw == null || raw.isBlank()) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException invalid) {
+            return -1;
+        }
+    }
+
+    Path leaseFile() {
+        return leaseFile;
+    }
+
+    @Override
+    public synchronized void destroy() {
+        Path current = this.leaseFile;
+        this.leaseFile = null;
+        CliService.deleteInstanceLease(current);
     }
 }

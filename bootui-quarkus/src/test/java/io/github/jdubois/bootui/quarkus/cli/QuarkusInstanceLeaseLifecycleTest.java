@@ -1,9 +1,10 @@
-package io.github.jdubois.bootui.quarkus;
+package io.github.jdubois.bootui.quarkus.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
-import io.github.jdubois.bootui.quarkus.cli.QuarkusInstanceLeaseLifecycle;
+import io.github.jdubois.bootui.quarkus.QuarkusApplicationInfo;
+import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.quarkus.runtime.LaunchMode;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -35,13 +36,13 @@ class QuarkusInstanceLeaseLifecycleTest {
             }
         };
         QuarkusApplicationInfo appInfo = new QuarkusApplicationInfo(empty);
-        QuarkusInstanceLeaseLifecycle lifecycle = new QuarkusInstanceLeaseLifecycle(empty, portSupplier, appInfo);
+        BootUiCliProducer producer = new BootUiCliProducer(empty, portSupplier, appInfo);
 
-        assertThat(lifecycle.registerIfEligible(LaunchMode.TEST)).isNull();
-        assertThat(lifecycle.registerIfEligible(LaunchMode.NORMAL)).isNull();
-        Path devLease = lifecycle.registerIfEligible(LaunchMode.DEVELOPMENT);
+        assertThat(producer.registerLeaseIfEligible(LaunchMode.TEST)).isNull();
+        assertThat(producer.registerLeaseIfEligible(LaunchMode.NORMAL)).isNull();
+        Path devLease = producer.registerLeaseIfEligible(LaunchMode.DEVELOPMENT);
         assertThat(devLease).isNotNull().exists();
-        lifecycle.close();
+        producer.closeLease();
         assertThat(devLease).doesNotExist();
     }
 
@@ -67,9 +68,9 @@ class QuarkusInstanceLeaseLifecycleTest {
             }
         };
         QuarkusApplicationInfo appInfo = new QuarkusApplicationInfo(cfg);
-        QuarkusInstanceLeaseLifecycle lifecycle = new QuarkusInstanceLeaseLifecycle(cfg, portSupplier, appInfo);
+        BootUiCliProducer producer = new BootUiCliProducer(cfg, portSupplier, appInfo);
 
-        Path written = lifecycle.registerIfEligible(LaunchMode.TEST);
+        Path written = producer.registerLeaseIfEligible(LaunchMode.TEST);
         assertThat(written).isNotNull().exists();
         String json = Files.readString(written);
         assertThat(json)
@@ -80,7 +81,7 @@ class QuarkusInstanceLeaseLifecycleTest {
                 .contains("\"baseUrl\": \"http://localhost:18090\"")
                 .contains("\"apiPath\": \"/api-root/console/api\"");
 
-        lifecycle.close();
+        producer.closeLease();
         assertThat(written).doesNotExist();
     }
 }

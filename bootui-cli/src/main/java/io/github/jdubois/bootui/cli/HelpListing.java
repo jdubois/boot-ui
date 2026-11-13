@@ -3,17 +3,8 @@ package io.github.jdubois.bootui.cli;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The command listing {@code bootui --help} and every group's {@code --help} print: each command with its arguments,
- * what it returns, where its id comes from, and one example, so a reader, human or agent, needs one help call rather
- * than one per level ({@code docs/PLAN-v2.md} M4-21).
- *
- * <p>Plain text, never ANSI: it is read through pipes at least as often as on a terminal. Command lines are never
- * wrapped, so each pastes as one command; only descriptions wrap.
- */
 final class HelpListing {
 
-    /** Summaries longer than this are cut at a word in the listing; each command's own help keeps them whole. */
     static final int SUMMARY_LIMIT = 110;
 
     private static final String INDENT = "  ";
@@ -76,12 +67,10 @@ final class HelpListing {
         return out.toString();
     }
 
-    /** {@code text} safe to hand to picocli as a description or footer, which it formats with {@code %} specifiers. */
     static String literal(String text) {
         return text.replace("%", "%%");
     }
 
-    /** The summary, cut at the last word before {@link #SUMMARY_LIMIT} characters when longer. */
     static String shorten(String summary) {
         if (summary.length() <= SUMMARY_LIMIT) {
             return summary;

@@ -4,8 +4,6 @@ import io.github.jdubois.bootui.client.BootUiCatalog;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientException;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
-import io.github.jdubois.bootui.client.BootUiInstance;
-import io.github.jdubois.bootui.client.BootUiInstances;
 import io.github.jdubois.bootui.client.JsonParseException;
 import io.github.jdubois.bootui.client.JsonValue;
 import io.github.jdubois.bootui.client.JsonWriter;
@@ -19,13 +17,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 
-/**
- * Everything a command needs to do its work: where the application is, where to write, and how to turn an
- * answer into an exit code.
- *
- * <p>The client is created per invocation rather than held, because the global options are only fully known
- * once parsing has finished — {@code bootui beans --url …} sets them after the command has been selected.
- */
 final class CliContext {
 
     private static final String UNKNOWN_MCP_OUTCOME =
@@ -91,14 +82,6 @@ final class CliContext {
         return terminal;
     }
 
-    /**
-     * Opens a client, runs one call against it, and reports {@link BootUiClientException} the same way every
-     * command does.
-     *
-     * <p>Every command below did this by hand — open the client in a try-with-resources, run its own request,
-     * catch the same exception, call the same {@link #fail}. Centralising it here means a command is only
-     * ever the request that is actually distinct about it.
-     */
     private int withClient(Function<BootUiClient, Integer> action) {
         try (BootUiClient client = newClient()) {
             return action.apply(client);
@@ -112,14 +95,14 @@ final class CliContext {
             if (options.hasExplicitUrl() || options.hasExplicitApiPath()) {
                 throw new BootUiClientException("Choose --app or --url/--api-path, not both.");
             }
-            BootUiInstance instance = resolveTargetInstance();
+            BootUiInstances.Instance instance = resolveTargetInstance();
             return directClientFactory.apply(new BootUiClientOptions(
                     instance.baseUrl(), instance.apiPath(), options.resolvedToken(environment), options.timeout()));
         }
         return clientFactory.apply(options.toClientOptions(environment));
     }
 
-    BootUiInstance resolveTargetInstance() {
+    BootUiInstances.Instance resolveTargetInstance() {
         return BootUiInstances.resolve(
                 BootUiInstances.resolveInstancesDir(environment),
                 options.app(),
@@ -127,14 +110,15 @@ final class CliContext {
                 directClientFactory);
     }
 
-    /** Lists running local BootUI instances discovered in {@code ~/.bootui/instances/}. */
     int listInstances() {
-        List<BootUiInstance> instances = BootUiInstances.list(BootUiInstances.resolveInstancesDir(environment));
+        List<BootUiInstances.Instance> instances =
+                BootUiInstances.list(BootUiInstances.resolveInstancesDir(environment));
         Map<String, JsonValue> payload = new LinkedHashMap<>();
         payload.put(
                 "instances",
-                JsonValue.array(
-                        instances.stream().map(BootUiInstance::toJsonValue).toList()));
+                JsonValue.array(instances.stream()
+                        .map(BootUiInstances.Instance::toJsonValue)
+                        .toList()));
         JsonValue document = JsonValue.object(payload);
         if (options.json(terminal)) {
             out.println(document.toJson());
@@ -150,12 +134,6 @@ final class CliContext {
         return ExitCodes.SUCCESS;
     }
 
-    /**
-     * Calls one tool and reports it; with {@code failOn} the answer is also held against an evidence gate.
-     *
-     * <p>The gate is CLI-only, and the tool's answer is printed verbatim before it is read. An insufficient-evidence
-     * gate on the Runtime Insights list requests every observation kind when no query was supplied.
-     */
     int invokeTool(
             ToolManifest.Tool tool,
             String query,
@@ -207,20 +185,6 @@ final class CliContext {
         });
     }
 
-    /**
-     * Checks that BootUI really is what refused, before we report a refusal.
-     *
-     * <p>{@code 403} and {@code 404} are the two statuses whose meaning here presupposes BootUI answered:
-     * one becomes "the panel is disabled" and the other "no such command". But anything can return them —
-     * Spring Security answers {@code 403} to a POST at an unknown path, so a typo in {@code --api-path},
-     * or a {@code --url} pointing at some other application, would otherwise be reported as BootUI
-     * declining by policy, and exit {@code 2}. A CI gate reads that as "skip", so a misconfigured target
-     * would quietly pass instead of failing.
-     *
-     * <p>HTTP 503 also needs the catalog: only a disabled endpoint is a policy refusal, while an outage
-     * remains a failed request even when the target is BootUI. The catalog is validated before its enabled
-     * state is trusted. This costs a request only on a path that has failed.
-     */
     private ToolOutcome confirmBootUiAnswered(BootUiClient client, ToolResult result) {
         ToolOutcome outcome = result.outcome();
         if (outcome != ToolOutcome.REFUSED_BY_POLICY && outcome != ToolOutcome.UNKNOWN_TOOL && result.status() != 503) {
@@ -237,7 +201,6 @@ final class CliContext {
         }
     }
 
-    /** Prints what the target instance advertises, which is the authority over the bundled manifest. */
     int listTools() {
         return withClient(client -> {
             JsonValue document = client.get(CliPaths.CLI);
@@ -271,17 +234,10 @@ final class CliContext {
         });
     }
 
-    /** Reads the MCP Server panel. */
     int mcpStatus() {
         return withClient(client -> emitMcpStatus(client.get(CliPaths.MCP_SERVER), false));
     }
 
-    /**
-     * Flips the live MCP server state.
-     *
-     * <p>This is a panel action, so it is refused when the {@code mcp-server} panel is disabled or read-only —
-     * the CLI does not get a privileged path to it.
-     */
     int mcpToggle(boolean enabled) {
         return withClient(client -> {
             JsonValue status;
@@ -298,7 +254,6 @@ final class CliContext {
     }
 
     private int emitMcpStatus(JsonValue status, boolean action) {
-        // Recognize the stable report envelope, not a particular state or the counters newer servers add.
         JsonValue tools = status.get("tools");
         boolean valid = status.isObject()
                 && "bootui".equals(status.get("serverName").asString(null))
@@ -331,8 +286,6 @@ final class CliContext {
 
     private void emit(JsonValue payload, String rawBody) {
         if (options.json(terminal)) {
-            // Verbatim when we have it: the server's bytes are the contract-stable form, and re-emitting a
-            // parsed tree would quietly normalize number formats and key order.
             out.println(rawBody == null || rawBody.isBlank() ? JsonWriter.pretty(payload) : rawBody);
         } else {
             out.println(new TextRenderer(options.color(terminal, environment)).render(payload));
@@ -349,12 +302,6 @@ final class CliContext {
         return ExitCodes.ERROR;
     }
 
-    /**
-     * The message for a call BootUI would not run.
-     *
-     * <p>A tool missing from one stack is the failure most likely to look like a bug, so it says which stacks
-     * do advertise it rather than leaving the reader to guess.
-     */
     private String describe(BootUiClient client, ToolManifest.Tool tool, ToolOutcome outcome, String message) {
         return switch (outcome) {
             case UNKNOWN_TOOL ->
@@ -372,25 +319,12 @@ final class CliContext {
     }
 
     private static int exitCodeFor(ToolOutcome outcome) {
-        // A refusal is a statement about how the target is configured, not a failed request, so a script can
-        // tell "BootUI said no" apart from "the call did not work".
         return switch (outcome) {
             case REFUSED_BY_POLICY, ENDPOINT_DISABLED -> ExitCodes.REFUSED;
             default -> ExitCodes.ERROR;
         };
     }
 
-    /**
-     * Why the target does not advertise a tool the CLI knows about.
-     *
-     * <p>The honest answer is usually the panel's own: BootUI does not advertise a tool whose panel is
-     * unavailable, and the panel already says why — "No KafkaTemplate bean is available" is the answer, and
-     * blaming the BootUI version instead would send the reader to check something that is not wrong. So the
-     * running application is asked first, and the two guesses are the fallback rather than the answer.
-     *
-     * <p>A hint is a courtesy on a path that has already failed, so a panel lookup that does not work is
-     * simply skipped: it must never replace the real failure with one about fetching the hint.
-     */
     private String unknownToolHint(BootUiClient client, ToolManifest.Tool tool) {
         try {
             JsonValue document = client.get(CliPaths.PANELS);
@@ -408,7 +342,6 @@ final class CliContext {
                         : " Its '" + tool.panel() + "' panel is not available in this application: " + reason;
             }
         } catch (RuntimeException ignored) {
-            // Fall through to the static hints below.
         }
         return tool.onEveryStack()
                 ? " The application may be running an older BootUI version."
@@ -419,7 +352,6 @@ final class CliContext {
                         + " advertise it.";
     }
 
-    /** The BootUI API paths the CLI talks to that are not tool calls. */
     static final class CliPaths {
 
         static final String CLI = "/cli";

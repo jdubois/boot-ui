@@ -173,6 +173,10 @@ class InitCommandTests {
         CliResult blankApp = run("init", "--vscode", "--app", "");
         assertThat(blankApp.exitCode).isEqualTo(ExitCodes.ERROR);
         assertThat(blankApp.err).contains("--app must not be blank.");
+
+        CliResult invalidApiPath = run("init", "--claude", "--api-path", "/bootui/api --injected");
+        assertThat(invalidApiPath.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(invalidApiPath.err).contains("Invalid --api-path");
     }
 
     private CliResult run(String... args) {
