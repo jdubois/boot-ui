@@ -38,6 +38,25 @@ and the coverage limitations. A rule evaluation failure is identified separately
 neither exposes exception messages or raw settings. Independently observed findings survive incomplete registration or
 provider coverage.
 
+::: details Discovery efficiency (unreleased)
+
+Repeated bean types share application-type inspection, and async discovery reuses inspected types and methods within
+one scan. Once default async executor applicability is established, it does not inspect unrelated declarations.
+Bean, member, and hierarchy limits remain enforced; genuine member-budget exhaustion is reported explicitly.
+Incomplete coverage still cannot pass a required CI assessment, even with no HIGH findings. Read
+`bootui spring report --json` for the cached coverage limitations; this command does not rescan.
+
+Scheduling recognizes the exact, initialized, unadvised Spring Modulith 2.1.2 staleness-monitor configurer: its
+verified implementation only adds registrations, never changes scheduler routing. Other versions remain unknown
+until verified. An enabled monitor contributing an unsupported runnable still leaves coverage incomplete.
+
+The HTTP timeout rule neutrally skips confirmed absence of managed client/builder/service-group targets in a
+complete root inventory. It does not claim that programmatic HTTP clients cannot exist, and the skip adds no
+completion or usability credit. Parent contexts, opaque products, custom targets, linkage failures, and incomplete
+discovery remain unknown.
+
+:::
+
 ### The same ruleset on MVC and WebFlux
 
 Servlet OSIV and servlet multipart guidance are inapplicable on WebFlux, and the two
@@ -225,7 +244,7 @@ findings from the score.
 ### SPRING-PERF-005 - Review single-thread scheduler overlap
 
 - **Severity**: INFO
-- **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. Native task outcome wrappers, Boot's scheduling-observation configurer and BootUI's observation-only configurer do not obscure that evidence. Application tasks are not excluded by a BootUI-like package name. For multiple tasks, the registrar's already-selected scheduler instance must agree with observable candidate selection before its native pool is read; no lazy scheduler supplier is invoked. Fewer than two registered tasks need no pool-size observation. Exact `SimpleAsyncTaskScheduler` selection is inapplicable to this pool check, not a missing thread-pool size. `@EnableScheduling` or an absent pool-size property alone does not establish selection; ambiguous/unobservable schedulers, qualifiers and custom configurers remain unknown.
+- **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. Native task outcome wrappers, Boot's scheduling-observation configurer, BootUI's observation-only configurer, and the verified Modulith integration above do not obscure that evidence. Application tasks are not excluded by a BootUI-like package name. For multiple tasks, the registrar's already-selected scheduler instance must agree with observable candidate selection before its native pool is read; no lazy scheduler supplier is invoked. Fewer than two registered tasks need no pool-size observation. Exact `SimpleAsyncTaskScheduler` selection is inapplicable to this pool check, not a missing thread-pool size. `@EnableScheduling` or an absent pool-size property alone does not establish selection; ambiguous/unobservable schedulers, qualifiers, arbitrary or advised configurers, and unsupported task shapes remain unknown.
 - **Recommendation**: Review whether tasks need to overlap and how delays affect other tasks. Deliberate serialization can be correct. Virtual threads do not universally solve fixed-delay scheduling, and changing fixed-delay to fixed-rate changes semantics.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -285,7 +304,7 @@ findings from the score.
 ### SPRING-WEB-005 - Review Boot HTTP client timeout policy
 
 - **Severity**: INFO
-- **Detects**: Identifiable Boot-managed client configuration has an incomplete timeout policy at the global/default or relevant named-service group level. A configured group does not cover unrelated clients. Programmatic client settings and provider defaults can still supply timeouts; custom-only or unattributable clients are not labeled unconfigured.
+- **Detects**: Identifiable Boot-managed client configuration has an incomplete timeout policy at the global/default or relevant named-service group level. A configured group does not cover unrelated clients. Programmatic client settings and provider defaults can still supply timeouts; custom-only or unattributable clients are not labeled unconfigured and remain unknown. Confirmed absence of managed client, builder, and service-group targets in a complete root inventory is inapplicable, not missing evidence.
 - **Recommendation**: Check effective per-client connect/read/deadline behavior against dependency budgets, using `spring.http.clients.*`, relevant `spring.http.serviceclient.<name>.*` settings or deliberate code customization. No universal timeout value or infinite-wait claim is inferred.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/rest-client.html>
 

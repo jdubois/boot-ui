@@ -65,6 +65,14 @@ final class SpringInventory {
     static final String PROPERTIES_MIGRATOR_LISTENER =
             "org.springframework.boot.context.properties.migrator.PropertiesMigrationListener";
     private static final String DISPATCHER_REGISTRATION = "dispatcherServletRegistration";
+    private static final String MODULITH_STALENESS_CONFIGURER =
+            "org.springframework.modulith.events.config.StalenessMonitorConfiguration";
+    private static final Set<Class<?>> NATIVE_TASK_TYPES = Set.of(
+            org.springframework.scheduling.config.CronTask.class,
+            org.springframework.scheduling.config.FixedDelayTask.class,
+            org.springframework.scheduling.config.FixedRateTask.class,
+            org.springframework.scheduling.config.OneTimeTask.class,
+            org.springframework.scheduling.config.TriggerTask.class);
     private static final Set<String> BOOTUI_WEBFLUX_CONFIGURERS = Set.of(
             "io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer",
             "io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer");
@@ -90,7 +98,13 @@ final class SpringInventory {
     private final List<Entry> entries = new ArrayList<>();
     private final Map<Fact, Object> facts = new EnumMap<>(Fact.class);
     private final Set<String> incomplete = new LinkedHashSet<>();
+    private final Set<Class<?>> asyncTypes = new HashSet<>();
+    private final Set<Class<?>> asyncOwners = new HashSet<>();
+    private final Set<Method> asyncMethods = new HashSet<>();
+    private final Map<Class<?>, Set<String>> boundFactoryMethods = new LinkedHashMap<>();
+    private final Set<Class<?>> unreadableFactoryOwners = new HashSet<>();
     private int members;
+    private boolean memberLimitReached;
     private boolean complete = true;
 
     private SpringInventory(ConfigurableListableBeanFactory factory) {
@@ -335,19 +349,27 @@ final class SpringInventory {
 
     private int inspectApplicationTypes(List<String> packages, List<String> mutable) {
         int handlers = 0;
+        Map<Class<?>, List<Entry>> types = new LinkedHashMap<>();
         for (Entry entry : entries) {
-            if (members >= MAX_TOTAL_MEMBERS) {
-                partial();
+            Class<?> type = entry.type();
+            if (entry.application()
+                    && !type.getName().startsWith("io.github.jdubois.bootui.autoconfigure.")
+                    && !type.getName().startsWith("org.springframework.")
+                    && !type.isInterface()) {
+                types.computeIfAbsent(type, ignored -> new ArrayList<>()).add(entry);
+            }
+        }
+        for (var group : types.entrySet()) {
+            if (memberLimitReached || members >= MAX_TOTAL_MEMBERS) {
+                memberLimit();
                 break;
             }
-            Class<?> type = entry.type();
-            if (!entry.application()
-                    || type.getName().startsWith("io.github.jdubois.bootui.autoconfigure.")
-                    || type.getName().startsWith("org.springframework.")
-                    || type.isInterface()) continue;
+            Class<?> type = group.getKey();
             if (type.getPackageName().isEmpty()) {
-                if (packages.size() < 50) packages.add(entry.name());
-                else partial();
+                for (Entry entry : group.getValue()) {
+                    if (packages.size() < 50) packages.add(entry.name());
+                    else partial();
+                }
             }
             try {
                 boolean controller = AnnotatedElementUtils.hasAnnotation(type, Controller.class);
@@ -358,11 +380,14 @@ final class SpringInventory {
                         if (handlers < 50
                                 && AnnotatedElementUtils.hasAnnotation(method, RequestMapping.class)
                                 && Set.of("reactor.core.publisher.Mono", "reactor.core.publisher.Flux")
-                                        .contains(method.getReturnType().getName())) handlers++;
+                                        .contains(method.getReturnType().getName()))
+                            handlers = Math.min(50, handlers + group.getValue().size());
                     }
-                if (!entry.singleton() || entry.configurationProperties() || boundFactoryMethod(entry)) continue;
+                if (group.getValue().stream().noneMatch(entry -> entry.singleton() && !entry.configurationProperties()))
+                    continue;
                 Field[] fields = type.getFields(); // includes inherited public fields
                 if (!budget(fields.length)) continue;
+                int singletons = -1;
                 for (Field field : fields) {
                     int flags = field.getModifiers();
                     if (mutable.size() >= 50) {
@@ -377,7 +402,24 @@ final class SpringInventory {
                     boolean injection = Arrays.stream(field.getAnnotations())
                             .anyMatch(annotation -> INJECTED.contains(
                                     annotation.annotationType().getName()));
-                    if (!injection) mutable.add(SpringRuleSupport.detail(type.getName() + "#" + field.getName()));
+                    if (!injection) {
+                        if (singletons < 0) {
+                            singletons = 0;
+                            for (Entry entry : group.getValue()) {
+                                if (entry.singleton() && !entry.configurationProperties() && !boundFactoryMethod(entry))
+                                    singletons++;
+                                if (memberLimitReached) break;
+                            }
+                        }
+                        if (memberLimitReached) break;
+                        for (int i = 0; i < singletons; i++) {
+                            if (mutable.size() >= 50) {
+                                partial();
+                                break;
+                            }
+                            mutable.add(SpringRuleSupport.detail(type.getName() + "#" + field.getName()));
+                        }
+                    }
                 }
             } catch (RuntimeException | LinkageError ex) {
                 partial();
@@ -390,16 +432,26 @@ final class SpringInventory {
         if (entry.factory() == null || entry.method() == null) return false;
         Class<?> owner = present(entry.factory());
         if (owner == null) return false;
-        Method[] methods = owner.getDeclaredMethods();
-        if (!budget(methods.length)) return true;
-        for (Method method : methods)
-            if (method.getName().equals(entry.method())
-                    && Arrays.stream(method.getAnnotations())
-                            .anyMatch(a -> a.annotationType()
-                                    .getName()
-                                    .equals("org.springframework.boot.context.properties.ConfigurationProperties")))
+        Set<String> names = boundFactoryMethods.get(owner);
+        if (names == null) {
+            if (memberLimitReached || unreadableFactoryOwners.contains(owner)) return true;
+            Method[] methods = owner.getDeclaredMethods();
+            if (!budget(methods.length)) {
+                unreadableFactoryOwners.add(owner);
                 return true;
-        return false;
+            }
+            names = new HashSet<>();
+            for (Method method : methods) {
+                if (Arrays.stream(method.getAnnotations())
+                        .anyMatch(a -> a.annotationType()
+                                .getName()
+                                .equals("org.springframework.boot.context.properties.ConfigurationProperties"))) {
+                    names.add(method.getName());
+                }
+            }
+            boundFactoryMethods.put(owner, names);
+        }
+        return names.contains(entry.method());
     }
 
     private void observeAsync(boolean enabled) {
@@ -507,17 +559,19 @@ final class SpringInventory {
         boolean[] flags = new boolean[2]; // [0] = hasUnqualifiedAsync, [1] = hasQualifiedAsync
         for (Entry entry : entries) {
             if (members >= MAX_TOTAL_MEMBERS) {
-                partial();
+                memberLimit();
                 return false;
             }
             if (!entry.application()) continue;
             if (!inspectAsyncType(entry.type(), flags)) return false;
+            if (flags[0]) return true;
             if (java.lang.reflect.Proxy.isProxyClass(entry.type())) {
                 Class<?> targetType = resolveProxyTargetType(entry.name());
                 if (targetType != null
                         && targetType != entry.type()
                         && !java.lang.reflect.Proxy.isProxyClass(targetType)) {
                     if (!inspectAsyncType(targetType, flags)) return false;
+                    if (flags[0]) return true;
                 }
             }
         }
@@ -529,14 +583,16 @@ final class SpringInventory {
     }
 
     private boolean inspectAsyncType(Class<?> type, boolean[] flags) {
+        if (!asyncTypes.add(type)) return true;
         try {
             Async typeAsync = AnnotatedElementUtils.findMergedAnnotation(type, Async.class);
             if (typeAsync != null) recordAsyncQualifier(typeAsync.value(), flags);
+            if (flags[0]) return true;
             Method[] methods = type.getMethods();
-            if (!budget(methods.length)) return false;
+            if (!memberArray(methods.length)) return false;
             for (Method method : methods) {
-                Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
-                if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+                if (!inspectAsyncMethod(method, flags)) return false;
+                if (flags[0]) return true;
             }
             Class<?> owner = type;
             int depth = 0;
@@ -545,12 +601,14 @@ final class SpringInventory {
                     partial();
                     return false;
                 }
-                Method[] declared = owner.getDeclaredMethods();
-                if (!budget(declared.length)) return false;
-                for (Method method : declared) {
-                    if (Modifier.isPublic(method.getModifiers())) continue;
-                    Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
-                    if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+                if (asyncOwners.add(owner)) {
+                    Method[] declared = owner.getDeclaredMethods();
+                    if (!memberArray(declared.length)) return false;
+                    for (Method method : declared) {
+                        if (Modifier.isPublic(method.getModifiers())) continue;
+                        if (!inspectAsyncMethod(method, flags)) return false;
+                        if (flags[0]) return true;
+                    }
                 }
                 owner = owner.getSuperclass();
             }
@@ -559,6 +617,14 @@ final class SpringInventory {
             partial();
             return false;
         }
+    }
+
+    private boolean inspectAsyncMethod(Method method, boolean[] flags) {
+        if (!asyncMethods.add(method)) return true;
+        if (!budget(1)) return false;
+        Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
+        if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+        return true;
     }
 
     private static void recordAsyncQualifier(String qualifier, boolean[] flags) {
@@ -620,14 +686,23 @@ final class SpringInventory {
                 .anyMatch(e -> !isBoot(e, "org.springframework.boot.autoconfigure.task."));
     }
 
+    private boolean knownSchedulingConfigurer(Entry entry) {
+        if (Set.of(
+                        "io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer",
+                        "org.springframework.boot.micrometer.observation.autoconfigure.ScheduledTasksObservationAutoConfiguration$ObservabilitySchedulingConfigurer")
+                .contains(entry.type().getName())) return true;
+        if (!MODULITH_STALENESS_CONFIGURER.equals(entry.type().getName())
+                || entry.type() != present(MODULITH_STALENESS_CONFIGURER)
+                || !"2.1.2".equals(entry.type().getPackage().getImplementationVersion())) return false;
+        Object singleton = factory.getSingleton(entry.name());
+        return singleton != null && singleton.getClass() == entry.type();
+    }
+
     private void observeScheduling(boolean enabled) {
         if (!enabled
                 || !complete
                 || typed("org.springframework.scheduling.annotation.SchedulingConfigurer").stream()
-                        .anyMatch(e -> !Set.of(
-                                        "io.github.jdubois.bootui.autoconfigure.scheduled.BootUiSchedulingConfigurer",
-                                        "org.springframework.boot.micrometer.observation.autoconfigure.ScheduledTasksObservationAutoConfiguration$ObservabilitySchedulingConfigurer")
-                                .contains(e.type().getName()))) return;
+                        .anyMatch(e -> !knownSchedulingConfigurer(e))) return;
         Object processor = factory.getSingleton(SCHEDULED_PROCESSOR);
         if (processor == null || processor.getClass() != ScheduledAnnotationBeanPostProcessor.class) return;
         Object registrar;
@@ -644,7 +719,9 @@ final class SpringInventory {
         }
         int count = 0;
         for (var task : tasks) {
-            Runnable runnable = task.getTask().getRunnable();
+            var definition = task.getTask();
+            if (!NATIVE_TASK_TYPES.contains(definition.getClass())) return;
+            Runnable runnable = definition.getRunnable();
             if (runnable.getClass()
                     .getName()
                     .equals("org.springframework.scheduling.config.Task$OutcomeTrackingRunnable")) {
@@ -657,7 +734,7 @@ final class SpringInventory {
                     return;
                 }
             }
-            if (runnable.getClass() != ScheduledMethodRunnable.class) return;
+            if (runnable == null || runnable.getClass() != ScheduledMethodRunnable.class) return;
             ScheduledMethodRunnable method = (ScheduledMethodRunnable) runnable;
             if (method.getQualifier() != null && !method.getQualifier().isEmpty()) return;
             // BootUI has no @Scheduled housekeeping tasks. A package prefix is not ownership:
@@ -727,6 +804,9 @@ final class SpringInventory {
                                         .equals(
                                                 "org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties")))
             facts.put(HTTP_SERVICE_GROUPS, true);
+        if (!facts.containsKey(HTTP_CLIENT_DEFAULTS)
+                && !facts.containsKey(HTTP_SERVICE_GROUPS)
+                && managedHttpClientsAbsent()) facts.put(HTTP_CLIENTS_ABSENT, true);
         if (entries.stream()
                 .anyMatch(
                         e -> isBoot(e, "org.springframework.boot.")
@@ -767,6 +847,46 @@ final class SpringInventory {
                 }
             }
         }
+    }
+
+    private boolean managedHttpClientsAbsent() {
+        if (!complete || factory.getParentBeanFactory() != null) return false;
+        for (Entry entry : entries) {
+            if (entry.type() == Object.class) {
+                Object singleton = factory.getSingleton(entry.name());
+                if (singleton == null || singleton.getClass() != Object.class) return false;
+            }
+        }
+        Set<ClassLoader> loaders = new LinkedHashSet<>();
+        loaders.add(factory.getBeanClassLoader());
+        loaders.add(SpringInventory.class.getClassLoader());
+        entries.forEach(entry -> loaders.add(entry.type().getClassLoader()));
+        Set<Class<?>> inspectedContracts = new HashSet<>();
+        for (String name : List.of(
+                "org.springframework.web.client.RestClient",
+                "org.springframework.web.client.RestClient$Builder",
+                "org.springframework.web.client.RestOperations",
+                "org.springframework.web.client.RestTemplate",
+                "org.springframework.http.client.support.HttpAccessor",
+                "org.springframework.boot.restclient.RestTemplateBuilder",
+                "org.springframework.web.reactive.function.client.WebClient",
+                "org.springframework.web.reactive.function.client.WebClient$Builder",
+                "org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties")) {
+            for (ClassLoader loader : loaders) {
+                if (!budget(1)) return false;
+                try {
+                    Class<?> contract = Class.forName(name, false, loader);
+                    if (inspectedContracts.add(contract)
+                            && entries.stream().anyMatch(entry -> contract.isAssignableFrom(entry.type())))
+                        return false;
+                } catch (ClassNotFoundException absent) {
+                    // A filtering loader alone cannot establish absence in the other observed scopes.
+                } catch (RuntimeException | LinkageError unavailable) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private void observeData() {
@@ -1322,12 +1442,26 @@ final class SpringInventory {
     }
 
     private boolean budget(int count) {
+        if (memberLimitReached) return false;
         members += count;
-        if (count > MAX_MEMBERS || members > MAX_TOTAL_MEMBERS) {
-            partial();
+        if (members > MAX_TOTAL_MEMBERS) {
+            memberLimit();
             return false;
         }
-        return true;
+        return memberArray(count);
+    }
+
+    private boolean memberArray(int count) {
+        if (count <= MAX_MEMBERS) return true;
+        complete = false;
+        incomplete.add("Bean metadata inspection incomplete: per-type member inspection limit reached.");
+        return false;
+    }
+
+    private void memberLimit() {
+        complete = false;
+        memberLimitReached = true;
+        incomplete.add("Bean metadata inspection incomplete: member inspection limit reached.");
     }
 
     private void partial() {

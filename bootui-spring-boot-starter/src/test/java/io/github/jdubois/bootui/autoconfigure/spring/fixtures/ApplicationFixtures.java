@@ -83,6 +83,12 @@ public final class ApplicationFixtures {
         public void run() {}
     }
 
+    public static class JdkProxiedDefaultAsyncService implements AsyncService {
+        @Async
+        @Override
+        public void run() {}
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableAsync
     public static class AsyncConfiguration {}
