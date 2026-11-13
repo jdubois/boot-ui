@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Six OWASP Top 10:2025 Pentesting Advisor checks** detect `__Host-`/`__Secure-` cookie prefix violations (`PT-A02-007`),
+  publicly cacheable `Set-Cookie` responses (`PT-A02-008`), exposed CORS authentication/token headers (`PT-A05-073`),
+  plaintext HTTP Basic/Digest challenges (`PT-A07-008`), unsafe Jackson 2/3 polymorphic default typing or unrejected
+  `jdk.serialFilter` wildcards (`PT-A08-001`), and unhandled `5xx` errors on the synthetic missing-resource probe
+  (`PT-A10-001`) ([Pentesting checks](docs/PENTEST-CHECKS.md); [#1657](https://github.com/jdubois/boot-ui/issues/1657)).
 - **Memory advisor rules for cgroup v2 throttling/OOM, ClassLoader/proxy bloat, and external `System.gc()` pauses** add
   `MEM-FOOTPRINT-005`, `MEM-CONTENT-005`, and `MEM-GC-009` ([Memory checks](docs/MEMORY-CHECKS.md); [#1653](https://github.com/jdubois/boot-ui/issues/1653)).
 - **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from

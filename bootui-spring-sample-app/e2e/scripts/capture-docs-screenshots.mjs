@@ -1636,8 +1636,9 @@ const pentesting = {
     {
       category: 'A08:2025',
       title: 'Software or Data Integrity Failures',
-      description: 'Deserialization and update integrity require dedicated review.',
-      status: 'SKIPPED'
+      description:
+        'No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review.',
+      status: 'INFO'
     },
     {
       category: 'A09:2025',
