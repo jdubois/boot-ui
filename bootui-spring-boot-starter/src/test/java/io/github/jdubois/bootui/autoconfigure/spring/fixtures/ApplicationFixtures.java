@@ -226,4 +226,9 @@ public final class ApplicationFixtures {
         @org.springframework.transaction.annotation.Transactional
         public void transactionalUpdate() {}
     }
+
+    public interface AnnotatedAsyncInterface {
+        @Async
+        void runAsync();
+    }
 }

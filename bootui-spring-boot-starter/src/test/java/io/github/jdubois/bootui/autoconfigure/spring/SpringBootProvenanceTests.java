@@ -594,7 +594,7 @@ class SpringBootProvenanceTests {
                 .withInitializer(context -> ((org.springframework.beans.factory.support.BeanDefinitionRegistry)
                                 context.getBeanFactory())
                         .registerBeanDefinition(
-                                "org.springframework.retry.annotation.internalAutoProxyCreator",
+                                "org.springframework.retry.annotation.RetryConfiguration",
                                 new org.springframework.beans.factory.support.RootBeanDefinition(
                                         org.springframework.retry.annotation.RetryConfiguration.class)))
                 .withBean(
@@ -612,6 +612,20 @@ class SpringBootProvenanceTests {
                                     .status())
                             .isEqualTo("PASS");
                 });
+
+        var interfaceFactory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var interfaceDef = new org.springframework.beans.factory.support.RootBeanDefinition(
+                app.advisoraudit.ApplicationFixtures.AnnotatedAsyncInterface.class, () -> {
+                    throw new AssertionError("must not instantiate lazy supplier");
+                });
+        interfaceDef.setLazyInit(true);
+        interfaceFactory.registerBeanDefinition("interfaceAsyncBean", interfaceDef);
+        var interfaceSnapshot =
+                SpringInventory.discover(interfaceFactory, new org.springframework.mock.env.MockEnvironment(), false);
+        var interfaceResult = new DormantInfrastructureAnnotationsRule().evaluate(interfaceSnapshot);
+        assertThat(interfaceResult.status()).isEqualTo("VIOLATION");
+        assertThat(interfaceResult.sampleViolations())
+                .anySatisfy(d -> assertThat(d).contains("interfaceAsyncBean", "runAsync", "@EnableAsync"));
     }
 
     @Test

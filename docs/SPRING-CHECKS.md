@@ -134,7 +134,7 @@ findings from the score.
 ### SPRING-WIRING-010 - Enable resilience processing for `@Retryable` and `@ConcurrencyLimit` beans
 
 - **Severity**: HIGH
-- **Detects**: Application beans annotated with Spring Framework 7's `@org.springframework.resilience.annotation.Retryable` without `RetryAnnotationBeanPostProcessor`, `@org.springframework.resilience.annotation.ConcurrencyLimit` without `ConcurrencyLimitBeanPostProcessor`, or Spring Retry's `@org.springframework.retry.annotation.Retryable` without `RetryConfiguration` (`internalAutoProxyCreator`). Spring Boot 4 does not auto-enable `@EnableResilientMethods`, so omitting the enabler leaves these annotations inert at runtime.
+- **Detects**: Application beans annotated with Spring Framework 7's `@org.springframework.resilience.annotation.Retryable` without `RetryAnnotationBeanPostProcessor` (`internalRetryAnnotationProcessor`), `@org.springframework.resilience.annotation.ConcurrencyLimit` without `ConcurrencyLimitBeanPostProcessor` (`internalConcurrencyLimitProcessor`), or Spring Retry's `@org.springframework.retry.annotation.Retryable` without `RetryConfiguration`. Spring Boot 4 does not auto-enable `@EnableResilientMethods`, so omitting the enabler leaves these annotations inert at runtime.
 - **Recommendation**: Add `@EnableResilientMethods` on a `@Configuration` class for Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, or `@EnableRetry` for Spring Retry `@Retryable`.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/core/resilience.html>
 
@@ -267,7 +267,7 @@ findings from the score.
 ### SPRING-PERF-009 - Review task pool properties ignored under virtual threads
 
 - **Severity**: LOW
-- **Detects**: Configured `spring.task.execution.pool.*` (`core-size`, `max-size`, `queue-capacity`, `keep-alive`, `allow-core-thread-timeout`) or `spring.task.scheduling.pool.size` properties when Boot's virtual-thread `SimpleAsyncTaskExecutor` (`applicationTaskExecutor`) or `SimpleAsyncTaskScheduler` (`taskScheduler`) is active. Under virtual threads, these thread-pool sizing properties have no effect.
+- **Detects**: Configured `spring.task.execution.pool.*` (`core-size`, `max-size`, `queue-capacity`, `keep-alive`, `allow-core-thread-timeout`, `shutdown.accept-tasks-after-context-close`, when no application-owned `ThreadPoolTaskExecutor` is present) or `spring.task.scheduling.pool.size` properties when Boot's virtual-thread `SimpleAsyncTaskExecutor` (`applicationTaskExecutor`) or `SimpleAsyncTaskScheduler` (`taskScheduler`) is active. Under virtual threads, these thread-pool sizing properties have no effect.
 - **Recommendation**: Remove unused pool sizing properties under virtual threads, or configure `spring.task.execution.simple.concurrency-limit` and `spring.task.scheduling.simple.concurrency-limit` when bounded concurrency is needed.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 

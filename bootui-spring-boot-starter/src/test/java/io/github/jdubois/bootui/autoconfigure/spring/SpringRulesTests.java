@@ -1081,6 +1081,15 @@ class SpringRulesTests {
         assertThat(resilience.evaluate(incomplete).status()).isEqualTo("SKIPPED");
         assertThat(infra.evaluate(incomplete).status()).isEqualTo("SKIPPED");
 
+        var beanIndexIncomplete = SpringContext.builder(new MockEnvironment())
+                .beanDefinitionCount(4097)
+                .dormantResilienceBeans(List.of("resilientBean: dormant"))
+                .dormantInfrastructureBeans(List.of("infraBean: dormant"))
+                .observations(new SpringObservations(Map.of(BEAN_INDEX_INCOMPLETE, true), List.of("incomplete")))
+                .build();
+        assertThat(resilience.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
+        assertThat(infra.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
+
         var violated = SpringContext.builder(new MockEnvironment())
                 .dormantResilienceBeans(
                         List.of(
@@ -1154,6 +1163,14 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("ERROR");
+
+        assertThat(rule.evaluate(
+                                context(vtEnabled, Map.of(TASK_EXECUTION_PROPERTIES, true, BEAN_INDEX_INCOMPLETE, true))
+                                        .virtualThreadsSupported(true)
+                                        .executors(List.of(new BeanRef("customExecutor", false)))
+                                        .build())
+                        .status())
+                .isEqualTo("SKIPPED");
     }
 
     @Test
@@ -1164,6 +1181,7 @@ class SpringRulesTests {
         MockEnvironment configured = env("spring.threads.virtual.enabled", "true")
                 .withProperty("spring.task.execution.pool.max-size", "32")
                 .withProperty("spring.task.execution.pool.queue-capacity", "100")
+                .withProperty("spring.task.execution.pool.shutdown.accept-tasks-after-context-close", "true")
                 .withProperty("spring.task.scheduling.pool.size", "4");
 
         assertThat(rule.evaluate(context(configured, Map.of())
@@ -1177,10 +1195,20 @@ class SpringRulesTests {
                         .virtualThreadsSupported(true)
                         .build());
         assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.violationCount()).isEqualTo(4);
         assertThat(result.sampleViolations())
                 .anySatisfy(d -> assertThat(d).contains("spring.task.execution.pool.max-size"))
+                .anySatisfy(d ->
+                        assertThat(d).contains("spring.task.execution.pool.shutdown.accept-tasks-after-context-close"))
                 .anySatisfy(d -> assertThat(d).contains("spring.task.scheduling.pool.size"));
+
+        assertThat(rule.evaluate(context(configured, Map.of(BOOT_VIRTUAL_TASK_EXECUTOR, true))
+                                .virtualThreadsSupported(true)
+                                .pooledTaskExecutors(
+                                        List.of(new PooledExecutorRef("appPool", "app.Config", TPTE, false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
 
         assertThat(rule.evaluate(context(
                                         env("spring.threads.virtual.enabled", "true"),
@@ -1196,13 +1224,18 @@ class SpringRulesTests {
         var rule = new IncompleteTaskShutdownTerminationRule();
         assertThat(rule.definition().severity()).isEqualTo("MEDIUM");
 
-        assertThat(evaluate(rule, new MockEnvironment(), Map.of()).status()).isEqualTo("PASS");
+        SpringContext empty = SpringContext.builder(new MockEnvironment()).build();
+        assertThat(rule.evaluate(empty).status()).isEqualTo("PASS");
+        assertThat(SpringScanner.evidence(empty).usable()).isFalse();
 
         for (String period : List.of("0", "0s", "PT0S", "-5s")) {
             MockEnvironment zeroPeriod = env("spring.task.execution.shutdown.await-termination", "true")
                     .withProperty("spring.task.execution.shutdown.await-termination-period", period);
             assertThat(evaluate(rule, zeroPeriod, Map.of()).status()).as(period).isEqualTo("VIOLATION");
         }
+        assertThat(evaluate(rule, env("spring.task.execution.shutdown.await-termination-period", "-5s"), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
 
         MockEnvironment missingPeriod = env("spring.task.execution.shutdown.await-termination", "true")
                 .withProperty("spring.task.scheduling.shutdown.await-termination", "true");

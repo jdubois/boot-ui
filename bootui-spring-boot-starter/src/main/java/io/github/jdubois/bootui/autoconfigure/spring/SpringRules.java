@@ -348,10 +348,14 @@ final class DormantResilienceAnnotationsRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         c.applies(c.beanDefinitionCount() > 0 || !c.dormantResilienceBeans().isEmpty());
-        return c.dormantResilienceBeans().isEmpty()
-                        && !c.observations().incomplete().isEmpty()
-                ? unknown(c)
-                : violation(c, c.dormantResilienceBeans());
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)) return unknown(c);
+        if (!c.observations().incomplete().isEmpty()) {
+            if (c.dormantResilienceBeans().isEmpty()) return unknown(c);
+            c.observations()
+                    .evaluation()
+                    .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
+        }
+        return violation(c, c.dormantResilienceBeans());
     }
 }
 
@@ -370,10 +374,14 @@ final class DormantInfrastructureAnnotationsRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         c.applies(c.beanDefinitionCount() > 0 || !c.dormantInfrastructureBeans().isEmpty());
-        return c.dormantInfrastructureBeans().isEmpty()
-                        && !c.observations().incomplete().isEmpty()
-                ? unknown(c)
-                : violation(c, c.dormantInfrastructureBeans());
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)) return unknown(c);
+        if (!c.observations().incomplete().isEmpty()) {
+            if (c.dormantInfrastructureBeans().isEmpty()) return unknown(c);
+            c.observations()
+                    .evaluation()
+                    .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
+        }
+        return violation(c, c.dormantInfrastructureBeans());
     }
 }
 
@@ -805,8 +813,12 @@ final class VirtualThreadsExecutorBackoffRule extends AbstractSpringRule {
                 || SpringModel.hasName(c.taskExecutors(), "applicationTaskExecutor")) {
             return pass();
         }
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)
+                || !c.observations().incomplete().isEmpty()) {
+            return unknown(c);
+        }
         if (c.executors().isEmpty()) {
-            return c.observations().incomplete().isEmpty() ? pass() : unknown(c);
+            return pass();
         }
         return violation(
                 c,
@@ -840,13 +852,15 @@ final class IgnoredVirtualThreadPoolPropertiesRule extends AbstractSpringRule {
         if (!c.applies(virtualExecutor || virtualScheduler))
             return skipped("No Boot virtual-thread SimpleAsyncTaskExecutor or SimpleAsyncTaskScheduler was observed.");
         List<String> details = new ArrayList<>();
-        if (virtualExecutor) {
+        boolean hasApplicationPool = c.pooledTaskExecutors().stream().anyMatch(pool -> !pool.frameworkOwned());
+        if (virtualExecutor && !hasApplicationPool) {
             for (String key : List.of(
                     "spring.task.execution.pool.core-size",
                     "spring.task.execution.pool.max-size",
                     "spring.task.execution.pool.queue-capacity",
                     "spring.task.execution.pool.keep-alive",
-                    "spring.task.execution.pool.allow-core-thread-timeout")) {
+                    "spring.task.execution.pool.allow-core-thread-timeout",
+                    "spring.task.execution.pool.shutdown.accept-tasks-after-context-close")) {
                 if (c.hasProperty(key)) {
                     details.add(
                             key
@@ -879,15 +893,23 @@ final class IncompleteTaskShutdownTerminationRule extends AbstractSpringRule {
         List<String> details = new ArrayList<>();
         for (String scope : List.of("execution", "scheduling")) {
             String prefix = "spring.task." + scope + ".shutdown.";
-            Boolean await = c.observed(c.bind(prefix + "await-termination", Boolean.class));
+            Boolean await = c.bind(prefix + "await-termination", Boolean.class);
             Duration period = c.firstDurationProperty(prefix + "await-termination-period");
+            c.applies(c.taskExecutionPropertiesPresent()
+                    || c.bootApplicationTaskExecutorPresent()
+                    || c.schedulingEnabled()
+                    || await != null
+                    || period != null);
             if (Boolean.TRUE.equals(await) && (period == null || period.isZero() || period.isNegative())) {
                 details.add(prefix
                         + "await-termination=true is configured without a positive "
                         + prefix
                         + "await-termination-period, so shutdown does not wait for active tasks to complete.");
             } else if (period != null && period.isNegative()) {
-                throw new IllegalArgumentException();
+                details.add(prefix
+                        + "await-termination-period is negative; configure a positive duration with "
+                        + prefix
+                        + "await-termination=true.");
             } else if (c.virtualThreadsSupported()
                     && c.isVirtualThreadsEnabled()
                     && !Boolean.TRUE.equals(await)
