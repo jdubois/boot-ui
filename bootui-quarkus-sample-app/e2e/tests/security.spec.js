@@ -35,6 +35,7 @@ test.describe('Security advisor (Quarkus)', () => {
     const report = await response.json()
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
+    expect(report.results.map((result) => result.id)).not.toContain('QS-TLS-002')
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
     await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
     await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)

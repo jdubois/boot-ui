@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressPhase;
@@ -210,7 +211,11 @@ public final class ArchitectureScanner {
             // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
             // VirtualMachineError (OutOfMemoryError, StackOverflowError) is deliberately not caught here.
         } catch (RuntimeException | LinkageError ex) {
-            return failure("Application classes could not be imported for analysis", ex, clock.millis(), basePackages);
+            return failure(
+                    ArchUnitClassImports.failureMessage("Application classes could not be imported for analysis", ex),
+                    ex,
+                    clock.millis(),
+                    basePackages);
         }
 
         if (classes.isEmpty()) {

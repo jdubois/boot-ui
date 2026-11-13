@@ -56,6 +56,11 @@ several BootUI versions are held back on purpose, and some files that Dependabot
    - **Spring Boot and Spring Framework:** BootUI targets Spring Boot 4 only. Never add Spring Boot 3 shims. A
      minor or major bump to the `spring-boot` group changes the Jackson 3 serializer that core DTOs must stay
      byte-compatible with, so it requires the conformance runners.
+   - **Startup compatibility policy:** follow
+     [Maintaining compatibility during upgrades](../../docs/FRAMEWORK-SUPPORT.md#maintaining-compatibility-during-upgrades).
+     Updating a build baseline does not change declared support. Preserve the older supported consumer fixtures and
+     rejected-platform diagnostics; review `PlatformCompatibility` and the adapter API checks for framework upgrades.
+     A major-generation or minimum-support change needs an explicit policy review, not merely a green version bump.
    - **Kotlin and other compiler toolchains:** confirm that CodeQL and the other analysers in `codeql.yml` support the
      new version before you merge. A bump they cannot analyse is blocked, not broken.
    - **Java baseline:** releases and `build.yml` run on Java 17. A dependency that raises its minimum Java level above

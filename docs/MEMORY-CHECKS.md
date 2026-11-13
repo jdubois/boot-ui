@@ -1,6 +1,6 @@
 # Memory checks
 
-The Memory advisor evaluates **32 stable rules** against explicit, on-demand JVM observations. Spring MVC,
+The Memory advisor evaluates **28 stable rules** against explicit, on-demand JVM observations. Spring MVC,
 Spring WebFlux, and Quarkus use the same framework-neutral collector, rules, report, and dismissal IDs. MCP and
 the CLI expose that same report. Reading the cached report does not scan, collect a histogram, or start a recording.
 
@@ -46,9 +46,8 @@ Usable known-findings scores retain these limitations under the shared
 - **Threads are platform threads.** ThreadMXBean excludes virtual threads and cannot detect every deadlock
   involving them. The bounded ownership fallback may omit monitors and synchronizers. Pagination truncation and
   acquisition omissions are distinct: overall enumeration remains independent of the captured state population.
-  Blocked ratios and population-dependent footprint/stack estimates skip incomplete acquisition; CPU-hot-thread
-  analysis also skips incomplete detail. Native deadlock evidence remains independently usable. A failed thread
-  report never becomes a passing deadlock check.
+  Blocked ratios and population-dependent footprint/stack estimates skip incomplete acquisition. Native deadlock
+  evidence remains independently usable. A failed thread report never becomes a passing deadlock check.
 - **Histogram bytes are shallow.** Totals cover parsed rows; displayed/evaluated class rows are limited to the
   largest 200, and finding examples remain bounded. Aggregate array/collection observations can consequently
   undercount the tail. A histogram does not identify one owning collection, retention paths, or retained graphs.
@@ -78,10 +77,11 @@ times across scans, and excludes GCs triggered by BootUI's own **Free BootUI mem
 **Heap Dump** actions from `MEM-GC-002`, `MEM-GC-003`, `MEM-GC-005`, and `MEM-GC-006`; startup and external
 diagnostic collections remain included.
 
-The direct-buffer and old-generation trends require **three strict increases across four comparable observations**.
-A plateau, decrease, missing/unknown reading, or failed whole scan breaks consecutive evidence and requires a new
-baseline. This measures sampled net growth: releases and allocations may both occur between endpoints. There is no
-inferred continuous growth, minimum workload, or elapsed-duration guarantee from clicking Scan repeatedly.
+Cross-scan old-generation and direct-buffer streak rules (`MEM-HEAP-008` and `MEM-POOL-007`) are retired: requiring
+four manual full-GC scans and firing on a 1-byte increase penalized normal allocations and NIO buffer pooling while
+leaving `coverageComplete` false on the first scan (and permanently on single-generation collectors). Passive
+old-generation growth across collections is covered by Runtime Insights' `HeapGrowthAfterGc` (`>= 10%` and `>= 4 MiB`),
+and high direct-buffer capacity relative to the effective cap stays covered by `MEM-POOL-003`.
 
 | JVM/collector scope | Interpretation |
 | --- | --- |
@@ -123,12 +123,12 @@ See [NMT][nmt], [OS MXBean][os-bean], [Linux cgroups][cgroups], and [Linux proce
 
 ## Complete rule audit and current behavior
 
-The September 2026 audit retained all 36 IDs. The October 2026 audit (JDK 17-27 HotSpot sources, Oracle JDK 21/26
-documentation, and JEPs 421, 439, 474 and 490) **retired five noisy rules, fixed five, and added one**, leaving
-**32 active IDs**. Each removal, fix and addition was critiqued independently by three different review models; a new
-rule shipped only with at least two of three in favor. `Update` means behavior, measurement handling, severity, or
-diagnostic text changed; `Retain` means the existing basic heuristic remains; `New` is an October 2026 addition.
-Retired IDs are listed in [Retired rules](#retired-rules) and are never reused.
+The September 2026 audit retained all 36 IDs. The October 2026 and follow-up 2026 audits (JDK 17-27 HotSpot sources,
+Oracle JDK 21/26 documentation, and JEPs 421, 439, 474 and 490) **retired nine noisy rules, fixed five, and added
+one**, leaving **28 active IDs**. Each removal, fix and addition was critiqued independently by three different
+review models; a new rule shipped only with at least two of three in favor. `Update` means behavior, measurement
+handling, severity, or diagnostic text changed; `Retain` means the existing basic heuristic remains; `New` is an
+October 2026 addition. Retired IDs are listed in [Retired rules](#retired-rules) and are never reused.
 
 ### Heap pressure
 
@@ -139,7 +139,6 @@ Retired IDs are listed in [Retired rules](#retired-rules) and are never reused.
 | MEM-HEAP-003 | Update | **LOW** when max heap is below 15% of a container limit of at least 1 GiB and occupancy is at least 80%. A large limit is not free memory: confirm total native/container headroom before raising heap. |
 | MEM-HEAP-004 | Update | **INFO** when the max heap is at or just above (up to 125% of) the compressed-oops encoding range, which is 4 GiB times `ObjectAlignmentInBytes` (32 GiB at 8 bytes). HotSpot keeps compressed oops only below that range minus alignment padding, so the common `-Xmx32g` already disables them; the earlier rule required more than 32 GiB and never reported it. It now prefers the live `MaxHeapSize` (the Serial/Parallel MXBean maximum excludes a survivor space), live `ObjectAlignmentInBytes`, and live `UseCompressedOops`: live true passes, live false within 15/16 to 125% of the range reports, live false well below it is not a cliff. Skips ZGC and an effective (last) `-XX:-UseCompressedOops`. |
 | MEM-HEAP-006 | Retain | **LOW** for at least 1,000 objects pending finalization. Review persistent backlog and resource lifecycle; prefer explicit close/try-with-resources over finalization, deprecated for removal by JEP 421. |
-| MEM-HEAP-008 | Update | **LOW** after three valid increases in old-generation occupancy. Missing observations break the streak. Normal warmup/load changes can explain it; confirm stable load and collector-appropriate reclamation before investigating retention. |
 
 Evidence: [snapshot contracts][memory-usage], [pool semantics][memory-pool], [leak investigation][leaks],
 [heap-sizing tradeoffs][gc-tuning], [compressed oops][oops], [HotSpot compressed-oops limit][oops-limit], and
@@ -164,7 +163,6 @@ Evidence: [native accounting][nmt], [OS MXBean scope][os-bean], [cgroup semantic
 | MEM-POOL-003 | Update | **LOW** at 80% of a known effective NIO direct-buffer capacity cap, **MEDIUM** when the effective (last) argument is `-XX:+DisableExplicitGC`: before throwing `OutOfMemoryError` for direct memory, `java.nio.Bits.reserveMemory` calls `System.gc()` so cleaners of unreachable buffers run, and that flag makes the call a no-op. Resolve a live HotSpot zero/default option to max heap; otherwise use a known explicit cap or skip. No unknown-to-unlimited inference, mapped-buffer aggregation, or substitution of used bytes for capacity. |
 | MEM-POOL-004 | Update | **LOW** for at least 128 MiB Metaspace with no reported maximum inside a detected memory-limited container. Undefined maximum is not proof of a missing effective cap; setting one can cause Metaspace OOM and cannot guarantee graceful failure. |
 | MEM-POOL-005 | Update | **MEDIUM** at 85% of reported Compressed Class Space maximum. Compressed class pointers are distinct from ordinary object pointers; no universal 1 GiB default is asserted across versions/header modes, and JEP 450/519 `-XX:+UseCompactObjectHeaders` (22-bit narrow class pointers) is surfaced when active. |
-| MEM-POOL-007 | Update | **LOW** for three comparable direct-used increases, **MEDIUM** when capacity is also near its known cap. Missing/unknown samples restart the trend. Net growth cannot establish missing releases or a native leak; use supported library lifecycle APIs, not manual Cleaner calls. |
 
 Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK capacity enforcement][direct-cap],
 [OpenJDK default resolution][direct-default], [direct-memory reclamation][direct-reserve],
@@ -194,7 +192,6 @@ Evidence: [GC counters][gc-bean], [event timing][gc-info], [G1 full-GC manager][
 | --- | --- | --- |
 | MEM-THREAD-001 | Update | **CRITICAL** for detected platform-thread deadlock cycles. Missing/failed thread observations are not PASS. Detection covers the supported monitor/synchronizer scope, not all virtual-thread cycles. |
 | MEM-THREAD-002 | Retain | **MEDIUM** at five BLOCKED threads and 25% of the census, or 20 BLOCKED threads and 10%. Full summary counts support this despite detail paging; a transient snapshot does not prove sustained contention. |
-| MEM-THREAD-004 | Update | **INFO** for currently RUNNABLE platform threads with accumulated CPU at least 60 seconds and half JVM uptime. CPU accumulated before the snapshot is not attributed entirely to its current state. Skip unsupported timing/incomplete detail and confirm with consecutive samples. |
 
 Evidence: [ThreadMXBean, including peak reset and deadlock support][threads], and [virtual-thread scope][jep444].
 
@@ -206,7 +203,6 @@ Evidence: [ThreadMXBean, including peak reset and deadlock support][threads], an
 | MEM-CONTENT-002 | Retain | Collection/node rows reaching 50 MiB or 10% shallow share receive **LOW**; a largest row of 100 MiB or combined selected share of 25% receives **MEDIUM**. This is not one identified collection, retained size, or proof of missing eviction. |
 | MEM-CONTENT-003 | Retain | **LOW** when the largest non-array class reaches 25% of total shallow histogram bytes. Arrays are excluded; unexpected retention requires reference-path evidence. |
 | MEM-CLASS-001 | Update | **INFO** at 50,000 currently loaded classes, with framework-generation caveats. Historical unloads no longer exempt a large current population: unloading does not prove health or exclude a leak. |
-| MEM-CLASS-002 | Update | **INFO** at 50,000 lifetime unloads or a lifetime average of 1,000/minute after 30 minutes. A past burst or redeployment can explain the total; it is not sustained recent churn. |
 
 Evidence: [histogram cost/shape][jcmd], [stable-workload leak investigation][leaks],
 [class-loading counters][classes], and [optional class unloading][unloading].
@@ -218,10 +214,36 @@ Retired IDs are never reassigned. Persisted dismissals of a retired ID simply no
 | ID | Former title | Retired | Reason |
 | --- | --- | --- | --- |
 | MEM-HEAP-007 | Committed heap is far above observed heap usage | October 2026 | After the histogram request, used heap approximates the live set, and G1's default `MinHeapFreeRatio`/`MaxHeapFreeRatio` (40/70) keep committed heap about 1.7-3.3 times that. Equal `-Xms`/`-Xmx`, which MEM-HEAP-005 and the JVM Tuning calculator produce, always matched. It flagged healthy GC headroom and admitted it was not a sizing recommendation. |
+| MEM-HEAP-008 | Old-generation occupancy is increasing across comparable scans | November 2026 | Triggered on a 1-byte increase across four manual full-GC scans, permanently left `coverageComplete` false on Shenandoah and non-generational ZGC (`skipped` instead of `inapplicable`), and is superseded by Runtime Insights' passive `HeapGrowthAfterGc` (`>= 10%` and `>= 4 MiB` floor). |
 | MEM-FOOTPRINT-004 | High system or environment swap utilization | October 2026 | Host-wide swap is not attributable to this JVM and does not show active paging; macOS dynamic swap files routinely exceed 50% on developer laptops, BootUI's normal context. |
 | MEM-POOL-006 | JIT compiler is disabled or capped below full optimisation | October 2026 | Compiler policy, not a memory signal. IntelliJ's Spring Boot launch optimisation adds `-XX:TieredStopAtLevel=1`, so it fired on deliberate development configuration. Real code-cache pressure stays covered by MEM-POOL-002. |
+| MEM-POOL-007 | Direct buffer usage has increased across comparable scans | November 2026 | Triggered on a 1-byte increase across four scans with no capacity-share floor (flagging normal Netty/Vert.x NIO buffer pooling), double-penalized with MEM-POOL-003 when near the cap, and forced `coverageComplete = false` on the first scan. |
 | MEM-THREAD-003 | Peak thread count was far above the current count | October 2026 | A peak since start or the last reset far above the current count is normal pool elasticity after a burst, not a leak or exhaustion. Current stack reservation stays covered by MEM-FOOTPRINT-002. |
+| MEM-THREAD-004 | Runnable threads with very high lifetime CPU usage | November 2026 | CPU time is unrelated to memory and routinely false-positived on active Netty/Vert.x event-loop threads and JIT compiler threads. |
 | MEM-CONTENT-004 | Arrays dominate the sampled heap | October 2026 | Arrays at 50% or more of shallow bytes is the ordinary shape of a Java heap (compact-string `byte[]`, collection `Object[]`); a healthy JVM sample measured 57%. MEM-CONTENT-001 to 003 remain for big objects, collections, and a dominant non-array class. |
+| MEM-CLASS-002 | High class-loading churn | November 2026 | `ClassLoadingMXBean.getUnloadedClassCount()` is a monotonic lifetime counter that never recovers without a JVM restart and penalized healthy GC class unloading. |
+
+### MEM-HEAP-008 - Old-generation occupancy is increasing across comparable scans
+
+**Retired.** Triggered on a 1-byte increase (`used > previous`) across four manual full-GC scans, permanently broke
+`coverageComplete` on Shenandoah and non-generational ZGC (`skipped` instead of `inapplicable`), and is superseded by
+Runtime Insights' passive `HeapGrowthAfterGc` (`>= 10%` and `>= 4 MiB` floor).
+
+### MEM-POOL-007 - Direct buffer usage has increased across comparable scans
+
+**Retired.** Triggered on a 1-byte increase across four manual scans with no capacity-share floor (flagging normal
+Netty/Vert.x NIO buffer pooling), double-penalized with `MEM-POOL-003`, and forced `coverageComplete = false` on the
+first scan.
+
+### MEM-CLASS-002 - High class-loading churn
+
+**Retired.** `ClassLoadingMXBean.getUnloadedClassCount()` is a monotonic lifetime counter that can never recover
+without a JVM restart and penalized healthy GC class unloading.
+
+### MEM-THREAD-004 - Runnable threads with very high lifetime CPU usage
+
+**Retired.** Lifetime thread CPU usage is unrelated to memory and frequently false-positived on active Netty/Vert.x
+event-loop threads and JIT compiler threads.
 
 ### Considered but not added
 

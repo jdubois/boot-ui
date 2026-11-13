@@ -49,7 +49,10 @@ final class RestApiModel {
         static final String REQUEST_HEADER = "org.springframework.web.bind.annotation.RequestHeader";
         static final String COOKIE_VALUE = "org.springframework.web.bind.annotation.CookieValue";
         static final String REQUEST_PART = "org.springframework.web.bind.annotation.RequestPart";
+        static final String MODEL_ATTRIBUTE = "org.springframework.web.bind.annotation.ModelAttribute";
         static final String REQUEST_ENTITY = "org.springframework.http.RequestEntity";
+        static final String ENABLE_SPRING_DATA_WEB_SUPPORT =
+                "org.springframework.data.web.config.EnableSpringDataWebSupport";
 
         static final String DEPRECATED = "java.lang.Deprecated";
 
@@ -134,7 +137,14 @@ final class RestApiModel {
         static final String REST_FORM = "org.jboss.resteasy.reactive.RestForm";
         static final String REST_COOKIE = "org.jboss.resteasy.reactive.RestCookie";
         static final String REST_MATRIX = "org.jboss.resteasy.reactive.RestMatrix";
+        static final String MULTIPART_FORM = "org.jboss.resteasy.reactive.MultipartForm";
     }
+
+    /**
+     * A nested DTO field inside a cascade-validated request body payload whose field/element type declares
+     * Jakarta Bean Validation constraints while the parent field (and type argument) omits {@code @Valid}.
+     */
+    record MissingNestedValidField(String fieldPath, String parentTypeName, String childTypeName) {}
 
     /**
      * A controller class (annotated {@code @Controller} or {@code @RestController}) or a JAX-RS resource.
@@ -228,7 +238,14 @@ final class RestApiModel {
             boolean hasBodyAccessParam,
             String responseStatusReason,
             boolean returnsOptional,
-            boolean consumesFromType) {
+            boolean consumesFromType,
+            List<String> unannotatedSimpleParamNames,
+            List<String> methodLevelHttpMethods,
+            List<String> typeLevelHttpMethods,
+            List<MissingNestedValidField> missingNestedValidFields,
+            boolean hasMultipartOrFormParam,
+            boolean returnsSpringDataPage,
+            boolean springDataPageViaDtoConfigured) {
 
         HandlerMethodModel {
             declaredResponseHeaders = List.copyOf(declaredResponseHeaders);
@@ -243,10 +260,86 @@ final class RestApiModel {
             headers = List.copyOf(headers);
             pathVariableNames = List.copyOf(pathVariableNames);
             versionBindings = List.copyOf(versionBindings);
+            unannotatedSimpleParamNames = List.copyOf(unannotatedSimpleParamNames);
+            methodLevelHttpMethods = List.copyOf(methodLevelHttpMethods);
+            typeLevelHttpMethods = List.copyOf(typeLevelHttpMethods);
+            missingNestedValidFields = List.copyOf(missingNestedValidFields);
         }
 
         boolean jaxRs() {
             return framework == Framework.JAX_RS;
+        }
+
+        HandlerMethodModel withSpringDataPageViaDtoConfigured(boolean configured) {
+            return new HandlerMethodModel(
+                    controllerClassName,
+                    controllerSimpleName,
+                    methodName,
+                    restController,
+                    controllerValidated,
+                    httpMethods,
+                    explicitHttpMethod,
+                    mappingPaths,
+                    effectivePaths,
+                    produces,
+                    consumes,
+                    returnTypeName,
+                    returnSimpleName,
+                    returnsVoid,
+                    returnsResponseEntity,
+                    returnsCollection,
+                    returnsPageOrSlice,
+                    bodyTypeName,
+                    bodyIsEntity,
+                    bodyIsUntyped,
+                    bodyIsScalar,
+                    bodyIsRecord,
+                    bodyHasLegacyDateField,
+                    hasRequestBody,
+                    requestBodyValidated,
+                    requestBodyIsEntity,
+                    hasConstrainedSimpleParam,
+                    hasPageable,
+                    hasUnboundedPrimitiveRequestParam,
+                    hasUnboundedMapRequestParam,
+                    hasExplicitPageParam,
+                    hasResponseStatus,
+                    methodHasResponseStatus,
+                    responseStatusValue,
+                    hasOperationAnnotation,
+                    nameLooksStateChanging,
+                    nameLooksLikeFindAll,
+                    serializesBody,
+                    mappingVersion,
+                    effectiveProduces,
+                    effectiveConsumes,
+                    params,
+                    headers,
+                    pathVariableNames,
+                    requestBodyIsSimple,
+                    hasTag,
+                    hidden,
+                    hasResponseParam,
+                    paginationParamFamily,
+                    isDeprecated,
+                    operationMarkedDeprecated,
+                    framework,
+                    versionBindings,
+                    returnsBodyEnvelope,
+                    returnsStream,
+                    declaredResponseHeaders,
+                    requestBodyCount,
+                    hasBodyAccessParam,
+                    responseStatusReason,
+                    returnsOptional,
+                    consumesFromType,
+                    unannotatedSimpleParamNames,
+                    methodLevelHttpMethods,
+                    typeLevelHttpMethods,
+                    missingNestedValidFields,
+                    hasMultipartOrFormParam,
+                    returnsSpringDataPage,
+                    configured);
         }
 
         /** Whether a response header (case-insensitive) is declared on the method, e.g. Quarkus {@code @ResponseHeader}. */

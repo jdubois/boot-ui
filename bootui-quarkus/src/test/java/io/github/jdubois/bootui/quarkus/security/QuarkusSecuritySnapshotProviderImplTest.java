@@ -653,7 +653,7 @@ class QuarkusSecuritySnapshotProviderImplTest {
     void incompleteListenerMaterialIsNotHttpsAndCookieDependsOnAcceptedHttp() {
         var incomplete = snapshot(Map.of("quarkus.http.ssl.certificate.files", "server.crt"));
         assertThat(incomplete.sslConfigured()).isFalse();
-        assertThat(incomplete.evidence().unknownRules()).contains("QS-TLS-002");
+        assertThat(incomplete.evidence().unknownRules()).contains("QS-HDR-003").doesNotContain("QS-TLS-002");
         var cookie = snapshot(Map.of(
                 "quarkus.http.ssl.certificate.key-store-file",
                 "server.p12",

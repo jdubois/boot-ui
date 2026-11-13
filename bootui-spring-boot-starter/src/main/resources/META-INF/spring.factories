@@ -4,3 +4,9 @@ io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentP
 io.github.jdubois.bootui.autoconfigure.config.BootUiStartupEnvironmentPostProcessor,\
 io.github.jdubois.bootui.autoconfigure.config.BootUiWebApplicationTypeEnvironmentPostProcessor,\
 io.github.jdubois.bootui.autoconfigure.javaagent.BootUiAgentClaimEnvironmentPostProcessor
+
+org.springframework.context.ApplicationListener=\
+io.github.jdubois.bootui.autoconfigure.compatibility.BootUiCompatibilityListener
+
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+io.github.jdubois.bootui.autoconfigure.compatibility.BootUiCompatibilityFailureAnalyzer

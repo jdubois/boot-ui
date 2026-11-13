@@ -341,8 +341,8 @@ index. Discovery is single-module; the `bootui.internal.base-packages` key (comm
 
 The REST API panel runs a curated, zero-config ruleset against the host application's web layer: `@RestController` /
 `@Controller` handlers on Spring, or JAX-RS resources on Quarkus. It derives a read-only model (methods, paths,
-parameters, return types, validation, declared throws) and evaluates 60 stable rule definitions across eight categories,
-of which 45 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
+parameters, return types, validation, declared throws) and evaluates 65 stable rule definitions across eight categories,
+of which 50 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
 error handling and documentation. Security concerns belong to the Security panel.
 
 The scan runs on demand and caches its last report; the list shows only flagged rules. See
@@ -598,11 +598,11 @@ With verified Panache transformation, the public-persistent-field finding does n
 
 ![BootUI Memory panel](../images/bootui-memory.webp)
 
-The Memory panel runs an explicit, read-only scan over the live JVM management beans: heap and memory pools, garbage
-collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked findings such as heap
-pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead, thread deadlocks, and
-collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they expose. The scan is on
-demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
+The Memory panel runs an explicit, read-only scan of 28 active rules over the live JVM management beans: heap and
+memory pools, garbage collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked
+findings such as heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead,
+thread deadlocks, and collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they
+expose. The scan is on demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
 [Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
 you re-run the checks.
 
@@ -619,7 +619,7 @@ panel and `/bootui/api/security` contract support all three stacks.
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it analyses Spring Security when present: already-created `SecurityFilterChain` configuration and
+On Spring Boot it evaluates a 50-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
 supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
 also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
 check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
@@ -635,7 +635,7 @@ analyzer configuration check is also available when Spring Security is absent.
 
 ![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
-On Quarkus it runs a Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
+On Quarkus it runs a 44-rule Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
 endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS and transport policy,
 forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), response headers, and
 `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The shared static analyzer configuration check

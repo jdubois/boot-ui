@@ -35,8 +35,25 @@ class MemoryAccuracyTests {
 
     @Test
     void activeRuleIdsMatchTheCatalogAndNeverReuseRetiredIds() {
-        assertThat(MemoryRuleRegistry.activeRules().stream()
-                        .map(rule -> rule.definition().id()))
+        var ids = MemoryRuleRegistry.activeRules().stream()
+                .map(rule -> rule.definition().id())
+                .toList();
+        assertThat(MemoryRules.RETIRED_RULE_IDS)
+                .isEqualTo(MemoryRuleRegistry.RETIRED_RULE_IDS)
+                .isEqualTo(MemoryScanner.RETIRED_RULE_IDS)
+                .containsExactlyInAnyOrder(
+                        "MEM-HEAP-007",
+                        "MEM-HEAP-008",
+                        "MEM-FOOTPRINT-004",
+                        "MEM-POOL-006",
+                        "MEM-POOL-007",
+                        "MEM-THREAD-003",
+                        "MEM-THREAD-004",
+                        "MEM-CONTENT-004",
+                        "MEM-CLASS-002");
+        assertThat(ids)
+                .hasSize(28)
+                .doesNotHaveDuplicates()
                 .containsExactlyInAnyOrder(
                         "MEM-HEAP-001",
                         "MEM-HEAP-002",
@@ -44,7 +61,6 @@ class MemoryAccuracyTests {
                         "MEM-HEAP-004",
                         "MEM-HEAP-005",
                         "MEM-HEAP-006",
-                        "MEM-HEAP-008",
                         "MEM-FOOTPRINT-001",
                         "MEM-FOOTPRINT-002",
                         "MEM-FOOTPRINT-003",
@@ -53,7 +69,6 @@ class MemoryAccuracyTests {
                         "MEM-POOL-003",
                         "MEM-POOL-004",
                         "MEM-POOL-005",
-                        "MEM-POOL-007",
                         "MEM-GC-001",
                         "MEM-GC-002",
                         "MEM-GC-003",
@@ -64,14 +79,11 @@ class MemoryAccuracyTests {
                         "MEM-GC-008",
                         "MEM-THREAD-001",
                         "MEM-THREAD-002",
-                        "MEM-THREAD-004",
                         "MEM-CONTENT-001",
                         "MEM-CONTENT-002",
                         "MEM-CONTENT-003",
-                        "MEM-CLASS-001",
-                        "MEM-CLASS-002")
-                .doesNotContain(
-                        "MEM-HEAP-007", "MEM-FOOTPRINT-004", "MEM-POOL-006", "MEM-THREAD-003", "MEM-CONTENT-004");
+                        "MEM-CLASS-001")
+                .doesNotContainAnyElementsOf(MemoryRuleRegistry.RETIRED_RULE_IDS);
     }
 
     @Test
@@ -255,21 +267,14 @@ class MemoryAccuracyTests {
     }
 
     @Test
-    void bufferUnknownGapAndPoolAbsenceRestartConsecutiveEvidence() {
-        for (MemoryContext gap : List.of(buffer(-1), context(null, null))) {
-            MemoryScanner scanner =
-                    scanner(buffer(1), buffer(2), buffer(3), gap, buffer(4), buffer(5), buffer(6), buffer(7));
-            for (int i = 0; i < 7; i++) assertAbsent(scanner.scan(), "MEM-POOL-007");
-            assertThat(ids(scanner.scan())).contains("MEM-POOL-007");
+    void retiredBufferAndOldGenTrendRulesNeverFireAcrossConsecutiveIncreases() {
+        MemoryScanner bufferScanner = scanner(buffer(1), buffer(2), buffer(3), buffer(4));
+        for (int i = 0; i < 4; i++) {
+            assertAbsent(bufferScanner.scan(), "MEM-POOL-007");
         }
-    }
-
-    @Test
-    void oldGenerationUnknownGapAndInvalidUsageRestartConsecutiveEvidence() {
-        for (MemoryContext gap : List.of(context(null, null), old(-1))) {
-            MemoryScanner scanner = scanner(old(1), old(2), old(3), gap, old(4), old(5), old(6), old(7));
-            for (int i = 0; i < 7; i++) assertAbsent(scanner.scan(), "MEM-HEAP-008");
-            assertThat(ids(scanner.scan())).contains("MEM-HEAP-008");
+        MemoryScanner oldGenScanner = scanner(old(1), old(2), old(3), old(4));
+        for (int i = 0; i < 4; i++) {
+            assertAbsent(oldGenScanner.scan(), "MEM-HEAP-008");
         }
     }
 
@@ -279,14 +284,31 @@ class MemoryAccuracyTests {
         MemoryScanner scanner = new MemoryScanner(
                 () -> {
                     int next = index.incrementAndGet();
-                    if (next == 4) throw new IllegalStateException("failed");
-                    return old(next);
+                    if (next == 2) throw new IllegalStateException("failed");
+                    long fullGcCount = next;
+                    GcSample sample =
+                            new GcSample(next * 100_000L, 1_000L, 10L, Map.of("G1 Old Generation", fullGcCount));
+                    return new MemoryContext(
+                            memory(10, 100, 100, List.of(), List.of(), null),
+                            ThreadData.empty(),
+                            HeapContentData.unavailable(),
+                            PostGcHeapData.unavailable(),
+                            ClassLoadingData.empty(),
+                            new RuntimeData(next * 100_000L, 1_000L, 10L, 0, -1, 1024, 4, -1, -1, null),
+                            sample,
+                            sample,
+                            null,
+                            null,
+                            GcTrend.unavailable());
                 },
                 Clock.systemUTC());
-        for (int i = 0; i < 3; i++) assertAbsent(scanner.scan(), "MEM-HEAP-008");
+        MemoryReport first = scanner.scan();
+        assertAbsent(first, "MEM-GC-005");
         assertThat(scanner.scan().scan().status()).isEqualTo("ERROR");
-        for (int i = 0; i < 3; i++) assertAbsent(scanner.scan(), "MEM-HEAP-008");
-        assertThat(ids(scanner.scan())).contains("MEM-HEAP-008");
+        assertThat(scanner.lastReport().scan().status()).isEqualTo("ERROR");
+        // Scan 3 re-seeds the GC baseline after the failed scan; Scan 4 observes the delta.
+        assertAbsent(scanner.scan(), "MEM-GC-005");
+        assertThat(ids(scanner.scan())).contains("MEM-GC-005");
     }
 
     @Test

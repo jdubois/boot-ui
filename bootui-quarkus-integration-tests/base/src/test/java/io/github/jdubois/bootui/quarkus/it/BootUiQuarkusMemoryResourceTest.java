@@ -57,7 +57,7 @@ class BootUiQuarkusMemoryResourceTest {
                 .isIn("SCANNED", "PARTIAL");
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isGreaterThan(0);
+                .isEqualTo(28);
 
         // The result is cached, so a subsequent GET reflects the scan without re-running it.
         Response cached = probe().get("/bootui/api/memory");

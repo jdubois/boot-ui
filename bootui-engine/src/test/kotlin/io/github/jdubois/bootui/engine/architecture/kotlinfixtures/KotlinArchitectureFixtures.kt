@@ -182,3 +182,23 @@ open class KotlinHttpClientFixtures {
     open suspend fun fetchOrders(): RestClient = RestClient.builder().build()
 }
 
+@Service
+open class KotlinCacheFixtures {
+
+    @org.springframework.cache.annotation.Cacheable("orders")
+    open fun cacheVoidOrder(id: Long) {}
+
+    @org.springframework.cache.annotation.CachePut("orders")
+    open suspend fun cacheSuspendUnitOrder(id: Long) {}
+
+    @org.springframework.cache.annotation.Cacheable("orders")
+    open suspend fun cacheSuspendValuedOrder(id: Long): KotlinOrder = KotlinOrder(id, "cached")
+
+    @io.quarkus.cache.CacheResult(cacheName = "orders")
+    open suspend fun quarkusCacheSuspendUnitOrder(id: Long) {}
+
+    @io.quarkus.cache.CacheResult(cacheName = "orders")
+    open suspend fun quarkusCacheSuspendValuedOrder(id: Long): KotlinOrder = KotlinOrder(id, "cached")
+}
+
+

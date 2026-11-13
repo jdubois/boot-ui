@@ -207,4 +207,34 @@ public final class ApplicationFixtures {
             return new ThreadPoolTaskExecutor();
         }
     }
+
+    public static class SampleResilientAndInfraBean {
+        @org.springframework.resilience.annotation.Retryable
+        public void coreRetry() {}
+
+        @org.springframework.resilience.annotation.ConcurrencyLimit(4)
+        public void concurrencyLimited() {}
+
+        @org.springframework.retry.annotation.Retryable
+        public void springRetry() {}
+
+        @Async
+        public void asyncWork() {}
+
+        @Scheduled(fixedDelay = 60_000)
+        public void scheduledTick() {}
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        public String cachedLookup() {
+            return "ok";
+        }
+
+        @org.springframework.transaction.annotation.Transactional
+        public void transactionalUpdate() {}
+    }
+
+    public interface AnnotatedAsyncInterface {
+        @Async
+        void runAsync();
+    }
 }

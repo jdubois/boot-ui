@@ -36,8 +36,16 @@ public final class QuarkusAppMetadataStore {
 
     private static final int MAGIC = 0x42554150;
     private static final int VERSION = 2;
-    private static final List<String> RULES =
-            List.of("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002", "QA-WEB-003");
+    private static final List<String> RULES = List.of(
+            "QA-CDI-002",
+            "QA-CDI-003",
+            "QA-CDI-004",
+            "QA-CDI-005",
+            "QA-CDI-006",
+            "QA-PERF-002",
+            "QA-PERF-003",
+            "QA-PERF-004",
+            "QA-WEB-003");
     private static final Set<String> SCOPES = Set.of("APPLICATION", "NORMAL", "SINGLETON");
     private static final Set<String> MESSAGES = Set.of(INCOMPLETE, UNRESOLVED, INVALID_RESOURCE);
     private static final Comparator<SharedField> FIELD_ORDER = Comparator.comparing(SharedField::className)
@@ -114,6 +122,10 @@ public final class QuarkusAppMetadataStore {
             for (int remaining = count(input, MAX_CLIENTS); remaining > 0; remaining--) {
                 clients.add(new RestClient(string(input), string(input)));
             }
+            List<String> unproxyableBeans = readStrings(input);
+            List<String> defaultPackageBeans = readStrings(input);
+            List<String> reactiveVirtualThreadMethods = readStrings(input);
+            List<String> virtualThreadMethods = readStrings(input);
             List<QuarkusAppEvidenceProblem> problems = new ArrayList<>();
             for (int remaining = count(input, RULES.size() * MESSAGES.size()); remaining > 0; remaining--) {
                 String rule = string(input);
@@ -139,10 +151,22 @@ public final class QuarkusAppMetadataStore {
                     fields,
                     methods,
                     clients,
-                    problems);
+                    problems,
+                    unproxyableBeans,
+                    defaultPackageBeans,
+                    reactiveVirtualThreadMethods,
+                    virtualThreadMethods);
         } catch (IOException | RuntimeException exception) {
             return invalid();
         }
+    }
+
+    private static List<String> readStrings(DataInputStream input) throws IOException {
+        List<String> values = new ArrayList<>();
+        for (int remaining = count(input, MAX_MEMBERS); remaining > 0; remaining--) {
+            values.add(string(input));
+        }
+        return values;
     }
 
     private static QuarkusAppMetadata bounded(QuarkusAppMetadata source) {
@@ -200,6 +224,15 @@ public final class QuarkusAppMetadataStore {
                 remainingBytes -= bytes;
             }
         }
+        int[] budgetRef = {remainingBytes};
+        List<String> unproxyableBeans =
+                boundStrings(source.unproxyableNormalScopedBeans(), "QA-CDI-005", problems, budgetRef);
+        List<String> defaultPackageBeans =
+                boundStrings(source.defaultPackageBeans(), "QA-CDI-006", problems, budgetRef);
+        List<String> reactiveVirtualThreadMethods =
+                boundStrings(source.reactiveVirtualThreadMethods(), "QA-PERF-003", problems, budgetRef);
+        List<String> virtualThreadMethods =
+                boundStrings(source.virtualThreadMethods(), "QA-PERF-004", problems, budgetRef);
         if (source.beanCount() < 0
                 || source.beanCount() > MAX_CLASSES
                 || source.endpointCount() < 0
@@ -225,7 +258,30 @@ public final class QuarkusAppMetadataStore {
                 fields,
                 methods,
                 clients,
-                List.copyOf(problems));
+                List.copyOf(problems),
+                unproxyableBeans,
+                defaultPackageBeans,
+                reactiveVirtualThreadMethods,
+                virtualThreadMethods);
+    }
+
+    private static List<String> boundStrings(
+            List<String> source, String ruleId, Set<QuarkusAppEvidenceProblem> problems, int[] remainingBytes) {
+        List<String> values = new ArrayList<>();
+        if (source.size() > MAX_MEMBERS) {
+            addProblems(problems, List.of(ruleId));
+            return values;
+        }
+        for (String item : new TreeSet<>(source)) {
+            int bytes = size(item);
+            if (bytes < 0 || bytes > remainingBytes[0]) {
+                addProblems(problems, List.of(ruleId));
+                continue;
+            }
+            values.add(item);
+            remainingBytes[0] -= bytes;
+        }
+        return values;
     }
 
     private static boolean validField(SharedField field) {
@@ -290,6 +346,10 @@ public final class QuarkusAppMetadataStore {
                 string(output, client.className());
                 string(output, client.configKey());
             }
+            writeStrings(output, metadata.unproxyableNormalScopedBeans());
+            writeStrings(output, metadata.defaultPackageBeans());
+            writeStrings(output, metadata.reactiveVirtualThreadMethods());
+            writeStrings(output, metadata.virtualThreadMethods());
             output.writeInt(metadata.problems().size());
             for (QuarkusAppEvidenceProblem problem : metadata.problems()) {
                 string(output, problem.ruleId());
@@ -297,6 +357,13 @@ public final class QuarkusAppMetadataStore {
             }
         }
         return bytes.toByteArray();
+    }
+
+    private static void writeStrings(DataOutputStream output, List<String> values) throws IOException {
+        output.writeInt(values.size());
+        for (String value : values) {
+            string(output, value);
+        }
     }
 
     private static void string(DataOutputStream output, String value) throws IOException {

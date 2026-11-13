@@ -108,7 +108,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                     "QS-OIDC-003");
         }
         if (bool("bootui.internal.sec.custom-tls", false)) {
-            unknown("programmatic TLS configuration", "QS-TLS-002", "QS-HDR-003");
+            unknown("programmatic TLS configuration", "QS-HDR-003");
         }
         if (bool("bootui.internal.sec.custom-headers", false)) {
             unknown(
@@ -443,7 +443,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             return true;
         }
         if (certificates != keys) {
-            unknown("incomplete listener TLS material", "QS-TLS-002", "QS-HDR-003");
+            unknown("incomplete listener TLS material", "QS-HDR-003");
         }
         String selectedBucket = str("quarkus.http.tls-configuration-name", null);
         String keyStorePrefix = selectedBucket == null || selectedBucket.isBlank()
@@ -477,7 +477,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             incompleteMaterial = true;
         }
         if (incompleteMaterial) {
-            unknown("incomplete TLS registry material", "QS-TLS-002", "QS-HDR-003");
+            unknown("incomplete TLS registry material", "QS-HDR-003");
         }
         return false;
     }
@@ -1067,7 +1067,6 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                                 "QS-AUTH-001",
                                 "QS-AUTHZ-001",
                                 "QS-AUTHZ-004",
-                                "QS-TLS-002",
                                 "QS-HDR-003");
                         credentialMetadataComplete = false;
                     }
@@ -1400,14 +1399,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         }
         if (key.contains("insecure-requests") || key.contains("ssl") || key.contains("tls")) {
             return new String[] {
-                "QS-TLS-001",
-                "QS-TLS-002",
-                "QS-TLS-003",
-                "QS-TLS-005",
-                "QS-AUTH-002",
-                "QS-AUTH-012",
-                "QS-OIDC-002",
-                "QS-HDR-003"
+                "QS-TLS-001", "QS-TLS-003", "QS-TLS-005", "QS-AUTH-002", "QS-AUTH-012", "QS-OIDC-002", "QS-HDR-003"
             };
         }
         if (key.contains("management")) {

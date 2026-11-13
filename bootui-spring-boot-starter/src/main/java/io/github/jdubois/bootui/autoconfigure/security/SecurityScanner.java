@@ -79,6 +79,7 @@ import org.springframework.web.filter.CorsFilter;
  */
 final class SecurityScanner {
 
+    static final Set<String> RETIRED_RULE_IDS = SecurityRuleRegistry.RETIRED_RULE_IDS;
     private static final String ANALYZER = "BootUI Spring Security Advisor";
     private static final String NO_FILTER_CHAIN_PROXY_ERROR = "No Spring Security FilterChainProxy is available.";
     private static final String DISCLAIMER =

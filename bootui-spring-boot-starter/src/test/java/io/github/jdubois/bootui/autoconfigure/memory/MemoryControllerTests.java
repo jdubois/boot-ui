@@ -34,11 +34,11 @@ class MemoryControllerTests {
         return new MemoryReport(
                 true,
                 "disclaimer",
-                31,
+                28,
                 violationsFound,
                 null,
                 List.of(),
-                new MemoryScanStatusDto("BootUI Memory Advisor", status, "message", null, 31, violationsFound),
+                new MemoryScanStatusDto("BootUI Memory Advisor", status, "message", null, 28, violationsFound),
                 List.of(),
                 List.of(),
                 AdvisorEvidenceDto.unknown());
