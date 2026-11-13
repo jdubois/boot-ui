@@ -724,6 +724,53 @@ class MemoryScannerTests {
                 .doesNotContain("MEM-GC-002", "MEM-GC-006");
     }
 
+    @Test
+    void counterDiscontinuityBetweenScansResetsTrackerExplicitGcObservationsAndAcceptsReusedIds() {
+        AtomicInteger step = new AtomicInteger();
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker();
+        MemoryContext.GcSample firstSample =
+                new MemoryContext.GcSample(200_000L, 1_000L, 10L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcSample resetSample =
+                new MemoryContext.GcSample(50_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 0L));
+        MemoryContext first = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                healthyRuntime(),
+                firstSample,
+                firstSample,
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcTrend.unavailable());
+        MemoryContext afterReset = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                healthyRuntime(),
+                resetSample,
+                resetSample,
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcTrend.unavailable());
+
+        MemoryScanner scanner =
+                new MemoryScanner(() -> step.incrementAndGet() == 1 ? first : afterReset, CLOCK, tracker);
+
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 100_000L, 250L);
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-009");
+
+        // Counter discontinuity on Scan 2 clears pre-reset explicit GCs
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-009");
+
+        // Reused gcId=1 in the new epoch is accepted again
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 60_000L, 300L);
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-009");
+    }
+
     private static MemoryRuleResultDto result(String id, String status) {
         return new MemoryRuleResultDto(
                 id,

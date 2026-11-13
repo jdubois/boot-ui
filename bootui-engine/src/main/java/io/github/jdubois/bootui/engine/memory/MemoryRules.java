@@ -965,7 +965,8 @@ final class ClassLoaderAndProxyBloatRule extends AbstractMemoryRule {
                         ? ""
                         : " (largest: " + loaders.get(0).className() + " with "
                                 + loaders.get(0).instances() + " instances)";
-                details.add(loaderInstances + " live dynamic ClassLoader instances across " + loaders.size()
+                int loaderClassCount = Math.max(heap.dynamicClassLoaderClassCount(), loaders.size());
+                details.add(loaderInstances + " live dynamic ClassLoader instances across " + loaderClassCount
                         + " loader classes in the class histogram" + topNote
                         + "; accumulation of dynamic ClassLoaders can retain class metadata and exhaust Metaspace.");
             }
@@ -1664,8 +1665,12 @@ final class ContainerCgroupThrottlingAndOomRule extends AbstractMemoryRule {
         String skippedReason = null;
 
         if (hasHighLimit) {
-            Long current = memory.containerMemoryCurrentBytes();
-            Long workingSet = memory.containerMemoryWorkingSetBytes();
+            Long current = memory.containerMemoryHighCurrentBytes() != null
+                    ? memory.containerMemoryHighCurrentBytes()
+                    : memory.containerMemoryCurrentBytes();
+            Long workingSet = memory.containerMemoryHighWorkingSetBytes() != null
+                    ? memory.containerMemoryHighWorkingSetBytes()
+                    : memory.containerMemoryWorkingSetBytes();
             if (current == null || current < 0) {
                 skippedUsage = true;
                 skippedReason =
@@ -1677,6 +1682,7 @@ final class ContainerCgroupThrottlingAndOomRule extends AbstractMemoryRule {
                 long measuredUsage = workingSet != null ? workingSet : current;
                 String usageLabel = workingSet != null ? "Container working set" : "Container memory usage";
                 int percent = MemoryFormat.percentOf(measuredUsage, highLimit);
+                int currentPercent = MemoryFormat.percentOf(current, highLimit);
                 if (measuredUsage >= highLimit) {
                     highSeverity = true;
                     details.add(usageLabel + " " + MemoryFormat.bytes(measuredUsage) + " (" + percent
@@ -1687,6 +1693,12 @@ final class ContainerCgroupThrottlingAndOomRule extends AbstractMemoryRule {
                     details.add(usageLabel + " is " + percent + "% of the cgroup v2 memory.high throttle limit ("
                             + MemoryFormat.bytes(measuredUsage) + " of " + MemoryFormat.bytes(highLimit)
                             + "); crossing memory.high triggers kernel memory throttling and direct reclaim pauses.");
+                } else if (currentPercent >= HIGH_THROTTLE_THRESHOLD_PERCENT) {
+                    details.add("Container memory usage is " + currentPercent
+                            + "% of the cgroup v2 memory.high throttle limit ("
+                            + MemoryFormat.bytes(current) + " of " + MemoryFormat.bytes(highLimit)
+                            + "; working set " + MemoryFormat.bytes(measuredUsage)
+                            + " excluding inactive file cache); crossing memory.high triggers kernel direct reclaim.");
                 }
             }
         }
@@ -1981,6 +1993,11 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
             }
             if (memory.gcCollectorNames().isEmpty()) {
                 return missingPass();
+            }
+            if (!explicitGc.notificationsObserved()) {
+                return skipped(
+                        "GC cause notifications are not active on this runtime; external System.gc() pauses could not"
+                                + " be observed.");
             }
             return pass();
         }

@@ -202,6 +202,12 @@ final class MemoryCollector {
         Long containerWorkingSet = containerWorkingSetValue.isPresent() ? containerWorkingSetValue.getAsLong() : null;
         OptionalLong containerHighValue = containerMemory.high();
         Long containerHigh = containerHighValue.isPresent() ? containerHighValue.getAsLong() : null;
+        OptionalLong containerHighCurrentValue = containerMemory.highCurrent();
+        Long containerHighCurrent =
+                containerHighCurrentValue.isPresent() ? containerHighCurrentValue.getAsLong() : null;
+        OptionalLong containerHighWorkingSetValue = containerMemory.highWorkingSet();
+        Long containerHighWorkingSet =
+                containerHighWorkingSetValue.isPresent() ? containerHighWorkingSetValue.getAsLong() : null;
 
         return new MemoryData(
                 heap.getUsed(),
@@ -222,7 +228,9 @@ final class MemoryCollector {
                 containerWorkingSet,
                 bufferPools,
                 containerHigh,
-                containerMemory.events());
+                containerMemory.events(),
+                containerHighCurrent,
+                containerHighWorkingSet);
     }
 
     private ThreadData collectThreads() {
@@ -297,6 +305,7 @@ final class MemoryCollector {
                 totalBytes,
                 null,
                 summary.classLoaderEntries(),
+                summary.dynamicClassLoaderClassCount(),
                 summary.dynamicClassLoaderInstances(),
                 summary.generatedProxyClassCount(),
                 summary.generatedProxyInstances(),

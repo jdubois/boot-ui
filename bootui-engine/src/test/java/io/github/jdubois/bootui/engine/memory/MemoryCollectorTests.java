@@ -344,4 +344,67 @@ class MemoryCollectorTests {
         assertThat(new ClassLoaderAndProxyBloatRule().evaluate(context).status())
                 .isEqualTo("VIOLATION");
     }
+
+    @Test
+    void ignoresUnconstrainedParentCgroupEventsAndReadsHighUsageFromHighLimitDirectory() throws Exception {
+        Path mountPoint = tempDir.resolve("cgroup2-hierarchy");
+        Path parentSlice = mountPoint.resolve("user.slice");
+        Path leafService = parentSlice.resolve("app.service");
+        Files.createDirectories(leafService);
+        // Unconstrained parent slice has historical OOM kills from a sibling process, while leaf is clean and unlimited
+        Files.writeString(parentSlice.resolve("memory.max"), "max\n");
+        Files.writeString(parentSlice.resolve("memory.high"), "max\n");
+        Files.writeString(parentSlice.resolve("memory.events"), "high 50\nmax 10\noom 3\noom_kill 3\n");
+        Files.writeString(leafService.resolve("memory.max"), "max\n");
+        Files.writeString(leafService.resolve("memory.high"), "max\n");
+        Files.writeString(leafService.resolve("memory.events"), "high 0\nmax 0\noom 0\noom_kill 0\n");
+        Path selfCgroup = tempDir.resolve("self-slice.cgroup");
+        Path mountInfo = tempDir.resolve("slice.mountinfo");
+        Files.writeString(selfCgroup, "0::/user.slice/app.service\n");
+        Files.writeString(mountInfo, "29 23 0:26 / " + mountPoint + " rw - cgroup2 cgroup rw\n");
+
+        ContainerMemoryLimitDetector unconstrainedDetector =
+                ContainerMemoryLimitDetector.fromProcFiles(selfCgroup, mountInfo);
+        assertThat(unconstrainedDetector.detect())
+                .isEqualTo(ContainerMemoryLimitDetector.CgroupMemorySample.unavailable());
+
+        // Parent enforces memory.max (1 GiB, current 850 MiB), while leaf enforces memory.high (256 MiB, current 100
+        // MiB)
+        Files.writeString(parentSlice.resolve("memory.max"), "1073741824\n");
+        Files.writeString(parentSlice.resolve("memory.current"), "891289600\n");
+        Files.writeString(parentSlice.resolve("memory.events"), "high 0\nmax 0\noom 0\noom_kill 0\n");
+        Files.writeString(leafService.resolve("memory.high"), "268435456\n");
+        Files.writeString(leafService.resolve("memory.current"), "104857600\n");
+
+        ContainerMemoryLimitDetector splitDetector = ContainerMemoryLimitDetector.fromProcFiles(selfCgroup, mountInfo);
+        ContainerMemoryLimitDetector.CgroupMemorySample sample = splitDetector.detect();
+
+        assertThat(sample.limit()).isEqualTo(OptionalLong.of(1_073_741_824L));
+        assertThat(sample.current()).isEqualTo(OptionalLong.of(891_289_600L));
+        assertThat(sample.high()).isEqualTo(OptionalLong.of(268_435_456L));
+        assertThat(sample.highCurrent()).isEqualTo(OptionalLong.of(104_857_600L));
+
+        MemoryContext context = new MemoryCollector(() -> null, () -> null, splitDetector).collect();
+        assertThat(new ContainerCgroupThrottlingAndOomRule().evaluate(context).status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void excludesJdkReflectionDelegatingClassLoadersAndIncludesNestedDynamicLoaders() {
+        String raw = """
+                 num     #instances         #bytes  class name (module)
+                -------------------------------------------------------
+                   1:           400          32000  jdk.internal.reflect.DelegatingClassLoader (java.base@21)
+                   2:           300          24000  sun.reflect.DelegatingClassLoader
+                   3:            30           2400  groovy.lang.GroovyClassLoader$InnerLoader
+                   4:            25           2000  net.bytebuddy.dynamic.loading.ByteArrayClassLoader$ChildFirst
+                """;
+        MemoryContext context =
+                new MemoryCollector(() -> null, () -> raw, ContainerMemoryLimitDetector.disabled()).collect();
+
+        assertThat(context.heapContent().dynamicClassLoaderClassCount()).isEqualTo(2);
+        assertThat(context.heapContent().dynamicClassLoaderInstances()).isEqualTo(55L);
+        assertThat(new ClassLoaderAndProxyBloatRule().evaluate(context).status())
+                .isEqualTo("VIOLATION");
+    }
 }

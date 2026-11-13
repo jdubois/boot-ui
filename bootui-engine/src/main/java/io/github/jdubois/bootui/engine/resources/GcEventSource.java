@@ -71,19 +71,7 @@ public final class GcEventSource implements AutoCloseable {
      * cycles).
      */
     public static boolean isExternalExplicitFullGc(String collector, String action, String cause) {
-        if (!"System.gc()".equals(cause) || collector == null) {
-            return false;
-        }
-        return switch (collector) {
-            case "G1 Old Generation", "PS MarkSweep", "MarkSweepCompact" -> true;
-            default ->
-                action != null
-                        && action.contains("major GC")
-                        && !GcCollectorKinds.isConcurrentCycleBean(collector)
-                        && !collector.startsWith("ZGC")
-                        && !collector.startsWith("Shenandoah")
-                        && !"G1 Concurrent GC".equals(collector);
-        };
+        return GcCollectorKinds.isExternalExplicitFullGc(collector, action, cause);
     }
 
     /** Starts listening to every collector, publishing to {@code sink}; listens to none when the JVM offers none. */
@@ -120,6 +108,9 @@ public final class GcEventSource implements AutoCloseable {
                     log.log(Level.FINE, "BootUI could not listen to GC notifications of " + collector.getName(), ex);
                 }
             }
+        }
+        if (diagnosticGcTracker != null && !source.emitters.isEmpty()) {
+            diagnosticGcTracker.setNotificationsObserved(true);
         }
         return source;
     }

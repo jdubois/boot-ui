@@ -1,12 +1,16 @@
 package io.github.jdubois.bootui.engine.memory;
 
-import io.github.jdubois.bootui.engine.resources.GcEventSource;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
+import javax.management.Notification;
+import javax.management.NotificationEmitter;
+import javax.management.openmbean.CompositeData;
 
 /**
  * Tracks garbage collections triggered by BootUI's own explicit diagnostic and memory-reclamation
@@ -21,9 +25,7 @@ public final class BootUiDiagnosticGcTracker {
     private static final int MAX_RETAINED_WINDOWS = 128;
 
     /** Process-wide tracker reading the live JVM's collector MXBeans. */
-    public static final BootUiDiagnosticGcTracker SHARED = new BootUiDiagnosticGcTracker(
-            MemoryCollector::currentGcSample,
-            () -> MemoryCollector.readLastGcEvent().asGcEvent());
+    public static final BootUiDiagnosticGcTracker SHARED = createShared();
 
     @FunctionalInterface
     public interface ThrowingRunnable<E extends Exception> {
@@ -39,6 +41,7 @@ public final class BootUiDiagnosticGcTracker {
 
     private long epoch;
     private int recordedWindows;
+    private boolean notificationsObserved;
     private long cumulativeGcTimeMillis;
     private long cumulativeGcCount;
     private final Map<String, Long> cumulativePerCollectorCounts = new HashMap<>();
@@ -46,15 +49,85 @@ public final class BootUiDiagnosticGcTracker {
     private long maxEndTimeMillis = -1;
     private final Deque<DiagnosticWindow> diagnosticWindows = new ArrayDeque<>();
     private final Deque<ExternalExplicitGcEvent> externalExplicitGcs = new ArrayDeque<>();
+    private long evictedExplicitGcCount;
+    private long evictedExplicitGcMaxDurationMillis = -1;
+    private long evictedExplicitGcTotalDurationMillis;
 
     public BootUiDiagnosticGcTracker() {
-        this(() -> null, MemoryContext.GcEvent::unavailable);
+        this(() -> null, MemoryContext.GcEvent::unavailable, true);
     }
 
     BootUiDiagnosticGcTracker(
             Supplier<MemoryContext.GcSample> sampleSupplier, Supplier<MemoryContext.GcEvent> eventSupplier) {
+        this(sampleSupplier, eventSupplier, true);
+    }
+
+    BootUiDiagnosticGcTracker(
+            Supplier<MemoryContext.GcSample> sampleSupplier,
+            Supplier<MemoryContext.GcEvent> eventSupplier,
+            boolean notificationsObserved) {
         this.sampleSupplier = Objects.requireNonNull(sampleSupplier, "sampleSupplier");
         this.eventSupplier = Objects.requireNonNull(eventSupplier, "eventSupplier");
+        this.notificationsObserved = notificationsObserved;
+    }
+
+    private static BootUiDiagnosticGcTracker createShared() {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(
+                MemoryCollector::currentGcSample,
+                () -> MemoryCollector.readLastGcEvent().asGcEvent(),
+                false);
+        tracker.attachJvmNotificationListeners();
+        return tracker;
+    }
+
+    private void attachJvmNotificationListeners() {
+        try {
+            int attached = 0;
+            for (GarbageCollectorMXBean collector : ManagementFactory.getGarbageCollectorMXBeans()) {
+                if (collector instanceof NotificationEmitter emitter) {
+                    try {
+                        emitter.addNotificationListener(this::onJmxNotification, null, null);
+                        attached++;
+                    } catch (RuntimeException ignored) {
+                        // Ignore individual collector listener failures.
+                    }
+                }
+            }
+            if (attached > 0) {
+                setNotificationsObserved(true);
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // Non-HotSpot runtime without notification emitters.
+        }
+    }
+
+    private void onJmxNotification(Notification notification, Object handback) {
+        try {
+            if (notification == null
+                    || !com.sun.management.GarbageCollectionNotificationInfo.GARBAGE_COLLECTION_NOTIFICATION.equals(
+                            notification.getType())
+                    || !(notification.getUserData() instanceof CompositeData data)) {
+                return;
+            }
+            com.sun.management.GarbageCollectionNotificationInfo info =
+                    com.sun.management.GarbageCollectionNotificationInfo.from(data);
+            com.sun.management.GcInfo gc = info.getGcInfo();
+            if (gc != null) {
+                recordGcNotification(
+                        info.getGcName(),
+                        gc.getId(),
+                        info.getGcAction(),
+                        info.getGcCause(),
+                        gc.getEndTime(),
+                        gc.getDuration());
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // Never fail on the JVM notification thread.
+        }
+    }
+
+    public synchronized void setNotificationsObserved(boolean notificationsObserved) {
+        this.notificationsObserved = notificationsObserved;
     }
 
     /** Runs a BootUI action that may trigger a garbage collection and records its GC counter delta. */
@@ -136,15 +209,16 @@ public final class BootUiDiagnosticGcTracker {
     }
 
     /**
-     * Records a GC notification from {@link GcEventSource}, keeping only external stop-the-world
+     * Records a GC notification from {@code GcEventSource}, keeping only external stop-the-world
      * {@code System.gc()} pauses that were not triggered by BootUI's own diagnostic/offload actions.
      */
     public synchronized void recordGcNotification(
             String collector, long gcId, String action, String cause, long endTimeMillis, long durationMillis) {
-        if (!GcEventSource.isExternalExplicitFullGc(collector, action, cause)) {
+        notificationsObserved = true;
+        if (!GcCollectorKinds.isExternalExplicitFullGc(collector, action, cause)) {
             return;
         }
-        if (activeDepth > 0) {
+        if (activeDepth > 0 && isInActiveDiagnosticWindow(collector, gcId, endTimeMillis)) {
             return;
         }
         ExternalExplicitGcEvent candidate =
@@ -160,9 +234,29 @@ public final class BootUiDiagnosticGcTracker {
             }
         }
         while (externalExplicitGcs.size() >= MAX_RETAINED_WINDOWS) {
-            externalExplicitGcs.removeFirst();
+            ExternalExplicitGcEvent evicted = externalExplicitGcs.removeFirst();
+            evictedExplicitGcCount = saturateAdd(evictedExplicitGcCount, 1L);
+            evictedExplicitGcMaxDurationMillis = Math.max(evictedExplicitGcMaxDurationMillis, evicted.durationMillis());
+            evictedExplicitGcTotalDurationMillis =
+                    saturateAdd(evictedExplicitGcTotalDurationMillis, evicted.durationMillis());
         }
         externalExplicitGcs.addLast(candidate);
+    }
+
+    private boolean isInActiveDiagnosticWindow(String collector, long gcId, long endTimeMillis) {
+        if (activeBeforeSample == null) {
+            return true;
+        }
+        Long prevCount = activeBeforeSample.perCollectorCounts().get(collector);
+        if (prevCount != null && prevCount >= 0 && gcId >= 0) {
+            // A delayed JMX notification for a collection that completed at or before activeBeforeSample
+            // belongs to pre-action application activity and must not be discarded.
+            return gcId > prevCount;
+        }
+        if (activeBeforeSample.uptimeMillis() >= 0 && endTimeMillis >= 0) {
+            return endTimeMillis > activeBeforeSample.uptimeMillis();
+        }
+        return true;
     }
 
     public synchronized int recordedWindows() {
@@ -193,19 +287,21 @@ public final class BootUiDiagnosticGcTracker {
     }
 
     private MemoryContext.ExplicitGcData explicitGcSnapshot() {
-        if (externalExplicitGcs.isEmpty()) {
-            return MemoryContext.ExplicitGcData.none();
+        long count = saturateAdd(evictedExplicitGcCount, externalExplicitGcs.size());
+        if (count <= 0) {
+            return notificationsObserved
+                    ? MemoryContext.ExplicitGcData.none()
+                    : MemoryContext.ExplicitGcData.unobserved();
         }
-        long count = externalExplicitGcs.size();
-        long maxDuration = -1;
-        long totalDuration = 0;
+        long maxDuration = evictedExplicitGcMaxDurationMillis;
+        long totalDuration = evictedExplicitGcTotalDurationMillis;
         String lastCollector = null;
         for (ExternalExplicitGcEvent event : externalExplicitGcs) {
             maxDuration = Math.max(maxDuration, event.durationMillis());
             totalDuration = saturateAdd(totalDuration, event.durationMillis());
             lastCollector = event.collector();
         }
-        return new MemoryContext.ExplicitGcData(count, maxDuration, totalDuration, lastCollector);
+        return new MemoryContext.ExplicitGcData(count, maxDuration, totalDuration, lastCollector, true);
     }
 
     private synchronized void begin() {
@@ -236,6 +332,9 @@ public final class BootUiDiagnosticGcTracker {
         maxEndTimeMillis = -1L;
         diagnosticWindows.clear();
         externalExplicitGcs.clear();
+        evictedExplicitGcCount = 0L;
+        evictedExplicitGcMaxDurationMillis = -1L;
+        evictedExplicitGcTotalDurationMillis = 0L;
     }
 
     private static boolean isNewDiagnosticEvent(
@@ -328,22 +427,22 @@ public final class BootUiDiagnosticGcTracker {
 
         boolean matches(ExternalExplicitGcEvent candidate) {
             LongRange range = collectorRanges.get(candidate.collector());
-            if (range != null && candidate.gcId() >= 0 && range.contains(candidate.gcId())) {
-                return true;
+            if (range != null && candidate.gcId() >= 0) {
+                return range.contains(candidate.gcId());
             }
             if (afterEvent != null
                     && afterEvent.available()
                     && Objects.equals(afterEvent.collectorName(), candidate.collector())) {
-                if (afterEvent.id() >= 0 && candidate.gcId() >= 0 && afterEvent.id() == candidate.gcId()) {
-                    return true;
+                if (afterEvent.id() >= 0 && candidate.gcId() >= 0) {
+                    return afterEvent.id() == candidate.gcId();
                 }
-                if (afterEvent.endTimeMillis() >= 0
-                        && candidate.endTimeMillis() >= 0
-                        && afterEvent.endTimeMillis() == candidate.endTimeMillis()) {
-                    return true;
+                if (afterEvent.endTimeMillis() >= 0 && candidate.endTimeMillis() >= 0) {
+                    return afterEvent.endTimeMillis() == candidate.endTimeMillis();
                 }
             }
-            return beforeUptimeMillis >= 0
+            return collectorRanges.isEmpty()
+                    && candidate.gcId() < 0
+                    && beforeUptimeMillis >= 0
                     && afterUptimeMillis >= beforeUptimeMillis
                     && candidate.endTimeMillis() >= beforeUptimeMillis
                     && candidate.endTimeMillis() <= afterUptimeMillis;

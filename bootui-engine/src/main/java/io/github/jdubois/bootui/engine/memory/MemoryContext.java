@@ -301,13 +301,59 @@ record MemoryContext(
             Long containerMemoryWorkingSetBytes,
             List<BufferPoolSnapshot> bufferPools,
             Long containerMemoryHighBytes,
-            CgroupMemoryEvents containerMemoryEvents) {
+            CgroupMemoryEvents containerMemoryEvents,
+            Long containerMemoryHighCurrentBytes,
+            Long containerMemoryHighWorkingSetBytes) {
 
         MemoryData {
             pools = pools == null ? List.of() : List.copyOf(pools);
             inputArguments = inputArguments == null ? List.of() : List.copyOf(inputArguments);
             gcCollectorNames = gcCollectorNames == null ? List.of() : List.copyOf(gcCollectorNames);
             bufferPools = bufferPools == null ? List.of() : List.copyOf(bufferPools);
+        }
+
+        MemoryData(
+                long heapUsed,
+                long heapCommitted,
+                long heapMax,
+                long nonHeapUsed,
+                long nonHeapCommitted,
+                long nonHeapMax,
+                List<MemoryPoolSnapshot> pools,
+                long directBufferUsed,
+                long directBufferCapacity,
+                long directBufferCount,
+                long maxDirectMemoryBytes,
+                List<String> inputArguments,
+                List<String> gcCollectorNames,
+                Long containerMemoryLimitBytes,
+                Long containerMemoryCurrentBytes,
+                Long containerMemoryWorkingSetBytes,
+                List<BufferPoolSnapshot> bufferPools,
+                Long containerMemoryHighBytes,
+                CgroupMemoryEvents containerMemoryEvents) {
+            this(
+                    heapUsed,
+                    heapCommitted,
+                    heapMax,
+                    nonHeapUsed,
+                    nonHeapCommitted,
+                    nonHeapMax,
+                    pools,
+                    directBufferUsed,
+                    directBufferCapacity,
+                    directBufferCount,
+                    maxDirectMemoryBytes,
+                    inputArguments,
+                    gcCollectorNames,
+                    containerMemoryLimitBytes,
+                    containerMemoryCurrentBytes,
+                    containerMemoryWorkingSetBytes,
+                    bufferPools,
+                    containerMemoryHighBytes,
+                    containerMemoryEvents,
+                    containerMemoryCurrentBytes,
+                    containerMemoryWorkingSetBytes);
         }
 
         MemoryData(
@@ -655,10 +701,36 @@ record MemoryContext(
             long totalBytes,
             String collectionError,
             List<HeapClassHistogramEntryDto> classLoaderEntries,
+            int dynamicClassLoaderClassCount,
             long dynamicClassLoaderInstances,
             int generatedProxyClassCount,
             long generatedProxyInstances,
             long generatedProxyBytes) {
+
+        HeapContentData(
+                boolean available,
+                List<HeapClassHistogramEntryDto> histogram,
+                long totalInstances,
+                long totalBytes,
+                String collectionError,
+                List<HeapClassHistogramEntryDto> classLoaderEntries,
+                long dynamicClassLoaderInstances,
+                int generatedProxyClassCount,
+                long generatedProxyInstances,
+                long generatedProxyBytes) {
+            this(
+                    available,
+                    histogram,
+                    totalInstances,
+                    totalBytes,
+                    collectionError,
+                    classLoaderEntries,
+                    classLoaderEntries == null ? 0 : classLoaderEntries.size(),
+                    dynamicClassLoaderInstances,
+                    generatedProxyClassCount,
+                    generatedProxyInstances,
+                    generatedProxyBytes);
+        }
 
         HeapContentData(
                 boolean available,
@@ -689,6 +761,7 @@ record MemoryContext(
                     totalBytes,
                     collectionError,
                     summary.classLoaderEntries(),
+                    summary.dynamicClassLoaderClassCount(),
                     summary.dynamicClassLoaderInstances(),
                     summary.generatedProxyClassCount(),
                     summary.generatedProxyInstances(),
@@ -706,12 +779,12 @@ record MemoryContext(
         }
 
         static HeapContentData unavailable() {
-            return new HeapContentData(false, List.of(), 0, 0, null, List.of(), 0, 0, 0, 0);
+            return new HeapContentData(false, List.of(), 0, 0, null, List.of(), 0, 0, 0, 0, 0);
         }
 
         static HeapContentData failed() {
             return new HeapContentData(
-                    false, List.of(), 0, 0, "Class histogram collection failed.", List.of(), 0, 0, 0, 0);
+                    false, List.of(), 0, 0, "Class histogram collection failed.", List.of(), 0, 0, 0, 0, 0);
         }
     }
 
@@ -721,6 +794,7 @@ record MemoryContext(
      */
     record HistogramClassSummary(
             List<HeapClassHistogramEntryDto> classLoaderEntries,
+            int dynamicClassLoaderClassCount,
             long dynamicClassLoaderInstances,
             int generatedProxyClassCount,
             long generatedProxyInstances,
@@ -730,7 +804,7 @@ record MemoryContext(
 
         static HistogramClassSummary from(List<HeapClassHistogramEntryDto> entries) {
             if (entries == null || entries.isEmpty()) {
-                return new HistogramClassSummary(List.of(), 0, 0, 0, 0);
+                return new HistogramClassSummary(List.of(), 0, 0, 0, 0, 0);
             }
             List<HeapClassHistogramEntryDto> loaders = new java.util.ArrayList<>();
             long loaderInstances = 0;
@@ -757,22 +831,40 @@ record MemoryContext(
                     .thenComparing(java.util.Comparator.comparingLong(HeapClassHistogramEntryDto::bytes)
                             .reversed())
                     .thenComparing(HeapClassHistogramEntryDto::className));
-            List<HeapClassHistogramEntryDto> topLoaders = loaders.size() <= MAX_CLASSLOADER_ENTRIES
+            int totalLoaderClasses = loaders.size();
+            List<HeapClassHistogramEntryDto> topLoaders = totalLoaderClasses <= MAX_CLASSLOADER_ENTRIES
                     ? List.copyOf(loaders)
                     : List.copyOf(loaders.subList(0, MAX_CLASSLOADER_ENTRIES));
-            return new HistogramClassSummary(topLoaders, loaderInstances, proxyClasses, proxyInstances, proxyBytes);
+            return new HistogramClassSummary(
+                    topLoaders, totalLoaderClasses, loaderInstances, proxyClasses, proxyInstances, proxyBytes);
         }
 
         static boolean isDynamicClassLoaderClass(String className, long instances) {
             if (className == null || instances <= 0 || DominantClassRule.isArrayClass(className)) {
                 return false;
             }
+            if (isJdkReflectionDelegatingClassLoader(className)) {
+                return false;
+            }
             if (isStandardSingletonClassLoader(className) && instances <= 5) {
                 return false;
             }
-            return className.endsWith("ClassLoader")
+            if (className.endsWith("ClassLoader")
                     || className.equals("javax.management.loading.MLet")
-                    || className.equals("javax.management.loading.PrivateMLet");
+                    || className.equals("javax.management.loading.PrivateMLet")) {
+                return true;
+            }
+            int dollar = className.lastIndexOf('$');
+            if (dollar > 0 && className.substring(0, dollar).endsWith("ClassLoader")) {
+                String inner = className.substring(dollar + 1);
+                return inner.endsWith("Loader") || inner.equals("ChildFirst") || inner.equals("ParentLast");
+            }
+            return false;
+        }
+
+        private static boolean isJdkReflectionDelegatingClassLoader(String className) {
+            return className.equals("jdk.internal.reflect.DelegatingClassLoader")
+                    || className.equals("sun.reflect.DelegatingClassLoader");
         }
 
         private static boolean isStandardSingletonClassLoader(String className) {
@@ -1082,20 +1174,32 @@ record MemoryContext(
      * {@code GarbageCollectionNotificationInfo.getGcCause()} (excluding {@code Heap Inspection Initiated GC},
      * {@code Heap Dump Initiated GC}, and BootUI's own memory offload/low-footprint actions).
      */
-    record ExplicitGcData(long count, long maxDurationMillis, long totalDurationMillis, String lastCollectorName) {
+    record ExplicitGcData(
+            long count,
+            long maxDurationMillis,
+            long totalDurationMillis,
+            String lastCollectorName,
+            boolean notificationsObserved) {
+
+        ExplicitGcData(long count, long maxDurationMillis, long totalDurationMillis, String lastCollectorName) {
+            this(count, maxDurationMillis, totalDurationMillis, lastCollectorName, true);
+        }
 
         static ExplicitGcData none() {
-            return new ExplicitGcData(0, -1, 0, null);
+            return new ExplicitGcData(0, -1, 0, null, true);
+        }
+
+        static ExplicitGcData unobserved() {
+            return new ExplicitGcData(0, -1, 0, null, false);
         }
 
         static ExplicitGcData from(GcEvent event) {
             if (event == null
                     || !event.available()
-                    || !io.github.jdubois.bootui.engine.resources.GcEventSource.isExternalExplicitFullGc(
-                            event.collectorName(), null, event.gcCause())) {
+                    || !GcCollectorKinds.isExternalExplicitFullGc(event.collectorName(), null, event.gcCause())) {
                 return none();
             }
-            return new ExplicitGcData(1, event.durationMillis(), event.durationMillis(), event.collectorName());
+            return new ExplicitGcData(1, event.durationMillis(), event.durationMillis(), event.collectorName(), true);
         }
     }
 

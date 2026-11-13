@@ -72,7 +72,8 @@ final class ContainerMemoryLimitDetector {
                     selectEffectiveDirectory(candidate.hierarchy(), CgroupDirectoryFiles::limitFile);
             CgroupSampleSelection highSelection =
                     selectEffectiveDirectory(candidate.hierarchy(), CgroupDirectoryFiles::highFile);
-            MemoryContext.CgroupMemoryEvents events = readEvents(candidate.hierarchy());
+            MemoryContext.CgroupMemoryEvents events =
+                    readEvents(candidate.hierarchy().get(0), maxSelection, highSelection);
             if (maxSelection != null || highSelection != null || (events != null && events.hasAnyEvent())) {
                 CgroupDirectoryFiles primaryDir = maxSelection != null
                         ? maxSelection.directory()
@@ -82,12 +83,28 @@ final class ContainerMemoryLimitDetector {
                 CgroupDirectoryFiles usageSource = Files.isRegularFile(primaryDir.currentFile())
                         ? primaryDir
                         : candidate.hierarchy().get(0);
+                OptionalLong current = readUsage(usageSource.currentFile());
+                OptionalLong inactiveFile = readInactiveFile(usageSource.statFile(), candidate.inactiveFileKey());
+                OptionalLong highCurrent = OptionalLong.empty();
+                OptionalLong highInactiveFile = OptionalLong.empty();
+                if (highSelection != null) {
+                    CgroupDirectoryFiles highSource =
+                            Files.isRegularFile(highSelection.directory().currentFile())
+                                    ? highSelection.directory()
+                                    : candidate.hierarchy().get(0);
+                    highCurrent = highSource.equals(usageSource) ? current : readUsage(highSource.currentFile());
+                    highInactiveFile = highSource.equals(usageSource)
+                            ? inactiveFile
+                            : readInactiveFile(highSource.statFile(), candidate.inactiveFileKey());
+                }
                 return new CgroupMemorySample(
                         maxSelection != null ? OptionalLong.of(maxSelection.limit()) : OptionalLong.empty(),
-                        readUsage(usageSource.currentFile()),
-                        readInactiveFile(usageSource.statFile(), candidate.inactiveFileKey()),
+                        current,
+                        inactiveFile,
                         highSelection != null ? OptionalLong.of(highSelection.limit()) : OptionalLong.empty(),
-                        events);
+                        events,
+                        highCurrent,
+                        highInactiveFile);
             }
         }
         return CgroupMemorySample.unavailable();
@@ -110,13 +127,27 @@ final class ContainerMemoryLimitDetector {
         return effective;
     }
 
-    private MemoryContext.CgroupMemoryEvents readEvents(List<CgroupDirectoryFiles> hierarchy) {
+    /**
+     * Reads {@code memory.events} only from the process leaf cgroup and any ancestor directory that
+     * enforces an effective finite {@code memory.max} or {@code memory.high} limit, avoiding false
+     * positives from unrelated sibling cgroups in unconstrained parent slices.
+     */
+    private MemoryContext.CgroupMemoryEvents readEvents(
+            CgroupDirectoryFiles leaf, CgroupSampleSelection maxSelection, CgroupSampleSelection highSelection) {
+        List<CgroupDirectoryFiles> relevant = new ArrayList<>(3);
+        relevant.add(leaf);
+        if (maxSelection != null && !relevant.contains(maxSelection.directory())) {
+            relevant.add(maxSelection.directory());
+        }
+        if (highSelection != null && !relevant.contains(highSelection.directory())) {
+            relevant.add(highSelection.directory());
+        }
         long high = 0;
         long max = 0;
         long oom = 0;
         long oomKill = 0;
         boolean found = false;
-        for (CgroupDirectoryFiles dir : hierarchy) {
+        for (CgroupDirectoryFiles dir : relevant) {
             Path file = dir.eventsFile();
             if (file == null || !Files.isRegularFile(file)) {
                 continue;
@@ -410,10 +441,21 @@ final class ContainerMemoryLimitDetector {
             OptionalLong current,
             OptionalLong inactiveFile,
             OptionalLong high,
-            MemoryContext.CgroupMemoryEvents events) {
+            MemoryContext.CgroupMemoryEvents events,
+            OptionalLong highCurrent,
+            OptionalLong highInactiveFile) {
 
         CgroupMemorySample(OptionalLong limit, OptionalLong current, OptionalLong inactiveFile) {
-            this(limit, current, inactiveFile, OptionalLong.empty(), null);
+            this(limit, current, inactiveFile, OptionalLong.empty(), null, OptionalLong.empty(), OptionalLong.empty());
+        }
+
+        CgroupMemorySample(
+                OptionalLong limit,
+                OptionalLong current,
+                OptionalLong inactiveFile,
+                OptionalLong high,
+                MemoryContext.CgroupMemoryEvents events) {
+            this(limit, current, inactiveFile, high, events, current, inactiveFile);
         }
 
         CgroupMemorySample {
@@ -421,11 +463,19 @@ final class ContainerMemoryLimitDetector {
             current = current == null ? OptionalLong.empty() : current;
             inactiveFile = inactiveFile == null ? OptionalLong.empty() : inactiveFile;
             high = high == null ? OptionalLong.empty() : high;
+            highCurrent = highCurrent == null ? OptionalLong.empty() : highCurrent;
+            highInactiveFile = highInactiveFile == null ? OptionalLong.empty() : highInactiveFile;
         }
 
         static CgroupMemorySample unavailable() {
             return new CgroupMemorySample(
-                    OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), null);
+                    OptionalLong.empty(),
+                    OptionalLong.empty(),
+                    OptionalLong.empty(),
+                    OptionalLong.empty(),
+                    null,
+                    OptionalLong.empty(),
+                    OptionalLong.empty());
         }
 
         OptionalLong workingSet() {
@@ -434,6 +484,14 @@ final class ContainerMemoryLimitDetector {
             }
             long used = current.getAsLong();
             return OptionalLong.of(Math.max(0, used - inactiveFile.getAsLong()));
+        }
+
+        OptionalLong highWorkingSet() {
+            if (highCurrent.isEmpty() || highInactiveFile.isEmpty()) {
+                return OptionalLong.empty();
+            }
+            long used = highCurrent.getAsLong();
+            return OptionalLong.of(Math.max(0, used - highInactiveFile.getAsLong()));
         }
     }
 

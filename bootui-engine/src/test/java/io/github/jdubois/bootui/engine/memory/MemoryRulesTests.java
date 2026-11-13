@@ -1584,6 +1584,105 @@ class MemoryRulesTests {
                                 concurrentExplicit, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime()))
                         .status())
                 .isEqualTo("SKIPPED");
+
+        // Unobserved notification source must report SKIPPED (requiredUnknown = true), never a false PASS
+        MemoryContext unobserved = context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        PostGcHeapData.unavailable(),
+                        healthyRuntime())
+                .withExplicitGc(MemoryContext.ExplicitGcData.unobserved());
+        MemoryEvaluation unobservedEval = new ExternalExplicitGcRule().evaluateWithEvidence(unobserved);
+        assertThat(unobservedEval.result().status()).isEqualTo("SKIPPED");
+        assertThat(unobservedEval.requiredUnknown()).isTrue();
+        assertThat(unobservedEval.usable()).isFalse();
+    }
+
+    @Test
+    void diagnosticTrackerFiltersNonExplicitAndBootUiOwnedGcsWhileRetainingPreActionAndCappedEvents() {
+        var sample = new java.util.concurrent.atomic.AtomicReference<>(
+                new GcSample(10_000L, 100L, 5L, Map.of("G1 Old Generation", 2L)));
+        var event = new java.util.concurrent.atomic.AtomicReference<>(GcEvent.unavailable());
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(sample::get, event::get, false);
+        assertThat(tracker.snapshot().explicitGc().notificationsObserved()).isFalse();
+
+        // Non-explicit causes and non-STW/young collectors are ignored
+        tracker.recordGcNotification(
+                "G1 Old Generation", 1L, "end of major GC", "Heap Inspection Initiated GC", 5_000L, 400L);
+        tracker.recordGcNotification(
+                "G1 Old Generation", 1L, "end of major GC", "Heap Dump Initiated GC", 5_000L, 400L);
+        tracker.recordGcNotification("G1 Young Generation", 3L, "end of minor GC", "System.gc()", 6_000L, 30L);
+        tracker.recordGcNotification("G1 Concurrent GC", 1L, "end of GC", "System.gc()", 6_100L, 20L);
+        tracker.recordGcNotification("ZGC Major Pauses", 1L, "end of GC pause", "System.gc()", 6_200L, 2L);
+        assertThat(tracker.snapshot().explicitGc().count()).isZero();
+        assertThat(tracker.snapshot().explicitGc().notificationsObserved()).isTrue();
+
+        // During a BootUI action (activeDepth > 0), a delayed notification for an earlier application GC (gcId <= 2)
+        // is retained, while the BootUI action's own GC (gcId == 3) is excluded.
+        tracker.run(() -> {
+            tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 9_500L, 210L);
+            sample.set(new GcSample(11_000L, 500L, 6L, Map.of("G1 Old Generation", 3L)));
+            event.set(new GcEvent(3L, 11_000L, 400L, "G1 Old Generation", "System.gc()"));
+            tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 11_000L, 400L);
+        });
+        // Duplicate delivery of gcId 2 is deduplicated; late delivery of diagnostic gcId 3 is ignored
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 9_500L, 210L);
+        tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 11_000L, 400L);
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(210L);
+
+        // Exceeding the 128-entry retention cap preserves the exact total count and max duration
+        for (long id = 10L; id < 150L; id++) {
+            tracker.recordGcNotification(
+                    "G1 Old Generation", id, "end of major GC", "System.gc()", id * 1_000L, id == 20L ? 900L : 50L);
+        }
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(141L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(900L);
+    }
+
+    @Test
+    void combinedDynamicClassLoadersReportUncappedLoaderClassCountAndCacheHeavyCgroupHighFiresMedium() {
+        List<HeapClassHistogramEntryDto> manySmallLoaders = java.util.stream.IntStream.rangeClosed(1, 15)
+                .mapToObj(i -> new HeapClassHistogramEntryDto(i, "com.example.Plugin" + i + "ClassLoader", 4, 400))
+                .toList();
+        HeapContentData heap = new HeapContentData(true, manySmallLoaders, 60, 6_000);
+        MemoryRuleResultDto loaderResult = find(
+                scan(context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        heap,
+                        healthyRuntime())),
+                "MEM-CONTENT-005");
+        assertThat(loaderResult).isNotNull();
+        assertThat(loaderResult.sampleViolations().get(0)).contains("across 15 loader classes");
+
+        // Cache-heavy container where current >= 90% of memory.high while workingSet < 90% still flags MEDIUM
+        MemoryData cacheHeavy = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                730 * MB,
+                500 * MB,
+                List.of(),
+                768 * MB,
+                new MemoryContext.CgroupMemoryEvents(0, 0, 0, 0));
+        MemoryRuleResultDto cacheHeavyResult = find(
+                scan(context(cacheHeavy, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime())),
+                "MEM-FOOTPRINT-005");
+        assertThat(cacheHeavyResult).isNotNull();
+        assertThat(cacheHeavyResult.severity()).isEqualTo("MEDIUM");
+        assertThat(cacheHeavyResult.sampleViolations().get(0)).contains("excluding inactive file cache");
     }
 
     // --- helpers -----------------------------------------------------------------------------
