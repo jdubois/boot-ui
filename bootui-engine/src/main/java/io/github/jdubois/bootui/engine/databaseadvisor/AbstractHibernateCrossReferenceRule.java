@@ -51,7 +51,9 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
         if (targeted.isEmpty()) {
             return skipped("No applicable explicit mapping declarations with supported table placement were found.");
         }
-        if (context.schemas().size() != 1) {
+        boolean anyAttributed =
+                targeted.stream().anyMatch(entity -> context.dataSourceOfEntity(entity.entityName()) != null);
+        if (context.schemas().size() != 1 && !anyAttributed) {
             unknown(context, "The mapping facts do not associate persistence units with the discovered datasources.");
             return skipped("Multiple datasource inventories cannot be attributed to these mapping declarations.");
         }

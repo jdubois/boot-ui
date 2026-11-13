@@ -613,4 +613,55 @@ class VendorSchemaMergeTests {
         assertThat(merged.backingConstraint()).isEqualTo("UQ");
         assertThat(merged.uniquenessCoverage(List.of("A"))).isEqualTo(IndexModel.UniquenessCoverage.UNKNOWN);
     }
+
+    @Test
+    void mergeMySqlMarksCompleteIndexesValidAndLinksThePrimaryKeyConstraint() {
+        TableModel table = new TableModel(
+                "app",
+                null,
+                "users",
+                "TABLE",
+                List.of(
+                        DatabaseAdvisorFixtures.notNullColumn("id", "bigint", java.sql.Types.BIGINT),
+                        DatabaseAdvisorFixtures.column("email", "varchar", java.sql.Types.VARCHAR)),
+                "PRIMARY",
+                List.of("id"),
+                List.of(),
+                List.of(
+                        IndexModel.of("PRIMARY", List.of("id"), true),
+                        IndexModel.of("uq_users_email", List.of("email"), true)),
+                false,
+                false,
+                false,
+                TableMetadata.COMPLETE);
+        List<MySqlIndexDetail> details = List.of(
+                new MySqlIndexDetail(
+                        "app", "users", "PRIMARY", 1, "id", null, "A", "BTREE", true, true, null, false, true),
+                new MySqlIndexDetail(
+                        "app",
+                        "users",
+                        "uq_users_email",
+                        1,
+                        "email",
+                        null,
+                        "A",
+                        "BTREE",
+                        true,
+                        true,
+                        null,
+                        false,
+                        true));
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, details, false))
+                .build();
+
+        TableModel merged =
+                VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings).get(0);
+
+        assertThat(merged.metadata().primaryKeyEnforced()).isTrue();
+        assertThat(merged.primaryKeyBackingIndex()).isNotNull();
+        assertThat(merged.primaryKeyBackingIndex().name()).isEqualTo("PRIMARY");
+        assertThat(merged.indexes())
+                .allSatisfy(index -> assertThat(index.validity()).isEqualTo(IndexModel.Validity.VALID));
+    }
 }

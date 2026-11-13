@@ -262,6 +262,44 @@ class DefaultDatabaseAdvisorEvidenceProviderTests {
                 .isEmpty();
     }
 
+    @Test
+    void attributesEntitiesFromPersistenceUnitsToTheirDatasourcesAndRejectsAmbiguousOnes() {
+        FakePools pools = new FakePools().pool(orders, pool("ordersPool")).pool(billing, pool("billingPool"));
+        var orderEntity = new io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel(
+                "com.example.Order", Object.class, List.of());
+        var invoiceEntity = new io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel(
+                "com.example.Invoice", String.class, List.of());
+        var sharedEntity = new io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel(
+                "com.example.Shared", Integer.class, List.of());
+        HibernatePersistenceUnitObservation ordersUnit = new HibernatePersistenceUnitObservation(
+                "u1",
+                "orders",
+                List.of(orderEntity, sharedEntity),
+                List.of(),
+                "7.4",
+                settings(30),
+                true,
+                new HibernatePoolObservation("ordersPool", ConnectionPoolInfo.HIKARI, false));
+        HibernatePersistenceUnitObservation billingUnit = new HibernatePersistenceUnitObservation(
+                "u2",
+                "billing",
+                List.of(invoiceEntity, sharedEntity),
+                List.of(),
+                "7.4",
+                settings(30),
+                true,
+                new HibernatePoolObservation("billingPool", ConnectionPoolInfo.HIKARI, false));
+        DefaultDatabaseAdvisorEvidenceProvider provider = provider(
+                List.of(new NamedDataSource("orders", orders), new NamedDataSource("billing", billing)),
+                pools,
+                () -> observation(List.of(ordersUnit, billingUnit), List.of()));
+
+        assertThat(provider.entityDataSources())
+                .containsEntry("com.example.Order", "orders")
+                .containsEntry("com.example.Invoice", "billing")
+                .doesNotContainKey("com.example.Shared");
+    }
+
     // --- helpers ----------------------------------------------------------------------------------------------------
 
     private static DefaultDatabaseAdvisorEvidenceProvider provider(

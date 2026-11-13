@@ -35,6 +35,7 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
     static MappedTableResolution resolve(DatabaseAdvisorContext context, MappedEntityFacts entity) {
         return resolveNamed(
                 context,
+                context.dataSourceOfEntity(entity.entityName()),
                 entity.explicitTableName(),
                 entity.explicitCatalog(),
                 entity.explicitSchema(),
@@ -43,7 +44,16 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
 
     static MappedTableResolution resolveDeclared(
             DatabaseAdvisorContext context, String catalog, String schema, String tableName) {
-        return resolveNamed(context, tableName, catalog, schema, tableName);
+        return resolveNamed(context, null, tableName, catalog, schema, tableName);
+    }
+
+    static MappedTableResolution resolveDeclared(
+            DatabaseAdvisorContext context,
+            String attributedDataSource,
+            String catalog,
+            String schema,
+            String tableName) {
+        return resolveNamed(context, attributedDataSource, tableName, catalog, schema, tableName);
     }
 
     /**
@@ -77,6 +87,7 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
         MappedSecondaryTableFacts secondaryTable = secondaryTables.get(0);
         return resolveNamed(
                 context,
+                context.dataSourceOfEntity(entity.entityName()),
                 secondaryTable.name(),
                 secondaryTable.catalog(),
                 secondaryTable.schema(),
@@ -84,14 +95,35 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
     }
 
     private static MappedTableResolution resolveNamed(
-            DatabaseAdvisorContext context, String tableName, String catalog, String schema, String qualifiedName) {
+            DatabaseAdvisorContext context,
+            String attributedDataSource,
+            String tableName,
+            String catalog,
+            String schema,
+            String qualifiedName) {
         if (tableName == null || tableName.isBlank()) {
             return new MappedTableResolution(Status.NOT_MAPPED, null, null, null);
         }
-        SchemaSnapshot matchedSchema = null;
+        List<SchemaSnapshot> candidateSchemas = attributedDataSource == null
+                ? context.schemas()
+                : context.schemas().stream()
+                        .filter(candidate -> attributedDataSource.equals(candidate.dataSourceName()))
+                        .toList();
+        if (attributedDataSource != null && candidateSchemas.size() != 1) {
+            return new MappedTableResolution(
+                    Status.UNKNOWN,
+                    null,
+                    null,
+                    "The persistence unit's attributed datasource \"" + attributedDataSource
+                            + "\" is not uniquely present in the scanned datasource inventory.");
+        }
+        SchemaSnapshot matchedSchema = candidateSchemas.size() == 1 ? candidateSchemas.get(0) : null;
         TableModel matchedTable = null;
         int matches = 0;
-        for (SchemaSnapshot candidateSchema : context.availableSchemas()) {
+        for (SchemaSnapshot candidateSchema : candidateSchemas) {
+            if (!candidateSchema.available()) {
+                continue;
+            }
             List<TableModel> candidates = candidateSchema.declaredTablesNamed(catalog, schema, tableName);
             matches += candidates.size();
             if (!candidates.isEmpty() && matchedTable == null) {
@@ -99,7 +131,7 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
                 matchedTable = candidates.get(0);
             }
         }
-        if (context.schemas().stream()
+        if (candidateSchemas.stream()
                 .anyMatch(candidate -> !candidate.available()
                         || !candidate.relationInventoryComplete()
                         || !candidate.declarationCaseKnown(catalog, schema, tableName))) {
@@ -117,7 +149,7 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
                     matches + " physical tables named " + qualify(schema, qualifiedName) + " were found across "
                             + "the readable datasources, so this cannot be attributed to one of them.");
         }
-        if (context.schemas().size() > 1) {
+        if (candidateSchemas.size() > 1) {
             return new MappedTableResolution(
                     Status.UNKNOWN,
                     null,
@@ -126,7 +158,7 @@ record MappedTableResolution(Status status, SchemaSnapshot schema, TableModel ta
                             + "does not establish the mapping's intended datasource.");
         }
         if (matches == 0) {
-            return new MappedTableResolution(Status.NOT_FOUND, null, null, null);
+            return new MappedTableResolution(Status.NOT_FOUND, matchedSchema, null, null);
         }
         return new MappedTableResolution(Status.RESOLVED, matchedSchema, matchedTable, null);
     }
