@@ -162,19 +162,23 @@ public final class HibernateSchemaBridge {
             return null;
         }
         List<Annotation> matches = new ArrayList<>();
-        for (Annotation annotation : entityType.getDeclaredAnnotations()) {
-            String typeName = annotation.annotationType().getName();
-            if ("jakarta.persistence.SequenceGenerator".equals(typeName)) {
-                if (generatorName.equals(annotationString(annotation, "name"))) {
-                    matches.add(annotation);
-                }
-            } else if ("jakarta.persistence.SequenceGenerators".equals(typeName)) {
-                Object value = annotationValue(annotation, "value");
-                if (value instanceof Object[] members) {
-                    for (Object member : members) {
-                        if (member instanceof Annotation candidate
-                                && generatorName.equals(annotationString(candidate, "name"))) {
-                            matches.add(candidate);
+        for (Class<?> current = entityType;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                String typeName = annotation.annotationType().getName();
+                if ("jakarta.persistence.SequenceGenerator".equals(typeName)) {
+                    if (generatorName.equals(annotationString(annotation, "name"))) {
+                        matches.add(annotation);
+                    }
+                } else if ("jakarta.persistence.SequenceGenerators".equals(typeName)) {
+                    Object value = annotationValue(annotation, "value");
+                    if (value instanceof Object[] members) {
+                        for (Object member : members) {
+                            if (member instanceof Annotation candidate
+                                    && generatorName.equals(annotationString(candidate, "name"))) {
+                                matches.add(candidate);
+                            }
                         }
                     }
                 }

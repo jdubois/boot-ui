@@ -37,8 +37,11 @@ final class ForeignKeySetNullOnNotNullColumnRule extends AbstractDatabaseAdvisor
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
-                if (!table.metadata().foreignKeysRead() || !table.metadata().columnsRead()) {
-                    unknown(context, table.qualifiedName() + ": foreign-key or column metadata is incomplete.");
+                if (!table.metadata().foreignKeysRead()) {
+                    unknown(context, table.qualifiedName() + ": foreign-key metadata is incomplete.");
+                }
+                if (!table.foreignKeys().isEmpty() && !table.metadata().columnsRead()) {
+                    unknown(context, table.qualifiedName() + ": column metadata is incomplete.");
                 }
                 for (ForeignKeyModel fk : table.foreignKeys()) {
                     if (Boolean.FALSE.equals(fk.enforced())) {
@@ -46,20 +49,6 @@ final class ForeignKeySetNullOnNotNullColumnRule extends AbstractDatabaseAdvisor
                     }
                     if (!fk.consistent()) {
                         unknown(context, table.qualifiedName() + ": foreign-key column pairing is incomplete.");
-                        continue;
-                    }
-                    boolean deleteSetNull = Objects.equals(fk.deleteRule(), DatabaseMetaData.importedKeySetNull);
-                    boolean updateSetNull = Objects.equals(fk.updateRule(), DatabaseMetaData.importedKeySetNull);
-                    boolean actionsKnown =
-                            fk.deleteRule() != null && (fk.updateRule() != null || schema.dialect() == Dialect.ORACLE);
-                    if (!deleteSetNull && !updateSetNull) {
-                        if (!actionsKnown) {
-                            unknown(
-                                    context,
-                                    table.qualifiedName() + ": foreign-key referential action metadata is incomplete.");
-                        } else {
-                            eligible++;
-                        }
                         continue;
                     }
                     boolean anyNullable = false;
@@ -72,7 +61,16 @@ final class ForeignKeySetNullOnNotNullColumnRule extends AbstractDatabaseAdvisor
                             anyNullable = true;
                         }
                     }
+                    boolean deleteSetNull = Objects.equals(fk.deleteRule(), DatabaseMetaData.importedKeySetNull);
+                    boolean updateSetNull = Objects.equals(fk.updateRule(), DatabaseMetaData.importedKeySetNull);
+                    boolean actionsKnown =
+                            fk.deleteRule() != null && (fk.updateRule() != null || schema.dialect() == Dialect.ORACLE);
                     if (anyNullable) {
+                        // A known-nullable referencing column rules out the all-NOT-NULL failure regardless of action.
+                        eligible++;
+                        continue;
+                    }
+                    if (!deleteSetNull && !updateSetNull) {
                         if (!actionsKnown) {
                             unknown(
                                     context,

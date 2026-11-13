@@ -976,6 +976,30 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of());
         assertThat(evaluate(new ForeignKeySetNullOnNotNullColumnRule(), cascade).status())
                 .isEqualTo("PASS");
+
+        // A known-nullable column settles the check even when updateRule was not reported
+        ForeignKeyModel missingUpdateOnNullable = new ForeignKeyModel(
+                "fk_nullable_no_update",
+                List.of("customer_id"),
+                "app",
+                "public",
+                "customers",
+                List.of("id"),
+                null,
+                DatabaseMetaData.importedKeySetNull,
+                DatabaseMetaData.importedKeyNotDeferrable);
+        TableModel nullableTable = table(
+                "orders",
+                List.of(column("customer_id", "int8", Types.BIGINT)),
+                List.of(),
+                List.of(missingUpdateOnNullable),
+                List.of());
+        DatabaseAdvisorContext nullableContext = context(schema("ds", Dialect.POSTGRESQL, List.of(nullableTable)));
+        assertThat(new ForeignKeySetNullOnNotNullColumnRule()
+                        .evaluate(nullableContext)
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(nullableContext.evaluationDiagnostics()).isEmpty();
     }
 
     @Test

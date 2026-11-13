@@ -2033,6 +2033,46 @@ class DatabaseAdvisorHibernateRulesTests {
                         .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(wrongDirTable)), entity))
                         .status())
                 .isEqualTo(VIOLATION);
+
+        // Standalone @Index(unique = true) is not satisfied by a non-unique index
+        MappedEntityFacts uniqueIndexEntity = new MappedEntityFacts(
+                "com.example.Order",
+                "orders",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new HibernateSchemaBridge.MappedIndexFacts(
+                        "com.example.Order @Table @Index(uk_orders_customer)",
+                        "uk_orders_customer",
+                        List.of(new HibernateSchemaBridge.MappedIndexColumn("customer_id", null)),
+                        true,
+                        null)));
+        TableModel nonUniqueOnly = table("orders", cols, List.of(), List.of(), List.of(matchingDesc));
+        assertThat(new HibernateMissingDeclaredIndexRule()
+                        .evaluate(hibernateContext(
+                                schema("ds", Dialect.POSTGRESQL, List.of(nonUniqueOnly)), uniqueIndexEntity))
+                        .status())
+                .isEqualTo(VIOLATION);
+
+        // Partial index on the declared columns is a known non-match, not an unknown coverage warning
+        TableModel partialOnly = table(
+                "orders",
+                cols,
+                List.of(),
+                List.of(),
+                List.of(DatabaseAdvisorFixtures.partialIndex(
+                        "ix_partial", List.of("customer_id", "created_at"), "customer_id > 0")));
+        DatabaseAdvisorContext partialContext =
+                hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(partialOnly)), entity);
+        assertThat(new HibernateMissingDeclaredIndexRule()
+                        .evaluate(partialContext)
+                        .status())
+                .isEqualTo(VIOLATION);
+        assertThat(partialContext.evaluationDiagnostics()).isEmpty();
     }
 
     // --- DB-HIB-012: non-nullable association join column allows NULL ---
@@ -2109,6 +2149,21 @@ class DatabaseAdvisorHibernateRulesTests {
                         .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(wideColumn)), entity))
                         .status())
                 .isEqualTo(PASS);
+
+        // Unbounded varchar (Integer.MAX_VALUE sentinel) is excluded without warning diagnostics
+        TableModel unboundedVarchar = table(
+                "orders",
+                List.of(column("status", "varchar", Types.VARCHAR, Integer.MAX_VALUE)),
+                List.of(),
+                List.of(),
+                List.of());
+        DatabaseAdvisorContext unboundedContext =
+                hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(unboundedVarchar)), entity);
+        assertThat(new HibernateEnumValueLengthMismatchRule()
+                        .evaluate(unboundedContext)
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(unboundedContext.evaluationDiagnostics()).isEmpty();
     }
 
     // --- DB-HIB-014: declared @SequenceGenerator missing from observed sequence inventory ---
@@ -2165,5 +2220,72 @@ class DatabaseAdvisorHibernateRulesTests {
                                 schema("ds", Dialect.POSTGRESQL, List.of(orders), presentSequences), entity))
                         .status())
                 .isEqualTo(PASS);
+
+        // Quoted qualified sequence name "\"public\".\"orders_id_seq\"" resolves to public.orders_id_seq
+        MappedEntityFacts quotedQualifiedEntity = new MappedEntityFacts(
+                "com.example.Order",
+                "orders",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new HibernateSchemaBridge.MappedSequenceGeneratorFacts(
+                        "com.example.Order#id", "\"public\".\"orders_id_seq\"", 50)));
+        assertThat(new HibernateMissingSequenceRule()
+                        .evaluate(hibernateContext(
+                                schema("ds", Dialect.POSTGRESQL, List.of(orders), presentSequences),
+                                quotedQualifiedEntity))
+                        .status())
+                .isEqualTo(PASS);
+
+        // Entity in schema "sales" with explicit @SequenceGenerator(schema = "public") resolves against public
+        TableModel salesOrders = TableModel.of(
+                "app",
+                "sales",
+                "orders",
+                List.of(notNullColumn("id", "int8", Types.BIGINT)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        MappedEntityFacts crossSchemaEntity = new MappedEntityFacts(
+                "com.example.Order",
+                "orders",
+                "sales",
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new HibernateSchemaBridge.MappedSequenceGeneratorFacts(
+                        "com.example.Order#id", "orders_id_seq", 50, "public", null)));
+        assertThat(new HibernateMissingSequenceRule()
+                        .evaluate(hibernateContext(
+                                schema("ds", Dialect.POSTGRESQL, List.of(salesOrders), presentSequences),
+                                crossSchemaEntity))
+                        .status())
+                .isEqualTo(PASS);
+
+        // Unqualified sequence on entity in schema "sales" when sequence exists in "public" is unknown (search_path),
+        // not a false HIGH violation
+        MappedEntityFacts unqualifiedCrossSchema = new MappedEntityFacts(
+                "com.example.Order",
+                "orders",
+                "sales",
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new HibernateSchemaBridge.MappedSequenceGeneratorFacts(
+                        "com.example.Order#id", "orders_id_seq", 50)));
+        DatabaseAdvisorContext searchPathContext = hibernateContext(
+                schema("ds", Dialect.POSTGRESQL, List.of(salesOrders), presentSequences), unqualifiedCrossSchema);
+        assertThat(new HibernateMissingSequenceRule()
+                        .evaluate(searchPathContext)
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(searchPathContext.evaluationDiagnostics()).isNotEmpty();
     }
 }

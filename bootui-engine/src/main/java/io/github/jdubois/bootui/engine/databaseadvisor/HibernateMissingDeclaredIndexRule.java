@@ -79,28 +79,66 @@ final class HibernateMissingDeclaredIndexRule extends AbstractHibernateCrossRefe
             if (missingColumn || resolvedColumns.isEmpty()) {
                 continue;
             }
-            if (primaryKeyCovers(table, resolvedColumns, declaredIndex.columns())
-                    || table.indexes().stream()
-                            .anyMatch(index -> matches(index, resolvedColumns, declaredIndex.columns()))) {
-                eligible++;
-                continue;
-            }
-            if (table.indexes().stream()
-                    .anyMatch(index -> uncertainCoverage(index, resolvedColumns, declaredIndex.columns()))) {
-                unknown(
-                        context,
-                        declaredIndex.description()
-                                + ": index metadata does not establish whether an existing index covers the declared column list.");
-                continue;
+            if (declaredIndex.unique()) {
+                IndexModel.UniquenessCoverage coverage = table.uniquenessCoverage(resolvedColumns);
+                if (coverage == IndexModel.UniquenessCoverage.ENFORCED) {
+                    eligible++;
+                    continue;
+                }
+                if (coverage == IndexModel.UniquenessCoverage.UNKNOWN) {
+                    unknown(
+                            context,
+                            declaredIndex.description()
+                                    + ": index metadata does not establish complete uniqueness enforcement for @Index(unique = true).");
+                    continue;
+                }
+            } else {
+                if (primaryKeyCovers(table, resolvedColumns, declaredIndex.columns())
+                        || table.indexes().stream()
+                                .anyMatch(index -> matches(index, resolvedColumns, declaredIndex.columns()))) {
+                    eligible++;
+                    continue;
+                }
+                if (table.indexes().stream()
+                        .anyMatch(index -> alreadyFlaggedBrokenOrInvisibleIndex(index, resolvedColumns))) {
+                    eligible++;
+                    continue;
+                }
+                if (table.indexes().stream()
+                        .anyMatch(index -> uncertainCoverage(index, resolvedColumns, declaredIndex.columns()))) {
+                    unknown(
+                            context,
+                            declaredIndex.description()
+                                    + ": index metadata does not establish whether an existing index covers the declared column list.");
+                    continue;
+                }
             }
             eligible++;
             details.add(
-                    schema.dataSourceName() + ": " + declaredIndex.description() + " declares index on "
+                    schema.dataSourceName() + ": " + declaredIndex.description() + " declares "
+                            + (declaredIndex.unique() ? "unique index on " : "index on ")
                             + table.qualifiedName() + " " + resolvedColumns
                             + ", with no matching physical index observed (ddl-auto=validate ignores @Index).",
-                    DatabaseIdentities.table(schema, table, DatabaseIdentities.each("indexcolumn", resolvedColumns)));
+                    indexIdentity(schema, table, declaredIndex, resolvedColumns));
         }
         return eligible;
+    }
+
+    private static String indexIdentity(
+            SchemaSnapshot schema, TableModel table, MappedIndexFacts declaredIndex, List<String> resolvedColumns) {
+        List<String> extra = new ArrayList<>();
+        if (declaredIndex.indexName() != null && !declaredIndex.indexName().isBlank()) {
+            extra.add("index=" + declaredIndex.indexName());
+        }
+        if (declaredIndex.unique()) {
+            extra.add("unique=true");
+        }
+        for (int i = 0; i < resolvedColumns.size(); i++) {
+            Boolean ascending = declaredIndex.columns().get(i).ascending();
+            String dir = ascending == null ? "" : (ascending ? ":asc" : ":desc");
+            extra.add("indexcolumn=" + resolvedColumns.get(i) + dir);
+        }
+        return DatabaseIdentities.table(schema, table, extra.toArray(String[]::new));
     }
 
     private static boolean ownedByUniqueConstraintRule(MappedEntityFacts entity, MappedIndexFacts declaredIndex) {
@@ -145,21 +183,38 @@ final class HibernateMissingDeclaredIndexRule extends AbstractHibernateCrossRefe
         return true;
     }
 
-    private static boolean uncertainCoverage(
-            IndexModel index, List<String> resolvedColumns, List<MappedIndexColumn> declaredColumns) {
-        boolean touchesColumns = index.keyParts().isEmpty()
-                || index.keyParts().stream()
-                        .anyMatch(part -> part.isExpression() || resolvedColumns.contains(part.columnName()));
-        if (!touchesColumns) {
+    private static boolean alreadyFlaggedBrokenOrInvisibleIndex(IndexModel index, List<String> resolvedColumns) {
+        if ((!index.invalid() && !index.invisible()) || index.keyParts().size() < resolvedColumns.size()) {
             return false;
         }
-        if (index.partial()
-                || index.hasExpressionKeyPart()
+        for (int i = 0; i < resolvedColumns.size(); i++) {
+            IndexKeyPart part = index.keyParts().get(i);
+            if (part.isExpression() || !part.matchesColumn(resolvedColumns.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean uncertainCoverage(
+            IndexModel index, List<String> resolvedColumns, List<MappedIndexColumn> declaredColumns) {
+        if (index.keyParts().isEmpty()) {
+            return true;
+        }
+        int limit = Math.min(index.keyParts().size(), resolvedColumns.size());
+        for (int i = 0; i < limit; i++) {
+            IndexKeyPart part = index.keyParts().get(i);
+            if (!part.isExpression() && !part.matchesColumn(resolvedColumns.get(i))) {
+                return false;
+            }
+        }
+        if (index.keyParts().size() < resolvedColumns.size()) {
+            return index.keyParts().stream().anyMatch(IndexKeyPart::isExpression);
+        }
+        if (index.hasExpressionKeyPart()
                 || index.hasPrefixKeyPart()
                 || index.specialized()
-                || index.methodKnownUnsupported()
-                || index.invalid()
-                || index.invisible()) {
+                || index.methodKnownUnsupported()) {
             return true;
         }
         if (index.supportsLeadingEquality(resolvedColumns)) {

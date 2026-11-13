@@ -82,7 +82,11 @@ final class HibernateEnumValueLengthMismatchRule extends AbstractHibernateCrossR
             return false;
         }
         Integer size = physical.size();
-        if (size == null || size <= 0 || size == Integer.MAX_VALUE) {
+        if (size != null && size == Integer.MAX_VALUE) {
+            // Driver sentinel for unconstrained character storage (e.g., pgjdbc unbounded varchar).
+            return false;
+        }
+        if (size == null || size <= 0) {
             unknown(context, column.attributeDescription() + ": no positively bounded character-column size is known.");
             return false;
         }

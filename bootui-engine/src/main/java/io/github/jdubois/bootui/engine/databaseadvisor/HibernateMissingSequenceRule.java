@@ -2,6 +2,9 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedSequenceGeneratorFacts;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -53,80 +56,231 @@ final class HibernateMissingSequenceRule extends AbstractHibernateCrossReference
         }
         int eligible = 0;
         for (MappedSequenceGeneratorFacts generator : entity.sequenceGenerators()) {
-            if (generator.catalog() != null
-                    && !generator.catalog().isBlank()
-                    && (table.catalog() == null || !schema.declaredMatches(table.catalog(), generator.catalog()))) {
-                continue;
+            if (generator.catalog() != null && !generator.catalog().isBlank()) {
+                if (table.catalog() == null) {
+                    unknown(
+                            context,
+                            generator.attributeDescription()
+                                    + ": @SequenceGenerator specifies a catalog, but the datasource reports no catalog.");
+                    continue;
+                }
+                if (!schema.declaredMatches(table.catalog(), generator.catalog())) {
+                    continue;
+                }
             }
             QualifiedSequence parsed = parseSequence(generator);
             if (parsed == null) {
-                continue;
-            }
-            if (parsed.schema() != null
-                    && (table.schema() == null || !schema.declaredMatches(table.schema(), parsed.schema()))) {
-                // Targets a schema outside the connected/resolved table's schema.
+                unknown(
+                        context,
+                        generator.attributeDescription()
+                                + ": @SequenceGenerator sequenceName/schema qualification is ambiguous or malformed.");
                 continue;
             }
             if (!schema.declarationCaseKnown(parsed.schema(), parsed.name())) {
                 unknown(context, generator.attributeDescription() + ": sequence identifier folding is unknown.");
                 continue;
             }
-            eligible++;
-            boolean found = schema.dialect() == Dialect.POSTGRESQL
-                    ? schema.vendorFindings().findings(VendorFindingKinds.POSTGRES_SEQUENCES).stream()
-                            .anyMatch(seq -> matchesSchema(table.schema(), seq.schema())
-                                    && schema.declaredMatches(seq.sequence(), parsed.name()))
-                    : schema.vendorFindings().findings(VendorFindingKinds.ORACLE_SEQUENCES).stream()
-                            .anyMatch(seq -> matchesSchema(table.schema(), seq.schema())
-                                    && schema.declaredMatches(seq.sequence(), parsed.name()));
+            if (schema.dialect() == Dialect.POSTGRESQL) {
+                eligible += checkPostgresSequence(context, schema, table, entity, generator, parsed, details);
+            } else {
+                eligible += checkOracleSequence(context, schema, table, entity, generator, parsed, details);
+            }
+        }
+        return eligible;
+    }
+
+    private int checkPostgresSequence(
+            DatabaseAdvisorContext context,
+            SchemaSnapshot schema,
+            TableModel table,
+            MappedEntityFacts entity,
+            MappedSequenceGeneratorFacts generator,
+            QualifiedSequence parsed,
+            DatabaseFindings details) {
+        var sequences = schema.vendorFindings().findings(VendorFindingKinds.POSTGRES_SEQUENCES);
+        if (parsed.schema() != null) {
+            boolean found = sequences.stream()
+                    .anyMatch(seq -> schema.declaredMatches(seq.schema(), parsed.schema())
+                            && schema.declaredMatches(seq.sequence(), parsed.name()));
             if (!found) {
-                String qualified = table.schema() == null || table.schema().isBlank()
-                        ? parsed.name()
-                        : table.schema() + "." + parsed.name();
+                String resolvedSchema = foldIdentifier(schema, parsed.schema());
+                String resolvedName = foldIdentifier(schema, parsed.name());
+                String qualified = resolvedSchema + "." + resolvedName;
                 details.add(
                         schema.dataSourceName() + ": " + generator.attributeDescription()
                                 + " declares @SequenceGenerator(sequenceName = \"" + generator.sequenceName()
-                                + "\"), which was not found in the observed "
-                                + schema.dialect().label()
-                                + " sequence inventory (" + qualified + ").",
+                                + "\"), which was not found in the observed PostgreSQL sequence inventory ("
+                                + qualified + ").",
                         DatabaseIdentities.of(
                                 schema.dataSourceName(),
                                 "entity=" + entity.entityName(),
                                 "attribute=" + generator.attributeDescription(),
                                 "sequence=" + qualified));
             }
+            return 1;
         }
-        return eligible;
+        String candidateSchema =
+                (entity.explicitSchema() == null || entity.explicitSchema().isBlank()) ? table.schema() : null;
+        boolean foundInCandidate = candidateSchema != null
+                && sequences.stream()
+                        .anyMatch(seq -> Objects.equals(candidateSchema, seq.schema())
+                                && schema.declaredMatches(seq.sequence(), parsed.name()));
+        if (foundInCandidate) {
+            return 1;
+        }
+        boolean foundInAnySchema =
+                sequences.stream().anyMatch(seq -> schema.declaredMatches(seq.sequence(), parsed.name()));
+        if (foundInAnySchema) {
+            unknown(
+                    context,
+                    generator.attributeDescription()
+                            + ": unqualified @SequenceGenerator matches a sequence in another schema; "
+                            + "PostgreSQL search_path resolution is not established.");
+            return 0;
+        }
+        String resolvedName = foldIdentifier(schema, parsed.name());
+        String qualified = candidateSchema == null || candidateSchema.isBlank()
+                ? resolvedName
+                : candidateSchema + "." + resolvedName;
+        details.add(
+                schema.dataSourceName() + ": " + generator.attributeDescription()
+                        + " declares @SequenceGenerator(sequenceName = \"" + generator.sequenceName()
+                        + "\"), which was not found in the observed PostgreSQL sequence inventory ("
+                        + qualified + ").",
+                DatabaseIdentities.of(
+                        schema.dataSourceName(),
+                        "entity=" + entity.entityName(),
+                        "attribute=" + generator.attributeDescription(),
+                        "sequence=" + qualified));
+        return 1;
+    }
+
+    private int checkOracleSequence(
+            DatabaseAdvisorContext context,
+            SchemaSnapshot schema,
+            TableModel table,
+            MappedEntityFacts entity,
+            MappedSequenceGeneratorFacts generator,
+            QualifiedSequence parsed,
+            DatabaseFindings details) {
+        if (parsed.schema() != null
+                && (table.schema() == null || !schema.declaredMatches(table.schema(), parsed.schema()))) {
+            unknown(
+                    context,
+                    generator.attributeDescription()
+                            + ": @SequenceGenerator targets schema \"" + parsed.schema()
+                            + "\", outside the CURRENT_SCHEMA-scoped Oracle sequence inventory.");
+            return 0;
+        }
+        boolean found = schema.vendorFindings().findings(VendorFindingKinds.ORACLE_SEQUENCES).stream()
+                .anyMatch(seq -> matchesSchema(table.schema(), seq.schema())
+                        && schema.declaredMatches(seq.sequence(), parsed.name()));
+        if (!found) {
+            String resolvedName = foldIdentifier(schema, parsed.name());
+            String qualified = table.schema() == null || table.schema().isBlank()
+                    ? resolvedName
+                    : table.schema() + "." + resolvedName;
+            details.add(
+                    schema.dataSourceName() + ": " + generator.attributeDescription()
+                            + " declares @SequenceGenerator(sequenceName = \"" + generator.sequenceName()
+                            + "\"), which was not found in the observed Oracle sequence inventory ("
+                            + qualified + ").",
+                    DatabaseIdentities.of(
+                            schema.dataSourceName(),
+                            "entity=" + entity.entityName(),
+                            "attribute=" + generator.attributeDescription(),
+                            "sequence=" + qualified));
+        }
+        return 1;
+    }
+
+    private static String foldIdentifier(SchemaSnapshot schema, String declared) {
+        if (declared == null) {
+            return "";
+        }
+        if (declared.length() >= 2
+                && ((declared.startsWith("\"") && declared.endsWith("\""))
+                        || (declared.startsWith("`") && declared.endsWith("`")))) {
+            String quote = declared.substring(0, 1);
+            return declared.substring(1, declared.length() - 1).replace(quote + quote, quote);
+        }
+        if ("UPPER".equals(schema.identifierCase())) {
+            return declared.toUpperCase(Locale.ROOT);
+        }
+        if ("LOWER".equals(schema.identifierCase())) {
+            return declared.toLowerCase(Locale.ROOT);
+        }
+        return declared;
     }
 
     private static boolean matchesSchema(String tableSchema, String sequenceSchema) {
         return tableSchema == null || tableSchema.isBlank() || Objects.equals(tableSchema, sequenceSchema);
     }
 
-    private record QualifiedSequence(String schema, String name) {}
+    record QualifiedSequence(String schema, String name) {}
 
-    private static QualifiedSequence parseSequence(MappedSequenceGeneratorFacts generator) {
+    static QualifiedSequence parseSequence(MappedSequenceGeneratorFacts generator) {
         String rawName = generator.sequenceName();
         if (rawName == null || rawName.isBlank()) {
             return null;
         }
-        String explicitSchema = generator.schema() == null || generator.schema().isBlank() ? null : generator.schema();
-        boolean quoted = rawName.length() >= 2
-                && ((rawName.startsWith("\"") && rawName.endsWith("\""))
-                        || (rawName.startsWith("`") && rawName.endsWith("`")));
-        if (!quoted && rawName.indexOf('.') >= 0) {
-            int firstDot = rawName.indexOf('.');
-            int lastDot = rawName.lastIndexOf('.');
-            if (firstDot != lastDot || explicitSchema != null) {
-                return null;
-            }
-            String prefix = rawName.substring(0, firstDot).trim();
-            String suffix = rawName.substring(firstDot + 1).trim();
-            if (prefix.isEmpty() || suffix.isEmpty()) {
-                return null;
-            }
-            return new QualifiedSequence(prefix, suffix);
+        String explicitSchema = generator.schema() == null || generator.schema().isBlank()
+                ? null
+                : generator.schema().trim();
+        List<String> parts = splitQualifiedIdentifier(rawName.trim());
+        if (parts.isEmpty() || parts.size() > 2) {
+            return null;
         }
-        return new QualifiedSequence(explicitSchema, rawName);
+        if (parts.size() == 2) {
+            if (explicitSchema != null) {
+                return null;
+            }
+            return new QualifiedSequence(parts.get(0), parts.get(1));
+        }
+        return new QualifiedSequence(explicitSchema, parts.get(0));
+    }
+
+    private static List<String> splitQualifiedIdentifier(String text) {
+        List<String> parts = new ArrayList<>(2);
+        StringBuilder current = new StringBuilder();
+        char activeQuote = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (activeQuote != 0) {
+                current.append(c);
+                if (c == activeQuote) {
+                    if (i + 1 < text.length() && text.charAt(i + 1) == activeQuote) {
+                        current.append(activeQuote);
+                        i++;
+                    } else {
+                        activeQuote = 0;
+                    }
+                }
+            } else if (c == '"' || c == '`') {
+                if (!current.toString().trim().isEmpty()) {
+                    return List.of();
+                }
+                activeQuote = c;
+                current.append(c);
+            } else if (c == '.') {
+                String token = current.toString().trim();
+                if (token.isEmpty()) {
+                    return List.of();
+                }
+                parts.add(token);
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        if (activeQuote != 0) {
+            return List.of();
+        }
+        String tail = current.toString().trim();
+        if (tail.isEmpty()) {
+            return List.of();
+        }
+        parts.add(tail);
+        return parts;
     }
 }
