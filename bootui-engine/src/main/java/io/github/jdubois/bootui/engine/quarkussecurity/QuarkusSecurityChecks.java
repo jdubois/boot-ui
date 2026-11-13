@@ -23,6 +23,25 @@ import java.util.regex.Pattern;
  */
 final class QuarkusSecurityChecks {
 
+    /**
+     * Rule IDs that were removed from the catalogue. They stay reserved so existing dismissals never silently apply
+     * to a different check; see docs/QUARKUS-CHECKS.md.
+     */
+    static final Set<String> RETIRED_RULES = Set.of(
+            "QS-AUTH-005",
+            "QS-AUTH-006",
+            "QS-AUTH-011",
+            "QS-AUTHZ-003",
+            "QS-TLS-002",
+            "QS-CORS-003",
+            "QS-CORS-004",
+            "QS-CORS-005",
+            "QS-HDR-007",
+            "QS-HDR-008",
+            "QS-MGMT-002");
+
+    static final Set<String> RETIRED_RULE_IDS = RETIRED_RULES;
+
     private static final String VIOLATION = "VIOLATION";
     /** Every rule these checks evaluate, in catalogue order; docs/QUARKUS-CHECKS.md documents each. */
     private static final List<String> RULE_IDS = List.of(
@@ -66,7 +85,6 @@ final class QuarkusSecurityChecks {
             "QS-SESSION-002",
             "QS-SESSION-003",
             "QS-TLS-001",
-            "QS-TLS-002",
             "QS-TLS-003",
             "QS-TLS-004",
             "QS-TLS-005",
@@ -83,6 +101,7 @@ final class QuarkusSecurityChecks {
     private QuarkusSecurityChecks(AdvisorViolationCollector collector, Set<String> unknownRules) {
         this.collector = collector;
         this.unknownRules = new HashSet<>(unknownRules);
+        this.unknownRules.removeAll(RETIRED_RULES);
     }
 
     static int ruleCount() {
@@ -106,6 +125,7 @@ final class QuarkusSecurityChecks {
 
         Observations(QuarkusSecuritySnapshot snapshot) {
             unknown = new HashSet<>(snapshot.evidence().unknownRules());
+            unknown.removeAll(RETIRED_RULES);
             if (!snapshot.evidence().incomplete().isEmpty()
                     || !snapshot.evidence().failures().isEmpty()) {
                 limitations.add("Some Quarkus security observations are incomplete or failed.");
@@ -362,19 +382,6 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.http.insecure-requests=enabled"),
                     "Prefer redirect once TLS is available, or document the terminating proxy."));
-        }
-        if (observations.check("QS-TLS-002", true) && !s.sslConfigured()) {
-            v.add(rule(
-                    "QS-TLS-002",
-                    "No TLS configured for the main HTTP listener",
-                    "Transport",
-                    "INFO",
-                    "The main Quarkus HTTP listener has no HTTPS keystore or selected TLS registry bucket."
-                            + " This can be acceptable behind a terminating proxy, but proxy forwarding settings"
-                            + " alone do not prove that TLS termination exists.",
-                    1,
-                    List.of("no quarkus.http.ssl.* / selected quarkus.tls.* server keystore"),
-                    "Configure TLS or document the terminating proxy."));
         }
         if (observations.check("QS-TLS-003", s.tlsTrustAll())) {
             v.add(rule(
@@ -981,7 +988,7 @@ final class QuarkusSecurityChecks {
                     case "QS-AUTH-007", "QS-AUTH-013" -> "security-properties#embedded-users";
                     case "QS-AUTH-010" -> "security-jdbc";
                     case "QS-AUTH-012" -> "security-authentication-mechanisms#form-auth";
-                    case "QS-TLS-001", "QS-TLS-002" -> "http-reference#ssl";
+                    case "QS-TLS-001" -> "http-reference#ssl";
                     case "QS-TLS-003", "QS-TLS-005", "QS-DEV-001" ->
                         "tls-registry-reference#trusting-all-certificates-and-hostname-verification";
                     case "QS-TLS-004", "QS-OIDC-001", "QS-OIDC-004" ->

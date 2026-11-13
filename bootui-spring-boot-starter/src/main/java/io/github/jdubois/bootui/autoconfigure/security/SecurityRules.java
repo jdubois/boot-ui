@@ -9,6 +9,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+final class SecurityRules {
+
+    static final Set<String> RETIRED_RULE_IDS = SecurityRuleRegistry.RETIRED_RULE_IDS;
+    static final Set<String> RETIRED_RULES = RETIRED_RULE_IDS;
+
+    private SecurityRules() {}
+}
+
 abstract class AbstractSecurityRule implements SecurityRule {
 
     private final SecurityRuleDefinition definition;
@@ -778,36 +786,6 @@ final class BearerTokenStatefulRule extends AbstractSecurityRule {
     }
 }
 
-final class ConcurrentSessionControlRule extends AbstractSecurityRule {
-
-    ConcurrentSessionControlRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-SESSION-007",
-                        "Consider configuring concurrent session control",
-                        SecurityCategory.SESSION,
-                        "INFO",
-                        "Detects an interactive form-login chain that maintains sessions but installs no ConcurrentSessionFilter (no maximumSessions limit).",
-                        "Consider sessionManagement().maximumSessions(n) if concurrency limits fit the application. This optional review does not make a maximum mandatory or prove misuse.",
-                        "https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            boolean interactiveLogin = chain.hasFilter("UsernamePasswordAuthenticationFilter")
-                    || chain.hasFilter("DefaultLoginPageGeneratingFilter");
-            if (context.applies(interactiveLogin && chain.isStateful())
-                    && !chain.hasFilterContaining("ConcurrentSession")) {
-                details.add(chain.describe()
-                        + " maintains sessions for an interactive login but configures no concurrent-session control.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
 final class WeakRememberMeKeyRule extends AbstractSecurityRule {
 
     private static final int MIN_KEY_LENGTH = 16;
@@ -1054,36 +1032,6 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
             }
             if (Boolean.TRUE.equals(weak)) {
                 details.add(chain.describe() + " configures an enforcing CSP with permissive script execution.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class CrossOriginIsolationHeadersRule extends AbstractSecurityRule {
-
-    CrossOriginIsolationHeadersRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-HEAD-010",
-                "Cross-origin isolation headers should be considered",
-                SecurityCategory.HEADERS,
-                "INFO",
-                "Reviews browser-credential chains with neither opener nor embedder policy in supported header configuration. Cross-origin isolation is capability-specific and optional, not a universal requirement.",
-                "Add CrossOriginOpenerPolicyHeaderWriter / CrossOriginEmbedderPolicyHeaderWriter via headers().crossOriginOpenerPolicy(...) / .crossOriginEmbedderPolicy(...) if the application needs cross-origin isolation (e.g. for SharedArrayBuffer) or Spectre-style side-channel hardening.",
-                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            if (context.applies(chain.browserCredentials() && chain.headerWriterFilterPresent())
-                    && chain.details().headersKnown()
-                    && (!chain.hasHeaderWriterContaining("CrossOriginOpenerPolicy")
-                            || !chain.hasHeaderWriterContaining("CrossOriginEmbedderPolicy"))) {
-                details.add(
-                        chain.describe()
-                                + " lacks a recognized COOP/COEP pair; consider it only for features requiring cross-origin isolation.");
             }
         }
         return violation(context, details);
@@ -1380,44 +1328,6 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
         return unknown
                 ? skipped("Exact operation or ordered authorization metadata is incomplete; no callback was executed.")
                 : pass();
-    }
-}
-
-final class HealthDetailsExposureRule extends AbstractSecurityRule {
-
-    HealthDetailsExposureRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-ACT-004",
-                        "Actuator health details/components should not be exposed unconditionally",
-                        SecurityCategory.ACTUATOR,
-                        "LOW",
-                        "Detects management.endpoint.health.show-details=always or show-components=always, either of"
-                                + " which includes component details for callers authorized to reach an observed health operation."
-                                + " Neither setting bypasses endpoint authorization; show-components may inherit show-details.",
-                        "Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized'"
-                                + " and require authentication for the health endpoint.",
-                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.actuator().exposed("health")) return pass();
-        context.applies(context.observedEndpoint("health"));
-        List<String> details = new ArrayList<>();
-        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-details"))) {
-            details.add("management.endpoint.health.show-details is set to 'always'.");
-        }
-        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-components"))) {
-            details.add("management.endpoint.health.show-components is set to 'always'.");
-        }
-        if (!details.isEmpty()) {
-            if (!context.observedEndpoint("health"))
-                return context.evidence().operationsKnown()
-                        ? pass()
-                        : skipped("Actual health operation metadata is unavailable.");
-        }
-        return violation(context, details);
     }
 }
 
@@ -1741,35 +1651,6 @@ final class H2ConsoleFrameOptionsRule extends AbstractSecurityRule {
             return violation(context, List.of("spring.h2.console.enabled=true while a production profile is active."));
         }
         return pass();
-    }
-}
-
-final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
-
-    ErrorResponseDisclosureRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-CONFIG-005",
-                "Error responses should not leak stack traces or internal messages",
-                SecurityCategory.CONFIGURATION,
-                "MEDIUM",
-                "Reviews application-configured Boot 4 spring.web.error inclusion settings that are unconditional or caller-enabled. DevTools' development-only defaults are ignored; custom error responses are not observed.",
-                "Use 'never' for sensitive error details. The 'on-param' mode is caller-controlled, not a confidentiality boundary.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        context.applies(!context.chains().isEmpty());
-        for (String suffix : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
-            String key = "spring.web.error." + suffix;
-            String value = context.applicationProperty(key);
-            if (value != null && Set.of("always", "on-param", "on_param").contains(value.toLowerCase(Locale.ROOT))) {
-                details.add(
-                        key + " permits inclusion of internal error details, unconditionally or by caller request.");
-            }
-        }
-        return violation(context, details);
     }
 }
 

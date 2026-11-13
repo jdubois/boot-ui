@@ -1462,25 +1462,6 @@ class SecurityAuditAccuracyTests {
     }
 
     @Test
-    void boot4CallerControlledErrorDetailsAreReviewedAndObsoleteNamespaceIgnored() {
-        var environment = new MockEnvironment().withProperty("server.error.include-message", "always");
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
-                        .status())
-                .isEqualTo("PASS");
-        environment.setProperty("spring.web.error.include-message", "on-param");
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
-                        .status())
-                .isEqualTo("VIOLATION");
-        environment.setProperty("spring.web.error.include-message", "never");
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    @Test
     void verboseChildLoggerIsNotHiddenByInfoParent() {
         var environment = new MockEnvironment()
                 .withProperty("logging.level.org.springframework.security", "INFO")
@@ -1551,12 +1532,13 @@ class SecurityAuditAccuracyTests {
         };
         for (var source : List.of(opaque, overridden)) {
             MockEnvironment environment = new MockEnvironment()
-                    .withProperty("spring.web.error.include-message", "always")
+                    .withProperty("spring.h2.console.enabled", "true")
                     .withProperty("management.endpoints.web.exposure.include", "*");
+            environment.setActiveProfiles("prod");
             environment.getPropertySources().addFirst(source);
             assertIndependentFindingAndIncompleteConfiguration(environment);
-            assertThat(new ErrorResponseDisclosureRule()
-                            .evaluate(context(null, environment))
+            assertThat(new H2ConsoleFrameOptionsRule()
+                            .evaluate(context(null, SecurityEnvironmentSnapshot.capture(environment)))
                             .status())
                     .isEqualTo("SKIPPED");
         }
@@ -1625,10 +1607,11 @@ class SecurityAuditAccuracyTests {
     void configurationPlaceholdersRemainUnknownWithoutRecursiveResolutionOrFakeAbsence() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("management.endpoints.web.exposure.include", "${external.selection}")
-                .withProperty("spring.web.error.include-message", "${external.policy}");
+                .withProperty("spring.h2.console.enabled", "${external.policy}");
+        environment.setActiveProfiles("prod");
         assertIndependentFindingAndIncompleteConfiguration(environment);
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
+        assertThat(new H2ConsoleFrameOptionsRule()
+                        .evaluate(context(null, SecurityEnvironmentSnapshot.capture(environment)))
                         .status())
                 .isEqualTo("SKIPPED");
     }
@@ -1654,17 +1637,28 @@ class SecurityAuditAccuracyTests {
 
     @Test
     void approvedRetiredIdsStayAbsentAndStaticKeyIsInfo() {
-        assertThat(SecurityRuleRegistry.activeRules()).hasSize(54);
-        assertThat(SecurityRuleRegistry.activeRules())
-                .extracting(rule -> rule.definition().id())
-                .doesNotContain(
+        assertThat(SecurityRuleRegistry.activeRules()).hasSize(50);
+        assertThat(SecurityRules.RETIRED_RULE_IDS)
+                .isEqualTo(SecurityRuleRegistry.RETIRED_RULE_IDS)
+                .containsExactlyInAnyOrder(
                         "SEC-AUTH-003",
                         "SEC-AUTH-005",
                         "SEC-SESSION-005",
+                        "SEC-SESSION-007",
                         "SEC-SESSION-009",
                         "SEC-HEAD-005",
                         "SEC-HEAD-006",
-                        "SEC-CORS-004");
+                        "SEC-HEAD-010",
+                        "SEC-CORS-003",
+                        "SEC-CORS-004",
+                        "SEC-ACT-004",
+                        "SEC-OAUTH-001",
+                        "SEC-CONFIG-003",
+                        "SEC-CONFIG-004",
+                        "SEC-CONFIG-005");
+        assertThat(SecurityRuleRegistry.activeRules())
+                .extracting(rule -> rule.definition().id())
+                .doesNotContainAnyElementsOf(SecurityRuleRegistry.RETIRED_RULE_IDS);
         assertThat(new JwtStaticKeyRule().definition().severity()).isEqualTo("INFO");
     }
 
@@ -1693,7 +1687,7 @@ class SecurityAuditAccuracyTests {
         return new SecurityScanner(proxies, factories, environment, Clock.systemUTC()).scan();
     }
 
-    private static SecurityContext context(FilterChainModel chain, MockEnvironment environment) {
+    private static SecurityContext context(FilterChainModel chain, Environment environment) {
         return new SecurityContext(
                 chain == null ? List.of() : List.of(chain),
                 List.of(),
