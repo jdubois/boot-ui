@@ -28,6 +28,8 @@ import java.util.List;
  *     handed none over or the agent is not attached (M5-2)
  * @param lateHandoffs its handoffs that started more than {@code bootui.agent.executors.max-handoff} after it ended,
  *     which are only counted and, with their work, not drawn, or {@code null} when none
+ * @param authorizations the authorization decisions recorded for this request, in start order, empty when none was
+ *     recorded or the {@code security-logs} panel is disabled
  */
 public record RequestJournalProfileDto(
         boolean available,
@@ -45,13 +47,15 @@ public record RequestJournalProfileDto(
         List<String> notes,
         RequestOrmDto orm,
         List<RequestHandoffDto> handoffs,
-        Integer lateHandoffs) {
+        Integer lateHandoffs,
+        List<RequestAuthorizationDto> authorizations) {
 
     public RequestJournalProfileDto {
         timeline = DtoCollections.immutableCopy(timeline);
         gcPauses = DtoCollections.immutableCopy(gcPauses);
         notes = DtoCollections.immutableCopy(notes);
         handoffs = DtoCollections.immutableCopy(handoffs);
+        authorizations = DtoCollections.immutableCopy(authorizations);
     }
 
     /** A request the journal does not retain. */
@@ -72,6 +76,7 @@ public record RequestJournalProfileDto(
                 List.of(),
                 null,
                 List.of(),
-                null);
+                null,
+                List.of());
     }
 }

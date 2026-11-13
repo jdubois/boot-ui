@@ -142,7 +142,13 @@ Spring WebFlux and Quarkus serve requests on shared event-loop and worker thread
 trace id only and list the other tiers as unavailable rather than guessing.
 
 The drawer also shows the request's timing breakdown (SQL and outbound REST calls versus everything else), its auth
-context, and the trace span list. Span status messages, exception events, and attribute values follow the
+context, and the trace span list. When the runtime journal captured authorization checks for the request (and the
+**Security Logs** panel is enabled), the journal section lists up to 50 **Authorization decisions** (`REQUEST` or
+`METHOD`, subject, authentication state, caller authority count, rule when exposed, outcome, and duration when measured)
+and places them on the unified timeline; denied authorization checks also appear as `SECURITY` (`WARN`) rows in the
+Live Activity feed. On `401` and `403` requests when the **Spring Security** panel is available, **Explain in Spring
+Security** deep-links to `#/spring-security` with the request's method and path pre-filled for static filter-chain
+matching. Span status messages, exception events, and attribute values follow the
 [trace value exposure](diagnostics.md#trace-value-exposure) rule. **Escape** dismisses it, and focus is trapped while it
 is open. Opening a profile only reads evidence BootUI already captured. It captures nothing new, calls no network
 service, and changes no state. Open Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's

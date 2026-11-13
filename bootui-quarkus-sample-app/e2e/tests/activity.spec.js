@@ -283,6 +283,11 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(security.getByText('exact', {exact: true})).toBeVisible()
     await expect(security.locator('.activity-tier')).toHaveText('request id')
 
+    const journal = drawer.locator('.request-journal')
+    await expect(journal.getByRole('heading', {name: 'Authorization decisions'})).toBeVisible()
+    await expect(journal.locator('.request-journal__authorizations')).toContainText('AUTHENTICATED')
+    await expect(journal.locator('.request-journal__authorizations')).toContainText('Granted')
+
     await drawer.getByRole('button', {name: 'Close'}).click()
   })
 

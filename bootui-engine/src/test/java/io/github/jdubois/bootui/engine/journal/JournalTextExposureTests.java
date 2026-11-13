@@ -120,22 +120,52 @@ class JournalTextExposureTests {
     void theRequestProfileFollowsTheLivePolicy() {
         record("r1", JournalSource.SQL, new SqlPayload(SQL, null, "dataSource", false), 1_000);
         record("r1", JournalSource.LOG, new LogPayload("com.acme.Login", "WARN", LOG, null), 1_001);
-        record("r1", JournalSource.HTTP, new HttpPayload("GET", PATH, "/orders", null, 200), 1_002);
+        record(
+                "r1",
+                JournalSource.AUTHORIZATION,
+                new AuthorizationPayload(
+                        AuthorizationPayload.REQUEST,
+                        null,
+                        "hasAnyAuthority(ROLE_SECRET_ADMIN)",
+                        AuthorizationPayload.ANONYMOUS,
+                        false,
+                        0),
+                1_002);
+        record("r1", JournalSource.HTTP, new HttpPayload("GET", PATH, "/orders", null, 403), 1_003);
         RuntimeJournal journal = journalOf(entries);
         try {
             RequestJournalProfiles profiles =
                     new RequestJournalProfiles(journal, null, 1_000, 3, panel -> true, policy);
 
             policy.set(ValueExposure.FULL, true);
-            assertThat(profiles.profile("r1").toString()).contains("alice", LOG);
+            assertThat(profiles.profile("r1").toString()).contains("alice", LOG, "hasAnyAuthority(ROLE_SECRET_ADMIN)");
+            assertThat(profiles.profile("r1").authorizations())
+                    .singleElement()
+                    .satisfies(decision -> assertThat(decision.rule()).isEqualTo("hasAnyAuthority(ROLE_SECRET_ADMIN)"));
 
             policy.set(ValueExposure.MASKED, true);
             RequestJournalProfileDto masked = profiles.profile("r1");
             assertThat(masked.toString()).doesNotContain("alice", "s3cr3t", "hunter2", "abc123");
+            assertThat(masked.authorizations())
+                    .singleElement()
+                    .satisfies(decision -> assertThat(decision.rule()).isEqualTo("hasAnyAuthority(ROLE_SECRET_ADMIN)"));
 
             policy.set(ValueExposure.METADATA_ONLY, true);
-            assertThat(profiles.profile("r1").toString())
-                    .doesNotContain("alice", "s3cr3t", "hunter2", "abc123", "refused");
+            RequestJournalProfileDto metadata = profiles.profile("r1");
+            assertThat(metadata.toString())
+                    .doesNotContain("alice", "s3cr3t", "hunter2", "abc123", "refused", "ROLE_SECRET_ADMIN");
+            assertThat(metadata.authorizations())
+                    .singleElement()
+                    .satisfies(decision -> assertThat(decision.rule()).isNull());
+            assertThat(only(render(), "SECURITY").detail()).isEqualTo("ANONYMOUS");
+            assertThat(new JournalTextExposure(ValueExposure.METADATA_ONLY, true)
+                            .reapply(row(
+                                    "SECURITY",
+                                    "Request authorization denied",
+                                    null,
+                                    "ANONYMOUS · hasAnyAuthority(ROLE_SECRET_ADMIN)"))
+                            .detail())
+                    .isEqualTo("ANONYMOUS");
         } finally {
             journal.close();
         }

@@ -556,6 +556,25 @@ public final class JournalActivityFeed {
                     parentId,
                     false);
         }
+        if (payload instanceof AuthorizationPayload decision) {
+            if (decision.granted()) {
+                return null;
+            }
+            return entry(
+                    id,
+                    TYPE_SECURITY,
+                    event,
+                    SEVERITY_WARN,
+                    authorizationSummary(decision),
+                    authorizationDetail(decision, text),
+                    event.durationNanos() <= 0 ? null : durationMs,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
         if (payload instanceof CachePayload cache) {
             String operation = cache.operation() == null ? "" : cache.operation();
             return entry(
@@ -959,6 +978,31 @@ public final class JournalActivityFeed {
     /** An {@code ASYNC} entry's summary: the task's simple class name, such as {@code Async task OrderMailer}. */
     static String asyncSummary(String taskClass) {
         return "Async task" + (taskClass == null ? "" : " " + simpleName(taskClass));
+    }
+
+    /** An authorization decision's summary, such as {@code Request authorization denied}. */
+    static String authorizationSummary(AuthorizationPayload decision) {
+        String outcome = decision.granted() ? "granted" : "denied";
+        if (decision.subject() != null && !decision.subject().isBlank()) {
+            return "Method authorization " + outcome + ": " + decision.subject();
+        }
+        return (decision.request() ? "Request authorization " : "Method authorization ") + outcome;
+    }
+
+    /** An authorization decision's authentication state, authority count, and rule as {@code text} allows. */
+    static String authorizationDetail(AuthorizationPayload decision, JournalTextExposure text) {
+        StringBuilder detail = new StringBuilder(
+                decision.authentication() == null ? AuthorizationPayload.UNKNOWN : decision.authentication());
+        if (decision.authorities() > 0) {
+            detail.append(" (")
+                    .append(decision.authorities())
+                    .append(decision.authorities() == 1 ? " authority)" : " authorities)");
+        }
+        String rule = text == null ? decision.rule() : text.authorizationRule(decision.rule());
+        if (rule != null) {
+            detail.append(" · ").append(rule);
+        }
+        return detail.toString();
     }
 
     private static String simpleName(String type) {

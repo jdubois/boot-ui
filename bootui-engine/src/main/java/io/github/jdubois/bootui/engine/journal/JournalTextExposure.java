@@ -230,6 +230,17 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
     }
 
     /**
+     * An authorization decision's rule, such as {@code hasAnyAuthority(ROLE_ADMIN)}: {@code null} when this rule
+     * withholds free text ({@link ValueExposure#METADATA_ONLY}) or {@code rule} is null or blank.
+     */
+    public String authorizationRule(String rule) {
+        if (rule == null || rule.isBlank() || omitsText()) {
+            return null;
+        }
+        return verbatim() ? rule : MessageExposure.maskSecretAssignments(rule);
+    }
+
+    /**
      * Re-applies this rule to a row read back from the durable Live Activity store, which was written under
      * {@link #masked()} — or raw, by a build before this rule existed — so the live policy holds for it too
      * ({@code PLAN-v2} §8). A stored row is never shown less masked than {@code MASKED}, even under {@code FULL}.
@@ -309,6 +320,7 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         return switch (type) {
             case JournalActivityFeed.TYPE_SCHEDULED, JournalActivityFeed.TYPE_EXCEPTION, JournalActivityFeed.TYPE_LOG ->
                 before(detail, ":");
+            case JournalActivityFeed.TYPE_SECURITY -> before(detail, " · ");
             case JournalActivityFeed.TYPE_MAIL ->
                 GENERATED_MAIL_DETAIL.matcher(detail).matches() ? detail : null;
             // The journal stores a datasource name or a client type where a 1.x row stored the failure's message, and

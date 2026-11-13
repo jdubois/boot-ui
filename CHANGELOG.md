@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Per-request authorization decisions in Live Activity and request profiles** surface denied checks in the feed, list
+  request and method decisions on the journal profile and timeline, and link `401`/`403` requests to Spring Security
+  ([Live Activity](docs/features/live-activity.md#the-per-request-profiler); [#1669](https://github.com/jdubois/boot-ui/issues/1669)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

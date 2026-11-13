@@ -748,19 +748,24 @@ function trapFocus(event) {
 
 function copyProfile() {
   if (!profile.value?.available) return
-  copyToClipboard(profileMarkdown(profile.value).markdown, 'profile')
+  copyToClipboard(profileMarkdown(profile.value, {journalProfile: journalProfile.value}).markdown, 'profile')
 }
 
 // "Copy for AI" previews the profile's Markdown with each correlated exception's stack trace and recent
 // occurrences, loaded through the existing Exceptions read endpoint. Copying the preview sends nothing.
 async function openAiExport() {
   const current = profile.value
+  const currentJournal = journalProfile.value
   if (!current?.available) return
   aiExport.value = {loading: true, error: null, markdown: '', omissions: []}
   try {
     const {exceptionDetails, omissions} = await loadProfileExceptionDetails(current, getJson)
     if (profile.value !== current) return
-    aiExport.value = {loading: false, error: null, ...profileMarkdown(current, {exceptionDetails, omissions})}
+    aiExport.value = {
+      loading: false,
+      error: null,
+      ...profileMarkdown(current, {exceptionDetails, omissions, journalProfile: currentJournal})
+    }
   } catch (err) {
     if (profile.value !== current) return
     aiExport.value = {
@@ -1568,7 +1573,13 @@ function toggleFlow() {
             <div v-if="profile?.unavailableReason && !journalProfile?.available" class="alert alert-warning">
               {{ profile.unavailableReason }}
             </div>
-            <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
+            <RequestJournalProfile
+              v-if="journalProfile"
+              :profile="journalProfile"
+              :method="profile?.request?.method"
+              :path="profile?.request?.path"
+              :status="profile?.request?.status"
+            />
             <RequestCodePath
               :request-id="journalProfile?.requestId || profileRequestId"
               :route="journalProfile?.route"
@@ -1604,7 +1615,13 @@ function toggleFlow() {
               <p class="small mb-1">{{ timingSummary }}</p>
             </section>
 
-            <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
+            <RequestJournalProfile
+              v-if="journalProfile"
+              :profile="journalProfile"
+              :method="profile.request?.method"
+              :path="profile.request?.path"
+              :status="profile.request?.status"
+            />
             <RequestCodePath
               :request-id="journalProfile?.requestId || profileRequestId"
               :route="journalProfile?.route"

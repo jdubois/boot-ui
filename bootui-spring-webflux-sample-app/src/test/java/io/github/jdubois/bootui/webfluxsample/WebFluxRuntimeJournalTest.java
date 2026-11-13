@@ -140,6 +140,13 @@ class WebFluxRuntimeJournalTest {
             // permitAll() never asks for the caller, and a reactive context is not readable from a thread.
             assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.UNKNOWN);
             assertThat(event.requestId()).isNotBlank();
+            com.fasterxml.jackson.databind.JsonNode profile = probe.get(
+                            "/bootui/api/activity/request/" + event.requestId() + "/journal")
+                    .json();
+            assertThat(profile.path("available").asBoolean()).isTrue();
+            assertThat(profile.path("authorizations")).isNotEmpty();
+            assertThat(profile.path("authorizations").get(0).path("granted").asBoolean())
+                    .isTrue();
         });
     }
 
