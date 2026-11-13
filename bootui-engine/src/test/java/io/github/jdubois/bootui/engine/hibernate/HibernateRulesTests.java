@@ -7,7 +7,6 @@ import io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinJvmFieldEn
 import io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinLateinitEntity;
 import io.github.jdubois.bootui.engine.support.KotlinReflection;
 import jakarta.persistence.Basic;
-import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -963,20 +962,6 @@ class HibernateRulesTests {
 
         HibernateRuleResultDto result = new InClausePaddingRule()
                 .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    // --- HIB-CONFIG-011 -----------------------------------------------------
-
-    @Test
-    void cacheableWithoutCacheStrategyRuleHonorsConfiguredDefaultStrategy() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty("hibernate.cache.use_second_level_cache", "true")
-                .withProperty("hibernate.cache.default_cache_concurrency_strategy", "read-write");
-
-        HibernateRuleResultDto result = new CacheableWithoutCacheStrategyRule()
-                .evaluate(context(environment, CacheableDefaultStrategyEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -2042,13 +2027,6 @@ class HibernateRulesTests {
     @Immutable
     @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
     static class ImmutableReadOnlyCacheEntity {
-        @Id
-        Long id;
-    }
-
-    @Entity
-    @Cacheable
-    static class CacheableDefaultStrategyEntity {
         @Id
         Long id;
     }

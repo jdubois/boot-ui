@@ -488,8 +488,7 @@ counters with per-region breakdowns.
 
 When statistics collection is off, the panel offers **Enable for this runtime**, which calls
 `Statistics#setStatisticsEnabled(true)` without rewriting your configuration. The persistent alternatives are
-`hibernate.generate_statistics=true` and `quarkus.hibernate-orm.statistics=true` (the HIB-CONFIG-007 recommendation of
-the [Hibernate advisor](../HIBERNATE-CHECKS.md)). That toggle is the only mutation and follows the localhost,
+`hibernate.generate_statistics=true` and `quarkus.hibernate-orm.statistics=true`. That toggle is the only mutation and follows the localhost,
 cross-site-write, and read-only policy; there is no reset action. The panel is identical on Quarkus.
 
 ::: details Known limitations
