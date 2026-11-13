@@ -51,9 +51,17 @@ public final class AgentRequestValues {
     public static final int F_REPEATED = 8;
     public static final int F_BUSY = 16;
     public static final int F_SEEN = 32;
+    public static final int F_ASSESSMENT = 64;
 
     /** Name-value pairs an adapter passes per request at most: the bridge keeps at most 32 and counts the rest. */
     public static final int MAX_PAIRS = 64;
+
+    /**
+     * The header an external DAST tool tags its requests with ({@code docs/features/java-agent.md}): such a request's
+     * values are held from one character, so its short probes are checked too. Only whether it is present and not blank
+     * is read; its value is never kept.
+     */
+    public static final String ASSESSMENT_HEADER = "X-BootUI-Assessment-Id";
 
     /** The raw query string characters an adapter parses at most. */
     public static final int MAX_QUERY = 8 * 1024;
@@ -110,7 +118,8 @@ public final class AgentRequestValues {
             return false;
         }
         try {
-            int held = (int) begin.invokeExact(requestId, values.names(), values.values(), late, lateKeys);
+            int held = (int)
+                    begin.invokeExact(requestId, values.names(), values.values(), late, lateKeys, values.assessment);
             return held >= 0;
         } catch (Throwable ex) {
             // The agent never fails a request.
@@ -164,6 +173,9 @@ public final class AgentRequestValues {
 
     /** The value sat inside an unquoted literal (a number, true, or false): never a fact on its own. */
     public static final int FLAG_BARE_LITERAL = 16;
+
+    /** The value came from an assessment request, a scanner's probe: never a fact on its own. */
+    public static final int FLAG_ASSESSMENT = 32;
 
     /**
      * Publishes an engine-side sink's match of the calling thread's request's value named {@code name}: the sink's
@@ -222,6 +234,7 @@ public final class AgentRequestValues {
 
         private final List<String> names = new ArrayList<>();
         private final List<String> values = new ArrayList<>();
+        private boolean assessment;
 
         /** Adds a value under {@code name}, which may be {@code null}; ignored past {@value #MAX_PAIRS} pairs. */
         public Values add(String name, String value) {
@@ -239,6 +252,21 @@ public final class AgentRequestValues {
                     List<String> list = entry.getValue();
                     if (list != null) {
                         for (String value : list) {
+                            add(entry.getKey(), value);
+                        }
+                    }
+                }
+            }
+            return this;
+        }
+
+        /** Adds every value of a servlet request's parameter map, whose form values a body carried. */
+        public Values addForm(Map<String, String[]> parameters) {
+            if (parameters != null) {
+                for (Map.Entry<String, String[]> entry : parameters.entrySet()) {
+                    String[] array = entry.getValue();
+                    if (array != null) {
+                        for (String value : array) {
                             add(entry.getKey(), value);
                         }
                     }
@@ -288,6 +316,15 @@ public final class AgentRequestValues {
                 }
                 start = amp + 1;
             }
+            return this;
+        }
+
+        /**
+         * Marks the request an assessment request when {@code header}, its {@link #ASSESSMENT_HEADER} value, is present
+         * and not blank. The header's value is never kept.
+         */
+        public Values assessment(String header) {
+            assessment |= header != null && !header.isBlank();
             return this;
         }
 
@@ -354,7 +391,8 @@ public final class AgentRequestValues {
                                         String[].class,
                                         String[].class,
                                         Map.class,
-                                        String[].class)),
+                                        String[].class,
+                                        boolean.class)),
                         lookup.findStatic(requestValues, "end", MethodType.methodType(void.class, String.class)),
                         lookup.findStatic(
                                 requestValues,

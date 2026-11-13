@@ -104,6 +104,38 @@ class RequestValuesSinksTests {
     }
 
     @Test
+    void twoAssessmentRequestsOpeningAPathWithDifferentValuesShareTheRedactedHashSoTheyConfirm() {
+        long token = claim(List.of(SideEffects.FILES, SideEffects.SECURITY_SINKS));
+        SideEffects.enable(SideEffects.MASK_FILES);
+        SideEffects.places(PLACES);
+        long[] raw = new long[2];
+        long[] redacted = new long[2];
+        String[] values = {seeded("FileName"), seeded("SafeText")};
+        for (int i = 0; i < 2; i++) {
+            String request = i == 0 ? REQUEST : "00000000000000cd";
+            context.set(owner(request));
+            RequestValues.begin(
+                    request, new String[] {"BenchmarkTest00360"}, new String[] {values[i]}, null, null, true);
+            long opening = SideEffects.fileOpening(SideEffects.HOOK_FILE_INPUT_STREAM);
+            SideEffects.fileOpened(
+                    opening,
+                    SideEffects.HOOK_FILE_INPUT_STREAM,
+                    SideEffects.KIND_FILE_READ,
+                    "/srv/app/testfiles/" + values[i],
+                    null);
+            List<long[]> sinks = sinks(token);
+            assertThat(sinks).hasSize(1);
+            assertThat(sinks.get(0)[SideEffects.R_FLAGS] & RequestValues.FLAG_ASSESSMENT)
+                    .isEqualTo(RequestValues.FLAG_ASSESSMENT);
+            raw[i] = sinks.get(0)[SideEffects.R_NANOS];
+            redacted[i] = sinks.get(0)[SideEffects.R_MAX_NANOS];
+            RequestValues.end(request);
+        }
+        assertThat(redacted[0]).as("the redacted text was kept").isPositive().isEqualTo(redacted[1]);
+        assertThat(raw[0]).isNotEqualTo(raw[1]);
+    }
+
+    @Test
     void anExecutableHoldingAValueIsNamedByNeitherRecord() {
         long token = claim(List.of(SideEffects.PROCESSES, SideEffects.SECURITY_SINKS));
         SideEffects.enable(SideEffects.MASK_PROCESSES);

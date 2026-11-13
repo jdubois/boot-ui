@@ -475,8 +475,8 @@ adds cost to every `System.getProperty` call ([Overhead](#overhead)).
 The opt-in `security-sinks` sensor, enabled with `bootui.agent.sensors=...,security-sinks` or
 [its run-time switch](#switching-sensors-at-run-time), runs its [JDK checks](#jdk-checks). With
 `bootui.agent.security-sinks.request-values=true` as well, it also checks whether the value of one of the current
-request's query or path parameters appears **unchanged** in SQL text, a command, a file path, or an outbound URL. The
-property does nothing without the sensor.
+request's query, path, or form parameters appears **unchanged** in SQL text, a command, a file path, or an outbound URL.
+The property does nothing without the sensor.
 
 ::: details Rows, sinks, and what is held
 
@@ -491,17 +491,50 @@ value **redacted** to `{name}`. It never holds the value.
 | File path | The `files` sensor's hooks, so only with `files` claimed |
 | Outbound URL | Where the REST client panel records the call; scheme, host, port, redacted path, and query keys only |
 
-Form values, headers, and bodies are never held. The values live in memory only while a request runs, are removed when its
-response completes, and are wiped on a new claim, a restart, a release, or when the sensor is switched off. They are never
+Form values are held on Spring MVC only, for an `application/x-www-form-urlencoded` request whose handler method binds
+them as parameters: a handler that takes an `InputStream`, a `Reader`, the request itself, or a `WebRequest` may read the
+body raw, so its form is never read. WebFlux and Quarkus hold no form value, since reading one consumes the body. Other
+headers and bodies are never held. The values live in memory only while a request runs, are removed when its response
+completes, and are wiped on a new claim, a restart, a release, or when the sensor is switched off. They are never
 persisted, logged, or displayed.
 
-- The holder keeps at most 128 requests and 32 values of 4 to 256 characters each. A missed end is swept after 60 seconds.
+- The holder keeps at most 128 requests and 32 values of 4 to 256 characters each (from 1 character on an
+  [assessment request](#driving-it-from-a-dast-tool)). A missed end is swept after 60 seconds.
 - Matching is bounded per request. After the budget, later sinks are not checked and a `files` or `processes` row says
   `(not kept: not checked for request input)`.
 - A value that is a number, `true`/`false`, or outside an SQL literal may be a word the text always holds. Such a match is
   shown only once a second request produced a different raw text with the same redacted text.
 - A JDK `HttpClient` call is checked only when it goes through a REST client BootUI records.
 - **Clear recording** clears the rows.
+
+:::
+
+### Driving it from a DAST tool
+
+An external scanner, such as OWASP ZAP, sends the payloads and BootUI sees from inside which ones reached a sink. Tag the
+scanner's requests with the `X-BootUI-Assessment-Id` header, any non-blank value, for example with ZAP's replacer:
+
+```yaml
+- type: replacer
+  rules:
+    - description: BootUI assessment header
+      matchType: req_header
+      matchString: X-BootUI-Assessment-Id
+      replacementString: zap-scan
+```
+
+::: details What the header changes
+
+- Only the header's presence is read; its value is never kept. Untagged requests are unchanged.
+- A tagged request's values are held from 1 character, so a scanner's short probes, such as `bar` or `'`, are checked too.
+- A tagged request's match is never shown from one request, even inside or across an SQL literal: a probe may equal a
+  constant the text always holds, as `foo'` does where a statement's literal `'foo'` ends. It waits until a second request
+  produced a different raw text with the same redacted text, which a scanner's varied probes provide for a value that
+  really reaches the text, and a constant never does. A short value found in more places than a check reports is
+  dropped, so it never costs another value its redacted text.
+- BootUI still never sends a payload. Rows stay facts ("request input reached this SQL text unchanged"), never a
+  verdict that the code is exploitable: matching is verbatim, not taint tracking, so an encoded, trimmed, or
+  recombined value is not seen.
 
 :::
 

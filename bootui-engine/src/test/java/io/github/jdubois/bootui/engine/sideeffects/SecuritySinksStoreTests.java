@@ -72,6 +72,27 @@ class SecuritySinksStoreTests {
     }
 
     @Test
+    void pastTheCapsAnUnconfirmedMatchTakesAnUnconfirmedRowsPlaceNeverAConfirmedOne() {
+        SideEffectsStore store = new SideEffectsStore(0L, 100, 2, 100);
+        int probe = SideEffectsCatalog.SINK_IN_LITERAL | SideEffectsCatalog.SINK_ASSESSMENT;
+        // A confirmed row, then a scanner's probe on a constant: the sensor's two rows.
+        store.add(sink(1, "select a from t where x = '{name}'", probe, 1, 2));
+        store.add(sink(2, "select a from t where x = '{name}'", probe, 3, 2));
+        store.add(sink(3, "select b from t where y = '{foo}'", probe, 5, 6));
+        store.resolve(routes(3), NOW);
+        assertThat(store.rows(SENSOR, true, true)).hasSize(1);
+
+        // A real injection arriving once the caps are reached still gets a row, and its next probe confirms it.
+        store.add(sink(4, "select c from t where z = '{q}'", probe, 7, 8));
+        store.add(sink(5, "select c from t where z = '{q}'", probe, 9, 8));
+        store.resolve(routes(5), NOW);
+
+        assertThat(store.rows(SENSOR, true, true))
+                .extracting(SideEffectsRowDto::target)
+                .containsExactlyInAnyOrder("select a from t where x = '{name}'", "select c from t where z = '{q}'");
+    }
+
+    @Test
     void aValueInsideTrueFalseOrANumberWaitsAndOneCrossingALiteralStandsAlone() {
         SideEffectsStore store = new SideEffectsStore(0L);
         int bare = SideEffectsCatalog.SINK_IN_LITERAL | SideEffectsCatalog.SINK_BARE_LITERAL;
@@ -93,6 +114,28 @@ class SecuritySinksStoreTests {
             assertThat(row.target()).isEqualTo("select * from users where name = {name} and p = ?");
             assertThat(row.detail()).contains("outside a literal").endsWith(SinkWording.SEEN_ONCE);
         });
+    }
+
+    @Test
+    void anAssessmentMatchWaitsEvenInsideOrAcrossALiteralUntilASecondValueConfirmsIt() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        int inside = SideEffectsCatalog.SINK_IN_LITERAL | SideEffectsCatalog.SINK_ASSESSMENT;
+        int crossing = SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+                | SideEffectsCatalog.SINK_CROSSES_LITERAL
+                | SideEffectsCatalog.SINK_ASSESSMENT;
+        store.add(sink(1, "select * from users where name = '{q}'", inside, 1, 2));
+        store.add(sink(2, "select * from users where name = {q} and p = ?", crossing, 3, 4));
+        store.resolve(routes(2), NOW);
+        assertThat(store.rows(SENSOR, true, true))
+                .as("a scanner's probe in one request may be a constant the text always holds")
+                .isEmpty();
+        assertThat(store.unconfirmed()).isEqualTo(2L);
+
+        store.add(sink(2, "select * from users where name = '{q}'", inside, 5, 2));
+        store.resolve(routes(2), NOW);
+        assertThat(store.rows(SENSOR, true, true))
+                .singleElement()
+                .satisfies(row -> assertThat(row.target()).isEqualTo("select * from users where name = '{q}'"));
     }
 
     @Test

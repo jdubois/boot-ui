@@ -96,7 +96,7 @@ public final class RequestInputSinks {
 
     /** Whether every occurrence was reported, so a redacted target covers them all. */
     private static boolean keep(int[] spans) {
-        return (spans[AgentRequestValues.S_FLAGS] & ~AgentRequestValues.F_SEEN) == 0
+        return (spans[AgentRequestValues.S_FLAGS] & ~(AgentRequestValues.F_SEEN | AgentRequestValues.F_ASSESSMENT)) == 0
                 && spans[AgentRequestValues.S_COUNT] > 0;
     }
 
@@ -115,8 +115,21 @@ public final class RequestInputSinks {
                 position = AgentRequestValues.POSITION_UNKNOWN;
             }
             AgentRequestValues.publish(
-                    kind, names[i], position | numeric(text, spans, i), cut(target), rawHash, redactedHash, stamp);
+                    kind,
+                    names[i],
+                    position | numeric(text, spans, i) | assessment(spans),
+                    cut(target),
+                    rawHash,
+                    redactedHash,
+                    stamp);
         }
+    }
+
+    /** {@link AgentRequestValues#FLAG_ASSESSMENT} when the check was an assessment request's. */
+    private static int assessment(int[] spans) {
+        return (spans[AgentRequestValues.S_FLAGS] & AgentRequestValues.F_ASSESSMENT) != 0
+                ? AgentRequestValues.FLAG_ASSESSMENT
+                : 0;
     }
 
     /** {@code text} with every span replaced by {@code {name}}, overlapping spans merged under the first one's name. */

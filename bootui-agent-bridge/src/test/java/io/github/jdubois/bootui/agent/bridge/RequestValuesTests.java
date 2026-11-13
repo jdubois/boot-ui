@@ -243,6 +243,65 @@ class RequestValuesTests {
     }
 
     @Test
+    void anAssessmentRequestHoldsShortValuesAndAnUntaggedRequestStillSkipsThem() {
+        on();
+        assertThat(RequestValues.begin(OTHER, names("q"), values("bar"), null, null, false))
+                .as("an untagged request keeps the 4-character floor")
+                .isZero();
+        assertThat(RequestValues.begin(REQUEST, names("q", "x"), values("bar", "'"), null, null, true))
+                .as("an assessment request holds DAST probes down to one character")
+                .isEqualTo(2);
+        assertThat(RequestValues.status().get("assessmentRequests")).isEqualTo(1L);
+
+        context.set(owner(REQUEST, null));
+        int[] spans = new int[RequestValues.SPANS_LENGTH];
+        String[] names = new String[RequestValues.MAX_VALUES];
+        String sql = "select * from users where name = 'bar'";
+        assertThat(RequestValues.match(sql, RequestValues.SINK_SQL, spans, names) & 1)
+                .isEqualTo(1);
+        assertThat(RequestValues.redact(sql, spans, names)).doesNotContain("bar");
+    }
+
+    @Test
+    void aShortValueFoundInMoreThanEightPlacesIsDroppedSoAnotherValueKeepsItsRedactedText() {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("n", "name"), values("1", "alice"), null, null, true);
+        int[] spans = new int[RequestValues.SPANS_LENGTH];
+        String[] names = new String[RequestValues.MAX_VALUES];
+        String sql = "select 1,1,1,1,1,1,1,1,1 from users where name = 'alice'";
+
+        assertThat(RequestValues.match(sql, RequestValues.SINK_SQL, spans, names))
+                .as("only alice: a one-character value in nine places tells nothing")
+                .isEqualTo(2);
+        assertThat(spans[RequestValues.S_COUNT]).isEqualTo(1);
+        assertThat(spans[RequestValues.S_FLAGS]).isEqualTo(RequestValues.F_ASSESSMENT);
+        assertThat(RequestValues.redact(sql, spans, names))
+                .isEqualTo("select 1,1,1,1,1,1,1,1,1 from users where name = '{name}'");
+        assertThat(RequestValues.status().get("shortValuesAmbiguous")).isEqualTo(1L);
+    }
+
+    @Test
+    void anAssessmentRequestsChecksAreMarkedAndStillRedactAnUntaggedOnesAreNot() {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("name"), values("alice"), null, null, true);
+        int[] spans = new int[RequestValues.SPANS_LENGTH];
+        String[] names = new String[RequestValues.MAX_VALUES];
+        String sql = "select * from users where name = 'alice'";
+
+        assertThat(RequestValues.match(sql, RequestValues.SINK_SQL, spans, names))
+                .isEqualTo(1);
+        assertThat(spans[RequestValues.S_FLAGS]).isEqualTo(RequestValues.F_ASSESSMENT);
+        assertThat(RequestValues.redact(sql, spans, names)).isEqualTo("select * from users where name = '{name}'");
+        RequestValues.end(REQUEST);
+
+        RequestValues.begin(REQUEST, names("name"), values("alice"), null, null, false);
+        RequestValues.match(sql, RequestValues.SINK_SQL, spans, names);
+        assertThat(spans[RequestValues.S_FLAGS]).isZero();
+    }
+
+    @Test
     void namesThatAreNotSafeToShowAreReplacedByTheirPosition() {
         on();
         context.set(owner(REQUEST, null));

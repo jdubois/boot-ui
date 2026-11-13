@@ -185,6 +185,34 @@ class SecuritySinksServiceTests {
     }
 
     @Test
+    void anAssessmentProbeOnAConstantLiteralIsNeverShownAndARealOneIsOnceTheTextVaries() {
+        start();
+        // OWASP Benchmark's safe shape: the literal is a constant equal to the field's default value. A scanner's
+        // probe, the value and a quote, ends where the constant literal ends, yet the text never varies with it.
+        String constant = "select * from users where username='foo' and password=?";
+        inAssessment(FIRST, "foo", seeded("foo"), () -> Launcher.sql(constant, context.get()));
+        inAssessment(SECOND, "foo", seeded("foo'"), () -> Launcher.sql(constant, context.get()));
+        assertThat(rows()).as("the text never varied with the value").isEmpty();
+
+        inAssessment(
+                FIRST,
+                "q",
+                seeded("bar"),
+                () -> Launcher.sql("select * from users where password='bar'", context.get()));
+        assertThat(rows()).as("one assessment request").isEmpty();
+        inAssessment(
+                SECOND,
+                "q",
+                seeded("baz"),
+                () -> Launcher.sql("select * from users where password='baz'", context.get()));
+
+        assertThat(rows()).singleElement().satisfies(row -> {
+            assertThat(row.target()).isEqualTo("select * from users where password='{q}'");
+            assertThat(row.detail()).doesNotContain(SinkWording.SEEN_ONCE);
+        });
+    }
+
+    @Test
     void aDigitsOnlyValueInsideALiteralAlsoWaitsForConfirmation() {
         start();
         inRequest(
@@ -280,6 +308,18 @@ class SecuritySinksServiceTests {
         context.set(CorrelationContext.forRequest(request));
         try {
             AgentRequestValues.begin(request, new AgentRequestValues.Values().add(name, value));
+            work.run();
+        } finally {
+            AgentRequestValues.end(request);
+            context.set(CorrelationContext.NONE);
+        }
+    }
+
+    private void inAssessment(String request, String name, String value, Runnable work) {
+        context.set(CorrelationContext.forRequest(request));
+        try {
+            AgentRequestValues.begin(
+                    request, new AgentRequestValues.Values().assessment("zap").add(name, value));
             work.run();
         } finally {
             AgentRequestValues.end(request);

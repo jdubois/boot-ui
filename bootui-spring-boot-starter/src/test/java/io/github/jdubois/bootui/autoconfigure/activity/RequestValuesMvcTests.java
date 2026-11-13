@@ -23,9 +23,9 @@ import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * Spring MVC's push points of the request value holder ({@code docs/PLAN-v2.md} §5.16, M5-6b): query values from
- * BootUI's own decoding of the query string and the handler mapping's path variables, never through a
- * {@code getParameter*} call, so a body stays unread; nothing on another dispatch or while matching is off; and the
- * values removed where the response really completes.
+ * BootUI's own decoding of the query string and the handler mapping's path variables; form values only for a handler
+ * that binds them as parameters, so a body a handler reads raw stays unread; the assessment header passed on; nothing on
+ * another dispatch or while matching is off; and the values removed where the response really completes.
  */
 class RequestValuesMvcTests {
 
@@ -66,6 +66,52 @@ class RequestValuesMvcTests {
         assertThat(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
                 .as("the handler still reads its raw body")
                 .isEqualTo("raw=body-content");
+    }
+
+    @Test
+    void formValuesArePushedForAHandlerThatReadsThemThroughSpringAndTheAssessmentHeaderIsPassedOn() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/benchmark/sqli");
+        request.setContentType("application/x-www-form-urlencoded; charset=UTF-8");
+        request.addParameter("q", "bar'");
+        request.addHeader(AgentRequestValues.ASSESSMENT_HEADER, "zap-scan-1");
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(REQUEST))) {
+            RequestPhaseInterceptor.pushRequestValues(request, handler("search", String.class));
+        }
+
+        assertThat(FakeRequestValues.CALLS).containsExactly("begin " + REQUEST);
+        assertThat(FakeRequestValues.PUSHED).containsEntry("q", "bar'");
+        assertThat(FakeRequestValues.assessment).isTrue();
+    }
+
+    @Test
+    void aHandlerThatReadsTheRawBodyKeepsItsFormUnreadAndAnUntaggedRequestIsNoAssessment() throws Exception {
+        NoParameters request = new NoParameters("POST", "/api/import");
+        request.setContentType("application/x-www-form-urlencoded");
+        request.setContent("raw=body-content".getBytes(StandardCharsets.UTF_8));
+        request.setQueryString("name=alice");
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(REQUEST))) {
+            RequestPhaseInterceptor.pushRequestValues(request, handler("raw", java.io.InputStream.class));
+        }
+
+        assertThat(FakeRequestValues.PUSHED).containsOnlyKeys("name");
+        assertThat(FakeRequestValues.assessment).isFalse();
+        assertThat(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
+                .isEqualTo("raw=body-content");
+    }
+
+    private static org.springframework.web.method.HandlerMethod handler(String name, Class<?> parameter)
+            throws NoSuchMethodException {
+        return new org.springframework.web.method.HandlerMethod(new Forms(), Forms.class.getMethod(name, parameter));
+    }
+
+    /** Handlers: one reading a form field through Spring, one reading the raw body. */
+    public static final class Forms {
+
+        public void search(@org.springframework.web.bind.annotation.RequestParam String q) {}
+
+        public void raw(java.io.InputStream body) {}
     }
 
     @Test

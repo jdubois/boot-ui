@@ -79,6 +79,41 @@ class AgentRequestValuesTests {
     }
 
     @Test
+    void anAssessmentRequestPushesItsShortProbesAndAnUntaggedRequestDoesNot() {
+        claim();
+        sensor(true);
+        AgentRequestValues.configure(true);
+        int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
+        String[] names = new String[AgentRequestValues.MAX_VALUES];
+
+        AgentRequestValues.begin(
+                REQUEST, new AgentRequestValues.Values().assessment(" ").add("q", "bar"));
+        assertThat(AgentRequestValues.match("where q = 'bar'", AgentRequestValues.SINK_SQL, spans, names))
+                .as("a blank header is no assessment")
+                .isZero();
+        AgentRequestValues.end(REQUEST);
+
+        AgentRequestValues.begin(
+                REQUEST, new AgentRequestValues.Values().assessment("zap-1").add("q", "bar"));
+        assertThat(AgentRequestValues.match("where q = 'bar'", AgentRequestValues.SINK_SQL, spans, names))
+                .isEqualTo(1);
+        assertThat(AgentRequestValues.status().get("assessmentRequests")).isEqualTo(1L);
+        AgentRequestValues.end(REQUEST);
+    }
+
+    @Test
+    void aServletParameterMapIsFlattened() {
+        Map<String, String[]> form = new LinkedHashMap<>();
+        form.put("q", new String[] {"bar'", null, "baz"});
+        form.put("empty", null);
+        AgentRequestValues.Values values =
+                new AgentRequestValues.Values().addForm(form).addForm(null);
+
+        assertThat(List.of(values.names())).containsExactly("q", "q");
+        assertThat(List.of(values.values())).containsExactly("bar'", "baz");
+    }
+
+    @Test
     void queryStringsAreDecodedAsFormsAndBadPairsSkipped() {
         AgentRequestValues.Values values =
                 new AgentRequestValues.Values().addQuery("a=hello+world&b=%E2%82%AC100&bad=%zz&flag&=anon&c=x%26y&&d=");

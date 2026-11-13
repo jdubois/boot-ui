@@ -396,7 +396,7 @@ final class SideEffectsStore {
     /**
      * Whether a security-sinks observation is shown from one request: a value not made of digits only, inside a quoted
      * SQL literal, across a literal's bounds, or in another sink; never one outside a literal, inside a number, true, or
-     * false, or whose place in the text is not known.
+     * false, from an assessment request (a scanner's probe), or whose place in the text is not known.
      */
     static boolean standsAlone(SideEffectRecord record) {
         if (SideEffectsCatalog.check(record.sensor(), record.kind())) {
@@ -405,7 +405,11 @@ final class SideEffectsStore {
         }
         int flags = record.outcome();
         int position = flags & 0x3;
-        if ((flags & (SideEffectsCatalog.SINK_NUMERIC | SideEffectsCatalog.SINK_BARE_LITERAL)) != 0) {
+        if ((flags
+                        & (SideEffectsCatalog.SINK_NUMERIC
+                                | SideEffectsCatalog.SINK_BARE_LITERAL
+                                | SideEffectsCatalog.SINK_ASSESSMENT))
+                != 0) {
             return false;
         }
         if ((flags & SideEffectsCatalog.SINK_CROSSES_LITERAL) != 0) {
@@ -1182,9 +1186,14 @@ final class SideEffectsStore {
             if ((perSensor >= maxRowsPerSensor || rows.size() >= maxRows)
                     && observation.record().sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS
                     && !standsAlone(observation.record())) {
-                // A match no request confirmed yet never reaches the Other row, which is shown: counted as not shown.
-                unconfirmedPastCap += observation.record().count();
-                return;
+                // A match no request confirmed yet never reaches the Other row, which is shown. It takes the place of
+                // the least recently seen row no request confirmed, as a scanner's probe on a constant, so a real
+                // injection's next probe can still confirm it; without one, it is counted as not shown.
+                if (!evictUnconfirmed(sensor)) {
+                    unconfirmedPastCap += observation.record().count();
+                    return;
+                }
+                perSensor = rowsPerSensor.getOrDefault(sensor, 0);
             }
             if (perSensor >= maxRowsPerSensor || rows.size() >= maxRows) {
                 Key other = new Key(
@@ -1221,6 +1230,29 @@ final class SideEffectsStore {
         int remembered = row.recentRequests == null ? 0 : row.recentRequests.size();
         row.add(observation, requestId);
         recentRequestEntries += (row.recentRequests == null ? 0 : row.recentRequests.size()) - remembered;
+    }
+
+    /**
+     * Removes {@code sensor}'s least recently seen security-sinks row that no request confirmed, its matches counted as
+     * not shown. Whether one was removed.
+     */
+    private boolean evictUnconfirmed(String sensor) {
+        Key oldest = null;
+        long oldestSeen = Long.MAX_VALUE;
+        for (Row row : rows.values()) {
+            if (row.key.sensor().equals(sensor) && !visible(row) && row.lastSeen < oldestSeen) {
+                oldest = row.key;
+                oldestSeen = row.lastSeen;
+            }
+        }
+        if (oldest == null) {
+            return false;
+        }
+        Row evicted = rows.remove(oldest);
+        rowsPerSensor.merge(sensor, -1, Integer::sum);
+        unconfirmedPastCap += evicted.count;
+        recentRequestEntries -= evicted.recentRequests == null ? 0 : evicted.recentRequests.size();
+        return true;
     }
 
     /** The prefix of the key that marks a thread local's rows while its holder is not resolved. */
