@@ -38,6 +38,25 @@ and the coverage limitations. A rule evaluation failure is identified separately
 neither exposes exception messages or raw settings. Independently observed findings survive incomplete registration or
 provider coverage.
 
+::: details Discovery efficiency (unreleased)
+
+Repeated bean types share application-type inspection, and async discovery reuses inspected types and methods within
+one scan. Once default async executor applicability is established, it does not inspect unrelated declarations.
+Bean, member, and hierarchy limits remain enforced; genuine member-budget exhaustion is reported explicitly.
+Incomplete coverage still cannot pass a required CI assessment, even with no HIGH findings. Read
+`bootui spring report --json` for the cached coverage limitations; this command does not rescan.
+
+Scheduling recognizes the exact, initialized, unadvised Spring Modulith 2.1.2 staleness-monitor configurer: its
+verified implementation only adds registrations, never changes scheduler routing. Other versions remain unknown
+until verified. An enabled monitor contributing an unsupported runnable still leaves coverage incomplete.
+
+The HTTP timeout rule neutrally skips confirmed absence of managed client/builder/service-group targets in a
+complete root inventory. It does not claim that programmatic HTTP clients cannot exist, and the skip adds no
+completion or usability credit. Parent contexts, opaque products, custom targets, linkage failures, and incomplete
+discovery remain unknown.
+
+:::
+
 ### The same ruleset on MVC and WebFlux
 
 Servlet OSIV and servlet multipart guidance are inapplicable on WebFlux, and the
@@ -130,6 +149,20 @@ findings from the score.
 - **Detects**: Public mutable fields on singleton application beans, excluding injection points, configuration-bound fields, synthetic fields and accessor-backed Kotlin properties. Exposed mutable state warrants review but does not prove concurrent access or a data race.
 - **Recommendation**: Make the field private and expose an accessor if needed, mark it final and set it only from the constructor, or move truly per-request/per-call state out of the singleton (a method-local variable, a request-scoped bean, or immutable value types).
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html>
+
+### SPRING-WIRING-010 - Enable resilience processing for `@Retryable` and `@ConcurrencyLimit` beans
+
+- **Severity**: HIGH
+- **Detects**: Application beans annotated with Spring Framework 7's `@org.springframework.resilience.annotation.Retryable` without `RetryAnnotationBeanPostProcessor` (`internalRetryAnnotationProcessor`), `@org.springframework.resilience.annotation.ConcurrencyLimit` without `ConcurrencyLimitBeanPostProcessor` (`internalConcurrencyLimitProcessor`), or Spring Retry's `@org.springframework.retry.annotation.Retryable` without `RetryConfiguration`. Spring Boot 4 does not auto-enable `@EnableResilientMethods`, so omitting the enabler leaves these annotations inert at runtime.
+- **Recommendation**: Add `@EnableResilientMethods` on a `@Configuration` class for Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, or `@EnableRetry` for Spring Retry `@Retryable`.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/core/resilience.html>
+
+### SPRING-WIRING-011 - Enable infrastructure for `@Async`, `@Scheduled`, `@Cacheable`, and `@Transactional` beans
+
+- **Severity**: HIGH
+- **Detects**: Application beans declaring `@Async` without `AsyncAnnotationBeanPostProcessor`/`AsyncExecutionAspectSupport`, `@Scheduled`/`@Schedules` without `ScheduledTaskHolder`/`internalScheduledAnnotationProcessor`, `@Cacheable`/`@CachePut`/`@CacheEvict`/`@Caching` without `CacheAspectSupport`/`internalCacheAdvisor`, or `@Transactional` without `TransactionAspectSupport`/`internalTransactionAdvisor` and a `TransactionManager` (or `TransactionManagementConfigurer`) bean.
+- **Recommendation**: Add `@EnableAsync`, `@EnableScheduling`, or `@EnableCaching` on a `@Configuration` class, or ensure `@EnableTransactionManagement` and a `TransactionManager` bean are present for `@Transactional` beans.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
 ## Configuration
 
@@ -225,7 +258,7 @@ findings from the score.
 ### SPRING-PERF-005 - Review single-thread scheduler overlap
 
 - **Severity**: INFO
-- **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. Native task outcome wrappers, Boot's scheduling-observation configurer and BootUI's observation-only configurer do not obscure that evidence. Application tasks are not excluded by a BootUI-like package name. For multiple tasks, the registrar's already-selected scheduler instance must agree with observable candidate selection before its native pool is read; no lazy scheduler supplier is invoked. Fewer than two registered tasks need no pool-size observation. Exact `SimpleAsyncTaskScheduler` selection is inapplicable to this pool check, not a missing thread-pool size. `@EnableScheduling` or an absent pool-size property alone does not establish selection; ambiguous/unobservable schedulers, qualifiers and custom configurers remain unknown.
+- **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. Native task outcome wrappers, Boot's scheduling-observation configurer, BootUI's observation-only configurer, and the verified Modulith integration above do not obscure that evidence. Application tasks are not excluded by a BootUI-like package name. For multiple tasks, the registrar's already-selected scheduler instance must agree with observable candidate selection before its native pool is read; no lazy scheduler supplier is invoked. Fewer than two registered tasks need no pool-size observation. Exact `SimpleAsyncTaskScheduler` selection is inapplicable to this pool check, not a missing thread-pool size. `@EnableScheduling` or an absent pool-size property alone does not establish selection; ambiguous/unobservable schedulers, qualifiers, arbitrary or advised configurers, and unsupported task shapes remain unknown.
 - **Recommendation**: Review whether tasks need to overlap and how delays affect other tasks. Deliberate serialization can be correct. Virtual threads do not universally solve fixed-delay scheduling, and changing fixed-delay to fixed-rate changes semantics.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -242,6 +275,27 @@ findings from the score.
 - **Detects**: `spring.threads.virtual.enabled=true` with applicable MVC or Boot task-execution evidence (the same gate as SPRING-PERF-001) on JDK 21-23. Before [JEP 491](https://openjdk.org/jeps/491) (JDK 24), blocking inside `synchronized` pins the carrier thread and the scheduler does not compensate, so heavy pinned blocking can starve carriers. This is a runtime-version review prompt, not observed pinning; reactive event loops are unaffected.
 - **Recommendation**: Prefer JDK 24 or later (25 is LTS) for virtual threads. Otherwise load-test with JFR `jdk.VirtualThreadPinned` events and review libraries that block inside `synchronized`; the absence of events under light load does not prove safety. Disabling virtual threads is not required.
 - **Learn more**: <https://openjdk.org/jeps/491>
+
+### SPRING-PERF-008 - Review `applicationTaskExecutor` back-off when virtual threads are enabled
+
+- **Severity**: MEDIUM
+- **Detects**: `spring.threads.virtual.enabled=true` on Java 21+ with Boot's `TaskExecutionProperties` present, when `applicationTaskExecutor` backed off because at least one `java.util.concurrent.Executor` bean (such as a custom executor or STOMP message-broker channel executor) is registered and `spring.task.execution.mode=force` is not set.
+- **Recommendation**: Set `spring.task.execution.mode=force` so Spring Boot still registers its virtual-thread `applicationTaskExecutor` alongside other `Executor` beans, or define an explicit `applicationTaskExecutor` bean if custom routing is intentional.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
+
+### SPRING-PERF-009 - Review task pool properties ignored under virtual threads
+
+- **Severity**: LOW
+- **Detects**: Configured `spring.task.execution.pool.*` (`core-size`, `max-size`, `queue-capacity`, `keep-alive`, `allow-core-thread-timeout`, `shutdown.accept-tasks-after-context-close`, when no application-owned `ThreadPoolTaskExecutor` is present) or `spring.task.scheduling.pool.size` properties when Boot's virtual-thread `SimpleAsyncTaskExecutor` (`applicationTaskExecutor`) or `SimpleAsyncTaskScheduler` (`taskScheduler`) is active. Under virtual threads, these thread-pool sizing properties have no effect.
+- **Recommendation**: Remove unused pool sizing properties under virtual threads, or configure `spring.task.execution.simple.concurrency-limit` and `spring.task.scheduling.simple.concurrency-limit` when bounded concurrency is needed.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
+
+### SPRING-PERF-011 - Review incomplete task executor or scheduler shutdown termination settings
+
+- **Severity**: MEDIUM
+- **Detects**: `spring.task.execution.shutdown.await-termination=true` or `spring.task.scheduling.shutdown.await-termination=true` configured without a positive `await-termination-period` (which skips `SmartLifecycle` stop on platform threads and waits `0ms` during bean destruction), or a positive `await-termination-period` configured without `await-termination=true` while `spring.threads.virtual.enabled=true` (where `SimpleAsyncTaskExecutorBuilder` and `SimpleAsyncTaskSchedulerBuilder` ignore the timeout unless `await-termination=true`).
+- **Recommendation**: Configure both `await-termination=true` and a positive `await-termination-period` together on `spring.task.execution.shutdown` and `spring.task.scheduling.shutdown` when graceful task drain is required.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
 ### SPRING-CACHE-001 - Review concurrent-map cache capacity
 
@@ -282,7 +336,7 @@ findings from the score.
 ### SPRING-WEB-005 - Review Boot HTTP client timeout policy
 
 - **Severity**: INFO
-- **Detects**: Identifiable Boot-managed client configuration has an incomplete timeout policy at the global/default or relevant named-service group level. A configured group does not cover unrelated clients. Programmatic client settings and provider defaults can still supply timeouts; custom-only or unattributable clients are not labeled unconfigured.
+- **Detects**: Identifiable Boot-managed client configuration has an incomplete timeout policy at the global/default or relevant named-service group level. A configured group does not cover unrelated clients. Programmatic client settings and provider defaults can still supply timeouts; custom-only or unattributable clients are not labeled unconfigured and remain unknown. Confirmed absence of managed client, builder, and service-group targets in a complete root inventory is inapplicable, not missing evidence.
 - **Recommendation**: Check effective per-client connect/read/deadline behavior against dependency budgets, using `spring.http.clients.*`, relevant `spring.http.serviceclient.<name>.*` settings or deliberate code customization. No universal timeout value or infinite-wait claim is inferred.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/rest-client.html>
 
@@ -327,7 +381,7 @@ findings from the score.
 
 The access-aware rules follow Boot 4.1.1: endpoint settings override global defaults, then `max-permitted` caps access. Typed conversion accepts Boot-supported spellings such as `readonly` and legacy `enabled=on`. Empty values that bind to null inherit the next policy level; two non-null typed `access` and legacy `enabled` values at the same scope conflict rather than silently taking precedence. Both heapdump and shutdown default to access `none`. A valid empty include falls back to `health`; excludes win. Invalid binding is not silently treated as empty.
 
-Host configuration is distinguished from BootUI's low-priority management defaults. When at least one non-BootUI application `SecurityFilterChain` or `SecurityWebFilterChain` bean is registered in the context (excluding BootUI's own `bootUiSecurityFilterChain` / `bootUiReactiveSecurityWebFilterChain`), `SPRING-MGMT-001`, `SPRING-MGMT-002` and `SPRING-MGMT-004` are deferred (`SKIPPED`) to the Security Advisor (`SEC-ACT-001/002/005` and `SEC-RXF-ACT-*`), which evaluates the same Actuator exposure alongside route-level authentication and authorization without double-penalizing the Scorecard. `SPRING-MGMT-003` (like `SPRING-WEB-004`) remains always active as the sole owner of `show-values=always` and `health.show-details=always`. When no application security filter chain is present, `SPRING-MGMT-001`, `SPRING-MGMT-002` and `SPRING-MGMT-004` remain active so Actuator exposure is still reviewed. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
+Host configuration is distinguished from BootUI's low-priority management defaults. When at least one non-BootUI application `SecurityFilterChain` or `SecurityWebFilterChain` bean is registered in the context (excluding BootUI's own `bootUiSecurityFilterChain` / `bootUiReactiveSecurityWebFilterChain`), `SPRING-MGMT-001`, `SPRING-MGMT-002` and `SPRING-MGMT-004` are deferred (`SKIPPED`) to the Security Advisor (`SEC-ACT-001/002/005` and `SEC-RXF-ACT-*`), which evaluates the same Actuator exposure alongside route-level authentication and authorization without double-penalizing the Scorecard. `SPRING-MGMT-003` (like `SPRING-WEB-004`) remains always active as the sole owner of `show-values=always` and `health.show-details=always` / `health.show-components=always`. When no application security filter chain is present, `SPRING-MGMT-001`, `SPRING-MGMT-002` and `SPRING-MGMT-004` remain active so Actuator exposure is still reviewed. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
 
 ### SPRING-MGMT-001 - Review host wildcard Actuator exposure
 
@@ -346,7 +400,7 @@ Host configuration is distinguished from BootUI's low-priority management defaul
 ### SPRING-MGMT-003 - Review Actuator values and health details
 
 - **Severity**: MEDIUM
-- **Detects**: Host-configured `show-values=always` or health `show-details=always` on applicable readable endpoints, in any spelling Boot's lenient enum binding accepts (for example `WHEN_AUTHORIZED` or `whenauthorized` are valid, not analysis errors). Always active regardless of whether application security filter chains are present. These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
+- **Detects**: Host-configured `show-values=always` or health `show-details=always` / `show-components=always` on applicable readable endpoints, in any spelling Boot's lenient enum binding accepts (for example `WHEN_AUTHORIZED` or `whenauthorized` are valid, not analysis errors). Always active regardless of whether application security filter chains are present. These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
 - **Only host configuration**: BootUI contributes `management.endpoint.health.show-details=always` itself, as a lowest-priority default, so its own Health panel works. That contribution is ignored here, so the rule reports only what the application configured.
 - **Recommendation**: Prefer `never` when details are unnecessary, or `when-authorized` with deliberate endpoint roles and authorization configuration. Review sanitization separately.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization>
@@ -377,14 +431,14 @@ Active rules in this category are `SKIPPED` unconditionally on a servlet (Spring
 
 ## Rule summary
 
-The Spring Advisor ships **39 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **1 HIGH**, **12 MEDIUM**, **10 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
+The Spring Advisor ships **44 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-WIRING-010, SPRING-WIRING-011, SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007, SPRING-PERF-008, SPRING-PERF-009, SPRING-PERF-011 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **3 HIGH**, **14 MEDIUM**, **11 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
 
 | Category | Rules |
 | --- | --- |
-| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-009 |
+| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-011 |
 | Configuration | SPRING-CONFIG-002 ... SPRING-CONFIG-008 |
 | Profiles and environment | SPRING-PROFILE-002, SPRING-PROFILE-003 |
-| Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-007, SPRING-CACHE-001 |
+| Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-009, SPRING-PERF-011, SPRING-CACHE-001 |
 | Web and HTTP | SPRING-WEB-001, SPRING-WEB-002, SPRING-WEB-004, SPRING-WEB-005, SPRING-WEB-007, SPRING-WEB-008 |
 | Data and persistence | SPRING-JPA-001, SPRING-DATA-001, SPRING-DATA-002 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |

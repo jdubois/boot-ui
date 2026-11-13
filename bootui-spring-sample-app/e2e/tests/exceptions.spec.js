@@ -128,4 +128,36 @@ test.describe('Exceptions view', () => {
     await expect(row.getByRole('button', {name: 'Open', exact: true})).toHaveClass(/active/)
     await expect(row).toContainText('Reopened ×1')
   })
+
+  test('renders per-occurrence binding & validation diagnostics and scrubs rejected values', async ({
+    openView,
+    page
+  }) => {
+    await page.request.get('/api/sample/boom?scenario=validation')
+
+    await openView('exceptions', 'Exceptions')
+
+    const row = page.locator('tbody tr', {hasText: 'MethodArgumentNotValidException'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await expect(row).not.toContainText('alice-secret@example.com')
+    await expect(row).not.toContainText('secretApiKey')
+
+    await row.getByRole('button', {name: 'Details'}).click()
+
+    const drawer = page.locator('.exception-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer).not.toContainText('alice-secret@example.com')
+    await expect(drawer).not.toContainText('secretApiKey')
+
+    const section = drawer.locator('.binding-diagnostics-section')
+    await expect(section).toBeVisible()
+    await expect(section).toContainText('Binding & validation diagnostics')
+    await expect(section).toContainText('SampleOrderRequest')
+    await expect(section).toContainText('customer.email')
+    await expect(section).toContainText('Email')
+    await expect(section).toContainText('items[*].quantity')
+    await expect(section).toContainText('Positive')
+    await expect(section).toContainText('attributes[*]')
+    await expect(section).toContainText('NotBlank')
+  })
 })

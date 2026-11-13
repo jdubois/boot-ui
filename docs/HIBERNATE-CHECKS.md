@@ -30,7 +30,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 72 rules. Nine retired identifiers stay documented below so old links and persisted
+The active catalog contains 76 rules. Twelve retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -56,7 +56,7 @@ The report's `results` list still contains findings only; the scan message summa
 `discovery` for an unavailable factory, metamodel, repository metadata or unit attribution), `unit` is the
 persistence-unit label (`application` for application-wide rules), and `level` is `ERROR` for a failed rule,
 `WARNING` for unavailable evidence, or `INFO` when the only missing evidence is something this advisor does not observe
-by design (such as pool auto-commit guarantees or a provider-selected cache strategy). The `message` says whether the
+by design (such as pool auto-commit guarantees). The `message` says whether the
 rule reached no conclusion, was partly evaluated with no findings, or reported findings from the evaluated part only,
 and names the missing evidence kinds with occurrence counts and up to three sanitized examples such as
 `OrderRepository#findRecent` or an entity name (for example query provenance, a JPQL shape outside the readable subset,
@@ -65,19 +65,17 @@ exception messages. A failed evaluation is counted as failed, not also as unavai
 excludes both. The array holds at most 200 entries: when more are produced, the last entry has source `diagnostics`
 and states how many were omitted, every rule and every distinct discovery reason keeps at least one entry (an `ERROR`
 when it has one), remaining slots go to further `ERROR`s and then round-robin by rule, and `scan.message` states
-"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-011 gaps are reported at `INFO` level because they are advisor limits, as are HIB-CONFIG-008 and
-HIB-CONFIG-021 gaps for a unit whose connection pool cannot be attributed; they still make the scan `PARTIAL` (see
-below). A rule that
-reports findings but could not evaluate every unit or query carries a `coverageNote` on its `results` entry (for
-example `Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed.
-Platform inapplicability is distinct from a failed applicable check, and
+"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and HIB-CONFIG-021 gaps for a unit
+whose connection pool cannot be attributed are reported at `INFO` level because they are advisor limits; they still make
+the scan `PARTIAL` (see below). A rule that reports findings but could not evaluate every unit or query carries a
+`coverageNote` on its `results` entry (for example `Incomplete in [default]: …`) naming up to ten affected units and
+why, including units where the rule failed. Platform inapplicability is distinct from a failed applicable check, and
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
-Two things are only partly observable: the pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021), which is read
-only when a persistence unit can be attributed to a HikariCP or Agroal pool, and effective cache access strategy
-(HIB-CONFIG-011). Where they apply, they and unsupported query-plan evidence can make an ordinary scan `PARTIAL` even
-when entity discovery succeeded. That is coverage disclosure, not a claim that the application is
-broken.
+The pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021) is only partly observable: it is read only when a
+persistence unit can be attributed to a HikariCP or Agroal pool. Where it applies, it and unsupported query-plan
+evidence can make an ordinary scan `PARTIAL` even when entity discovery succeeded. That is coverage disclosure, not a
+claim that the application is broken.
 
 The declaration-based mapping checks are not a complete runtime mapping interpreter. XML overrides, auto-apply
 converters, custom generators, physical naming, runtime query changes, and some collection classifications cannot be
@@ -251,6 +249,18 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
   not necessarily every owner in the persistence context. A large owner group can fetch more data than the caller needs.
 - **Recommendation**: keep `SUBSELECT` only for bounded owner sets. Prefer an explicit entity query or DTO projection when
   owner or collection cardinality can be large.
+
+### HIB-FETCH-009 - Multiple lazy @Lob attributes should use distinct @LazyGroup names
+
+- **Severity**: LOW
+- **Inspects**: materialized `@Lob @Basic(fetch = FetchType.LAZY)` attributes (excluding JDBC `Blob`/`Clob` locators)
+  and their `@org.hibernate.annotations.LazyGroup` declarations on bytecode-enhanced entities.
+- **Fires when**: a bytecode-enhanced entity declares two or more lazy `@Lob` attributes in the same `@LazyGroup`
+  (including the default `"DEFAULT"` group when `@LazyGroup` is omitted).
+- **Why it matters**: Hibernate initializes all attributes in the same bytecode-enhancement lazy group together, so
+  reading one lazy `@Lob` loads the others in the same group in a single `SELECT`.
+- **Recommendation**: assign distinct `@LazyGroup` names to independent lazy `@Lob` attributes so accessing one large
+  payload does not materialize the others.
 
 ## Identifiers
 
@@ -622,6 +632,35 @@ upgrade.
   deliberate large-object storage, with the `lo_manage` trigger or `vacuumlo` cleanup. On PostgreSQL units, HIB-FETCH-005
   does not also report the attributes this rule covers.
 
+### HIB-MAP-025 - JPA mapping annotations should match the class access type
+
+- **Severity**: HIGH
+- **Inspects**: `@Entity`, `@MappedSuperclass`, and non-record `@Embeddable` classes, their default or explicit `@Access`
+  (`AccessType.FIELD` vs `AccessType.PROPERTY`) placement, and an explicit allowlist of attribute-mapping annotations
+  (`@Column`, `@Formula`, `@Enumerated`, `@Lob`, `@Temporal`, `@Transient`, `@Convert`, `@Converts`, `@JdbcTypeCode`,
+  `@JoinColumn`, `@JoinColumns`, `@JoinTable`, `@OneToOne`, `@ManyToOne`, `@OneToMany`, `@ManyToMany`,
+  `@ElementCollection`, `@Embedded`, `@Version`, `@NaturalId`).
+- **Fires when**: an allowlisted mapping annotation is placed on a getter method while the class uses `AccessType.FIELD`
+  (without `@Access(AccessType.PROPERTY)` on the member), or on a backing field while the class uses
+  `AccessType.PROPERTY` (for example `@get:Id` in Kotlin without `@Access(AccessType.FIELD)` on the field). Lifecycle
+  callback methods (`@PrePersist`, `@PostLoad`, etc.), record embeddables, framework base classes, and `@Transient`
+  helper getters/fields without a persistent counterpart are never flagged.
+- **Why it matters**: Hibernate silently ignores attribute-mapping annotations placed on the wrong member kind unless
+  explicit `@Access` overrides the access type for that attribute.
+- **Recommendation**: move the mapping annotations to match the class's access type (field vs getter), or annotate the
+  member with `@Access(AccessType.FIELD)` / `@Access(AccessType.PROPERTY)` when mixed access is intentional.
+
+### HIB-MAP-027 - Deprecated @GenericGenerator should be replaced
+
+- **Severity**: LOW
+- **Inspects**: class-level and attribute-level `@org.hibernate.annotations.GenericGenerator` and `@GenericGenerators`
+  declarations.
+- **Fires when**: an entity or mapped attribute declares `@GenericGenerator` or `@GenericGenerators`.
+- **Why it matters**: `@GenericGenerator` and `@GenericGenerators` were deprecated in Hibernate ORM 6.5 and 7.0 in favor
+  of type-safe generator annotations.
+- **Recommendation**: replace `@GenericGenerator` with a meta-annotated `@IdGeneratorType` annotation, `@UuidGenerator`,
+  or standard JPA `@SequenceGenerator` / `@TableGenerator`.
+
 ## Entity design
 
 ### HIB-ENTITY-001 - Entities should override equals and hashCode consistently
@@ -749,6 +788,30 @@ proves lazy loading here; safe ID-only implementations must not receive this fin
 - **Recommendation**: prefer an `Integer` or `Long` version and keep a separate audit timestamp when the modification
   time is needed. Keep a timestamp version when its precision and clock source are deliberate.
 
+### HIB-ENTITY-011 - Kotlin entities should not be declared as data class
+
+- **Severity**: HIGH
+- **Inspects**: Kotlin `@Entity` classes (`@kotlin.Metadata`) for compiler-generated `data class` methods
+  (`copy$default` and `component1`).
+- **Fires when**: a mapped Kotlin entity is declared as a `data class`.
+- **Why it matters**: Kotlin `data class` generates `equals`, `hashCode`, `toString`, and `copy` across primary
+  constructor properties (often including a generated `@Id`, mutable fields, or lazy associations), which breaks `Set`
+  contracts across `persist()` and can trigger unintended lazy initialization or `LazyInitializationException`.
+- **Recommendation**: declare the `@Entity` as a regular `class` (or `open class`) and implement `equals`, `hashCode`,
+  and `toString` explicitly over stable identifier state without traversing lazy associations.
+
+### HIB-ENTITY-012 - PanacheEntity subclasses should not shadow id or declare custom identifiers
+
+- **Severity**: HIGH
+- **Inspects**: Quarkus `PanacheEntity` (ORM, Reactive, and Kotlin) subclasses and their declared identifier fields and
+  getters.
+- **Fires when**: a class extending `PanacheEntity` declares its own `id` field or a custom `@Id` / `@EmbeddedId`
+  attribute.
+- **Why it matters**: `PanacheEntity` already provides `@Id @GeneratedValue public Long id;`. Redeclaring `id` or adding
+  another `@Id` on a `PanacheEntity` subclass shadows the base field or creates conflicting identifier metadata.
+- **Recommendation**: extend `PanacheEntityBase` instead of `PanacheEntity` when declaring a custom identifier, or
+  remove the duplicate `id` field to use `PanacheEntity`'s inherited `Long id`.
+
 ## Query
 
 All HIB-QUERY rules inspect verified Spring Data JPA repository metadata. Quarkus/Panache does not expose equivalent
@@ -824,15 +887,9 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 
 ### HIB-QUERY-006 - Paged or streamed reads should prefer DTO projections over whole entities
 
-- **Severity**: INFO
-- **Inspects**: Spring Data JPQL `@Query` methods that are paged or streamed (a `Pageable` parameter, or a `Page`,
-  `Slice`, or `Stream` return type).
-- **Fires when**: the query selects the whole root entity (for example `select o from Entity o`) rather than a
-  constructor expression (`select new ...(...)`) or an interface/DTO projection.
-- **Why it matters**: whole managed entities can load and track more state than a read model needs. Enhanced lazy basic
-  attributes and read-only settings change that cost; whole-entity reads can be intentional.
-- **Recommendation**: return a DTO/interface projection so Hibernate selects only the columns the caller needs; reserve
-  whole-entity reads for cases that mutate the loaded entities.
+**Retired.** Flagged every paged or streamed JPQL `@Query` returning whole entities (`Page<Entity>`, `Slice<Entity>`,
+or `Stream<Entity>`), including the second query of the two-step pagination pattern recommended by HIB-FETCH-003 and
+legitimate domain reads that need managed entity state.
 
 ### HIB-QUERY-007 - Queries should not JOIN FETCH more than one collection
 
@@ -868,6 +925,20 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
   increment, a type-compatible current timestamp, or a fresh version parameter (e.g., `set e.lastModified = :now`).
   Recognition is a query-shape heuristic, not proof of runtime advancement: the check does not evaluate parameter
   values, validate expression type compatibility, or guarantee that timestamp precision yields a different value.
+
+### HIB-QUERY-009 - Spring Data interface projections should avoid @Value SpEL
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring Data JPA derived or whole-entity repository query methods returning interface projections and the
+  methods declared or inherited on those projection interfaces.
+- **Fires when**: a projection interface method (including inherited or `default` methods) is annotated with
+  `@org.springframework.beans.factory.annotation.Value`, and the repository method does not supply an explicit scalar or
+  native query.
+- **Why it matters**: `@Value` SpEL expressions turn an interface projection into an *open projection*. Spring Data JPA
+  cannot derive a narrow SQL `SELECT` list for open projections and must load the entire root entity to evaluate the
+  SpEL expression in memory.
+- **Recommendation**: replace `@Value` SpEL getters with closed projection property accessors and compute derived values
+  in Java `default` interface methods.
 
 ## Configuration
 
@@ -926,17 +997,9 @@ activation with richer registration evidence. Keeping both counted one observati
 
 ### HIB-CONFIG-007 - Hibernate statistics should be enabled when tuning
 
-- **Severity**: INFO
-- **Inspects**: the live statistics-enabled state of the owning factory.
-- **Fires when**: statistics are observed disabled.
-- **Why it matters**: statistics expose query counts, fetch counts, and cache hit ratios useful during performance tuning.
-- **Recommendation**: enable statistics in development or performance-test profiles when investigating data-access
-  behavior. Leaving statistics disabled outside tuning sessions can intentionally avoid collection overhead.
-- **Quarkus**: `quarkus.hibernate-orm.statistics` enables the same live factory statistics, so this rule does not
-  report a unit whose statistics are enabled with the native Quarkus property name.
-- **UI consumer**: the standalone Hibernate Statistics panel (Database group) reads these same live counters once
-  enabled — see the [feature guide](features/database.md#hibernate-statistics) and the
-  [specification](SPECIFICATION.md#_5-17-1-1-hibernate-statistics-panel) for the panel this recommendation unlocks.
+**Retired.** Fired in every profile, including production environments where Hibernate and Quarkus advise keeping
+`hibernate.generate_statistics=false` to avoid runtime collection overhead, and duplicated the standalone
+[Hibernate Statistics](features/database.md#hibernate-statistics) panel and its runtime enable action.
 
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
@@ -996,17 +1059,9 @@ activation with richer registration evidence. Keeping both counted one observati
 
 ### HIB-CONFIG-011 - Review effective cache concurrency strategy
 
-- **Severity**: MEDIUM
-- **Inspects**: observed cache activation and available concurrency-strategy evidence.
-- **Fires when**: supported evidence establishes a strategy problem, not merely absence of a Hibernate `@Cache`
-  annotation. Providers may supply a valid default; unresolved effective strategy/eligibility is unknown. Neither
-  adapter observes the provider-selected strategy today, so when a cache-enabled unit has `@Cacheable` entities without
-  `@Cache` the check is skipped with an `INFO` diagnostic rather than reporting findings.
-- **Why it matters**: concurrency behavior must fit the data, but an explicit annotation is not mandatory.
-- **Recommendation**: review the effective strategy and data mutability before adding annotations or changing cache use.
-- **Quarkus**: the effective factory second-level-cache state reflects the same
-  `quarkus.hibernate-orm.second-level-caching-enabled` toggle as HIB-CONFIG-010, so the precondition check for
-  "second-level caching appears configured" is read correctly on Quarkus too.
+**Retired.** Neither adapter observes provider-selected cache access strategies or entity eligibility, so in observed
+mode this rule could never emit a finding and only forced scans of applications using standard
+`@jakarta.persistence.Cacheable` without Hibernate's `@Cache` into `PARTIAL` status.
 
 ### HIB-CONFIG-002 - Schema generation should not mutate non-test databases
 
@@ -1192,6 +1247,18 @@ activation with richer registration evidence. Keeping both counted one observati
   entities; mutable strategies add coordination overhead for updates the mapping forbids.
 - **Recommendation**: consider `@Cache(usage = READ_ONLY)` for genuinely immutable cached state; do not remove
   `@Immutable` merely to silence a cache-efficiency prompt. Disabled caching makes this check inapplicable.
+
+### HIB-CACHE-004 - @NaturalIdCache entities should also enable entity second-level caching
+
+- **Severity**: MEDIUM
+- **Inspects**: entities annotated with `@org.hibernate.annotations.NaturalIdCache` in persistence units where the
+  second-level cache is enabled.
+- **Fires when**: an entity declares `@NaturalIdCache` without entity second-level caching (`@jakarta.persistence.Cacheable`
+  or `@org.hibernate.annotations.Cache` with a non-`NONE` strategy).
+- **Why it matters**: `@NaturalIdCache` only caches the natural-ID-to-primary-key mapping; without entity second-level
+  caching, resolving an entity by natural ID still hits the database to load the entity state by primary key.
+- **Recommendation**: add `@Cacheable` or `@org.hibernate.annotations.Cache` alongside `@NaturalIdCache`, or remove
+  `@NaturalIdCache` if second-level caching of the entity is not desired.
 
 ## Primary research references
 

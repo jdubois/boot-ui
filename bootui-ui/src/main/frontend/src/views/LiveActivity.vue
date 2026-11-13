@@ -1291,10 +1291,15 @@ function toggleFlow() {
               <input
                 id="activity-request-filter"
                 v-model="requestIdFilter"
+                aria-describedby="activity-request-filter-tip"
                 type="search"
                 class="form-control form-control-sm"
-                placeholder="Request id"
+                placeholder="X-BootUI-Request-Id"
+                title="Paste the X-BootUI-Request-Id response header from browser DevTools"
               />
+              <div id="activity-request-filter-tip" class="form-text small activity-request-id-tip">
+                From the <code>X-BootUI-Request-Id</code> response header in browser DevTools
+              </div>
             </div>
             <div>
               <label class="form-label small mb-1" for="activity-run-filter">Run id</label>
@@ -1606,6 +1611,13 @@ function toggleFlow() {
                 </template>
                 <dt class="col-4">Duration</dt>
                 <dd class="col-8">{{ formatDurationMs(journalProfile.durationMicros / 1000) }}</dd>
+                <template v-if="journalProfile.requestId">
+                  <dt class="col-4">Request id</dt>
+                  <dd class="col-8">
+                    <code>{{ journalProfile.requestId }}</code>
+                    <span class="text-muted ms-1">(<code>X-BootUI-Request-Id</code> header)</span>
+                  </dd>
+                </template>
               </dl>
             </section>
             <p v-if="profile?.unavailableReason && journalProfile?.status != null" class="small text-muted">
@@ -1640,6 +1652,13 @@ function toggleFlow() {
                 <template v-if="profile.request.principal">
                   <dt class="col-4">Principal</dt>
                   <dd class="col-8">{{ profile.request.principal }}</dd>
+                </template>
+                <template v-if="profile.request.requestId || journalProfile?.requestId">
+                  <dt class="col-4">Request id</dt>
+                  <dd class="col-8">
+                    <code>{{ profile.request.requestId || journalProfile?.requestId }}</code>
+                    <span class="text-muted ms-1">(<code>X-BootUI-Request-Id</code> header)</span>
+                  </dd>
                 </template>
                 <template v-if="profile.request.traceId">
                   <dt class="col-4">Trace id</dt>
@@ -1744,6 +1763,18 @@ function toggleFlow() {
                   · {{ childTierLabel(sections.EXCEPTION, index) }}</span
                 >
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
+                <div
+                  v-if="ex.bindingDiagnostics && ex.bindingDiagnostics.length"
+                  class="mt-1 activity-binding-diagnostics"
+                >
+                  <span
+                    v-for="(d, di) in ex.bindingDiagnostics"
+                    :key="di"
+                    class="badge text-bg-light border fw-normal me-1"
+                  >
+                    <code>{{ d.targetType }}</code> · <code>{{ d.fieldPath }}</code> ({{ d.reason }})
+                  </span>
+                </div>
                 <span v-if="profileExceptionLink(ex) && !ex.exceptionGroupId?.trim()" class="d-block text-muted">
                   Group ID unavailable; opens a class-name search.
                 </span>

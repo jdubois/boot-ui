@@ -26,7 +26,7 @@ final class OracleCatalogReader {
             select i.owner as schema_name, i.table_name as table_name, i.index_name as index_name,
                    i.index_type as index_type, i.uniqueness as uniqueness, i.status as status,
                    i.visibility as visibility, i.generated as generated, i.partitioned as partitioned,
-                   i.table_owner as table_owner
+                   i.table_owner as table_owner, i.orphaned_entries as orphaned_entries
             from all_indexes i
             where i.table_owner = ?
             order by i.table_name, i.index_name
@@ -177,7 +177,8 @@ final class OracleCatalogReader {
                 "Y".equalsIgnoreCase(rs.getString("generated")),
                 "YES".equalsIgnoreCase(rs.getString("partitioned")),
                 rs.getString("table_owner"),
-                "UNIQUE".equalsIgnoreCase(uniqueness) || "NONUNIQUE".equalsIgnoreCase(uniqueness));
+                "UNIQUE".equalsIgnoreCase(uniqueness) || "NONUNIQUE".equalsIgnoreCase(uniqueness),
+                rs.getString("orphaned_entries"));
     }
 
     private static OracleIndexPartitionStatus readPartitionStatus(ResultSet rs) throws SQLException {

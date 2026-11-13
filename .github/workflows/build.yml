@@ -773,6 +773,9 @@ jobs:
       - name: Stage the release candidate
         run: bash .github/scripts/stage-release-candidate.sh "$RUNNER_TEMP/bootui-candidate"
 
+      - name: Check Spring AOT compatibility
+        run: ./mvnw -B -ntp -Paot -pl bootui-spring-sample-app -am -DskipTests package
+
       - name: Smoke test the staged release candidate
         run: |
           VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"

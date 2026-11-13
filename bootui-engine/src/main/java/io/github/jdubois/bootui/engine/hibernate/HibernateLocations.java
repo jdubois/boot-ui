@@ -26,6 +26,15 @@ final class HibernateLocations {
                 attribute.fieldMember() ? AdvisorViolationLocationDto.FIELD : AdvisorViolationLocationDto.METHOD);
     }
 
+    /** A reflected field or method on {@code declaringType}. */
+    static AdvisorViolationLocationDto of(Class<?> declaringType, String memberName, boolean fieldMember) {
+        if (declaringType == null) return null;
+        return location(
+                declaringType.getName(),
+                memberName,
+                fieldMember ? AdvisorViolationLocationDto.FIELD : AdvisorViolationLocationDto.METHOD);
+    }
+
     /**
      * The repository method a query finding concerns, on the interface that declares it: an inherited query method
      * is not declared on the repository the finding names. Without a known declaring type there is no location.

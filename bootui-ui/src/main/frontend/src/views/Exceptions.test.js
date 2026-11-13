@@ -450,6 +450,53 @@ describe('Exceptions', () => {
     expect(wrapper.text()).toContain('Recent occurrences')
   })
 
+  it('renders binding and validation diagnostics table for the latest occurrence and per-occurrence rows', async () => {
+    const withBinding = {
+      ...detail(),
+      occurrences: [
+        {
+          timestamp: 1700000005000,
+          thread: 'http-nio-8080-exec-1',
+          requestMethod: 'POST',
+          requestPath: '/api/orders',
+          handler: 'OrderController#place',
+          source: 'web',
+          bindingDiagnostics: [
+            {targetType: 'CreateOrderRequest', fieldPath: 'customer.email', reason: 'Email'},
+            {targetType: 'CreateOrderRequest', fieldPath: 'items[*].quantity', reason: 'Positive'}
+          ],
+          bindingDiagnosticsTruncated: true
+        },
+        {
+          timestamp: 1700000001000,
+          thread: 'http-nio-8080-exec-2',
+          requestMethod: 'POST',
+          requestPath: '/api/orders',
+          handler: 'OrderController#place',
+          source: 'web',
+          bindingDiagnostics: [{targetType: 'CreateOrderRequest', fieldPath: 'attributes[*]', reason: 'NotBlank'}],
+          bindingDiagnosticsTruncated: false
+        }
+      ]
+    }
+    vi.stubGlobal('fetch', mockFetch({'api/exceptions/abc123': withBinding}))
+
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    await wrapper.find('tbody button.btn-outline-primary').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('.binding-diagnostics-section')
+    expect(section.text()).toContain('Binding & validation diagnostics')
+    expect(section.text()).toContain('CreateOrderRequest')
+    expect(section.text()).toContain('customer.email')
+    expect(section.text()).toContain('Email')
+    expect(section.text()).toContain('items[*].quantity')
+    expect(section.text()).toContain('Positive')
+    expect(section.text()).toContain('Showing the first 2 diagnostics for this occurrence.')
+    expect(wrapper.get('.exception-drawer').text()).toContain('attributes[*] (NotBlank)')
+  })
+
   it('previews a Copy for AI document with the correlated SQL and copies exactly the preview', async () => {
     const writeText = vi.fn().mockResolvedValue()
     vi.stubGlobal('navigator', {clipboard: {writeText}})

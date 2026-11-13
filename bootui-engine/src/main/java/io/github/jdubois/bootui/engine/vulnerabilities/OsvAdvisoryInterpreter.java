@@ -27,6 +27,10 @@ public final class OsvAdvisoryInterpreter {
     /** The OSV ID prefix registered to the OpenSSF Malicious Packages database. */
     private static final String MALICIOUS_PACKAGE_PREFIX = "MAL-";
 
+    private static final String MALICIOUS_PACKAGE_GUIDANCE =
+            "Known malicious package: remove this dependency rather than upgrading it, and treat any"
+                    + " machine that installed or ran it, and the credentials available there, as compromised.";
+
     private OsvAdvisoryInterpreter() {}
 
     public record Severity(String type, String score) {}
@@ -94,6 +98,31 @@ public final class OsvAdvisoryInterpreter {
     }
 
     /**
+     * The advisory summary a finding presents: a malicious-package advisory leads with its remediation so
+     * surfaces that render {@code summary} (the browser table and compact MCP view) always display the
+     * removal directive.
+     */
+    public static String summary(Result result, String advisorySummary) {
+        return summary(result != null && result.malicious(), advisorySummary);
+    }
+
+    /**
+     * The advisory summary a finding presents when {@code malicious} is already known (for example from a
+     * compact view over an existing {@code MAL-} DTO).
+     */
+    public static String summary(boolean malicious, String advisorySummary) {
+        if (!malicious) {
+            return advisorySummary;
+        }
+        if (advisorySummary == null || advisorySummary.isBlank()) {
+            return MALICIOUS_PACKAGE_GUIDANCE;
+        }
+        return advisorySummary.startsWith(MALICIOUS_PACKAGE_GUIDANCE)
+                ? advisorySummary
+                : MALICIOUS_PACKAGE_GUIDANCE + " " + advisorySummary;
+    }
+
+    /**
      * The advisory details a finding presents: a malicious-package advisory leads with its remediation, since
      * its empty fix list must not read as "wait for an upgrade".
      */
@@ -101,9 +130,9 @@ public final class OsvAdvisoryInterpreter {
         if (result == null || !result.malicious()) {
             return advisoryDetails;
         }
-        String guidance = "Known malicious package: remove this dependency rather than upgrading it, and treat any"
-                + " machine that installed or ran it, and the credentials available there, as compromised.";
-        return advisoryDetails == null ? guidance : guidance + "\n\n" + advisoryDetails;
+        return advisoryDetails == null
+                ? MALICIOUS_PACKAGE_GUIDANCE
+                : MALICIOUS_PACKAGE_GUIDANCE + "\n\n" + advisoryDetails;
     }
 
     /** Interprets an advisory whose ID is unknown; it can never be recognized as a malicious package. */
@@ -131,23 +160,18 @@ public final class OsvAdvisoryInterpreter {
             } else if (!blank(packageName)
                     && "Maven".equals(item.ecosystem())
                     && (item.name().equals(packageName) || "*".equals(item.name()))) {
-                matching.add(new Entry(item));
+                matching.add(new Entry(item, item.name().equals(packageName)));
             }
         }
 
-        List<String> symbols = new ArrayList<>();
-        for (Entry entry : matching) {
-            for (String symbol : entry.affected.symbols()) {
-                if (symbol != null) {
-                    symbols.add(symbol);
-                }
-            }
-        }
+        List<String> matchedSymbols = new ArrayList<>();
+        List<String> unresolvedSymbols = new ArrayList<>();
         boolean applicable = false;
         boolean unresolved = unknownIdentity;
         boolean packageSeveritySupplied = false;
+        boolean boundedBranch = false;
         List<Severity> applicableSeverity = new ArrayList<>();
-        List<String> candidates = new ArrayList<>();
+        List<List<String>> candidateStreams = new ArrayList<>();
         for (Entry entry : matching) {
             Evaluation evaluation = entry.evaluate(installedVersion);
             unresolved |= evaluation.unresolved();
@@ -155,34 +179,48 @@ public final class OsvAdvisoryInterpreter {
                 applicable = true;
                 packageSeveritySupplied |= !entry.affected.severity().isEmpty();
                 applicableSeverity.addAll(entry.affected.severity());
+                for (String symbol : entry.affected.symbols()) {
+                    if (symbol != null) {
+                        matchedSymbols.add(symbol);
+                    }
+                }
                 for (Timeline timeline : entry.timelines) {
-                    String candidate = timeline.closingFix(installedVersion);
-                    if (candidate != null) {
-                        candidates.add(candidate);
+                    List<String> fixes = timeline.closingFixes(installedVersion);
+                    if (!fixes.isEmpty()) {
+                        candidateStreams.add(fixes);
+                    }
+                    if (entry.exactPackage && timeline.isBounded(installedVersion)) {
+                        boundedBranch = true;
+                    }
+                }
+            } else if (evaluation.applicability() == Applicability.UNRESOLVED) {
+                for (String symbol : entry.affected.symbols()) {
+                    if (symbol != null) {
+                        unresolvedSymbols.add(symbol);
                     }
                 }
             }
         }
+        List<String> symbols = applicable ? matchedSymbols : unresolvedSymbols;
         unresolved |= !applicable;
         // The v4-over-v3 preference applies across the union of applicable package entries, never per entry.
         Double score = selectScore(packageSeveritySupplied ? applicableSeverity : snapshot(severity));
 
-        List<String> verified = new ArrayList<>();
-        for (String candidate : candidates) {
-            if (!DependencyReports.fixAvailable(installedVersion, List.of(candidate))) {
-                continue;
-            }
-            boolean unaffected = !matching.isEmpty();
+        List<String> verified = verifyCandidates(installedVersion, matching, unknownIdentity, candidateStreams);
+        if (verified.isEmpty() && boundedBranch) {
+            List<List<String>> crossBranchStreams = new ArrayList<>();
             for (Entry entry : matching) {
-                if (entry.evaluate(candidate).applicability() != Applicability.NOT_MATCHED) {
-                    unaffected = false;
-                    break;
+                if (!entry.exactPackage) {
+                    continue;
+                }
+                for (Timeline timeline : entry.timelines) {
+                    List<String> fixes = timeline.fixesAfter(installedVersion);
+                    if (!fixes.isEmpty()) {
+                        crossBranchStreams.add(fixes);
+                    }
                 }
             }
-            // Missing package identity might describe the proposed target; it cannot verify an upgrade.
-            if (unaffected && !unknownIdentity) {
-                verified.add(candidate);
-            }
+            verified = verifyCandidates(installedVersion, matching, unknownIdentity, crossBranchStreams);
         }
         List<String> fixedVersions = DependencyReports.orderFixedVersions(verified, 10);
         if (maliciousPackage(advisoryId)) {
@@ -200,6 +238,34 @@ public final class OsvAdvisoryInterpreter {
                 symbols);
     }
 
+    private static List<String> verifyCandidates(
+            String installedVersion,
+            List<Entry> matching,
+            boolean unknownIdentity,
+            List<List<String>> candidateStreams) {
+        List<String> verified = new ArrayList<>();
+        for (List<String> fixes : candidateStreams) {
+            for (String candidate : fixes) {
+                if (!DependencyReports.fixAvailable(installedVersion, List.of(candidate))) {
+                    continue;
+                }
+                boolean unaffected = !matching.isEmpty();
+                for (Entry entry : matching) {
+                    if (entry.evaluate(candidate).applicability() != Applicability.NOT_MATCHED) {
+                        unaffected = false;
+                        break;
+                    }
+                }
+                // Missing package identity might describe the proposed target; it cannot verify an upgrade.
+                if (unaffected && !unknownIdentity) {
+                    verified.add(candidate);
+                    break;
+                }
+            }
+        }
+        return verified;
+    }
+
     private enum Applicability {
         MATCHED,
         NOT_MATCHED,
@@ -210,10 +276,12 @@ public final class OsvAdvisoryInterpreter {
 
     private static final class Entry {
         private final Affected affected;
+        private final boolean exactPackage;
         private final List<Timeline> timelines;
 
-        private Entry(Affected affected) {
+        private Entry(Affected affected, boolean exactPackage) {
             this.affected = affected;
+            this.exactPackage = exactPackage;
             this.timelines = affected.ranges().stream().map(Timeline::new).toList();
         }
 
@@ -322,16 +390,40 @@ public final class OsvAdvisoryInterpreter {
             return affected ? Applicability.MATCHED : Applicability.NOT_MATCHED;
         }
 
-        private String closingFix(String version) {
+        private List<String> closingFixes(String version) {
             if (evaluate(version) != Applicability.MATCHED) {
-                return null;
+                return List.of();
             }
+            return fixesAfter(version);
+        }
+
+        private List<String> fixesAfter(String version) {
+            if (!valid || blank(version)) {
+                return List.of();
+            }
+            List<String> fixes = new ArrayList<>();
             for (Event event : events) {
                 if ("fixed".equals(event.type()) && MavenVersionComparator.compare(version, event.version()) < 0) {
-                    return event.version();
+                    fixes.add(event.version());
                 }
             }
-            return null;
+            return fixes;
+        }
+
+        private boolean isBounded(String version) {
+            if (evaluate(version) != Applicability.MATCHED) {
+                return false;
+            }
+            if (!limits.isEmpty() && !limits.contains("*")) {
+                return true;
+            }
+            for (Event event : events) {
+                if ("last_affected".equals(event.type())
+                        && MavenVersionComparator.compare(version, event.version()) <= 0) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

@@ -145,7 +145,7 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isEqualTo(72);
+                .isEqualTo(76);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
         assertThat(violationIds)
@@ -159,7 +159,10 @@ class BootUiQuarkusHibernateAdvisorTest {
                         "HIB-ENTITY-002",
                         "HIB-ENTITY-003",
                         "HIB-ENTITY-004",
-                        "HIB-CONFIG-001");
+                        "HIB-QUERY-006",
+                        "HIB-CONFIG-001",
+                        "HIB-CONFIG-007",
+                        "HIB-CONFIG-011");
         assertThat(violationIds)
                 .as("the JTA unit owns its auto-commit contract, so the pool auto-commit rules never report on it")
                 .doesNotContain("HIB-CONFIG-008", "HIB-CONFIG-021");
@@ -191,10 +194,6 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .as("the effective factory fetch batch size is 16, so the Product.tags lazy @ManyToMany collection is"
                         + " covered and HIB-FETCH-002 does not false-positive")
                 .doesNotContain("HIB-FETCH-002");
-        assertThat(violationIds)
-                .as("quarkus.hibernate-orm.statistics=true must be read back as hibernate.generate_statistics, so"
-                        + " HIB-CONFIG-007 does not false-positive")
-                .doesNotContain("HIB-CONFIG-007");
         assertThat(violationIds)
                 .as("quarkus.hibernate-orm.log.queries-slower-than-ms=25 must be read back as Hibernate's"
                         + " slow-query threshold, so HIB-CONFIG-006 does not false-positive")

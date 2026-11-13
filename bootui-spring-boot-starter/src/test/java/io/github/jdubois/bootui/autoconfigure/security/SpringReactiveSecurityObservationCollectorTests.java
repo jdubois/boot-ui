@@ -857,6 +857,137 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    @SuppressWarnings("deprecation")
+    void collectsReactivePasswordEncodersMethodSecurityAndJwtAudienceSignals() {
+        var userDetails = new org.springframework.security.core.userdetails.MapReactiveUserDetailsService(
+                org.springframework.security.core.userdetails.User.withUsername("user")
+                        .password("{noop}secret")
+                        .roles("USER")
+                        .build());
+
+        var noOpManager =
+                new org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager(
+                        userDetails);
+        noOpManager.setPasswordEncoder(org.springframework.security.crypto.password.NoOpPasswordEncoder.getInstance());
+        SecurityWebFilterChain noOpChain = ServerHttpSecurity.http()
+                .authenticationManager(noOpManager)
+                .httpBasic(Customizer.withDefaults())
+                .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+                .build();
+        assertThat(scan(collect(new MockEnvironment(), noOpChain)).results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-AUTH-001")
+                .doesNotContain("SEC-RXF-AUTH-002", "SEC-RXF-AUTH-003");
+
+        var weakBcryptManager =
+                new org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager(
+                        userDetails);
+        weakBcryptManager.setPasswordEncoder(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4));
+        SecurityWebFilterChain weakBcryptChain = ServerHttpSecurity.http()
+                .authenticationManager(weakBcryptManager)
+                .httpBasic(Customizer.withDefaults())
+                .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+                .build();
+        assertThat(scan(collect(new MockEnvironment(), weakBcryptChain)).results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-AUTH-003")
+                .doesNotContain("SEC-RXF-AUTH-001", "SEC-RXF-AUTH-002");
+
+        SecurityWebFilterChain jwtChain = ServerHttpSecurity.http()
+                .oauth2ResourceServer(resource -> resource.jwt(jwt -> jwt.jwkSetUri("https://idp.example/jwks")))
+                .headers(headers ->
+                        headers.contentSecurityPolicy(csp -> csp.policyDirectives("script-src 'unsafe-inline'")))
+                .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+                .build();
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("jwtChain", jwtChain);
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        MockEnvironment envWithoutAudience = new MockEnvironment();
+        SecurityReport flagged = scan(collector(factory, envWithoutAudience).collect());
+        assertThat(flagged.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-HEAD-007", "SEC-RXF-METHOD-001", "SEC-RXF-OAUTH2-006");
+
+        factory.registerBeanDefinition(
+                "methodSecurity",
+                new RootBeanDefinition(
+                        "org.springframework.security.config.annotation.method.configuration.ReactiveMethodSecurityConfiguration"));
+        MockEnvironment envWithAudience = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "api://orders");
+        SecurityReport resolved = scan(collector(factory, envWithAudience).collect());
+        assertThat(resolved.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-HEAD-007")
+                .doesNotContain("SEC-RXF-METHOD-001", "SEC-RXF-OAUTH2-006");
+
+        // Unwired NoOp authentication manager and unrelated JWT decoder beans must not produce false findings.
+        DefaultListableBeanFactory unwiredFactory = new DefaultListableBeanFactory();
+        unwiredFactory.registerSingleton("chain0", chain());
+        unwiredFactory.registerSingleton("unusedNoOpManager", noOpManager);
+        SecurityReport unwiredReport =
+                scan(collector(unwiredFactory, new MockEnvironment()).collect());
+        assertThat(unwiredReport.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-AUTH-001", "SEC-RXF-OAUTH2-006");
+
+        // Custom ReactiveAuthenticationManager on Basic chain marks password encoder observation incomplete (PARTIAL).
+        SecurityWebFilterChain customManagerBasicChain = http().httpBasic(Customizer.withDefaults())
+                .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+                .build();
+        ReactiveSecurityObservation customManagerObs = collect(new MockEnvironment(), customManagerBasicChain);
+        assertThat(customManagerObs.passwordEncodersObserved()).isFalse();
+        assertThat(scan(customManagerObs).scan().status()).isEqualTo("PARTIAL");
+
+        // Imperative @EnableMethodSecurity configuration does not satisfy reactive SEC-RXF-METHOD-001.
+        DefaultListableBeanFactory imperativeMethodFactory = new DefaultListableBeanFactory();
+        imperativeMethodFactory.registerSingleton("chain0", chain());
+        imperativeMethodFactory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        imperativeMethodFactory.registerBeanDefinition(
+                "imperativeMethodSecurity",
+                new RootBeanDefinition(
+                        "org.springframework.security.config.annotation.method.configuration.PrePostMethodSecurityConfiguration"));
+        assertThat(scan(collector(imperativeMethodFactory, new MockEnvironment())
+                                .collect())
+                        .results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-METHOD-001");
+
+        // Real @EnableReactiveMethodSecurity context activates pre-post reactive method security.
+        try (AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext(EnabledReactiveMethodSecurityConfig.class)) {
+            ReactiveSecurityObservation enabledMethodObs = collector(
+                            context.getDefaultListableBeanFactory(), new MockEnvironment())
+                    .collect();
+            assertThat(enabledMethodObs.enabledMethodFamilies()).contains("pre-post");
+            assertThat(enabledMethodObs.usedMethodFamilies()).contains("pre-post");
+            assertThat(scan(enabledMethodObs).results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-METHOD-001");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity
+    static class EnabledReactiveMethodSecurityConfig {
+        @Bean
+        SecurityWebFilterChain chainBean() {
+            return chain();
+        }
+
+        @Bean
+        PreAuthorizedReactiveService securedService() {
+            return new PreAuthorizedReactiveService();
+        }
+    }
+
+    static class PreAuthorizedReactiveService {
+        @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+        Mono<String> adminOnly() {
+            return Mono.just("ok");
+        }
+    }
+
+    @Test
     void actuatorInventoryLimitIsIncompleteRatherThanAnalysisError() {
         String includes = IntStream.range(0, 300)
                 .mapToObj(index -> "endpoint" + index)

@@ -78,7 +78,8 @@ does not add a missing integration. These include the safety keys (`bootui.allow
 `bootui.authentication.token`),
 `bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
 `bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
-`bootui.http-exchanges.reserved-share-percent` (default `25`), `bootui.activity.request-slow-threshold-ms` (default
+`bootui.http-exchanges.reserved-share-percent` (default `25`),
+`bootui.http-exchanges.expose-request-id-header` (default `true`), `bootui.activity.request-slow-threshold-ms` (default
 `1000`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
@@ -376,8 +377,7 @@ remain gated. Retrieval completeness does not affect evidence coverage or scores
 application configuration or reset existing counters, and it does not require confirmation. The action is blocked when
 either `bootui.read-only=true` or `bootui.panels.hibernate-statistics.read-only=true`. To enable collection persistently
 from startup, set `spring.jpa.properties.hibernate.generate_statistics=true` on Spring or
-`quarkus.hibernate-orm.statistics=true` on Quarkus, as recommended by
-[HIB-CONFIG-007](HIBERNATE-CHECKS.md#hib-config-007-hibernate-statistics-should-be-enabled-when-tuning).
+`quarkus.hibernate-orm.statistics=true` on Quarkus.
 
 ### Database
 
@@ -755,6 +755,7 @@ outside the journal's byte bound.
 | `bootui.panels.http-exchanges.enabled`       | `true`  | Show recent inbound HTTP exchanges and create a bounded in-memory recorder when none exists.    |
 | `bootui.http-exchanges.max-exchanges`        | `200`   | Maximum recent HTTP exchanges retained in memory. Requires restart because it sizes the buffer. |
 | `bootui.http-exchanges.reserved-share-percent` | `25`  | Percentage of `max-exchanges` reserved for the most recent `5xx` and slow exchanges (at or above `bootui.activity.request-slow-threshold-ms`), so routine requests are evicted first. `0` evicts strictly oldest first. Applies only while BootUI owns the recorder. On Spring, slow exchanges are reserved only while `management.httpexchanges.recording.include` records `time-taken`, which it does by default. Requires restart. |
+| `bootui.http-exchanges.expose-request-id-header` | `true` | Emit `X-BootUI-Request-Id: <requestId>` on application responses when `bootui.panels.http-exchanges.enabled=true`, the request does not target BootUI itself, the caller peer is a trusted loopback/local source (including `bootui.trusted-proxies` and `bootui.trust-container-gateway`, so callers routed through a trusted proxy or gateway also receive the random 16-hex id), and the response does not already carry `X-BootUI-Request-Id`. Set to `false` to disable. |
 | `management.httpexchanges.recording.enabled` | `true`  | Spring Boot recorder switch. Set to `false` to disable capture while leaving the panel visible. |
 
 ### HTTP Probe
@@ -846,6 +847,7 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 | `bootui.panels.vulnerabilities.read-only` | `false` | Disable on-demand OSV scan requests.                    |
 | `bootui.vulnerabilities.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
 | `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
+| `bootui.vulnerabilities.scan-timeout`        | `60s`   | Whole-scan deadline budget across OSV batch queries, advisory-detail fetches, and EPSS enrichment; when exceeded, the scan degrades to `PARTIAL` while retaining advisories fetched so far. |
 | `bootui.vulnerabilities.max-packages`        | `500`   | Maximum packages included in one OSV batch query; the excess is reported as `scan.packagesSkipped`. |
 | `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
 | `bootui.vulnerabilities.osv-base-uri`        | `https://api.osv.dev` | Base URI of the OSV.dev API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |
@@ -1088,6 +1090,8 @@ panel keeps reporting only what agents did.
 | `bootui.cli.max-results`          | `200`   | Maximum number of items returned by paginated read tools per call, tracked separately from `bootui.mcp.max-results`.     |
 | `bootui.cli.max-concurrent-calls` | `20`    | Maximum number of concurrent tool invocations; excess calls are refused with `429`.                                      |
 | `bootui.cli.execution-timeout`    | `30s`   | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return `504`. A scan that reports progress stops at its next step and keeps its previous report. |
+| `bootui.cli.instance-discovery.enabled` | `true` in dev, `false` in tests | Write an atomic `0600` local discovery lease file (`<instanceId>.json`) after the web server port is bound, and delete it on shutdown. |
+| `bootui.cli.instances-dir`        | `~/.bootui/instances` | Directory where local instance discovery lease files are written (also overridable via `BOOTUI_HOME`). |
 
 
 

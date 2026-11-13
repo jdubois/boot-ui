@@ -1569,7 +1569,7 @@ const securityEndpoints = {
 
 const pentesting = {
   localOnly: true,
-  checksRun: 77,
+  checksRun: 70,
   findingsFound: 4,
   disclaimer:
     'Heuristic local checks only against the host application; BootUI /bootui paths are excluded. ' +
@@ -1581,7 +1581,7 @@ const pentesting = {
     message:
       'Local OWASP hygiene checks completed against bounded host-application metadata and two direct loopback requests outside BootUI.',
     scannedAt: nowMillis - 45_000,
-    checksRun: 77,
+    checksRun: 70,
     findingsFound: 4
   },
   severityCounts: [
@@ -1636,8 +1636,9 @@ const pentesting = {
     {
       category: 'A08:2025',
       title: 'Software or Data Integrity Failures',
-      description: 'Deserialization and update integrity require dedicated review.',
-      status: 'SKIPPED'
+      description:
+        'No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review.',
+      status: 'INFO'
     },
     {
       category: 'A09:2025',
@@ -1979,7 +1980,7 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 72,
+  rulesEvaluated: 76,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1991,11 +1992,11 @@ const hibernate = {
     analyzer: 'BootUI Hibernate Advisor',
     status: 'PARTIAL',
     message:
-      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 72 distinct rules ' +
-      '(72 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
+      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 76 distinct rules ' +
+      '(76 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
       'See diagnostics for 3 entries naming each affected rule and unit.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 72,
+    rulesEvaluated: 76,
     entitiesAnalyzed: 6,
     violationsFound: 4
   },
@@ -2053,7 +2054,7 @@ const hibernate = {
   ],
   diagnostics: [
     {
-      source: 'HIB-QUERY-006',
+      source: 'HIB-QUERY-005',
       unit: 'default',
       level: 'WARNING',
       message:
@@ -2089,7 +2090,7 @@ const security = {
     'any request'
   ],
   filterChainsAnalyzed: 2,
-  rulesEvaluated: 54,
+  rulesEvaluated: 50,
   violationsFound: 5,
   severityCounts: [
     {severity: 'HIGH', count: 2},
@@ -2102,7 +2103,7 @@ const security = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 2 application filter chains.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 54,
+    rulesEvaluated: 50,
     filterChainsAnalyzed: 2,
     violationsFound: 5
   },
@@ -2343,7 +2344,7 @@ const quarkusSecurity = {
     '@RolesAllowed → SecureResource#secured [USER]'
   ],
   filterChainsAnalyzed: 3,
-  rulesEvaluated: 45,
+  rulesEvaluated: 48,
   violationsFound: 5,
   severityCounts: [
     {severity: 'CRITICAL', count: 1},
@@ -2356,7 +2357,7 @@ const quarkusSecurity = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 3 permission policies.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 45,
+    rulesEvaluated: 48,
     filterChainsAnalyzed: 3,
     violationsFound: 5
   },
@@ -2419,7 +2420,7 @@ const memoryAdvisor = {
   disclaimer:
     'Heuristic JVM memory, GC, and thread rules run against the live management beans only. ' +
     'Findings are review prompts; validate against the application workload and a profiler before acting.',
-  rulesEvaluated: 32,
+  rulesEvaluated: 31,
   violationsFound: 3,
   summary: {
     heapUsedPercent: 82,
@@ -2441,9 +2442,9 @@ const memoryAdvisor = {
   scan: {
     analyzer: 'BootUI Memory Advisor',
     status: 'SCANNED',
-    message: 'Memory Advisor evaluated 32 rules against the live management beans.',
+    message: 'Memory Advisor evaluated 31 rules against the live management beans.',
     scannedAt: nowMillis - 24_000,
-    rulesEvaluated: 32,
+    rulesEvaluated: 31,
     violationsFound: 3
   },
   results: [

@@ -38,7 +38,10 @@ class HibernateAdvisorObservationTests {
         "HIB-ENTITY-002",
         "HIB-ENTITY-003",
         "HIB-ENTITY-004",
-        "HIB-CONFIG-001"
+        "HIB-QUERY-006",
+        "HIB-CONFIG-001",
+        "HIB-CONFIG-007",
+        "HIB-CONFIG-011"
     };
     private static final HibernateApplicationFacts APP =
             new HibernateApplicationFacts(List.of("prod"), false, false, false, false);
@@ -663,7 +666,8 @@ class HibernateAdvisorObservationTests {
 
     @Test
     void retiredIdsAreNotRegisteredOrReported() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(72);
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(76);
+        assertThat(HibernateRuleRegistry.RETIRED_RULE_IDS).containsExactlyInAnyOrder(RETIRED_IDS);
         assertThat(HibernateRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotContain(RETIRED_IDS);

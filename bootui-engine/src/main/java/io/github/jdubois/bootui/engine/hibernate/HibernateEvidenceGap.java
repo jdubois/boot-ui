@@ -28,10 +28,6 @@ enum HibernateEvidenceGap {
                     + " attributed to the persistence unit (HikariCP and Agroal only, never by acquiring a"
                     + " connection)",
             true),
-    CACHE_STRATEGY_BY_DESIGN(
-            "provider-selected cache access strategy and entity eligibility, which this advisor does not observe by"
-                    + " design",
-            true),
     HIBERNATE_VERSION("Hibernate ORM version unavailable"),
     CUSTOM_GENERATOR("entity(ies) with a custom identifier generator whose newness behaviour is not inferred"),
     ENTITY_METADATA("entity mapping(s) whose class, identifier, index, or enhancement metadata is unavailable"),

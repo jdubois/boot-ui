@@ -78,6 +78,52 @@ final class QuarkusAppChecks {
                     Set.of(),
                     Set.of()),
             new Check(
+                    "QA-CDI-005",
+                    "Normal-scoped bean has a deferred runtime UnproxyableResolutionException",
+                    "CDI",
+                    "HIGH",
+                    "A resolved normal-scoped application bean or producer return type is unproxyable (sealed, final"
+                            + " with quarkus.arc.transform-unproxyable-classes=false, missing a non-private no-arg"
+                            + " constructor when ArC cannot synthesize one because its superclass lacks a no-arg"
+                            + " constructor, or a concrete java.* class). When not directly injected at a static"
+                            + " injection point, ArC defers the failure and throws UnproxyableResolutionException at"
+                            + " runtime or skips final java.* methods on the client proxy.",
+                    "Add a package-private or public no-arg constructor, remove the final or sealed modifier, expose"
+                            + " the bean through an interface, or change @Produces methods returning concrete JDK or"
+                            + " unproxyable third-party types from @ApplicationScoped to @Singleton.",
+                    "cdi#client_proxies",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-CDI-006",
+                    "Application bean declared in the default package",
+                    "CDI",
+                    "LOW",
+                    "Resolved application beans are declared in the unnamed default package. Classes in the default"
+                            + " package cannot be imported by classes in named packages and cannot supply a bounded"
+                            + " base-package root for static architecture analysis.",
+                    "Move application beans into a named package.",
+                    "cdi-reference",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-CDI-007",
+                    "ArC build-time safety validation is disabled",
+                    "CDI",
+                    "MEDIUM",
+                    "Configured ArC build-time validation disables quarkus.arc.fail-on-intercepted-private-method or"
+                            + " quarkus.arc.detect-wrong-annotations. When fail-on-intercepted-private-method is"
+                            + " false, interceptor bindings such as @Transactional, @Retry or @RolesAllowed on private"
+                            + " methods do not fail the build and are silently skipped at runtime; when"
+                            + " detect-wrong-annotations is false, misplaced CDI or Quarkus annotations are not"
+                            + " rejected at build time.",
+                    "Keep quarkus.arc.fail-on-intercepted-private-method=true and"
+                            + " quarkus.arc.detect-wrong-annotations=true (the Quarkus defaults), and change"
+                            + " intercepted methods from private to package-private, protected or public.",
+                    "cdi-reference",
+                    Set.of("disabled", "enabled"),
+                    Set.of("disabled")),
+            new Check(
                     "QA-CFG-002",
                     "SQL logging in observed production configuration",
                     "Configuration",
@@ -129,6 +175,41 @@ final class QuarkusAppChecks {
                     Set.of("true", "false"),
                     Set.of("true")),
             new Check(
+                    "QA-CFG-006",
+                    "Deprecated Quarkus 3.x configuration property",
+                    "Configuration",
+                    "LOW",
+                    "An observed nonblank configuration declaration uses a deprecated Quarkus 3.x property name across"
+                            + " Vert.x worker pool, Hibernate ORM, core logging, SmallRye Health/OpenAPI/Swagger UI,"
+                            + " OIDC proxy, or REST Client proxy configuration.",
+                    "Migrate each deprecated property to its current Quarkus 3.x replacement (such as"
+                            + " quarkus.thread-pool.max-threads, quarkus.hibernate-orm.fetch.batch-size /"
+                            + " fetch.max-depth / validation.mode / quote-identifiers.strategy /"
+                            + " log.bind-parameters, *.enabled, or named quarkus.proxy.* configurations) and remove"
+                            + " the legacy declaration.",
+                    "config-reference",
+                    Set.of("deprecated", "clean"),
+                    Set.of("deprecated")),
+            new Check(
+                    "QA-CFG-007",
+                    "Config mapping unknown-property validation disabled or config value logging enabled",
+                    "Configuration",
+                    "MEDIUM",
+                    "Configuration disables unknown-property validation for @ConfigMapping interfaces"
+                            + " (quarkus.config.mapping.validate-unknown=false or"
+                            + " smallrye.config.mapping.validate-unknown=false), allowing misspelled or obsolete mapped"
+                            + " keys to be silently ignored, or enables quarkus.config.log.values=true in observed"
+                            + " production configuration, which logs resolved configuration values at DEBUG level.",
+                    "Keep quarkus.config.mapping.validate-unknown and smallrye.config.mapping.validate-unknown enabled"
+                            + " (true), and remove quarkus.config.log.values=true from production configuration.",
+                    "config-reference",
+                    Set.of(
+                            "validate-unknown-disabled",
+                            "validate-unknown-enabled",
+                            "log-values-enabled",
+                            "log-values-disabled"),
+                    Set.of("validate-unknown-disabled", "log-values-enabled")),
+            new Check(
                     "QA-PROD-002",
                     "Automatic schema changes in observed production configuration",
                     "Production",
@@ -153,6 +234,22 @@ final class QuarkusAppChecks {
                     "datasource",
                     Set.of("in-memory", "persistent-or-unclassified"),
                     Set.of("in-memory")),
+            new Check(
+                    "QA-DB-002",
+                    "Agroal connection pooling or background validation is disabled",
+                    "Production",
+                    "MEDIUM",
+                    "An observed Agroal JDBC datasource disables connection pooling"
+                            + " (quarkus.datasource.[<ds>.]jdbc.pooling-enabled=false), opening and closing a physical"
+                            + " connection per operation, or disables background connection validation"
+                            + " (background-validation-interval=0) without enabling borrow or idle validation"
+                            + " (validate-on-borrow=true or a positive foreground-validation-interval).",
+                    "Keep quarkus.datasource.[<ds>.]jdbc.pooling-enabled=true and configure a positive"
+                            + " background-validation-interval (the Quarkus default is 2M) or"
+                            + " foreground-validation-interval so stale connections are evicted.",
+                    "datasource",
+                    Set.of("pooling-disabled", "validation-disabled", "enabled"),
+                    Set.of("pooling-disabled", "validation-disabled")),
             new Check(
                     "QA-WEB-001",
                     "Application-server compression is disabled",
@@ -193,6 +290,32 @@ final class QuarkusAppChecks {
                     Set.of("zero", "positive", "absent"),
                     Set.of("zero", "absent")),
             new Check(
+                    "QA-WEB-005",
+                    "Unlimited HTTP request body or form buffering, or retained multipart uploads",
+                    "Web",
+                    "LOW",
+                    "Configured Quarkus HTTP server limits remove the request body size cap (an explicitly empty"
+                            + " quarkus.http.limits.max-body-size=), allow unlimited in-memory form buffering or form"
+                            + " attribute counts (max-form-buffered-bytes=-1 or max-form-fields=-1), or retain"
+                            + " temporary multipart upload files on disk after the request completes"
+                            + " (quarkus.http.body.delete-uploaded-files-on-end=false).",
+                    "Configure a finite quarkus.http.limits.max-body-size (the Quarkus default is 10240K), positive"
+                            + " bounds for max-form-buffered-bytes and max-form-fields, and keep"
+                            + " quarkus.http.body.delete-uploaded-files-on-end=true unless application code explicitly"
+                            + " deletes uploaded files in a finally block.",
+                    "http-reference",
+                    Set.of(
+                            "unlimited-body-size",
+                            "unlimited-form-buffered-bytes",
+                            "unlimited-form-fields",
+                            "retained-uploads",
+                            "bounded"),
+                    Set.of(
+                            "unlimited-body-size",
+                            "unlimited-form-buffered-bytes",
+                            "unlimited-form-fields",
+                            "retained-uploads")),
+            new Check(
                     "QA-PERF-002",
                     "Synchronized virtual-thread entry method on JDK 21–23",
                     "Performance",
@@ -205,7 +328,53 @@ final class QuarkusAppChecks {
                             + " synchronization indiscriminately.",
                     "virtual-threads",
                     Set.of(),
-                    Set.of()));
+                    Set.of()),
+            new Check(
+                    "QA-PERF-003",
+                    "@RunOnVirtualThread on a reactive method",
+                    "Performance",
+                    "MEDIUM",
+                    "A registered REST endpoint or virtual-thread entry method annotated with @RunOnVirtualThread"
+                            + " returns a reactive or asynchronous type (Uni, Multi, CompletionStage,"
+                            + " CompletableFuture or Publisher). Quarkus invokes the Java method on a virtual thread"
+                            + " only to assemble the reactive pipeline, then terminates the virtual thread and"
+                            + " executes pipeline stages on the Vert.x event loop.",
+                    "Return a synchronous result when using @RunOnVirtualThread so the operation executes on the"
+                            + " virtual thread, or remove @RunOnVirtualThread from reactive methods that belong on"
+                            + " the event loop.",
+                    "virtual-threads",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-PERF-004",
+                    "Review virtual threads on a JDK before 24",
+                    "Performance",
+                    "INFO",
+                    "Virtual-thread entry methods (@RunOnVirtualThread) are declared while running on JDK 21–23."
+                            + " Before JDK 24 (JEP 491), blocking inside a synchronized method or block (including"
+                            + " inside downstream libraries or JDBC drivers) pins the carrier thread. This is a"
+                            + " runtime-version review prompt, not observed pinning.",
+                    "Prefer JDK 24 or later (JDK 25 is LTS) for virtual-thread workloads, or load-test with JFR"
+                            + " jdk.VirtualThreadPinned events and review libraries that block inside synchronized.",
+                    "virtual-threads",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-PERF-005",
+                    "Core worker thread pool misconfiguration",
+                    "Performance",
+                    "MEDIUM",
+                    "Configured worker thread pool settings under quarkus.thread-pool.* set core-threads above"
+                            + " max-threads (which EnhancedQueueExecutor silently clamps to max-threads), set a"
+                            + " non-positive max-threads, or set shutdown-interrupt greater than or equal to"
+                            + " shutdown-timeout (so worker threads are never interrupted before the shutdown"
+                            + " timeout expires).",
+                    "Ensure quarkus.thread-pool.max-threads is positive and at least quarkus.thread-pool.core-threads,"
+                            + " and keep quarkus.thread-pool.shutdown-interrupt strictly shorter than"
+                            + " quarkus.thread-pool.shutdown-timeout.",
+                    "all-config#quarkus-core_quarkus-thread-pool",
+                    Set.of("core-exceeds-max", "max-non-positive", "interrupt-not-before-timeout", "valid"),
+                    Set.of("core-exceeds-max", "max-non-positive", "interrupt-not-before-timeout")));
 
     private QuarkusAppChecks() {}
 
@@ -277,9 +446,18 @@ final class QuarkusAppChecks {
                 if (snapshot != null && metadata != null && metadata.available()) {
                     if (check.id().equals("QA-CFG-004") && metadata.hibernateOrmSupported()) {
                         applicableObservation = true;
+                    } else if (check.id().equals("QA-DB-002") && metadata.jdbcDatasourceSupported()) {
+                        applicableObservation = true;
                     } else if (check.id().equals("QA-WEB-003")
                             && metadata.restClientSupported()
                             && !metadata.restClients().isEmpty()) {
+                        applicableObservation = true;
+                    } else if (check.id().equals("QA-CDI-007") && metadata.beanCount() > 0) {
+                        applicableObservation = true;
+                    } else if (check.id().equals("QA-CFG-007") && metadata.configMappingCount() > 0) {
+                        applicableObservation = true;
+                    } else if ((check.id().equals("QA-WEB-005") || check.id().equals("QA-PERF-005"))
+                            && metadata.endpointCount() > 0) {
                         applicableObservation = true;
                     }
                 }
@@ -304,7 +482,7 @@ final class QuarkusAppChecks {
                         }
                     }
                 }
-            } else if (check.id().equals("QA-PERF-002")
+            } else if ((check.id().equals("QA-PERF-002") || check.id().equals("QA-PERF-004"))
                     && snapshot != null
                     && snapshot.runtimeJdkMajorVersion() > 0
                     && (snapshot.runtimeJdkMajorVersion() < 21 || snapshot.runtimeJdkMajorVersion() >= 24)) {
@@ -316,30 +494,58 @@ final class QuarkusAppChecks {
                     fail(failures, check.id(), Reason.METADATA_UNAVAILABLE);
                 }
                 if (metadata != null && metadata.available()) {
-                    if (check.id().equals("QA-PERF-002")) {
-                        if (snapshot.runtimeJdkMajorVersion() <= 0) {
-                            fail(failures, check.id(), Reason.RUNTIME_JDK_UNAVAILABLE);
-                        } else {
-                            samples.addAll(metadata.synchronizedVirtualThreadMethods());
-                            applicableObservation = metadata.endpointCount() > 0
-                                    || !metadata.synchronizedVirtualThreadMethods()
-                                            .isEmpty();
-                        }
-                    } else {
-                        applicableObservation = check.id().equals("QA-CDI-002")
-                                ? metadata.endpointCount() > 0 && metadata.beanCount() > 0
-                                : metadata.beanCount() > 0;
-                        for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
-                            String fieldRule = fieldRule(field);
-                            if (fieldRule == null) {
-                                fail(failures, check.id(), Reason.UNRESOLVED_DECLARATION);
-                                continue;
+                    switch (check.id()) {
+                        case "QA-PERF-002" -> {
+                            if (snapshot.runtimeJdkMajorVersion() <= 0) {
+                                fail(failures, check.id(), Reason.RUNTIME_JDK_UNAVAILABLE);
+                            } else {
+                                samples.addAll(metadata.synchronizedVirtualThreadMethods());
+                                applicableObservation = metadata.endpointCount() > 0
+                                        || !metadata.synchronizedVirtualThreadMethods()
+                                                .isEmpty();
                             }
-                            String identity = field.className() + "." + field.fieldName();
-                            if (check.id().equals(fieldRule)
-                                    && (!fieldRule.equals("QA-CDI-003") || !resourceFields.contains(identity))) {
-                                samples.add(identity);
-                                applicableObservation = true;
+                        }
+                        case "QA-PERF-004" -> {
+                            if (snapshot.runtimeJdkMajorVersion() <= 0) {
+                                fail(failures, check.id(), Reason.RUNTIME_JDK_UNAVAILABLE);
+                            } else {
+                                samples.addAll(metadata.virtualThreadMethods());
+                                applicableObservation = metadata.endpointCount() > 0
+                                        || !metadata.virtualThreadMethods().isEmpty();
+                            }
+                        }
+                        case "QA-PERF-003" -> {
+                            samples.addAll(metadata.reactiveVirtualThreadMethods());
+                            applicableObservation = metadata.endpointCount() > 0
+                                    || !metadata.virtualThreadMethods().isEmpty()
+                                    || !metadata.reactiveVirtualThreadMethods().isEmpty();
+                        }
+                        case "QA-CDI-005" -> {
+                            samples.addAll(metadata.unproxyableNormalScopedBeans());
+                            applicableObservation = metadata.beanCount() > 0
+                                    || !metadata.unproxyableNormalScopedBeans().isEmpty();
+                        }
+                        case "QA-CDI-006" -> {
+                            samples.addAll(metadata.defaultPackageBeans());
+                            applicableObservation = metadata.beanCount() > 0
+                                    || !metadata.defaultPackageBeans().isEmpty();
+                        }
+                        default -> {
+                            applicableObservation = check.id().equals("QA-CDI-002")
+                                    ? metadata.endpointCount() > 0 && metadata.beanCount() > 0
+                                    : metadata.beanCount() > 0;
+                            for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
+                                String fieldRule = fieldRule(field);
+                                if (fieldRule == null) {
+                                    fail(failures, check.id(), Reason.UNRESOLVED_DECLARATION);
+                                    continue;
+                                }
+                                String identity = field.className() + "." + field.fieldName();
+                                if (check.id().equals(fieldRule)
+                                        && (!fieldRule.equals("QA-CDI-003") || !resourceFields.contains(identity))) {
+                                    samples.add(identity);
+                                    applicableObservation = true;
+                                }
                             }
                         }
                     }
@@ -492,7 +698,12 @@ final class QuarkusAppChecks {
                 case "A schema action could not be classified safely.",
                         "The logging level could not be classified safely.",
                         "The shutdown duration is invalid.",
-                        "A managed REST client timer could not be classified safely." -> INVALID_CONFIGURATION;
+                        "A managed REST client timer could not be classified safely.",
+                        "An ArC validation setting could not be classified safely.",
+                        "A worker thread pool setting could not be classified safely.",
+                        "A configuration validation or logging setting could not be classified safely.",
+                        "An Agroal pool setting could not be classified safely.",
+                        "An HTTP limit setting could not be classified safely." -> INVALID_CONFIGURATION;
                 default -> UNKNOWN;
             };
         }

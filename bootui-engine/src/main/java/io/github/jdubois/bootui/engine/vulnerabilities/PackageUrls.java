@@ -58,10 +58,24 @@ public final class PackageUrls {
         // A Maven namespace is a single segment, but decode defensively rather than assume it.
         String groupId = decode(path.substring(0, lastSlash).replace('/', '.'));
         String artifactId = decode(path.substring(lastSlash + 1));
-        if (groupId.isEmpty() || artifactId.isEmpty() || version.isEmpty()) {
+        if (!validCoordinateSegment(groupId) || !validCoordinateSegment(artifactId) || !validVersion(version)) {
             return null;
         }
         return new MavenCoordinates(groupId, artifactId, version);
+    }
+
+    private static boolean validCoordinateSegment(String value) {
+        return !value.isEmpty()
+                && !value.startsWith(".")
+                && !value.endsWith(".")
+                && !value.contains("..")
+                && value.indexOf(':') < 0
+                && value.indexOf('/') < 0
+                && value.chars().noneMatch(Character::isWhitespace);
+    }
+
+    private static boolean validVersion(String value) {
+        return !value.isEmpty() && value.chars().noneMatch(Character::isWhitespace);
     }
 
     private static String stripAfter(String value, char delimiter) {
@@ -71,7 +85,8 @@ public final class PackageUrls {
 
     private static String decode(String value) {
         try {
-            return URLDecoder.decode(value, StandardCharsets.UTF_8).trim();
+            return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8)
+                    .trim();
         } catch (IllegalArgumentException ex) {
             // Malformed percent-encoding: keep the raw text rather than dropping the component entirely.
             return value.trim();

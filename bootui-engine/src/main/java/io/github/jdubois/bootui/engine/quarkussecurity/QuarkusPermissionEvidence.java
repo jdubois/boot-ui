@@ -16,10 +16,7 @@ final class QuarkusPermissionEvidence {
     private QuarkusPermissionEvidence() {}
 
     static Decision decision(List<QuarkusSecurityPermission> permissions, QuarkusSecurityEndpoint endpoint) {
-        if (endpoint.path() == null
-                || endpoint.path().contains("{")
-                || endpoint.path().contains("*")
-                || endpoint.method() == null) {
+        if (endpoint.path() == null || !validEndpointPath(endpoint.path()) || endpoint.method() == null) {
             return Decision.UNKNOWN;
         }
         // HTTP and JAX-RS policies run in separate phases; a more specific REST permit cannot bypass HTTP denial.
@@ -35,6 +32,24 @@ final class QuarkusPermissionEvidence {
         return unknownScope || http == Decision.UNKNOWN || rest == Decision.UNKNOWN
                 ? Decision.UNKNOWN
                 : Decision.PUBLIC;
+    }
+
+    private static boolean validEndpointPath(String path) {
+        if (path.contains("*")) {
+            return false;
+        }
+        int depth = 0;
+        for (int i = 0; i < path.length(); i++) {
+            char ch = path.charAt(i);
+            if (ch == '{') {
+                if (depth > 0) return false;
+                depth = 1;
+            } else if (ch == '}') {
+                if (depth != 1) return false;
+                depth = 0;
+            }
+        }
+        return depth == 0;
     }
 
     private static Decision scopeDecision(
@@ -69,7 +84,7 @@ final class QuarkusPermissionEvidence {
             }
         }
         Decision result = selected.isEmpty() ? Decision.PUBLIC : matchingMethods(selected, endpoint.method());
-        return result == Decision.RESTRICTED ? result : unknown ? Decision.UNKNOWN : result;
+        return unknown ? Decision.UNKNOWN : result;
     }
 
     private static Decision matchingMethods(List<QuarkusSecurityPermission> permissions, String method) {
@@ -107,13 +122,30 @@ final class QuarkusPermissionEvidence {
         if (paths == null || paths.isBlank()) {
             return -2;
         }
+        int brace = target.indexOf('{');
+        String literalPrefix = brace >= 0 ? target.substring(0, brace) : null;
+        String parentWithoutSlash = literalPrefix != null && literalPrefix.endsWith("/") && literalPrefix.length() > 1
+                ? literalPrefix.substring(0, literalPrefix.length() - 1)
+                : literalPrefix;
         int rank = -1;
         for (String item : paths.split(",")) {
             String path = item.trim();
             if (path.contains("{") || (path.contains("*") && !path.endsWith("/*"))) {
                 return -2;
             }
-            if (path.endsWith("/*")) {
+            if (brace >= 0) {
+                if (path.endsWith("/*")) {
+                    String prefix = path.substring(0, path.length() - 1);
+                    String prefixNoSlash = prefix.length() > 1 ? prefix.substring(0, prefix.length() - 1) : prefix;
+                    if (literalPrefix.startsWith(prefix)) {
+                        rank = Math.max(rank, (prefix.length() - 1) * 2);
+                    } else if (prefix.startsWith(literalPrefix) || prefixNoSlash.startsWith(literalPrefix)) {
+                        return -2;
+                    }
+                } else if (path.startsWith(literalPrefix) || path.equals(parentWithoutSlash)) {
+                    return -2;
+                }
+            } else if (path.endsWith("/*")) {
                 String prefix = path.substring(0, path.length() - 1);
                 if (target.startsWith(prefix) || target.equals(prefix.substring(0, prefix.length() - 1))) {
                     rank = Math.max(rank, (prefix.length() - 1) * 2);

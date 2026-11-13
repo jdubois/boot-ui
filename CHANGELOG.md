@@ -11,8 +11,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Intra-route baseline comparison in Request Profile and Runtime Insights** compares slow or failed HTTP requests
   against a retained warm `2xx` baseline on the same route (`route-latency-outliers`, drawer, MCP/CLI, and exports; [#1670](https://github.com/jdubois/boot-ui/issues/1670)).
+- **Six OWASP Top 10:2025 Pentesting Advisor checks** detect `__Host-`/`__Secure-` cookie prefix violations (`PT-A02-007`),
+  publicly cacheable `Set-Cookie` responses (`PT-A02-008`), exposed CORS authentication/token headers (`PT-A05-073`),
+  plaintext HTTP Basic/Digest challenges (`PT-A07-008`), unsafe Jackson 2/3 polymorphic default typing or unrejected
+  `jdk.serialFilter` wildcards (`PT-A08-001`), and unhandled `5xx` errors on the synthetic missing-resource probe
+  (`PT-A10-001`) ([Pentesting checks](docs/PENTEST-CHECKS.md); [#1657](https://github.com/jdubois/boot-ui/issues/1657)).
+- **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
+  and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
+- **Memory advisor rules for cgroup v2 throttling/OOM, ClassLoader/proxy bloat, and external `System.gc()` pauses** add
+  `MEM-FOOTPRINT-005`, `MEM-CONTENT-005`, and `MEM-GC-009` ([Memory checks](docs/MEMORY-CHECKS.md); [#1653](https://github.com/jdubois/boot-ui/issues/1653)).
+- **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from
+  Mappings and HTTP Exchanges without auto-sending ([HTTP Probe](docs/features/diagnostics.md#http-probe); [#1668](https://github.com/jdubois/boot-ui/issues/1668)).
 - **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
   and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
+- **Local instance discovery and `bootui init`** list and target running local applications with `bootui instances` and
+  `bootui --app <name>`, and idempotently write or preview MCP client configurations ([CLI guide](docs/CLI.md); [#1673](https://github.com/jdubois/boot-ui/issues/1673)).
+- **Loopback-gated `X-BootUI-Request-Id` response header** links local application responses directly to their HTTP
+  Exchanges row and Live Activity request profile by default (`bootui.http-exchanges.expose-request-id-header`)
+  ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1674](https://github.com/jdubois/boot-ui/issues/1674)).
 
 ## [2.4.0] - 2026-11-12
 

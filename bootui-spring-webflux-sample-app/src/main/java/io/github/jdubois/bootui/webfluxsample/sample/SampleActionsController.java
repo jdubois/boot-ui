@@ -13,10 +13,14 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
+import org.springframework.core.MethodParameter;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.MapBindingResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -84,7 +88,10 @@ public class SampleActionsController {
 
     /** Throws on purpose so the BootUI Exceptions panel has a captured failure to inspect. */
     @GetMapping("/boom")
-    public Mono<String> boom() {
+    public Mono<String> boom(@RequestParam(name = "scenario", required = false) String scenario) {
+        if ("validation".equals(scenario)) {
+            return Mono.error(sampleValidationFailure());
+        }
         return Mono.fromCallable(() -> {
                     try {
                         Integer.parseInt("not-a-number");
@@ -94,6 +101,45 @@ public class SampleActionsController {
                     }
                 })
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private static WebExchangeBindException sampleValidationFailure() {
+        try {
+            MapBindingResult bindingResult = new MapBindingResult(Map.of(), "sampleOrderRequest");
+            bindingResult.addError(new FieldError(
+                    "sampleOrderRequest",
+                    "customer.email",
+                    "alice-secret@example.com",
+                    false,
+                    new String[] {"Email.sampleOrderRequest.customer.email", "Email"},
+                    null,
+                    "must be a well-formed email address"));
+            bindingResult.addError(new FieldError(
+                    "sampleOrderRequest",
+                    "items[0].quantity",
+                    -3,
+                    false,
+                    new String[] {"Positive.sampleOrderRequest.items.quantity", "Positive"},
+                    null,
+                    "must be greater than 0"));
+            bindingResult.addError(new FieldError(
+                    "sampleOrderRequest",
+                    "attributes[secretApiKey]",
+                    "   ",
+                    false,
+                    new String[] {
+                        "NotBlank.sampleOrderRequest.attributes[secretApiKey]",
+                        "NotBlank.attributes[secretApiKey]",
+                        "NotBlank"
+                    },
+                    null,
+                    "must not be blank"));
+            MethodParameter parameter =
+                    new MethodParameter(SampleActionsController.class.getDeclaredMethod("boom", String.class), 0);
+            return new WebExchangeBindException(parameter, bindingResult);
+        } catch (NoSuchMethodException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     /**

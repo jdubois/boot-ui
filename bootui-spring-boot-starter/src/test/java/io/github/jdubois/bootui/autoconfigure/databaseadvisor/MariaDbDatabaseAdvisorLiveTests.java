@@ -105,9 +105,15 @@ class MariaDbDatabaseAdvisorLiveTests {
             assertThat(status.status()).isEqualTo("AVAILABLE");
             assertThat(status.dialect()).isEqualTo("MariaDB");
         });
-        // Every MySQL-family rule ran: none of them is reported as skipped for want of a datasource.
+        // Every MySQL-family schema rule ran: only DB-MYSQL-004 is skipped as not applicable on MariaDB.
         assertThat(report.diagnostics())
-                .noneMatch(diagnostic -> diagnostic.source().startsWith("DB-MYSQL"));
+                .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-MYSQL"))
+                .singleElement()
+                .satisfies(diagnostic -> {
+                    assertThat(diagnostic.source()).isEqualTo("DB-MYSQL-004");
+                    assertThat(diagnostic.level()).isEqualTo("INFO");
+                    assertThat(diagnostic.message()).startsWith("Not applicable:");
+                });
     }
 
     @Entity

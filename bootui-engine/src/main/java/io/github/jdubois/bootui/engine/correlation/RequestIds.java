@@ -12,6 +12,13 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public final class RequestIds {
 
+    /**
+     * Response header name carrying the request's BootUI {@code requestId} on loopback and trusted-peer
+     * application responses while {@code bootui.http-exchanges.expose-request-id-header} is enabled
+     * (default {@code true}).
+     */
+    public static final String RESPONSE_HEADER = "X-BootUI-Request-Id";
+
     private static final HexFormat HEX = HexFormat.of();
 
     private RequestIds() {}

@@ -108,7 +108,9 @@ public class BootUiWebApplicationTypeEnvironmentPostProcessor implements Environ
             return;
         }
         if (!servletStackPresent(classLoader)) {
-            // No DispatcherServlet or embedded container to start: leave the app untouched.
+            log.warn("BOOTUI-COMPAT-031: BootUI is active but no usable web stack is available."
+                    + " The BootUI starter does not supply a web stack; add the application's MVC or WebFlux"
+                    + " starter to serve the console. The non-web application is left unchanged.");
             return;
         }
 

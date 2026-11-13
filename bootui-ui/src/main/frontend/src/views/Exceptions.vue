@@ -92,7 +92,10 @@ async function openException(id) {
     if (version === detailVersion) {
       detailLoading.value = false
       await nextTick()
-      drawer.value?.[0]?.focus()
+      const el = drawer.value?.[0]
+      el?.focus()
+      const tableWrapper = el?.closest?.('.table-responsive')
+      if (tableWrapper) tableWrapper.scrollLeft = 0
     }
   }
 }
@@ -268,6 +271,18 @@ function requestLabel(item) {
   const method = item.lastRequestMethod || item.requestMethod
   const path = item.lastRequestPath || item.requestPath
   return method ? `${method} ${path}` : path
+}
+
+function latestBindingDiagnostics(d) {
+  return d?.occurrences?.[0]?.bindingDiagnostics ?? []
+}
+
+function latestBindingDiagnosticsTruncated(d) {
+  return Boolean(d?.occurrences?.[0]?.bindingDiagnosticsTruncated)
+}
+
+function hasAnyBindingDiagnostics(d) {
+  return Boolean(d?.occurrences?.some((o) => o?.bindingDiagnostics?.length))
 }
 
 const {autoRefresh, loading, load, retryConnection, connectionState} = useEventStreamRefresh(
@@ -567,6 +582,46 @@ onBeforeUnmount(() => {
                               <div class="exception-message-full">{{ detail.group.message }}</div>
                             </div>
 
+                            <div
+                              v-if="latestBindingDiagnostics(detail).length"
+                              class="mb-3 binding-diagnostics-section"
+                            >
+                              <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-1">
+                                <h4 class="fs-6 text-muted fw-semibold mb-0">Binding &amp; validation diagnostics</h4>
+                                <span class="text-muted small">
+                                  Latest occurrence · metadata only (rejected values are never retained)
+                                </span>
+                              </div>
+                              <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0 binding-diagnostics-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Target</th>
+                                      <th>Field / parameter</th>
+                                      <th>Reason / expected type</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <tr v-for="(d, di) in latestBindingDiagnostics(detail)" :key="di">
+                                      <td class="small">
+                                        <code>{{ d.targetType || '—' }}</code>
+                                      </td>
+                                      <td class="small">
+                                        <code>{{ d.fieldPath || '—' }}</code>
+                                      </td>
+                                      <td class="small">
+                                        <code>{{ d.reason || '—' }}</code>
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div v-if="latestBindingDiagnosticsTruncated(detail)" class="text-muted small mt-1">
+                                Showing the first {{ latestBindingDiagnostics(detail).length }} diagnostics for this
+                                occurrence.
+                              </div>
+                            </div>
+
                             <div class="mb-3">
                               <h4 class="fs-6 text-muted fw-semibold mb-1">Stack trace</h4>
                               <pre class="stack-pane rounded border p-2 mb-0"><code><span
@@ -602,6 +657,7 @@ onBeforeUnmount(() => {
                                       <th>Thread</th>
                                       <th>Request</th>
                                       <th>Handler</th>
+                                      <th v-if="hasAnyBindingDiagnostics(detail)">Diagnostics</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -615,6 +671,20 @@ onBeforeUnmount(() => {
                                       <td class="small">{{ o.thread || '—' }}</td>
                                       <td class="small">{{ requestLabel(o) || '—' }}</td>
                                       <td class="small">{{ o.handler || '—' }}</td>
+                                      <td v-if="hasAnyBindingDiagnostics(detail)" class="small">
+                                        <template v-if="o.bindingDiagnostics && o.bindingDiagnostics.length">
+                                          <span
+                                            v-for="(d, di) in o.bindingDiagnostics"
+                                            :key="di"
+                                            class="d-inline-block me-2"
+                                          >
+                                            <code>{{ d.fieldPath }}</code>
+                                            <span class="text-muted"> ({{ d.reason }})</span>
+                                          </span>
+                                          <span v-if="o.bindingDiagnosticsTruncated" class="text-muted">…</span>
+                                        </template>
+                                        <span v-else>—</span>
+                                      </td>
                                     </tr>
                                   </tbody>
                                 </table>
@@ -645,7 +715,7 @@ onBeforeUnmount(() => {
 }
 
 .exception-message {
-  max-width: 40rem;
+  max-width: 32rem;
 }
 
 .exception-message-full {

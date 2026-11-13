@@ -70,11 +70,12 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
      * range, or a trusted container gateway) under the same {@link LocalhostGuard} policy and
      * {@link LocalhostGuardConfigSupport} cache this filter uses — <em>not</em> whether
      * {@code bootui.allow-non-localhost} merely bypassed the check. Reused by {@code ApiAuthenticationFilter}
-     * so bearer-token authentication treats an already-trusted source (e.g. via
-     * {@code bootui.trusted-proxies} or {@code bootui.trust-container-gateway}) exactly as frictionlessly
-     * as this filter does, instead of re-deriving a narrower, drift-prone notion of "local".
+     * and {@code RequestCorrelationFilter} so bearer-token authentication and opt-in request-id header
+     * exposure treat an already-trusted source (e.g. via {@code bootui.trusted-proxies} or
+     * {@code bootui.trust-container-gateway}) exactly as frictionlessly as this filter does, instead of
+     * re-deriving a narrower, drift-prone notion of "local".
      */
-    boolean isTrustedSource(String remoteAddr) {
+    public boolean isTrustedSource(String remoteAddr) {
         return guard.isTrustedSource(remoteAddr, configSupport.buildConfig(log));
     }
 

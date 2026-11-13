@@ -170,11 +170,14 @@ class WebFluxCustomPathIntegrationTest extends AbstractBootUiApiConformanceTest 
     void preservesQueriesAndSupportsStreamingDownloadsAndWrites() {
         BootUiHttpProbe probe = probe();
         Response threads = probe.get(API_PATH + "/threads?offset=0&limit=1");
+        Response mappings = probe.get(API_PATH + "/mappings/flat?offset=0&limit=1");
         Response stream = probe.getStreaming(API_PATH + "/log-tail/stream");
 
         assertThat(threads.status()).isEqualTo(200);
         assertThat(threads.json().path("page").path("limit").asInt()).isEqualTo(1);
         assertThat(threads.json().path("threads").size()).isLessThanOrEqualTo(1);
+        assertThat(mappings.status()).isEqualTo(200);
+        assertThat(mappings.json().path("basePath").asText()).isEqualTo("/host");
         assertThat(stream.status()).isEqualTo(200);
         assertThat(stream.contentType()).contains("text/event-stream");
 

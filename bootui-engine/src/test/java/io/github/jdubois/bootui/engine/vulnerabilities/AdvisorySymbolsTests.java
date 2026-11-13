@@ -50,7 +50,25 @@ class AdvisorySymbolsTests {
         assertThat(AdvisorySymbols.normalize("java.lang.String"))
                 .as("no library defines java.")
                 .isNull();
+        assertThat(AdvisorySymbols.normalize("org.example.Outer$parse"))
+                .as("dollar-separated inner class segments must start with an uppercase letter")
+                .isNull();
         assertThat(AdvisorySymbols.normalize("org.example.Type#9bad")).isEqualTo("org.example.Type");
+    }
+
+    @Test
+    void extractsMethodReferencesWithHashOrDoubleColonWithoutParenthesesFromText() {
+        AdvisorySymbols.Symbols symbols = AdvisorySymbols.of(
+                List.of(),
+                "Vulnerable in `org.yaml.snakeyaml.Yaml#load` and `com.fasterxml.jackson.databind.ObjectMapper::readValue`.",
+                "See org.example.Parser.class for details.");
+
+        assertThat(symbols.source()).isEqualTo("ADVISORY_TEXT");
+        assertThat(symbols.symbols())
+                .containsExactly(
+                        "com.fasterxml.jackson.databind.ObjectMapper#readValue",
+                        "org.example.Parser",
+                        "org.yaml.snakeyaml.Yaml#load");
     }
 
     @Test

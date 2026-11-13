@@ -333,6 +333,58 @@ final class MutableSingletonFieldRule extends AbstractSpringRule {
     }
 }
 
+final class DormantResilienceAnnotationsRule extends AbstractSpringRule {
+    DormantResilienceAnnotationsRule() {
+        super(
+                "WIRING-010",
+                "Enable resilience processing for @Retryable and @ConcurrencyLimit beans",
+                SpringCategory.BEAN_WIRING,
+                "HIGH",
+                "Application beans declare @Retryable or @ConcurrencyLimit without the corresponding resilience or retry BeanPostProcessor/advisor registered in the bean factory, so the annotations have no runtime effect.",
+                "Add @EnableResilientMethods on a @Configuration class for Spring Framework 7 @Retryable and @ConcurrencyLimit, or @EnableRetry for Spring Retry @Retryable.",
+                "https://docs.spring.io/spring-framework/reference/core/resilience.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        c.applies(c.beanDefinitionCount() > 0 || !c.dormantResilienceBeans().isEmpty());
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)) return unknown(c);
+        if (!c.observations().incomplete().isEmpty()) {
+            if (c.dormantResilienceBeans().isEmpty()) return unknown(c);
+            c.observations()
+                    .evaluation()
+                    .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
+        }
+        return violation(c, c.dormantResilienceBeans());
+    }
+}
+
+final class DormantInfrastructureAnnotationsRule extends AbstractSpringRule {
+    DormantInfrastructureAnnotationsRule() {
+        super(
+                "WIRING-011",
+                "Enable infrastructure for @Async, @Scheduled, @Cacheable, and @Transactional beans",
+                SpringCategory.BEAN_WIRING,
+                "HIGH",
+                "Application beans declare @Async, @Scheduled/@Schedules, @Cacheable/@CachePut/@CacheEvict/@Caching, or @Transactional without the corresponding annotation processor, advisor, or transaction manager registered in the bean factory.",
+                "Add @EnableAsync, @EnableScheduling, or @EnableCaching on a @Configuration class, or ensure @EnableTransactionManagement and a TransactionManager bean are present for @Transactional beans.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        c.applies(c.beanDefinitionCount() > 0 || !c.dormantInfrastructureBeans().isEmpty());
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)) return unknown(c);
+        if (!c.observations().incomplete().isEmpty()) {
+            if (c.dormantInfrastructureBeans().isEmpty()) return unknown(c);
+            c.observations()
+                    .evaluation()
+                    .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
+        }
+        return violation(c, c.dormantInfrastructureBeans());
+    }
+}
+
 final class Jackson2AutoConfigurationActiveRule extends AbstractSpringRule {
     Jackson2AutoConfigurationActiveRule() {
         super(
@@ -731,6 +783,148 @@ final class VirtualThreadsBeforeJep491Rule extends AbstractSpringRule {
     }
 }
 
+final class VirtualThreadsExecutorBackoffRule extends AbstractSpringRule {
+    VirtualThreadsExecutorBackoffRule() {
+        super(
+                "PERF-008",
+                "Review applicationTaskExecutor back-off when virtual threads are enabled",
+                SpringCategory.PERFORMANCE,
+                "MEDIUM",
+                "With spring.threads.virtual.enabled=true on Java 21+, Spring Boot's TaskExecutorConfigurations backs off from creating the virtual-thread applicationTaskExecutor whenever any Executor bean is present unless spring.task.execution.mode=force is set.",
+                "Set spring.task.execution.mode=force so Boot still registers its virtual-thread applicationTaskExecutor alongside custom or framework Executor beans, or define an explicit applicationTaskExecutor bean if custom routing is intentional.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.virtualThreadsSupported()) return skipped("Virtual threads require Java 21+.");
+        if (!c.taskExecutionPropertiesPresent())
+            return skipped("Boot task execution auto-configuration (TaskExecutionProperties) is not present.");
+        c.applies(true);
+        if (!c.isVirtualThreadsEnabled()) return pass();
+        String mode = c.firstProperty("spring.task.execution.mode");
+        if (mode != null) {
+            String normalized = mode.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+            if (!Set.of("auto", "force").contains(normalized)) throw new IllegalArgumentException();
+            if ("force".equals(normalized)) return pass();
+        }
+        if (c.bootApplicationTaskExecutorPresent()
+                || SpringModel.hasName(c.executors(), "applicationTaskExecutor")
+                || SpringModel.hasName(c.taskExecutors(), "applicationTaskExecutor")) {
+            return pass();
+        }
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)
+                || !c.observations().incomplete().isEmpty()) {
+            return unknown(c);
+        }
+        if (c.executors().isEmpty()) {
+            return pass();
+        }
+        return violation(
+                c,
+                "spring.threads.virtual.enabled=true is set, but Boot's applicationTaskExecutor backed off because Executor bean(s) are present ("
+                        + names(c.executors())
+                        + "); set spring.task.execution.mode=force if Boot's virtual-thread applicationTaskExecutor is still needed.");
+    }
+}
+
+final class IgnoredVirtualThreadPoolPropertiesRule extends AbstractSpringRule {
+    IgnoredVirtualThreadPoolPropertiesRule() {
+        super(
+                "PERF-009",
+                "Review task pool properties ignored under virtual threads",
+                SpringCategory.PERFORMANCE,
+                "LOW",
+                "Configured spring.task.execution.pool.* or spring.task.scheduling.pool.size properties have no effect when Spring Boot's virtual-thread SimpleAsyncTaskExecutor or SimpleAsyncTaskScheduler is active.",
+                "Remove unused pool sizing properties under virtual threads, or use spring.task.execution.simple.concurrency-limit and spring.task.scheduling.simple.concurrency-limit when bounded concurrency is needed.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.virtualThreadsSupported()) return skipped("Virtual threads require Java 21+.");
+        boolean virtualExecutor = c.observations().yes(BOOT_VIRTUAL_TASK_EXECUTOR);
+        boolean virtualScheduler = c.observations().yes(BOOT_VIRTUAL_TASK_SCHEDULER);
+        if (!c.isVirtualThreadsEnabled()) {
+            c.applies(virtualExecutor || virtualScheduler || c.bootApplicationTaskExecutorPresent());
+            return pass();
+        }
+        if (!c.applies(virtualExecutor || virtualScheduler))
+            return skipped("No Boot virtual-thread SimpleAsyncTaskExecutor or SimpleAsyncTaskScheduler was observed.");
+        List<String> details = new ArrayList<>();
+        boolean hasApplicationPool = c.pooledTaskExecutors().stream().anyMatch(pool -> !pool.frameworkOwned());
+        if (virtualExecutor && !hasApplicationPool) {
+            for (String key : List.of(
+                    "spring.task.execution.pool.core-size",
+                    "spring.task.execution.pool.max-size",
+                    "spring.task.execution.pool.queue-capacity",
+                    "spring.task.execution.pool.keep-alive",
+                    "spring.task.execution.pool.allow-core-thread-timeout",
+                    "spring.task.execution.pool.shutdown.accept-tasks-after-context-close")) {
+                if (c.hasProperty(key)) {
+                    details.add(
+                            key
+                                    + " is configured but ignored by Boot's virtual-thread SimpleAsyncTaskExecutor; use spring.task.execution.simple.concurrency-limit to bound concurrency.");
+                }
+            }
+        }
+        if (virtualScheduler && c.hasProperty("spring.task.scheduling.pool.size")) {
+            details.add(
+                    "spring.task.scheduling.pool.size is configured but ignored by Boot's virtual-thread SimpleAsyncTaskScheduler; use spring.task.scheduling.simple.concurrency-limit to bound concurrency.");
+        }
+        return violation(c, details);
+    }
+}
+
+final class IncompleteTaskShutdownTerminationRule extends AbstractSpringRule {
+    IncompleteTaskShutdownTerminationRule() {
+        super(
+                "PERF-011",
+                "Review incomplete task executor or scheduler shutdown termination settings",
+                SpringCategory.PERFORMANCE,
+                "MEDIUM",
+                "Configured spring.task.execution.shutdown or spring.task.scheduling.shutdown settings enable await-termination without a positive await-termination-period (or set await-termination-period without await-termination=true under virtual threads), so shutdown does not wait for in-flight tasks.",
+                "Configure both await-termination=true and a positive await-termination-period together on spring.task.execution.shutdown and spring.task.scheduling.shutdown when graceful task drain is required.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        List<String> details = new ArrayList<>();
+        for (String scope : List.of("execution", "scheduling")) {
+            String prefix = "spring.task." + scope + ".shutdown.";
+            Boolean await = c.bind(prefix + "await-termination", Boolean.class);
+            Duration period = c.firstDurationProperty(prefix + "await-termination-period");
+            c.applies(c.taskExecutionPropertiesPresent()
+                    || c.bootApplicationTaskExecutorPresent()
+                    || c.schedulingEnabled()
+                    || await != null
+                    || period != null);
+            if (Boolean.TRUE.equals(await) && (period == null || period.isZero() || period.isNegative())) {
+                details.add(prefix
+                        + "await-termination=true is configured without a positive "
+                        + prefix
+                        + "await-termination-period, so shutdown does not wait for active tasks to complete.");
+            } else if (period != null && period.isNegative()) {
+                details.add(prefix
+                        + "await-termination-period is negative; configure a positive duration with "
+                        + prefix
+                        + "await-termination=true.");
+            } else if (c.virtualThreadsSupported()
+                    && c.isVirtualThreadsEnabled()
+                    && !Boolean.TRUE.equals(await)
+                    && period != null
+                    && !period.isZero()) {
+                details.add(prefix
+                        + "await-termination-period is configured without "
+                        + prefix
+                        + "await-termination=true, which has no effect when virtual threads are enabled.");
+            }
+        }
+        return violation(c, details);
+    }
+}
+
 final class InMemoryCacheManagerRule extends AbstractSpringRule {
     InMemoryCacheManagerRule() {
         super(
@@ -872,8 +1066,17 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.applies(
-                c.observations().yes(HTTP_CLIENT_DEFAULTS) || c.observations().yes(HTTP_SERVICE_GROUPS)))
+                c.observations().yes(HTTP_CLIENT_DEFAULTS) || c.observations().yes(HTTP_SERVICE_GROUPS))) {
+            if (c.observations().yes(HTTP_CLIENTS_ABSENT)
+                    && c.observations().inventoryAvailable()
+                    && c.observations().incomplete().isEmpty()
+                    && !c.restClientBeanPresent()
+                    && !c.webClientBeanPresent()
+                    && c.restTemplates().isEmpty()) {
+                return skipped("No managed HTTP-client, builder, or service-group configuration was observed.");
+            }
             return unknown(c);
+        }
         Duration connect = c.bind("spring.http.clients.connect-timeout", Duration.class);
         Duration read = c.bind("spring.http.clients.read-timeout", Duration.class);
         Map<String, Map<String, Object>> groups = c.bind(
@@ -1132,8 +1335,13 @@ final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         List<String> details = new ArrayList<>();
-        for (String id : List.of("env", "configprops", "health")) {
-            String key = "management.endpoint." + id + (id.equals("health") ? ".show-details" : ".show-values");
+        for (var entry : List.of(
+                Map.entry("env", "management.endpoint.env.show-values"),
+                Map.entry("configprops", "management.endpoint.configprops.show-values"),
+                Map.entry("health", "management.endpoint.health.show-details"),
+                Map.entry("health", "management.endpoint.health.show-components"))) {
+            String id = entry.getKey();
+            String key = entry.getValue();
             String value = c.firstHostProperty(key);
             if (value == null) continue;
             String normalized = value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");

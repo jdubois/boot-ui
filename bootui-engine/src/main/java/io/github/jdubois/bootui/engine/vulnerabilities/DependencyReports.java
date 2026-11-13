@@ -148,6 +148,9 @@ public final class DependencyReports {
                 .anyMatch(vulnerability -> !hasKnownSeverity(vulnerability))) {
             limitations.add("Findings with unknown severity are excluded from score penalties.");
         }
+        if ("PARTIAL".equals(status) && limitations.isEmpty()) {
+            limitations.add("The vulnerability scan did not complete within its configured limits.");
+        }
         return new AdvisorEvidenceDto(usable, limitations.isEmpty(), limitations);
     }
 
@@ -466,6 +469,34 @@ public final class DependencyReports {
         }
         String normalized = value.trim().toUpperCase(Locale.ROOT);
         return CVE_ID.matcher(normalized).matches() ? normalized : null;
+    }
+
+    /**
+     * De-duplicates and bounds advisory aliases (and {@code upstream} identifiers), prioritizing canonical
+     * {@code CVE-} and {@code GHSA-} identifiers ahead of vendor/distribution prefixes (such as {@code BIT-}
+     * and {@code CGA-}) while preserving encounter order within each priority tier.
+     */
+    public static List<String> orderAliases(Collection<String> aliases, int limit) {
+        if (aliases == null || aliases.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+        return aliases.stream()
+                .filter(alias -> alias != null && !alias.isBlank())
+                .map(String::trim)
+                .distinct()
+                .sorted(Comparator.comparingInt(DependencyReports::aliasPriority))
+                .limit(limit)
+                .toList();
+    }
+
+    private static int aliasPriority(String alias) {
+        if (canonicalCveId(alias) != null) {
+            return 0;
+        }
+        if (alias.regionMatches(true, 0, "GHSA-", 0, 5)) {
+            return 1;
+        }
+        return 2;
     }
 
     /**

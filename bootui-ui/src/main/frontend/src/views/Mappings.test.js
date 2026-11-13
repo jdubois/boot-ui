@@ -1,5 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {nextTick} from 'vue'
+import {nextTick, ref} from 'vue'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import Mappings from './Mappings.vue'
@@ -7,12 +7,30 @@ import FlashBanner from './components/FlashBanner.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
+const RouterLinkStub = {
+  props: ['to'],
+  template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
+}
+
+function mountMappings(options = {}) {
+  return mount(Mappings, {
+    ...options,
+    global: {
+      ...options.global,
+      stubs: {
+        RouterLink: RouterLinkStub,
+        ...(options.global?.stubs || {})
+      }
+    }
+  })
+}
+
 function response(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
-function report(mappings, matched = mappings.length, total = matched) {
-  return {mappings, page: {matched, total}}
+function report(mappings, matched = mappings.length, total = matched, basePath = '') {
+  return {basePath, mappings, page: {matched, total}}
 }
 
 describe('Mappings', () => {
@@ -35,7 +53,7 @@ describe('Mappings', () => {
       vi.fn(() => new Promise(() => {}))
     )
 
-    wrapper = mount(Mappings)
+    wrapper = mountMappings()
     await nextTick()
 
     expect(wrapper.getComponent(PanelSkeleton).attributes('aria-label')).toBe('Loading HTTP mappings…')
@@ -52,7 +70,7 @@ describe('Mappings', () => {
       .mockResolvedValueOnce(response(report([], 0, 3)))
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(Mappings)
+    wrapper = mountMappings()
     await flushPromises()
 
     expect(wrapper.getComponent(UnavailableState).text()).toContain('No HTTP mappings were reported')
@@ -71,7 +89,7 @@ describe('Mappings', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(Mappings, {
+    wrapper = mountMappings({
       props: {
         panel: {
           id: 'mappings',
@@ -100,10 +118,10 @@ describe('Mappings', () => {
       .mockResolvedValueOnce(response(null, false, 503))
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(Mappings)
+    wrapper = mountMappings()
     await flushPromises()
-    expect(wrapper.text()).toContain('/api/hello')
 
+    expect(wrapper.text()).toContain('/api/hello')
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
 
@@ -120,7 +138,7 @@ describe('Mappings', () => {
       .mockResolvedValueOnce(response(report([mapping])))
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(Mappings)
+    wrapper = mountMappings()
     await flushPromises()
 
     const retry = wrapper.get('button.btn-outline-danger')
@@ -132,5 +150,52 @@ describe('Mappings', () => {
 
     expect(wrapper.text()).toContain('/api/hello')
     expect(wrapper.find('button.btn-outline-danger').exists()).toBe(false)
+  })
+
+  it('links each concrete mapping to HTTP Probe with composed basePath and hides the link when http-probe is read-only', async () => {
+    const mapping = {
+      method: 'POST',
+      pattern: '/api/orders/{id}',
+      handler: 'OrderController#create',
+      produces: 'application/json',
+      consumes: 'application/json'
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(report([mapping], 1, 1, '/host'))))
+
+    wrapper = mountMappings({
+      global: {
+        provide: {
+          panels: ref({
+            panels: [{id: 'http-probe', enabled: true, available: true, readOnly: false}]
+          })
+        }
+      }
+    })
+    await flushPromises()
+
+    const link = wrapper.get('.mappings-probe-link')
+    expect(link.text()).toContain('Open in HTTP Probe')
+    expect(JSON.parse(link.attributes('data-to'))).toEqual({
+      path: '/http-probe',
+      query: {
+        method: 'POST',
+        path: '/host/api/orders/{id}',
+        accept: 'application/json',
+        contentType: 'application/json'
+      }
+    })
+
+    wrapper.unmount()
+    wrapper = mountMappings({
+      global: {
+        provide: {
+          panels: ref({
+            panels: [{id: 'http-probe', enabled: true, available: true, readOnly: true}]
+          })
+        }
+      }
+    })
+    await flushPromises()
+    expect(wrapper.find('.mappings-probe-link').exists()).toBe(false)
   })
 })

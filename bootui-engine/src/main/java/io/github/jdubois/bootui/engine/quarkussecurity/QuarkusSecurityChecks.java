@@ -23,6 +23,25 @@ import java.util.regex.Pattern;
  */
 final class QuarkusSecurityChecks {
 
+    /**
+     * Rule IDs that were removed from the catalogue. They stay reserved so existing dismissals never silently apply
+     * to a different check; see docs/QUARKUS-CHECKS.md.
+     */
+    static final Set<String> RETIRED_RULES = Set.of(
+            "QS-AUTH-005",
+            "QS-AUTH-006",
+            "QS-AUTH-011",
+            "QS-AUTHZ-003",
+            "QS-TLS-002",
+            "QS-CORS-003",
+            "QS-CORS-004",
+            "QS-CORS-005",
+            "QS-HDR-007",
+            "QS-HDR-008",
+            "QS-MGMT-002");
+
+    static final Set<String> RETIRED_RULE_IDS = RETIRED_RULES;
+
     private static final String VIOLATION = "VIOLATION";
     /** Every rule these checks evaluate, in catalogue order; docs/QUARKUS-CHECKS.md documents each. */
     private static final List<String> RULE_IDS = List.of(
@@ -39,6 +58,7 @@ final class QuarkusSecurityChecks {
             "QS-AUTHZ-001",
             "QS-AUTHZ-002",
             "QS-AUTHZ-004",
+            "QS-AUTHZ-005",
             "QS-CFG-001",
             "QS-CORS-001",
             "QS-CORS-002",
@@ -55,18 +75,20 @@ final class QuarkusSecurityChecks {
             "QS-HDR-006",
             "QS-MGMT-001",
             "QS-MGMT-003",
+            "QS-MGMT-004",
             "QS-MSG-001",
             "QS-OIDC-001",
             "QS-OIDC-002",
             "QS-OIDC-003",
             "QS-OIDC-004",
             "QS-OIDC-005",
+            "QS-OIDC-006",
             "QS-PROXY-001",
             "QS-SESSION-001",
             "QS-SESSION-002",
             "QS-SESSION-003",
+            "QS-SESSION-004",
             "QS-TLS-001",
-            "QS-TLS-002",
             "QS-TLS-003",
             "QS-TLS-004",
             "QS-TLS-005",
@@ -82,7 +104,8 @@ final class QuarkusSecurityChecks {
 
     private QuarkusSecurityChecks(AdvisorViolationCollector collector, Set<String> unknownRules) {
         this.collector = collector;
-        this.unknownRules = unknownRules;
+        this.unknownRules = new HashSet<>(unknownRules);
+        this.unknownRules.removeAll(RETIRED_RULES);
     }
 
     static int ruleCount() {
@@ -106,6 +129,7 @@ final class QuarkusSecurityChecks {
 
         Observations(QuarkusSecuritySnapshot snapshot) {
             unknown = new HashSet<>(snapshot.evidence().unknownRules());
+            unknown.removeAll(RETIRED_RULES);
             if (!snapshot.evidence().incomplete().isEmpty()
                     || !snapshot.evidence().failures().isEmpty()) {
                 limitations.add("Some Quarkus security observations are incomplete or failed.");
@@ -125,7 +149,12 @@ final class QuarkusSecurityChecks {
         boolean endpoints(String id, boolean enabled, QuarkusSecuritySnapshot snapshot) {
             boolean targets = snapshot.endpointCount() > 0
                     || !snapshot.evidence().endpoints().isEmpty();
-            check(id, enabled && targets, !targets || snapshot.evidence().endpointMetadata());
+            boolean known = !targets
+                    || (snapshot.evidence().endpointMetadata()
+                            && !snapshot.evidence().incomplete().contains("REST endpoint metadata")
+                            && snapshot.evidence().endpoints().stream()
+                                    .allMatch(endpoint -> endpoint.access() != QuarkusSecurityEndpoint.Access.UNKNOWN));
+            check(id, enabled && targets, known);
             return enabled;
         }
 
@@ -329,6 +358,9 @@ final class QuarkusSecurityChecks {
                 && !s.defaultRolesAllowed()) {
             UncoveredEndpoints uncovered = uncoveredEndpoints(s, observations);
             if (uncovered.count() > 0) {
+                if (!uncovered.details().isEmpty() && canRetainProvenUncoveredEndpoints(s)) {
+                    unknownRules.remove("QS-AUTHZ-004");
+                }
                 v.add(rule(
                         "QS-AUTHZ-004",
                         "No deny-by-default for unannotated endpoints",
@@ -342,6 +374,19 @@ final class QuarkusSecurityChecks {
                         uncovered.details()));
             }
         }
+        if (observations.check("QS-AUTHZ-005", !s.invalidProdPermissionPaths().isEmpty())) {
+            v.add(rule(
+                    "QS-AUTHZ-005",
+                    "Production HTTP permission path uses unsupported /** wildcard",
+                    "Authorization",
+                    "MEDIUM",
+                    "A supported production quarkus.http.auth.permission.<name>.paths declaration ends in /**."
+                            + " Quarkus ImmutablePathMatcher supports only a single trailing /* or /*/ wildcard and"
+                            + " fails at production startup with ConfigurationException when /** is used.",
+                    s.invalidProdPermissionPaths().size(),
+                    s.invalidProdPermissionPaths(),
+                    "Replace trailing /** with /* in quarkus.http.auth.permission.<name>.paths."));
+        }
         if (observations.check("QS-TLS-001", true, s.insecureRequests() != null)
                 && "enabled".equals(s.insecureRequests())) {
             v.add(rule(
@@ -354,19 +399,6 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.http.insecure-requests=enabled"),
                     "Prefer redirect once TLS is available, or document the terminating proxy."));
-        }
-        if (observations.check("QS-TLS-002", true) && !s.sslConfigured()) {
-            v.add(rule(
-                    "QS-TLS-002",
-                    "No TLS configured for the main HTTP listener",
-                    "Transport",
-                    "INFO",
-                    "The main Quarkus HTTP listener has no HTTPS keystore or selected TLS registry bucket."
-                            + " This can be acceptable behind a terminating proxy, but proxy forwarding settings"
-                            + " alone do not prove that TLS termination exists.",
-                    1,
-                    List.of("no quarkus.http.ssl.* / selected quarkus.tls.* server keystore"),
-                    "Configure TLS or document the terminating proxy."));
         }
         if (observations.check("QS-TLS-003", s.tlsTrustAll())) {
             v.add(rule(
@@ -667,6 +699,19 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.token-state-manager.encryption-required=false"),
                     "Remove the override so token-state-manager.encryption-required keeps its true default."));
         }
+        if (observations.check("QS-OIDC-006", !s.insecureOidcClientEndpoints().isEmpty())) {
+            v.add(rule(
+                    "QS-OIDC-006",
+                    "OIDC client endpoints must use HTTPS and verify TLS",
+                    "OIDC",
+                    "HIGH",
+                    "An active quarkus.oidc-client configuration uses plain HTTP for auth-server-url, token-path, or"
+                            + " revoke-path, or disables certificate validation with tls.verification=none, exposing"
+                            + " client credentials and access tokens on the wire.",
+                    s.insecureOidcClientEndpoints().size(),
+                    s.insecureOidcClientEndpoints(),
+                    "Use HTTPS for all quarkus.oidc-client endpoints and keep TLS certificate verification enabled."));
+        }
         if (observations.check("QS-MGMT-001", s.managementEnabled()) && s.managementHostNonLoopback()) {
             v.add(rule(
                     "QS-MGMT-001",
@@ -693,6 +738,20 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.management.enabled=true, quarkus.management.host /"
                             + " %prod.quarkus.management.host absent"),
                     "Explicitly pin %prod.quarkus.management.host to 127.0.0.1, or to the intended bind address."));
+        }
+        if (observations.check("QS-MGMT-004", !s.ignoredManagementAuthPolicies().isEmpty())) {
+            v.add(rule(
+                    "QS-MGMT-004",
+                    "Management permission policies declared while management auth is disabled",
+                    "Management",
+                    "HIGH",
+                    "quarkus.management.auth.permission.* or quarkus.management.auth.policy.* rules are declared"
+                            + " while build-time quarkus.management.auth.enabled is false (its default), so Quarkus"
+                            + " silently ignores all management interface permission policies.",
+                    s.ignoredManagementAuthPolicies().size(),
+                    s.ignoredManagementAuthPolicies(),
+                    "Set build-time quarkus.management.auth.enabled=true so the declared management permission"
+                            + " policies are enforced."));
         }
         if (observations.check("QS-CFG-001", true) && !s.suspectedSecretKeys().isEmpty()) {
             v.add(rule(
@@ -742,6 +801,20 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.http.auth.form.timeout >= 8h"),
                     "Lower the timeout (the Quarkus default is 30 minutes) and pair it with new-cookie-interval."));
+        }
+        if (observations.check("QS-SESSION-004", s.formAuth()) && s.formSessionEncryptionKeyShort()) {
+            v.add(rule(
+                    "QS-SESSION-004",
+                    "Short form-auth session encryption key",
+                    "Session",
+                    "MEDIUM",
+                    "quarkus.http.auth.session.encryption-key is shorter than 16 characters while form"
+                            + " authentication is enabled. Quarkus requires at least 16 characters for persistent"
+                            + " login cookie encryption.",
+                    1,
+                    List.of("quarkus.http.auth.session.encryption-key length < 16"),
+                    "Configure a random quarkus.http.auth.session.encryption-key of at least 16 characters (ideally"
+                            + " 32+ bytes from an external secret store)."));
         }
         if (observations.check("QS-GRPC-001", s.grpcReflectionEnabledInProd())) {
             v.add(rule(
@@ -878,6 +951,15 @@ final class QuarkusSecurityChecks {
 
     private record UncoveredEndpoints(int count, List<String> details) {}
 
+    private static final Set<String> ENDPOINT_ONLY_INCOMPLETE_CATEGORIES =
+            Set.of("REST endpoint metadata", "unknown endpoint authorization", "unsupported REST endpoint declaration");
+
+    private static boolean canRetainProvenUncoveredEndpoints(QuarkusSecuritySnapshot s) {
+        return s.evidence().endpointMetadata()
+                && s.evidence().failures().isEmpty()
+                && ENDPOINT_ONLY_INCOMPLETE_CATEGORIES.containsAll(s.evidence().incomplete());
+    }
+
     private static UncoveredEndpoints uncoveredEndpoints(QuarkusSecuritySnapshot snapshot, Observations observations) {
         for (QuarkusSecurityPermission permission : snapshot.permissions()) {
             observations.check("QS-AUTHZ-004", false, permission.knownPolicy());
@@ -888,14 +970,27 @@ final class QuarkusSecurityChecks {
                     : Math.max(0, snapshot.endpointCount() - snapshot.securedEndpointCount());
             return new UncoveredEndpoints(count, List.of());
         }
-        List<String> details = snapshot.evidence().endpoints().stream()
-                .filter(endpoint -> endpoint.access() == QuarkusSecurityEndpoint.Access.UNANNOTATED)
-                .filter(endpoint -> QuarkusPermissionEvidence.decision(snapshot.permissions(), endpoint)
-                        == QuarkusPermissionEvidence.Decision.PUBLIC)
-                .map(endpoint -> endpoint.method() + " " + endpoint.path()
-                        + " — declared endpoint without a supported restriction")
-                .toList();
-        return new UncoveredEndpoints(details.size(), details);
+        boolean allKnown = true;
+        List<String> details = new ArrayList<>();
+        for (QuarkusSecurityEndpoint endpoint : snapshot.evidence().endpoints()) {
+            if (endpoint.access() == QuarkusSecurityEndpoint.Access.UNKNOWN) {
+                allKnown = false;
+                continue;
+            }
+            if (endpoint.access() != QuarkusSecurityEndpoint.Access.UNANNOTATED) {
+                continue;
+            }
+            QuarkusPermissionEvidence.Decision decision =
+                    QuarkusPermissionEvidence.decision(snapshot.permissions(), endpoint);
+            if (decision == QuarkusPermissionEvidence.Decision.UNKNOWN) {
+                allKnown = false;
+            } else if (decision == QuarkusPermissionEvidence.Decision.PUBLIC) {
+                details.add(endpoint.method() + " " + endpoint.path()
+                        + " — declared endpoint without a supported restriction");
+            }
+        }
+        observations.check("QS-AUTHZ-004", false, allKnown);
+        return new UncoveredEndpoints(details.size(), List.copyOf(details));
     }
 
     private SecurityRuleResultDto rule(
@@ -951,7 +1046,7 @@ final class QuarkusSecurityChecks {
                     case "QS-AUTH-007", "QS-AUTH-013" -> "security-properties#embedded-users";
                     case "QS-AUTH-010" -> "security-jdbc";
                     case "QS-AUTH-012" -> "security-authentication-mechanisms#form-auth";
-                    case "QS-TLS-001", "QS-TLS-002" -> "http-reference#ssl";
+                    case "QS-TLS-001" -> "http-reference#ssl";
                     case "QS-TLS-003", "QS-TLS-005", "QS-DEV-001" ->
                         "tls-registry-reference#trusting-all-certificates-and-hostname-verification";
                     case "QS-TLS-004", "QS-OIDC-001", "QS-OIDC-004" ->
@@ -962,6 +1057,8 @@ final class QuarkusSecurityChecks {
                     case "QS-OIDC-002" -> "security-oidc-code-flow-authentication#oidc-cookies";
                     case "QS-OIDC-003" -> "security-oidc-code-flow-authentication#proof-key-for-code-exchange-pkce";
                     case "QS-OIDC-005" -> "security-oidc-code-flow-authentication#token-state-manager";
+                    case "QS-OIDC-006" -> "security-openid-connect-client-reference";
+                    case "QS-MGMT-004" -> "management-interface-reference#basic-auth";
                     case "QS-CFG-001" -> "credentials-provider";
                     case "QS-GRPC-001" -> "grpc-service-implementation#reflection-service";
                     case "QS-GRAPHQL-001" -> "smallrye-graphql";

@@ -1,13 +1,15 @@
 # Quarkus security checks
 
-The Security panel, on Quarkus, runs a fixed, on-demand **45-rule** ruleset against the host application's
+The Security panel, on Quarkus, runs a fixed, on-demand **48-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
 `quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`, `quarkus.http.proxy.*`,
 `quarkus.security.users.embedded.*`, `quarkus.rest-csrf.*` (the CSRF extension), `quarkus.grpc.server.*`,
 `quarkus.smallrye-graphql.*`, `quarkus-elytron-security-jdbc` principal-query settings, and Kafka/SmallRye
 Reactive Messaging channel security settings, plus build-time counts of the standard authorization
-annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed`, and
-`@AuthorizationPolicy`) discovered in the application's own classes. It never intercepts live traffic,
+annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed` including repeatable
+`@PermissionsAllowed$List`, `@AuthorizationPolicy`, and Quarkus 3.x HTTP authentication mechanism annotations
+`@BasicAuthentication`, `@FormAuthentication`, `@MTLSAuthentication`, `@BearerTokenAuthentication`,
+`@AuthorizationCodeFlow`, and `@HttpAuthenticationMechanism`) discovered in the application's own classes. It never intercepts live traffic,
 exposes credentials or secrets, or modifies the
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
@@ -256,10 +258,20 @@ Dismissed rules remove all of their findings from the score.
   restrictions: a more-specific permit in one phase cannot override denial in the other.
   A matched path with no matching method mapping **denies** that method; a GET-only mapping does not
   establish that POST is public. Method annotations override class annotations, and explicit `@PermitAll` declarations
-  are not counted as accidentally unannotated. Custom policies, unresolved route templates, inherited/transformed
-  metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
+  are not counted as accidentally unannotated. Parameterized `{param}` routes are evaluated against prefix permissions
+  when no deeper permission path overlaps the template segment, benign interfaces/superclasses without JAX-RS or
+  security metadata do not mark endpoint capture incomplete, and proven uncovered endpoints are retained even when
+  another endpoint's authorization is unknown. Custom policies, overlapping route templates, inherited/transformed
+  security metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
   treated as public.
 - **Recommendation**: Set `deny-unannotated-endpoints=true` (or default roles) and mark public endpoints `@PermitAll`.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>
+
+### QS-AUTHZ-005 - Production HTTP permission path uses unsupported /** wildcard
+
+- **Severity**: MEDIUM
+- **Detects**: A supported local production declaration (`%prod.quarkus.http.auth.permission.<name>.paths` first, then base `quarkus.http.auth.permission.<name>.paths`, scalar or indexed, when the permission is enabled in `%prod`) contains a path ending in `/**`. Quarkus's `ImmutablePathMatcher` only supports a single trailing `/*` or `/*/` wildcard and throws `ConfigurationException` at startup when `/**` is active. When a `%prod`-scoped permission (or a base permission overridden in `%dev`/`%test`) uses `/**`, dev and test runs succeed while production startup fails.
+- **Recommendation**: Replace trailing `/**` with `/*` in `quarkus.http.auth.permission.<name>.paths`.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>
 
 ## Transport
@@ -276,15 +288,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### QS-TLS-002 - No TLS configured for the main HTTP listener
 
-- **Severity**: INFO
-- **Detects**: No supported main-listener TLS material is declared. Recognized forms include a legacy keystore,
-  paired certificate/key lists, TLS-registry JKS/P12 paths, and paired PEM certificate/key entries. A named registry
-  bucket only counts when selected by `quarkus.http.tls-configuration-name`; an unrelated client bucket does not.
-  Partial material and programmatic providers remain incomplete, and a declaration is not proof of usable HTTPS.
-  Password, alias, ordering, and other option defaults are not certificate material and do not, by themselves, make
-  TLS observation incomplete.
-- **Recommendation**: Acceptable behind a verified terminating proxy.
-- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#ssl>
+**Retired.** Duplicate of `QS-TLS-001` (`LOW`, `quarkus.http.insecure-requests=enabled`) in the default `insecure-requests` posture when listener SSL is absent, and fires on every local Quarkus dev/test run. Listener TLS material detection (legacy keystore, paired certificate/key lists, and TLS-registry JKS/P12 or paired PEM entries selected by `quarkus.http.tls-configuration-name`) continues to gate `QS-HDR-003`. The ID remains reserved in `QuarkusSecurityChecks.RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### QS-TLS-003 - TLS certificate validation disabled
 
@@ -542,6 +546,13 @@ Dismissed rules remove all of their findings from the score.
 - **Recommendation**: Remove the override so `token-state-manager.encryption-required` keeps its `true` default.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-code-flow-authentication#token-state-manager>
 
+### QS-OIDC-006 - OIDC client endpoints must use HTTPS and verify TLS
+
+- **Severity**: HIGH
+- **Detects**: An active default or named `quarkus.oidc-client[.<id>]` configuration (`quarkus.oidc-client.enabled=true` and `client-enabled=true`) uses plain HTTP (`http://`) for `auth-server-url`, `token-path`, or `revoke-path`, or disables certificate validation with `tls.verification=none` without a overriding `tls.tls-configuration-name`. Client credentials and access tokens cross these endpoints; only bounded property names are reported.
+- **Recommendation**: Use HTTPS for all `quarkus.oidc-client` endpoints and keep TLS certificate verification enabled.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-openid-connect-client-reference>
+
 ## Management
 
 ### QS-MGMT-001 - Management interface on a non-loopback host
@@ -571,6 +582,13 @@ Dismissed rules remove all of their findings from the score.
   reviewed by QS-MGMT-001 and does not establish launch mode, firewall policy, or endpoint authorization.
 - **Recommendation**: Explicitly pin `%prod.quarkus.management.host` to `127.0.0.1`, or to the intended bind address.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/management-interface-reference#configure-the-host-port-and-scheme>
+
+### QS-MGMT-004 - Management permission policies declared while management auth is disabled
+
+- **Severity**: HIGH
+- **Detects**: Enabled `quarkus.management.auth.permission.<name>.*` or `quarkus.management.auth.policy.<name>.*` rules are declared while effective `quarkus.management.auth.enabled` (which defaults to `${quarkus.management.auth.basic:false}`) is `false` or the security capability is absent. When management authentication is disabled, Quarkus does not install the management authentication/authorization handler and silently ignores all `quarkus.management.auth.permission.*` and `.policy.*` declarations.
+- **Recommendation**: Set build-time `quarkus.management.auth.enabled=true` (or `quarkus.management.auth.basic=true`) so the declared management interface permission policies are enforced.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/management-interface-reference#basic-auth>
 
 ## Proxy
 
@@ -643,6 +661,13 @@ Dismissed rules remove all of their findings from the score.
   hours. This is an **idle** timeout, not an absolute session lifespan: active sessions can renew. Eight hours is a
   heuristic review threshold; invalid or unsupported durations never become a passing default.
 - **Recommendation**: Lower the timeout (the Quarkus default is 30 minutes) and pair it with `new-cookie-interval`.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth>
+
+### QS-SESSION-004 - Short form-auth session encryption key
+
+- **Severity**: MEDIUM
+- **Detects**: `quarkus.http.auth.form.enabled=true` is active and a configured `quarkus.http.auth.session.encryption-key` has a resolved length shorter than 16 characters. Quarkus `PersistentLoginManager` requires at least 16 characters when an explicit session encryption key is configured and derives the AES session key from this secret. Only the resolved length is checked; the secret value is never retained.
+- **Recommendation**: Configure a random `quarkus.http.auth.session.encryption-key` of at least 16 characters (ideally 32+ bytes from an external secret store).
 - **Learn more**: <https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth>
 
 ## gRPC

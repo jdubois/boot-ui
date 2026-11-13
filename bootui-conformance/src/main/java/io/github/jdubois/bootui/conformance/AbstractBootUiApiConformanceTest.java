@@ -2005,7 +2005,63 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(detail.status())
                     .as("%s: GET /exceptions/{exceptionGroupId} resolves the entry's group", feed)
                     .isEqualTo(200);
+            List<String> detailFailures = new ArrayList<>();
+            assertJsonContract(
+                    "exception detail", BootUiApiContractCatalog.exceptionDetail(), detail.json(), detailFailures);
+            for (JsonNode occurrence : detail.json().path("occurrences")) {
+                assertJsonContract(
+                        "exception occurrence",
+                        BootUiApiContractCatalog.exceptionOccurrence(),
+                        occurrence,
+                        detailFailures);
+            }
+            assertThat(detailFailures).isEmpty();
         }
+    }
+
+    @Test
+    void validationAndBindingDiagnosticsAreExtractedPerOccurrenceAndScrubbedOnEveryStack() {
+        assumeTrue(isPanelUsableInLiveManifest("exceptions"), "exceptions panel is not available in this environment");
+        String failing = exceptionProbePath();
+        assumeTrue(failing != null, "this host application has no failing request to send");
+        BootUiHttpProbe probe = probe();
+        probe.get(failing + "?scenario=validation");
+
+        Response list = probe.get(api("/exceptions"));
+        assertThat(list.status()).isEqualTo(200);
+        assertThat(list.body())
+                .as("raw rejected values and map keys must never leak in GET /exceptions under MASKED")
+                .doesNotContain("alice-secret@example.com", "secretApiKey");
+
+        JsonNode matchedDetail = null;
+        for (JsonNode group : list.json().path("groups")) {
+            Response detail = probe.get(api("/exceptions/" + group.path("id").asText()));
+            assertThat(detail.status()).isEqualTo(200);
+            assertThat(detail.body())
+                    .as("raw rejected values and map keys must never leak in GET /exceptions/{id} under MASKED")
+                    .doesNotContain("alice-secret@example.com", "secretApiKey");
+            JsonNode occurrences = detail.json().path("occurrences");
+            if (occurrences.isArray()
+                    && !occurrences.isEmpty()
+                    && !occurrences.get(0).path("bindingDiagnostics").isEmpty()) {
+                matchedDetail = detail.json();
+                break;
+            }
+        }
+        assertThat(matchedDetail)
+                .as("validation probe records an exception occurrence with structured bindingDiagnostics")
+                .isNotNull();
+        JsonNode latest = matchedDetail.path("occurrences").get(0);
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("exception occurrence", BootUiApiContractCatalog.exceptionOccurrence(), latest, failures);
+        for (JsonNode diagnostic : latest.path("bindingDiagnostics")) {
+            assertJsonContract(
+                    "binding diagnostic", BootUiApiContractCatalog.bindingDiagnostic(), diagnostic, failures);
+        }
+        assertThat(failures).isEmpty();
+        assertThat(latest.path("bindingDiagnostics").toString())
+                .contains("attributes[*]")
+                .doesNotContain("secretApiKey", "alice-secret@example.com");
     }
 
     @Test
@@ -2267,7 +2323,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         JsonNode report = probe.get(api("/runtime-insights")).json();
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
-                .isEqualTo(28);
+                .isEqualTo(29);
         // Each kind's external validation (docs/PLAN-v2.md M4-20) decides its default listing on every stack, but
         // stays internal: no check carries it, and no row's reason mentions it.
         for (JsonNode check : report.path("checks")) {

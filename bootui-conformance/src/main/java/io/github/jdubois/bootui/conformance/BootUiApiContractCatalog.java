@@ -108,7 +108,11 @@ public final class BootUiApiContractCatalog {
                             "unconditionalClasses", JsonType.ARRAY,
                             "exclusions", JsonType.ARRAY,
                             "counts", JsonType.OBJECT)),
-            pagedList("mappings", "/mappings/flat", "mappings", fields("total", JsonType.INTEGER)),
+            pagedList(
+                    "mappings",
+                    "/mappings/flat",
+                    "mappings",
+                    fields("total", JsonType.INTEGER, "basePath", JsonType.STRING)),
             inventory("data", "/data/repositories", "springDataPresent", "repositories"),
             inventory("flyway", "/flyway/migrations", "flywayPresent", "databases"),
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
@@ -545,6 +549,48 @@ public final class BootUiApiContractCatalog {
                     "rows", JsonType.ARRAY));
 
     /**
+     * One exception group's detail read ({@code GET /exceptions/{id}}), a detail read of the {@code exceptions} panel
+     * kept out of {@link #reads()}.
+     */
+    private static final ReadContract EXCEPTION_DETAIL = read(
+            "exceptions",
+            "/exceptions/conformance-exception-group",
+            fields(
+                    "group", JsonType.OBJECT,
+                    "frames", JsonType.ARRAY,
+                    "causes", JsonType.ARRAY,
+                    "occurrences", JsonType.ARRAY));
+
+    /**
+     * One recorded occurrence inside {@code GET /exceptions/{id}}, including its per-occurrence binding/validation
+     * diagnostics.
+     */
+    private static final ReadContract EXCEPTION_OCCURRENCE = read(
+            "exceptions",
+            "/exceptions/conformance-exception-group#occurrences[]",
+            fields(
+                    "timestamp", JsonType.NUMBER,
+                    "thread", JsonType.NULLABLE_STRING,
+                    "requestMethod", JsonType.NULLABLE_STRING,
+                    "requestPath", JsonType.NULLABLE_STRING,
+                    "handler", JsonType.NULLABLE_STRING,
+                    "source", JsonType.NULLABLE_STRING,
+                    "traceId", JsonType.NULLABLE_STRING,
+                    "requestId", JsonType.NULLABLE_STRING,
+                    "executionId", JsonType.NULLABLE_STRING,
+                    "bindingDiagnostics", JsonType.ARRAY,
+                    "bindingDiagnosticsTruncated", JsonType.BOOLEAN));
+
+    /** One metadata-only binding/validation diagnostic on an {@link #exceptionOccurrence()}. */
+    private static final ReadContract BINDING_DIAGNOSTIC = read(
+            "exceptions",
+            "/exceptions/conformance-exception-group#occurrences[].bindingDiagnostics[]",
+            fields(
+                    "targetType", JsonType.STRING,
+                    "fieldPath", JsonType.STRING,
+                    "reason", JsonType.STRING));
+
+    /**
      * One Side Effects sensor's rows ({@code docs/PLAN-v2.md} §5.16), a read of the {@code side-effects} panel kept out of
      * {@link #reads()}: it answers the same shape with or without the BootUI agent, {@code available: false} and no rows
      * without it.
@@ -789,6 +835,21 @@ public final class BootUiApiContractCatalog {
     /** The Exceptions panel's caught-in-code read contract ({@code docs/PLAN-v2.md} M5-6). */
     public static ReadContract caughtExceptions() {
         return CAUGHT_EXCEPTIONS;
+    }
+
+    /** One exception group's detail read contract ({@code GET /exceptions/{id}}). */
+    public static ReadContract exceptionDetail() {
+        return EXCEPTION_DETAIL;
+    }
+
+    /** One exception occurrence's contract inside {@link #exceptionDetail()}. */
+    public static ReadContract exceptionOccurrence() {
+        return EXCEPTION_OCCURRENCE;
+    }
+
+    /** One binding/validation diagnostic's contract inside {@link #exceptionOccurrence()}. */
+    public static ReadContract bindingDiagnostic() {
+        return BINDING_DIAGNOSTIC;
     }
 
     /** One Side Effects sensor's rows' read contract ({@code docs/PLAN-v2.md} §5.16). */

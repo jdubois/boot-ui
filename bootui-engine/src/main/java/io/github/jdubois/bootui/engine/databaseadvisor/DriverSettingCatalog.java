@@ -43,6 +43,12 @@ public final class DriverSettingCatalog {
     /** Connector/J: report affected rows rather than found rows. Default {@code false}. */
     public static final String USE_AFFECTED_ROWS = "useAffectedRows";
 
+    /** Connector/J: driver-level automatic reconnection, discouraged by Connector/J. Default {@code false}. */
+    public static final String AUTO_RECONNECT = "autoReconnect";
+
+    /** Connector/J: pooling reconnection strategy, discouraged by Connector/J. Default {@code false}. */
+    public static final String AUTO_RECONNECT_FOR_POOLS = "autoReconnectForPools";
+
     /** Connector/J: cache the parsing of prepared statements. Default {@code false}. */
     public static final String CACHE_PREP_STMTS = "cachePrepStmts";
 
@@ -136,6 +142,8 @@ public final class DriverSettingCatalog {
                             RE_WRITE_BATCHED_INSERTS,
                             REWRITE_BATCHED_STATEMENTS,
                             USE_AFFECTED_ROWS,
+                            AUTO_RECONNECT,
+                            AUTO_RECONNECT_FOR_POOLS,
                             SERVICE,
                             USE_CONFIGS,
                             PROPERTIES_TRANSFORM,

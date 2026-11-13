@@ -98,4 +98,29 @@ test.describe('Exceptions (Quarkus)', () => {
     await expect(row.getByRole('button', {name: 'Open', exact: true})).toHaveClass(/active/)
     await expect(row).toContainText('Reopened ×1')
   })
+
+  test('renders binding & validation diagnostics and scrubs rejected values and map keys', async ({openView, page}) => {
+    await page.request.get('/api/sample/boom?scenario=validation').catch(() => {})
+
+    await openView('exceptions', 'Exceptions')
+
+    const row = page.locator('tbody tr', {hasText: 'IllegalArgumentException'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await expect(row).not.toContainText('alice-secret@example.com')
+    await expect(row).not.toContainText('secretApiKey')
+
+    await row.getByRole('button', {name: 'Details'}).click()
+
+    const drawer = page.locator('.exception-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer).not.toContainText('alice-secret@example.com')
+    await expect(drawer).not.toContainText('secretApiKey')
+
+    const section = drawer.locator('.binding-diagnostics-section')
+    await expect(section).toBeVisible()
+    await expect(section).toContainText('Binding & validation diagnostics')
+    await expect(section).toContainText('ProductSummary')
+    await expect(section).toContainText('attributes[*]')
+    await expect(section).toContainText('Integer')
+  })
 })

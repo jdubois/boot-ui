@@ -112,10 +112,8 @@ class DatabaseAdvisorScannerTests {
                                 VendorFindingKinds.POSTGRES_SERVER_SETTINGS,
                                 List.of(
                                         DatabaseAdvisorFixtures.setting("idle_in_transaction_session_timeout", "0"),
-                                        DatabaseAdvisorFixtures.setting("statement_timeout", "30000"),
                                         DatabaseAdvisorFixtures.setting("autovacuum", "on"),
                                         DatabaseAdvisorFixtures.setting("track_io_timing", "on"),
-                                        DatabaseAdvisorFixtures.setting("log_min_duration_statement", "-1"),
                                         DatabaseAdvisorFixtures.setting("shared_preload_libraries", "auto_explain")),
                                 false))
                         .add(VendorAugmentation.available(
@@ -136,7 +134,7 @@ class DatabaseAdvisorScannerTests {
             assertThat(report.results())
                     .filteredOn(result -> result.id().startsWith("DB-SERVER-"))
                     .extracting(result -> result.id() + ":" + result.status())
-                    .containsExactly("DB-SERVER-001:VIOLATION", "DB-SERVER-004:VIOLATION", "DB-SERVER-006:VIOLATION");
+                    .containsExactly("DB-SERVER-001:VIOLATION", "DB-SERVER-004:VIOLATION");
             // a PostgreSQL-only inventory makes the MySQL rule not applicable
             assertThat(report.diagnostics())
                     .filteredOn(diagnostic -> diagnostic.source().equals("DB-SERVER-007"))
@@ -236,7 +234,7 @@ class DatabaseAdvisorScannerTests {
                 });
         assertThat(report.diagnostics())
                 .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
-                .hasSize(9)
+                .hasSize(10)
                 .allSatisfy(diagnostic -> assertThat(diagnostic.level()).isEqualTo("INFO"));
         assertThat(report.rulesSkipped()).isGreaterThanOrEqualTo(3);
     }
@@ -363,7 +361,7 @@ class DatabaseAdvisorScannerTests {
 
         assertThat(report.diagnostics())
                 .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
-                .hasSize(9)
+                .hasSize(10)
                 .allSatisfy(diagnostic -> {
                     assertThat(diagnostic.level()).isEqualTo("INFO");
                     assertThat(diagnostic.message()).startsWith("Not applicable:");
@@ -550,6 +548,7 @@ class DatabaseAdvisorScannerTests {
                 .add(VendorAugmentation.available(
                         VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES, List.of(), false))
                 .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_UNLOGGED_TABLES, List.of(), false))
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_PARTITIONS, List.of(), false))
                 .build();
         var postgres = DatabaseAdvisorFixtures.schema("primary", Dialect.POSTGRESQL, List.of(), findings);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
@@ -567,7 +566,7 @@ class DatabaseAdvisorScannerTests {
             assertThat(report.diagnostics())
                     .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-MYSQL-")
                             || diagnostic.source().startsWith("DB-ORACLE-"))
-                    .hasSize(6)
+                    .hasSize(8)
                     .allSatisfy(diagnostic -> {
                         assertThat(diagnostic.level()).isEqualTo("INFO");
                         assertThat(diagnostic.message()).startsWith("Not applicable:");
@@ -955,16 +954,41 @@ class DatabaseAdvisorScannerTests {
 
     @Test
     void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
-        Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(48);
+        assertThat(DatabaseAdvisorRuleRegistry.RETIRED_RULE_IDS)
+                .containsExactlyInAnyOrder(
+                        "DB-SCHEMA-008",
+                        "DB-SCHEMA-009",
+                        "DB-HIB-001",
+                        "DB-HIB-008",
+                        "DB-POOL-004",
+                        "DB-SERVER-002",
+                        "DB-SERVER-006");
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(56);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
-                .noneMatch(rule -> retired.contains(rule.definition().id()));
+                .extracting(rule -> rule.definition().id())
+                .doesNotContainAnyElementsOf(DatabaseAdvisorRuleRegistry.RETIRED_RULE_IDS);
         DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));
         DatabaseAdvisorReport report = scanner.scan();
-        DatabaseAdvisorReport dismissed = scanner.applyDismissals(report, retired);
+        DatabaseAdvisorReport dismissed = scanner.applyDismissals(report, DatabaseAdvisorRuleRegistry.RETIRED_RULE_IDS);
         assertThat(dismissed.results()).isEqualTo(report.results());
         assertThat(dismissed.severityCounts()).isEqualTo(report.severityCounts());
         assertThat(dismissed.scan().status()).isEqualTo(report.scan().status());
+
+        DatabaseAdvisorReport withRetiredFindings = scanner.dismissedReport(
+                Set.of(),
+                List.of(
+                        new io.github.jdubois.bootui.core.dto.DismissedFindingDto(
+                                "DB-POOL-004", "v1:ds=primary|pool=maximum-size", null),
+                        new io.github.jdubois.bootui.core.dto.DismissedFindingDto(
+                                "DB-SERVER-002", "v1:ds=primary|server=statement_timeout", null),
+                        new io.github.jdubois.bootui.core.dto.DismissedFindingDto(
+                                "DB-SERVER-006", "v1:ds=primary|server=log_min_duration_statement", null)));
+        assertThat(withRetiredFindings.results()).isEqualTo(report.results());
+        assertThat(withRetiredFindings.suppression().suppressedFindings()).isZero();
+        assertThat(withRetiredFindings.suppression().findings())
+                .hasSize(3)
+                .allSatisfy(finding -> assertThat(finding.state())
+                        .isEqualTo(io.github.jdubois.bootui.engine.advisor.AdvisorSuppression.UNKNOWN_RULE));
     }
 
     /** Minimal H2-backed {@link DataSource} that opens a fresh connection per call, like a real pool. */

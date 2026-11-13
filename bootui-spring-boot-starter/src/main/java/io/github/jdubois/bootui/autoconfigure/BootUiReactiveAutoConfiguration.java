@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.activity.LiveServiceMapController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.cli.BootUiCliServiceFactory;
+import io.github.jdubois.bootui.autoconfigure.compatibility.BootUiCompatibilityWarnings;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiPathPropertySource;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -578,8 +579,14 @@ public class BootUiReactiveAutoConfiguration {
      */
     @Bean
     public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
-            BootUiProperties properties, Environment environment, ApiTokenAuthenticator authenticator) {
+            BootUiProperties properties,
+            Environment environment,
+            ApiTokenAuthenticator authenticator,
+            ListableBeanFactory beanFactory) {
         return event -> {
+            BootUiCompatibilityWarnings.collect(
+                            beanFactory, event.getApplicationContext().getClassLoader())
+                    .forEach(log::warn);
             properties.getPanels().keySet().stream()
                     .filter(panelId -> !BootUiPanels.ids().contains(panelId))
                     .forEach(panelId -> log.warn(
@@ -670,8 +677,13 @@ public class BootUiReactiveAutoConfiguration {
 
     @Bean
     public ReactiveRequestCorrelationFilter bootUiReactiveRequestCorrelationFilter(
-            BootUiProperties properties, Environment environment, RuntimeJournal journal, RequestPhases phases) {
-        ReactiveRequestCorrelationFilter filter = new ReactiveRequestCorrelationFilter(properties);
+            BootUiProperties properties,
+            Environment environment,
+            RuntimeJournal journal,
+            RequestPhases phases,
+            ReactiveLocalhostOnlyFilter reactiveLocalhostOnlyFilter) {
+        ReactiveRequestCorrelationFilter filter =
+                new ReactiveRequestCorrelationFilter(properties, reactiveLocalhostOnlyFilter);
         filter.setRuntimeEventSink(journal, ExchangeSlowThreshold.resolve(properties, environment), phases);
         return filter;
     }
@@ -1041,6 +1053,9 @@ public class BootUiReactiveAutoConfiguration {
                     config.getMaxOccurrencesPerGroup(),
                     config.getMaxStackFrames(),
                     DisconnectedClientHelper::isClientDisconnectedException);
+            store.setBindingDiagnosticExtractor(
+                    io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport
+                            .bindingDiagnosticExtractor());
             try {
                 if (AutoConfigurationPackages.has(applicationContext)) {
                     store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));

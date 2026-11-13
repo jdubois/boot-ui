@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.activity.ServletThreadKinds;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.cli.BootUiCliController;
 import io.github.jdubois.bootui.autoconfigure.cli.BootUiCliServiceFactory;
+import io.github.jdubois.bootui.autoconfigure.compatibility.BootUiCompatibilityWarnings;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiPathPropertySource;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -492,6 +493,9 @@ public class BootUiAutoConfiguration {
                     config.getMaxOccurrencesPerGroup(),
                     config.getMaxStackFrames(),
                     DisconnectedClientHelper::isClientDisconnectedException);
+            store.setBindingDiagnosticExtractor(
+                    io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport
+                            .bindingDiagnosticExtractor());
             try {
                 if (AutoConfigurationPackages.has(applicationContext)) {
                     store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));
@@ -1060,7 +1064,8 @@ public class BootUiAutoConfiguration {
             BootUiProperties properties,
             Environment environment,
             RequestPhases phases,
-            RuntimeJournal journal) {
+            RuntimeJournal journal,
+            LocalhostOnlyFilter localhostOnlyFilter) {
         RequestCorrelationFilter filter = new RequestCorrelationFilter(
                 registry,
                 traceRegistry,
@@ -1069,6 +1074,10 @@ public class BootUiAutoConfiguration {
                 ExchangeSlowThreshold.resolve(properties, environment),
                 phases);
         filter.setRuntimeEventSink(journal);
+        filter.setRequestIdHeaderExposure(
+                () -> properties.getHttpExchanges().isExposeRequestIdHeader()
+                        && properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES),
+                localhostOnlyFilter::isTrustedSource);
         // A Spring MVC request's scope is its whole handling on its pooled worker: the BootUI agent's thread-locals
         // sensor scans there (docs/PLAN-v2.md §5.16, M5-5f).
         AgentThreadLocals.configure(true);
@@ -1081,8 +1090,14 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
-            BootUiProperties properties, Environment environment, ApiTokenAuthenticator authenticator) {
+            BootUiProperties properties,
+            Environment environment,
+            ApiTokenAuthenticator authenticator,
+            ListableBeanFactory beanFactory) {
         return event -> {
+            BootUiCompatibilityWarnings.collect(
+                            beanFactory, event.getApplicationContext().getClassLoader())
+                    .forEach(log::warn);
             properties.getPanels().keySet().stream()
                     .filter(panelId -> !BootUiPanels.ids().contains(panelId))
                     .forEach(panelId -> log.warn(

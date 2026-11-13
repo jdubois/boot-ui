@@ -601,6 +601,162 @@ class QuarkusAppSnapshotProviderImplTest {
         assertThat(snapshot.evaluatedConfigurationRules()).isEmpty();
     }
 
+    @Test
+    void arcBuildTimeSafetyValidationFlagsExplicitFalseAndPreservesTargetName() {
+        QuarkusAppSnapshot disabled = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.arc.fail-on-intercepted-private-method", "false",
+                        "%prod.quarkus.arc.detect-wrong-annotations", "false"));
+        assertThat(disabled.settings())
+                .filteredOn(s -> s.ruleId().equals("QA-CDI-007"))
+                .extracting(QuarkusAppSnapshot.Setting::target, QuarkusAppSnapshot.Setting::value)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.api.Assertions.tuple(
+                                "quarkus.arc.fail-on-intercepted-private-method", "disabled"),
+                        org.assertj.core.api.Assertions.tuple("quarkus.arc.detect-wrong-annotations", "disabled"));
+        assertThat(values(
+                        snapshot(
+                                "prod",
+                                Map.of(
+                                        "quarkus.arc.fail-on-intercepted-private-method", "true",
+                                        "quarkus.arc.detect-wrong-annotations", "true")),
+                        "QA-CDI-007"))
+                .containsExactly("enabled", "enabled");
+    }
+
+    @Test
+    void deprecatedQuarkusPropertiesAreDetectedAcrossAllSupportedGroups() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.ofEntries(
+                        Map.entry("quarkus.vertx.worker-pool-size", "20"),
+                        Map.entry("quarkus.hibernate-orm.batch-fetch-size", "16"),
+                        Map.entry("quarkus.hibernate-orm.\"orders\".max-fetch-depth", "2"),
+                        Map.entry("quarkus.hibernate-orm.validation.enabled", "false"),
+                        Map.entry("quarkus.hibernate-orm.database.globally-quoted-identifiers", "true"),
+                        Map.entry("quarkus.hibernate-orm.log.bind-param", "true"),
+                        Map.entry("quarkus.log.console.enable", "true"),
+                        Map.entry("quarkus.log.file.async.enable", "true"),
+                        Map.entry("quarkus.log.handler.socket.\"audit\".enable", "true"),
+                        Map.entry("quarkus.smallrye-health.ui.enable", "true"),
+                        Map.entry("quarkus.smallrye-openapi.enable", "true"),
+                        Map.entry("quarkus.swagger-ui.enable", "true"),
+                        Map.entry("quarkus.oidc.proxy.host", "proxy.internal"),
+                        Map.entry("quarkus.oidc.\"corp\".proxy.password", "secret"),
+                        Map.entry("quarkus.rest-client.\"billing\".proxy-address", "http://proxy:8080"),
+                        Map.entry("quarkus.rest-client.non-proxy-hosts", "localhost"),
+                        Map.entry("quarkus.thread-pool.max-threads", "50"),
+                        Map.entry("quarkus.hibernate-orm.fetch.batch-size", "16"),
+                        Map.entry("quarkus.swagger-ui.enabled", "true")));
+        assertThat(snapshot.settings())
+                .filteredOn(s -> s.ruleId().equals("QA-CFG-006"))
+                .extracting(QuarkusAppSnapshot.Setting::target)
+                .containsExactly(
+                        "quarkus.hibernate-orm.\"orders\".max-fetch-depth",
+                        "quarkus.hibernate-orm.batch-fetch-size",
+                        "quarkus.hibernate-orm.database.globally-quoted-identifiers",
+                        "quarkus.hibernate-orm.log.bind-param",
+                        "quarkus.hibernate-orm.validation.enabled",
+                        "quarkus.log.console.enable",
+                        "quarkus.log.file.async.enable",
+                        "quarkus.log.handler.socket.\"audit\".enable",
+                        "quarkus.oidc.\"corp\".proxy.password",
+                        "quarkus.oidc.proxy.host",
+                        "quarkus.rest-client.\"billing\".proxy-address",
+                        "quarkus.rest-client.non-proxy-hosts",
+                        "quarkus.smallrye-health.ui.enable",
+                        "quarkus.smallrye-openapi.enable",
+                        "quarkus.swagger-ui.enable",
+                        "quarkus.vertx.worker-pool-size");
+    }
+
+    @Test
+    void configHygieneDetectsDisabledMappingValidationAndProductionConfigValueLogging() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.config.mapping.validate-unknown", "false",
+                        "smallrye.config.mapping.validate-unknown", "false",
+                        "%prod.quarkus.config.log.values", "true",
+                        "%dev.quarkus.config.log.values", "true"));
+        assertThat(values(snapshot, "QA-CFG-007"))
+                .containsExactly("validate-unknown-disabled", "validate-unknown-disabled", "log-values-enabled");
+        assertThat(values(snapshot("dev", Map.of("%dev.quarkus.config.log.values", "true")), "QA-CFG-007"))
+                .isEmpty();
+    }
+
+    @Test
+    void agroalPoolChecksPoolingAndBackgroundValidationWithoutBorrowOrForegroundValidation() {
+        QuarkusAppSnapshot disabled = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.jdbc.pooling-enabled", "false",
+                        "quarkus.datasource.\"orders\".jdbc.background-validation-interval", "0"));
+        assertThat(values(disabled, "QA-DB-002")).containsExactlyInAnyOrder("pooling-disabled", "validation-disabled");
+
+        QuarkusAppSnapshot borrowValidated = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.jdbc.background-validation-interval", "0",
+                        "quarkus.datasource.jdbc.validate-on-borrow", "true"));
+        assertThat(values(borrowValidated, "QA-DB-002")).containsExactly("enabled");
+
+        QuarkusAppSnapshot foregroundValidated = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.jdbc.background-validation-interval", "0S",
+                        "quarkus.datasource.jdbc.foreground-validation-interval", "30S"));
+        assertThat(values(foregroundValidated, "QA-DB-002")).containsExactly("enabled");
+    }
+
+    @Test
+    void httpLimitsDetectEmptyMaxBodySizeNegativeFormBoundsAndRetainedUploads() {
+        QuarkusAppSnapshot unlimited = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.http.limits.max-body-size", "",
+                        "quarkus.http.limits.max-form-buffered-bytes", "-1",
+                        "quarkus.http.limits.max-form-fields", "-1",
+                        "quarkus.http.body.delete-uploaded-files-on-end", "false"));
+        assertThat(values(unlimited, "QA-WEB-005"))
+                .containsExactly(
+                        "unlimited-body-size",
+                        "unlimited-form-buffered-bytes",
+                        "unlimited-form-fields",
+                        "retained-uploads");
+
+        QuarkusAppSnapshot uploadsDisabled = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.http.limits.max-body-size", "10240K",
+                        "quarkus.http.body.handle-file-uploads", "false",
+                        "quarkus.http.body.delete-uploaded-files-on-end", "false"));
+        assertThat(values(uploadsDisabled, "QA-WEB-005")).containsExactly("bounded", "bounded");
+    }
+
+    @Test
+    void workerThreadPoolDetectsCoreAboveMaxAndShutdownInterruptAtOrAboveTimeout() {
+        QuarkusAppSnapshot misconfigured = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.thread-pool.core-threads", "32",
+                        "quarkus.thread-pool.max-threads", "16",
+                        "quarkus.thread-pool.shutdown-interrupt", "60s",
+                        "quarkus.thread-pool.shutdown-timeout", "30s"));
+        assertThat(values(misconfigured, "QA-PERF-005"))
+                .containsExactly("core-exceeds-max", "interrupt-not-before-timeout");
+
+        QuarkusAppSnapshot valid = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.thread-pool.core-threads", "8",
+                        "quarkus.thread-pool.max-threads", "32",
+                        "quarkus.thread-pool.shutdown-interrupt", "10s",
+                        "quarkus.thread-pool.shutdown-timeout", "60s"));
+        assertThat(values(valid, "QA-PERF-005")).containsExactly("valid", "valid");
+    }
+
     private static List<String> values(QuarkusAppSnapshot snapshot, String rule) {
         return snapshot.settings().stream()
                 .filter(s -> s.ruleId().equals(rule))

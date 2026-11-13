@@ -562,14 +562,14 @@ class VendorCatalogReaderTests {
                         new ServerSetting("max_connections", "100", null));
         String sql = queries.get(0);
         assertThat(sql)
-                .isEqualTo("select name, setting, unit from pg_settings where name in (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                .isEqualTo("select name, setting, unit from pg_settings where name in (?, ?, ?, ?, ?, ?, ?, ?)"
                         + " order by name limit ?")
                 .doesNotContain("max_connections");
         PreparedStatement statement = statements.get(0);
         for (int index = 0; index < PostgresCatalogReader.SERVER_SETTING_NAMES.size(); index++) {
             verify(statement).setObject(index + 1, PostgresCatalogReader.SERVER_SETTING_NAMES.get(index));
         }
-        verify(statement).setInt(11, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setInt(9, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
         verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
         verify(statement).setQueryTimeout(5);
     }
@@ -686,11 +686,10 @@ class VendorCatalogReaderTests {
         assertThat(PostgresCatalogReader.SERVER_SETTING_NAMES)
                 .contains(
                         "idle_in_transaction_session_timeout",
-                        "statement_timeout",
                         "autovacuum",
                         "track_io_timing",
-                        "log_min_duration_statement",
                         "shared_preload_libraries")
+                .doesNotContain("statement_timeout", "log_min_duration_statement")
                 .doesNotContainNull()
                 .doesNotHaveDuplicates();
         assertThat(MySqlCatalogReader.SERVER_SETTINGS_SQL).contains("'performance_schema'");
@@ -725,7 +724,7 @@ class VendorCatalogReaderTests {
                             new ServerSetting("wait_timeout", "28800", null));
             assertThat(queries.get(0))
                     .isEqualTo("show session variables where Variable_name in"
-                            + " ('wait_timeout', 'max_connections', 'performance_schema')");
+                            + " ('wait_timeout', 'max_connections', 'performance_schema', 'sql_mode')");
             PreparedStatement statement = statements.get(0);
             verify(statement).setQueryTimeout(5);
             verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
