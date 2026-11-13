@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.RequestAuthorizationDto;
 import io.github.jdubois.bootui.core.dto.RequestBaselineCandidateDto;
 import io.github.jdubois.bootui.core.dto.RequestBaselineDiffDto;
 import io.github.jdubois.bootui.core.dto.RequestGcPauseDto;
@@ -53,6 +54,9 @@ public final class RequestJournalProfiles {
 
     /** The most entries each list of touched resources keeps. */
     public static final int MAX_TOUCHED = 50;
+
+    /** The most authorization decisions one request profile keeps. */
+    public static final int MAX_AUTHORIZATIONS = 50;
 
     /** The most distinguishing SQL shapes a baseline comparison lists. */
     public static final int MAX_DISTINGUISHING_SQL_SHAPES = 5;
@@ -225,9 +229,14 @@ public final class RequestJournalProfiles {
                 .entries()) {
             rows.put(row.id(), row);
         }
+        SelectedAuthorizations selectedAuthorizations = authorizations(children, start, text, notes);
         List<Timed> timed = new ArrayList<>();
         for (JournalEntry child : children) {
-            RequestTimelineItemDto item = item(child, rows.get(journal.eventId(child)), start);
+            if (child.event().payload() instanceof AuthorizationPayload
+                    && !selectedAuthorizations.sequences().contains(child.sequence())) {
+                continue;
+            }
+            RequestTimelineItemDto item = item(child, rows.get(journal.eventId(child)), start, text);
             if (item != null) {
                 timed.add(new Timed(item, child.sequence(), startNanos(child.event())));
             }
@@ -250,6 +259,8 @@ public final class RequestJournalProfiles {
             }
             return Long.compare(left.sequence(), right.sequence());
         });
+
+        List<RequestAuthorizationDto> authorizations = selectedAuthorizations.decisions();
 
         ResourceUsage usage = payload == null ? null : payload.resources();
         if (payload == null) {
@@ -306,6 +317,7 @@ public final class RequestJournalProfiles {
                 targetOrm,
                 handoffs,
                 late == 0 ? null : late,
+                authorizations,
                 baselineComparison);
     }
 
@@ -933,7 +945,81 @@ public final class RequestJournalProfiles {
                 puts);
     }
 
-    private RequestTimelineItemDto item(JournalEntry entry, ActivityEntryDto row, long requestStart) {
+    /**
+     * The authorization decisions recorded for the request ({@code docs/PLAN-v2.md} §5.18), in start order, capped at
+     * {@link #MAX_AUTHORIZATIONS} with denied decisions retained first and a truncation note when more were recorded.
+     */
+    private static SelectedAuthorizations authorizations(
+            List<JournalEntry> children, long requestStart, JournalTextExposure text, List<String> notes) {
+        List<JournalEntry> entries = new ArrayList<>();
+        for (JournalEntry child : children) {
+            if (child.event().payload() instanceof AuthorizationPayload) {
+                entries.add(child);
+            }
+        }
+        if (entries.isEmpty()) {
+            return new SelectedAuthorizations(List.of(), Set.of());
+        }
+        Comparator<JournalEntry> byStart = (left, right) -> {
+            int byEpoch = Long.compare(left.event().epochMillis(), right.event().epochMillis());
+            return byEpoch != 0 ? byEpoch : Long.compare(left.sequence(), right.sequence());
+        };
+        entries.sort(byStart);
+        int total = entries.size();
+        List<JournalEntry> chosen;
+        if (total <= MAX_AUTHORIZATIONS) {
+            chosen = entries;
+        } else {
+            chosen = new ArrayList<>(MAX_AUTHORIZATIONS);
+            for (JournalEntry entry : entries) {
+                if (!((AuthorizationPayload) entry.event().payload()).granted() && chosen.size() < MAX_AUTHORIZATIONS) {
+                    chosen.add(entry);
+                }
+            }
+            boolean prioritizedDenial = false;
+            for (int i = 0; i < total && chosen.size() < MAX_AUTHORIZATIONS; i++) {
+                JournalEntry entry = entries.get(i);
+                if (((AuthorizationPayload) entry.event().payload()).granted()) {
+                    chosen.add(entry);
+                }
+            }
+            chosen.sort(byStart);
+            for (int i = 0; i < chosen.size(); i++) {
+                if (chosen.get(i).sequence() != entries.get(i).sequence()) {
+                    prioritizedDenial = true;
+                    break;
+                }
+            }
+            notes.add(
+                    prioritizedDenial
+                            ? "Showing " + MAX_AUTHORIZATIONS + " of " + total
+                                    + " authorization decisions (denied decisions retained first)."
+                            : "Showing the first " + MAX_AUTHORIZATIONS + " of " + total + " authorization decisions.");
+        }
+        JournalTextExposure exposure = text == null ? JournalTextExposure.masked() : text;
+        List<RequestAuthorizationDto> decisions = new ArrayList<>(chosen.size());
+        Set<Long> sequences = new LinkedHashSet<>(chosen.size());
+        for (JournalEntry entry : chosen) {
+            sequences.add(entry.sequence());
+            RuntimeEvent event = entry.event();
+            AuthorizationPayload decision = (AuthorizationPayload) event.payload();
+            decisions.add(new RequestAuthorizationDto(
+                    decision.target(),
+                    decision.subject(),
+                    exposure.authorizationRule(decision.rule()),
+                    decision.authentication(),
+                    decision.granted(),
+                    decision.authorities(),
+                    event.epochMillis() - requestStart,
+                    event.durationNanos() <= 0 ? null : event.durationNanos() / 1_000L));
+        }
+        return new SelectedAuthorizations(decisions, sequences);
+    }
+
+    private record SelectedAuthorizations(List<RequestAuthorizationDto> decisions, Set<Long> sequences) {}
+
+    private RequestTimelineItemDto item(
+            JournalEntry entry, ActivityEntryDto row, long requestStart, JournalTextExposure text) {
         RuntimeEvent event = entry.event();
         Long durationMicros = event.durationNanos() < 0 ? null : event.durationNanos() / 1_000;
         if (event.payload() instanceof SqlPayload sql && !sql.executed()) {
@@ -952,6 +1038,17 @@ public final class RequestJournalProfiles {
                     startMillis - requestStart,
                     durationMicros,
                     JournalActivityFeed.SEVERITY_OK,
+                    event.thread(),
+                    threadKind);
+        }
+        if (event.payload() instanceof AuthorizationPayload decision) {
+            return new RequestTimelineItemDto(
+                    event.source().propertyName(),
+                    JournalActivityFeed.authorizationSummary(decision),
+                    JournalActivityFeed.authorizationDetail(decision, text),
+                    startMillis - requestStart,
+                    event.durationNanos() <= 0 ? null : durationMicros,
+                    decision.granted() ? JournalActivityFeed.SEVERITY_OK : JournalActivityFeed.SEVERITY_WARN,
                     event.thread(),
                     threadKind);
         }

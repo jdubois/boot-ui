@@ -199,6 +199,16 @@ public class InsightSeedController {
         return Map.of("order", id, "status", "restored");
     }
 
+    @GetMapping("/orders/{id}/invoice")
+    public Map<String, Object> invoice(@PathVariable long id) {
+        return orders.invoice(id);
+    }
+
+    @GetMapping("/orders/{id}/receipt")
+    public Map<String, Object> receipt(@PathVariable long id) {
+        return orders.receipt(id);
+    }
+
     /** An anonymous debug endpoint that rewrites every order's total. */
     @PostMapping("/debug/reset-totals")
     public Map<String, Object> resetTotals() {

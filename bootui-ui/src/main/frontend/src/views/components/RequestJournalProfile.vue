@@ -1,5 +1,5 @@
 <script setup>
-import {computed} from 'vue'
+import {computed, inject, ref} from 'vue'
 
 import {formatBytes, formatDuration, formatNumber} from '../../utils/format.js'
 import RouteWhySlow from './RouteWhySlow.vue'
@@ -9,10 +9,16 @@ import RouteWhySlow from './RouteWhySlow.vue'
 // Purely presentational: the drawer fetches the profile when the developer opens a request. Its handoffs are the tasks
 // the BootUI agent propagated from this request to an executor (M5-2).
 const props = defineProps({
-  profile: {type: Object, required: true}
+  profile: {type: Object, required: true},
+  method: {type: String, default: null},
+  path: {type: String, default: null},
+  status: {type: Number, default: null}
 })
 
 const emit = defineEmits(['open-request', 'compare-with'])
+
+const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
+const panels = inject('panels', ref(null))
 
 const UNMEASURED_REASONS = {
   VIRTUAL_THREAD: 'it ran on a virtual thread, which the JVM does not measure',
@@ -38,10 +44,28 @@ const TOUCHED = [
 ]
 
 const timeline = computed(() => props.profile.timeline ?? [])
+const authorizations = computed(() => props.profile.authorizations ?? [])
 const handoffs = computed(() => (props.profile.handoffs ?? []).map(handoffRow))
 const lateHandoffs = computed(() => props.profile.lateHandoffs ?? 0)
 const gcPauses = computed(() => props.profile.gcPauses ?? [])
 const notes = computed(() => props.profile.notes ?? [])
+
+const springSecurityUsable = computed(() => {
+  if (!Array.isArray(panels.value?.panels)) {
+    return (panels.value?.platform ?? 'spring-boot') !== 'quarkus'
+  }
+  const panel = panels.value.panels.find((candidate) => candidate.id === 'spring-security')
+  return !!panel && panel.available !== false && panel.enabled !== false
+})
+
+const springSecurityExplainLink = computed(() => {
+  const status = props.profile.status ?? props.status
+  if ((status !== 401 && status !== 403) || !springSecurityUsable.value) return null
+  const method = (props.method || '').trim().toUpperCase()
+  const path = (props.path || '').trim()
+  if (!HTTP_METHODS.has(method) || !path.startsWith('/')) return null
+  return {path: '/spring-security', query: {method, path}}
+})
 
 const durationMillis = computed(() => Math.max(1, (props.profile.durationMicros ?? 0) / 1000))
 
@@ -217,8 +241,8 @@ function barStyle(offsetMillis, durationMicros) {
   return {left: `${left}%`, width: durationMicros == null ? undefined : `${Math.min(width, 100 - left)}%`}
 }
 
-function plural(count, noun) {
-  return `${formatNumber(count)} ${noun}${count === 1 ? '' : 's'}`
+function plural(count, noun, pluralForm = `${noun}s`) {
+  return `${formatNumber(count)} ${count === 1 ? noun : pluralForm}`
 }
 
 function simpleName(type) {
@@ -361,6 +385,59 @@ function onBaselineChange(event) {
         </div>
       </div>
 
+      <template v-if="authorizations.length">
+        <h4 class="h6 small text-muted mb-1">Authorization decisions</h4>
+        <div class="table-responsive mb-2">
+          <table class="table table-sm small align-middle mb-0 request-journal__authorizations">
+            <thead>
+              <tr>
+                <th scope="col">Target</th>
+                <th scope="col">Authentication</th>
+                <th scope="col">Rule</th>
+                <th scope="col">Outcome</th>
+                <th scope="col" class="text-end">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(decision, index) in authorizations" :key="index">
+                <td>
+                  <code>{{ decision.target }}</code>
+                  <code v-if="decision.subject" class="ms-1">{{ decision.subject }}</code>
+                </td>
+                <td>
+                  <code>{{ decision.authentication }}</code>
+                  <span class="text-muted"> · {{ plural(decision.authorities ?? 0, 'authority', 'authorities') }}</span>
+                </td>
+                <td>
+                  <code v-if="decision.rule">{{ decision.rule }}</code>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td>
+                  <span class="badge" :class="decision.granted ? 'text-bg-success' : 'text-bg-warning'">
+                    {{ decision.granted ? 'Granted' : 'Denied' }}
+                  </span>
+                </td>
+                <td class="text-end text-nowrap">
+                  {{
+                    decision.durationMicros != null && decision.durationMicros > 0
+                      ? formatDuration(micros(decision.durationMicros))
+                      : '—'
+                  }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <div v-if="springSecurityExplainLink" class="small mb-2 request-journal__security-explain">
+        <router-link :to="springSecurityExplainLink" class="btn btn-outline-secondary btn-sm">
+          Explain in Spring Security
+        </router-link>
+        <p class="text-muted mb-0 mt-1">
+          Static filter-chain matching for this method and path; does not replay runtime credentials or method security.
+        </p>
+      </div>
+
       <h4 class="h6 small text-muted mb-1">Timeline</h4>
       <p v-if="!timeline.length && !gcPauses.length" class="small text-muted">No work of this request was recorded.</p>
       <ol v-else class="list-unstyled small mb-2 request-journal__timeline">
@@ -474,7 +551,7 @@ function onBaselineChange(event) {
 
 .request-journal__row {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr) 34% 6.5rem;
+  grid-template-columns: 6.75rem minmax(0, 1fr) 34% 6.5rem;
   gap: 0.75rem;
   align-items: center;
   min-height: 2rem;

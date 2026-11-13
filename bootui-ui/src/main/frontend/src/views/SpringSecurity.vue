@@ -1,7 +1,8 @@
 <script setup>
 import 'bootstrap/js/dist/collapse'
 import {apiFetch, getJson} from '../api.js'
-import {computed, inject, onMounted, ref} from 'vue'
+import {computed, inject, onMounted, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -12,6 +13,7 @@ const error = ref(null)
 const springSecurityPresent = ref(true)
 const initialLoading = ref(true)
 const panels = inject('panels', ref(null))
+const route = useRoute()
 const isReactive = computed(() => (panels.value?.platform ?? 'spring-boot') === 'spring-boot-reactive')
 
 const explainMethod = ref('GET')
@@ -84,6 +86,20 @@ async function explain() {
 }
 
 const httpMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
+watch(
+  () => [route?.query?.method, route?.query?.path],
+  ([method, path]) => {
+    if (typeof method === 'string') {
+      const upper = method.trim().toUpperCase()
+      if (httpMethods.includes(upper)) explainMethod.value = upper
+    }
+    if (typeof path === 'string' && path.trim()) {
+      explainPath.value = path.trim()
+    }
+  },
+  {immediate: true}
+)
 
 const filterBadgeClass = (name) => {
   if (name.includes('Csrf')) return 'bg-warning text-dark'

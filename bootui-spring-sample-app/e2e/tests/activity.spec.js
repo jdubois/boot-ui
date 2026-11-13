@@ -177,8 +177,37 @@ test.describe('Live Activity view', () => {
     // Stamped with the request's own id, so the event is badged exact, not just principal.
     await expect(security.getByText('exact', {exact: true})).toBeVisible()
 
+    const journal = drawer.locator('.request-journal')
+    await expect(journal.getByRole('heading', {name: 'Authorization decisions'})).toBeVisible()
+    await expect(journal.locator('.request-journal__authorizations')).toContainText('REQUEST')
+    await expect(journal.locator('.request-journal__authorizations')).toContainText('AUTHENTICATED')
+    await expect(journal.locator('.request-journal__authorizations')).toContainText('Granted')
+
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
+
+    // A denied request renders a SECURITY row in the feed and offers the Spring Security explain link in its drawer.
+    const denied = await page.request.get('/api/secure/products')
+    expect(denied.status()).toBe(401)
+    await page.getByRole('button', {name: 'Refresh'}).click()
+
+    const deniedRow = page.locator('.activity-table tbody tr', {hasText: 'GET /api/secure/products → 401'}).first()
+    await expect(deniedRow).toBeVisible({timeout: 15_000})
+    await expect(
+      page.locator('.activity-table tbody tr.activity-child-row', {hasText: 'Request authorization denied'}).first()
+    ).toBeVisible()
+
+    await deniedRow.getByRole('button', {name: /Profile/}).click()
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('.request-journal__authorizations')).toContainText('Denied')
+    const explainLink = drawer.locator('.request-journal__security-explain').getByRole('link', {
+      name: 'Explain in Spring Security'
+    })
+    await expect(explainLink).toBeVisible()
+    await explainLink.click()
+    await expect(page).toHaveURL(/#\/spring-security\?method=GET&path=\/api\/secure\/products/)
+    await expect(page.getByLabel('HTTP method to explain')).toHaveValue('GET')
+    await expect(page.getByLabel('Request path to explain')).toHaveValue('/api/secure/products')
   })
 
   test('nests correlated SQL and security events under the request row', async ({openView, page}) => {

@@ -419,6 +419,43 @@ describe('profileMarkdown', () => {
 
     expect(roundTripped).toEqual(one)
   })
+
+  it('exports authorization decisions and records truncation as an omission', () => {
+    const {markdown, omissions} = profileMarkdown(profile(), {
+      journalProfile: {
+        authorizations: [
+          {
+            target: 'REQUEST',
+            subject: null,
+            rule: 'hasAnyAuthority(ROLE_ADMIN)',
+            authentication: 'AUTHENTICATED',
+            granted: true,
+            authorities: 2,
+            offsetMillis: 1,
+            durationMicros: 500
+          },
+          {
+            target: 'METHOD',
+            subject: 'OrderService#cancel',
+            rule: null,
+            authentication: 'AUTHENTICATED',
+            granted: false,
+            authorities: 1,
+            offsetMillis: 3,
+            durationMicros: null
+          }
+        ],
+        notes: ['Showing the first 50 of 52 authorization decisions.']
+      }
+    })
+
+    expect(markdown).toContain('## Authorization decisions')
+    expect(markdown).toContain(
+      '- `REQUEST` · Granted · `AUTHENTICATED` · 2 authorities · rule `hasAnyAuthority(ROLE_ADMIN)` · <1 ms'
+    )
+    expect(markdown).toContain('- `METHOD OrderService#cancel` · Denied · `AUTHENTICATED` · 1 authority')
+    expect(omissions).toContain('Authorization decisions: Showing the first 50 of 52 authorization decisions.')
+  })
 })
 
 describe('exceptionMarkdown', () => {

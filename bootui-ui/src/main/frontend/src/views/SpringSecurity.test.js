@@ -4,6 +4,9 @@ import {ref} from 'vue'
 
 import SpringSecurity from './SpringSecurity.vue'
 
+const routeState = vi.hoisted(() => ({query: {}}))
+vi.mock('vue-router', () => ({useRoute: () => routeState}))
+
 function report() {
   return {
     springSecurityPresent: true,
@@ -51,7 +54,16 @@ async function mountWithPlatform(platform) {
 
 describe('SpringSecurity platform copy', () => {
   afterEach(() => {
+    routeState.query = {}
     vi.unstubAllGlobals()
+  })
+
+  it('pre-fills the explain method and path from route query parameters', async () => {
+    routeState.query = {method: 'post', path: '/api/secure/orders'}
+    const wrapper = await mountWithPlatform('spring-boot')
+
+    expect(wrapper.get('select[aria-label="HTTP method to explain"]').element.value).toBe('POST')
+    expect(wrapper.get('input[aria-label="Request path to explain"]').element.value).toBe('/api/secure/orders')
   })
 
   it('explains reactive chains and reduced-fidelity matching on WebFlux', async () => {

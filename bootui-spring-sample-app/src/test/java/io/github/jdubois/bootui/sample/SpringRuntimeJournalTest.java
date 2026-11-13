@@ -236,11 +236,25 @@ class SpringRuntimeJournalTest {
             assertThat(decision.authorities()).isPositive();
             assertThat(event.requestId()).isNotBlank();
             assertThat(event.durationNanos()).isPositive();
+            com.fasterxml.jackson.databind.JsonNode profile = probe.get(
+                            "/bootui/api/activity/request/" + event.requestId() + "/journal")
+                    .json();
+            assertThat(profile.path("available").asBoolean()).isTrue();
+            assertThat(profile.path("authorizations")).isNotEmpty();
+            assertThat(profile.path("authorizations").get(0).path("granted").asBoolean())
+                    .isTrue();
         });
         assertThat(decisions).anySatisfy(event -> {
             AuthorizationPayload decision = (AuthorizationPayload) event.payload();
             assertThat(decision.granted()).isFalse();
             assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.ANONYMOUS);
+            assertThat(event.requestId()).isNotBlank();
+            com.fasterxml.jackson.databind.JsonNode profile = probe.get(
+                            "/bootui/api/activity/request/" + event.requestId() + "/journal")
+                    .json();
+            assertThat(profile.path("authorizations")).isNotEmpty();
+            assertThat(profile.path("authorizations").get(0).path("granted").asBoolean())
+                    .isFalse();
         });
         RouteStats secure = route("GET /api/secure/products");
         assertThat(secure.authorization().authenticated()).isPositive();

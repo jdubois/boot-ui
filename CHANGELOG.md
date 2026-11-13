@@ -29,6 +29,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Loopback-gated `X-BootUI-Request-Id` response header** links local application responses directly to their HTTP
   Exchanges row and Live Activity request profile by default (`bootui.http-exchanges.expose-request-id-header`)
   ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1674](https://github.com/jdubois/boot-ui/issues/1674)).
+- **Per-request authorization decisions in Live Activity and request profiles** surface denied checks in the feed, list
+  request and method decisions on the journal profile and timeline, and link `401`/`403` requests to Spring Security
+  ([Live Activity](docs/features/live-activity.md#the-per-request-profiler); [#1669](https://github.com/jdubois/boot-ui/issues/1669)).
 
 ## [2.4.0] - 2026-11-12
 

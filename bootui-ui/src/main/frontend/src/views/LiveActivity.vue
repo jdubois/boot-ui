@@ -161,6 +161,7 @@ const profile = ref(null)
 const profileLoading = ref(false)
 const profileError = ref(null)
 const profileRequestId = ref(null)
+const profileEntry = ref(null)
 // The runtime journal's view of the open request, loaded right after its profile (docs/PLAN-v2.md §5.3).
 const journalProfile = ref(null)
 const drawerEl = ref(null)
@@ -638,18 +639,24 @@ async function openProfile(
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
 ) {
   if (!entry.profileable) return
-  await loadProfile(entry.id, opener, entry.type === 'SCHEDULED' || (entry.type === 'MESSAGING' && fromJournal.value))
+  await loadProfile(
+    entry.id,
+    opener,
+    entry.type === 'SCHEDULED' || (entry.type === 'MESSAGING' && fromJournal.value),
+    entry
+  )
 }
 
 let journalLoadToken = 0
 let journalPendingPromise = null
 
-async function loadProfile(id, opener, execution = false) {
+async function loadProfile(id, opener, execution = false, entry = null) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
       ? opener
       : opener?.querySelector?.('.bootui-keyboard-target') || null
   profileRequestId.value = id
+  profileEntry.value = entry
   const token = ++profileLoadToken
   const jToken = ++journalLoadToken
   const isCurrent = () => token === profileLoadToken
@@ -684,6 +691,15 @@ async function loadProfile(id, opener, execution = false) {
     }
   }
 }
+
+const resolvedProfileEntry = computed(
+  () =>
+    profileEntry.value ||
+    combinedEntries.value.find(
+      (candidate) => candidate.type === 'REQUEST' && candidate.id === profileRequestId.value
+    ) ||
+    null
+)
 
 async function loadJournalProfile(requestId, isCurrent, compareWith = null) {
   const run = async () => {
@@ -737,6 +753,7 @@ function closeProfile() {
   profileLoading.value = false
   const opener = profileOpenerEl.value
   profileRequestId.value = null
+  profileEntry.value = null
   profile.value = null
   journalProfile.value = null
   profileError.value = null
@@ -1567,7 +1584,7 @@ function toggleFlow() {
         <div class="card-header d-flex align-items-center justify-content-between">
           <h2 class="h6 mb-0">Request profile</h2>
           <div class="d-flex align-items-center gap-2">
-            <template v-if="profile && profile.available && !aiExport">
+            <template v-if="profile && profile.available && !profileLoading && !aiExport">
               <button class="btn btn-sm btn-outline-secondary activity-copy-ai" type="button" @click="openAiExport">
                 <i class="bi bi-stars me-1" aria-hidden="true"></i>Copy for AI
               </button>
@@ -1629,6 +1646,9 @@ function toggleFlow() {
             <RequestJournalProfile
               v-if="journalProfile"
               :profile="journalProfile"
+              :method="profile?.request?.method || resolvedProfileEntry?.method"
+              :path="profile?.request?.path || resolvedProfileEntry?.path"
+              :status="profile?.request?.status ?? resolvedProfileEntry?.status"
               @compare-with="compareJournalBaseline"
               @open-request="openBaselineRequest"
             />
@@ -1677,6 +1697,9 @@ function toggleFlow() {
             <RequestJournalProfile
               v-if="journalProfile"
               :profile="journalProfile"
+              :method="profile.request?.method || resolvedProfileEntry?.method"
+              :path="profile.request?.path || resolvedProfileEntry?.path"
+              :status="profile.request?.status ?? resolvedProfileEntry?.status"
               @compare-with="compareJournalBaseline"
               @open-request="openBaselineRequest"
             />

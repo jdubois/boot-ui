@@ -55,11 +55,25 @@ class BootUiQuarkusAuthorizationJournalTest {
             assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.AUTHENTICATED);
             assertThat(decision.authorities()).isEqualTo(1);
             assertThat(event.requestId()).isNotBlank();
+            com.fasterxml.jackson.databind.JsonNode profile = probe.get(
+                            "/bootui/api/activity/request/" + event.requestId() + "/journal")
+                    .json();
+            assertThat(profile.path("available").asBoolean()).isTrue();
+            assertThat(profile.path("authorizations"))
+                    .anySatisfy(
+                            node -> assertThat(node.path("granted").asBoolean()).isTrue());
         });
         assertThat(decisions).anySatisfy(event -> {
             AuthorizationPayload decision = (AuthorizationPayload) event.payload();
             assertThat(decision.granted()).isFalse();
             assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.ANONYMOUS);
+            assertThat(event.requestId()).isNotBlank();
+            com.fasterxml.jackson.databind.JsonNode profile = probe.get(
+                            "/bootui/api/activity/request/" + event.requestId() + "/journal")
+                    .json();
+            assertThat(profile.path("authorizations"))
+                    .anySatisfy(
+                            node -> assertThat(node.path("granted").asBoolean()).isFalse());
         });
         assertThat(aggregates.snapshot().routes())
                 .filteredOn(route -> route.route().endsWith("/secure"))

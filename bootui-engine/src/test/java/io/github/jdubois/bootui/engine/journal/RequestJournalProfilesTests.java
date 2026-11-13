@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.RequestAuthorizationDto;
 import io.github.jdubois.bootui.core.dto.RequestBaselineCandidateDto;
 import io.github.jdubois.bootui.core.dto.RequestBaselineDiffDto;
 import io.github.jdubois.bootui.core.dto.RequestHandoffDto;
@@ -421,6 +422,119 @@ class RequestJournalProfilesTests {
         journal.dispatchPending();
 
         assertThat(profiles(null).profile("r1").orm()).isNull();
+    }
+
+    @Test
+    void authorizationDecisionsJoinTheRequestTimelineAndProfileAndFollowTheSecurityLogsPanelAndCap() {
+        offer(child(
+                "r1",
+                JournalSource.AUTHORIZATION,
+                1_002,
+                400_000,
+                new AuthorizationPayload(
+                        AuthorizationPayload.REQUEST,
+                        null,
+                        "hasAnyAuthority(ROLE_USER, ROLE_ADMIN)",
+                        AuthorizationPayload.AUTHENTICATED,
+                        true,
+                        2)));
+        offer(child(
+                "r1",
+                JournalSource.AUTHORIZATION,
+                1_006,
+                0,
+                new AuthorizationPayload(
+                        AuthorizationPayload.METHOD,
+                        "OrderService#cancel",
+                        "ExpressionAuthorizationDecision",
+                        AuthorizationPayload.AUTHENTICATED,
+                        false,
+                        1)));
+        offer(http("r1", 1_000, 20_000_000, null));
+        for (int i = 0; i < RequestJournalProfiles.MAX_AUTHORIZATIONS + 5; i++) {
+            offer(child(
+                    "r-many",
+                    JournalSource.AUTHORIZATION,
+                    2_000 + i,
+                    100_000,
+                    new AuthorizationPayload(
+                            AuthorizationPayload.METHOD,
+                            "OrderService#check" + i,
+                            null,
+                            AuthorizationPayload.AUTHENTICATED,
+                            i < RequestJournalProfiles.MAX_AUTHORIZATIONS + 4,
+                            1)));
+        }
+        offer(http("r-many", 2_000, 90_000_000, null));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("r1");
+
+        assertThat(profile.authorizations())
+                .containsExactly(
+                        new RequestAuthorizationDto(
+                                "REQUEST",
+                                null,
+                                "hasAnyAuthority(ROLE_USER, ROLE_ADMIN)",
+                                "AUTHENTICATED",
+                                true,
+                                2,
+                                2L,
+                                400L),
+                        new RequestAuthorizationDto(
+                                "METHOD",
+                                "OrderService#cancel",
+                                "ExpressionAuthorizationDecision",
+                                "AUTHENTICATED",
+                                false,
+                                1,
+                                6L,
+                                null));
+        assertThat(profile.timeline())
+                .extracting(
+                        RequestTimelineItemDto::source,
+                        RequestTimelineItemDto::label,
+                        RequestTimelineItemDto::detail,
+                        RequestTimelineItemDto::offsetMillis,
+                        RequestTimelineItemDto::durationMicros,
+                        RequestTimelineItemDto::severity)
+                .containsExactly(
+                        tuple(
+                                "authorization",
+                                "Request authorization granted",
+                                "AUTHENTICATED (2 authorities) · hasAnyAuthority(ROLE_USER, ROLE_ADMIN)",
+                                2L,
+                                400L,
+                                "OK"),
+                        tuple(
+                                "authorization",
+                                "Method authorization denied: OrderService#cancel",
+                                "AUTHENTICATED (1 authority) · ExpressionAuthorizationDecision",
+                                6L,
+                                null,
+                                "WARN"));
+
+        RequestJournalProfileDto gated =
+                profiles(panel -> !panel.equals(BootUiPanels.SECURITY_LOGS)).profile("r1");
+        assertThat(gated.authorizations()).isEmpty();
+        assertThat(gated.timeline()).isEmpty();
+
+        RequestJournalProfileDto capped = profiles(null).profile("r-many");
+        assertThat(capped.authorizations()).hasSize(RequestJournalProfiles.MAX_AUTHORIZATIONS);
+        assertThat(capped.authorizations().get(RequestJournalProfiles.MAX_AUTHORIZATIONS - 1))
+                .as("a late denial past the cap is retained and kept in start order")
+                .satisfies(decision -> {
+                    assertThat(decision.granted()).isFalse();
+                    assertThat(decision.subject())
+                            .isEqualTo("OrderService#check" + (RequestJournalProfiles.MAX_AUTHORIZATIONS + 4));
+                });
+        assertThat(capped.timeline()).hasSize(RequestJournalProfiles.MAX_AUTHORIZATIONS);
+        assertThat(capped.notes())
+                .contains("Showing "
+                        + RequestJournalProfiles.MAX_AUTHORIZATIONS
+                        + " of "
+                        + (RequestJournalProfiles.MAX_AUTHORIZATIONS + 5)
+                        + " authorization decisions (denied decisions retained first).");
     }
 
     @Test

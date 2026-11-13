@@ -145,12 +145,12 @@ test('filters Runtime Insights without generating traffic and handles empty resu
   await filter.fill('Hibernate eager N+1')
   await expect(page.locator('.insight-card:visible')).toHaveCount(1)
   await expect(page.getByRole('button', {name: 'Hibernate eager N+1', exact: true})).toBeVisible()
-  await expect(page.locator('#insights-filter-count')).toHaveText('1 of 25 findings')
+  await expect(page.locator('#insights-filter-count')).toHaveText('1 of 26 findings')
   await filter.fill('no-such-finding')
   await expect(page.locator('.insight-card:visible')).toHaveCount(0)
   await expect(page.locator('#insights-filter-empty')).toBeVisible()
   await filter.fill('')
-  await expect(page.locator('.insight-card:visible')).toHaveCount(25)
+  await expect(page.locator('.insight-card:visible')).toHaveCount(26)
 })
 
 test('runs the new paired agent examples and exposes recoverable failures', async ({page}) => {

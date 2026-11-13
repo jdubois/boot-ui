@@ -115,6 +115,12 @@ class RuntimeInsightsSeedsTest {
         assertThat(probe.get("/api/insights/reports/payroll").status()).isEqualTo(403);
         assertThat(probe.get("/api/insights/reports/PAYROLL").status()).isEqualTo(200);
         assertThat(probe.get("/api/insights/reports/summary").status()).isEqualTo(200);
+        for (int i = 0; i < 6; i++) {
+            assertThat(probe.get("/api/insights/orders/1/invoice").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/orders/1/receipt").status()).isEqualTo(200);
+        }
+        assertThat(probe.get("/api/insights/orders/6/invoice").status()).isEqualTo(200);
+        assertThat(probe.get("/api/insights/orders/6/receipt").status()).isEqualTo(200);
         sendStompMessages();
         assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
 
@@ -336,6 +342,13 @@ class RuntimeInsightsSeedsTest {
     }
 
     @Test
+    void anOutlierRequestWithExtraWorkIsComparedWithItsWarmBaselineUnlikeAUniformRoute() {
+        assertThat(subjects("route-latency-outliers", "OBSERVED"))
+                .containsExactly("GET /api/insights/orders/{id}/invoice")
+                .doesNotContain("GET /api/insights/orders/{id}/receipt");
+    }
+
+    @Test
     void aStompHandlersRepeatedSelectsAreFoundUnderItsMessageButNotTheJoinedHandler() {
         assertThat(subjects("repeated-selects", "OBSERVED"))
                 .contains("consume websocket:/app/insights/rooms/{room}/orders")
@@ -376,6 +389,7 @@ class RuntimeInsightsSeedsTest {
         justified.put("GET /api/insights/tags/export-labels", Set.of());
         justified.put("GET /api/insights/tags/sorted-page", Set.of());
         justified.put("GET /api/insights/tags/reacquire-one-transaction", Set.of());
+        justified.put("GET /api/insights/orders/{id}/receipt", Set.of("route-time-breakdown"));
         justified.put("consume websocket:/app/insights/rooms/{room}/orders-joined", Set.of());
 
         assertThat(justified.keySet())

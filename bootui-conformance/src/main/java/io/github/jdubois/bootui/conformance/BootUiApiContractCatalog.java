@@ -801,6 +801,7 @@ public final class BootUiApiContractCatalog {
                     "gcPauses", JsonType.ARRAY,
                     "touched", JsonType.OBJECT,
                     "notes", JsonType.ARRAY,
+                    "authorizations", JsonType.ARRAY,
                     "baselineComparison", JsonType.NULLABLE_OBJECT));
 
     private static final List<ActionContract> ACTIONS = buildActions();
