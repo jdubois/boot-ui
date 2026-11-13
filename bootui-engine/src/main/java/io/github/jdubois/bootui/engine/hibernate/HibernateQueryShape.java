@@ -9,6 +9,10 @@ import java.util.regex.Pattern;
 /** Deliberately small JPQL subset, not a query parser or a query-plan guarantee. */
 final class HibernateQueryShape {
     private static final Pattern ROOT = Pattern.compile("(?i)\\bfrom\\s+([\\w.$]+)\\s+(?:as\\s+)?([A-Za-z_]\\w*)\\b");
+    private static final Pattern FROM_CLAUSE_END =
+            Pattern.compile("(?i)(?<![:\\.])\\b(where|group\\s+by|having|order\\s+by|union|intersect|except)\\b");
+    private static final Pattern SUBQUERY_OR_SET_OP =
+            Pattern.compile("(?i)(?<![:\\.])\\b(select|union|intersect|except)\\b");
     private static final Pattern JOIN = Pattern.compile(
             "(?i)\\bjoin\\s+(?:fetch\\s+)?([\\w.]+)(?:\\s+(?:as\\s+)?(?!left\\b|right\\b|inner\\b|outer\\b|join\\b|where\\b|order\\b|group\\b|having\\b|on\\b)([A-Za-z_]\\w*))?");
 
@@ -63,9 +67,7 @@ final class HibernateQueryShape {
             return null;
         }
         String query = lexical(method.query());
-        if (query == null
-                || !query.trim().toLowerCase(Locale.ROOT).matches("(?s)^(select\\b|from\\b).*")
-                || query.indexOf(',') >= 0) {
+        if (query == null || !query.trim().toLowerCase(Locale.ROOT).matches("(?s)^(select\\b|from\\b).*")) {
             context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
@@ -76,10 +78,11 @@ final class HibernateQueryShape {
         }
         String name = roots.group(1);
         String alias = roots.group(2);
+        String afterLeadingSelect = query.replaceFirst("(?is)^\\s*select\\b", "");
+        String afterRoot = query.substring(roots.end());
         if (roots.find()
-                || Pattern.compile("(?i)\\b(select|union|intersect|except)\\b")
-                        .matcher(query.substring(query.toLowerCase(Locale.ROOT).indexOf("from") + 4))
-                        .find()) {
+                || SUBQUERY_OR_SET_OP.matcher(afterLeadingSelect).find()
+                || fromClause(afterRoot).indexOf(',') >= 0) {
             context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
@@ -87,8 +90,7 @@ final class HibernateQueryShape {
         while (joins.find()) {
             String path = joins.group(1);
             if (!path.startsWith(alias + ".")
-                    || path.chars().filter(value -> value == '.').count() != 1
-                    || joins.group(2) != null) {
+                    || path.chars().filter(value -> value == '.').count() != 1) {
                 context.missingEvidence(HibernateEvidenceGap.QUERY_JOIN_PATH, method);
                 return null;
             }
@@ -122,6 +124,11 @@ final class HibernateQueryShape {
     static boolean bulk(String query) {
         String text = lexical(query);
         return text != null && text.stripLeading().toLowerCase(Locale.ROOT).matches("(?s)^(update\\b|delete\\b).*");
+    }
+
+    private static String fromClause(String afterFrom) {
+        Matcher end = FROM_CLAUSE_END.matcher(afterFrom);
+        return end.find() ? afterFrom.substring(0, end.start()) : afterFrom;
     }
 
     private static final Pattern UPDATE_PREFIX = Pattern.compile("(?is)^\\s*update\\b");
