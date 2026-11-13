@@ -455,21 +455,21 @@ class SpringBootProvenanceTests {
                     .run(context -> assertUnknownClientScope(context.getBeanFactory()));
         }
         assertThat(creations).hasValue(0);
-        new ApplicationContextRunner()
-                .withBean(
-                        "customProperties",
+        // A metadata-only lazy subtype avoids changing Mockito's JVM-wide mock-maker registry.
+        Class<?> properties = new net.bytebuddy.ByteBuddy()
+                .subclass(
                         org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties.class,
-                        () -> org.mockito.Mockito.mock(
-                                org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties
-                                        .class,
-                                org.mockito.Mockito.withSettings().mockMaker(org.mockito.MockMakers.SUBCLASS)))
-                .run(context -> {
-                    assertThat(context.getBean("customProperties").getClass())
-                            .isNotEqualTo(
-                                    org.springframework.boot.http.client.autoconfigure.service
-                                            .HttpServiceClientProperties.class);
-                    assertUnknownClientScope(context.getBeanFactory());
-                });
+                        net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy.Default.NO_CONSTRUCTORS)
+                .name("app.advisoraudit.CustomServiceProperties")
+                .make()
+                .load(getClass().getClassLoader())
+                .getLoaded();
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var definition = new org.springframework.beans.factory.support.RootBeanDefinition(properties);
+        definition.setLazyInit(true);
+        factory.registerBeanDefinition("customProperties", definition);
+        assertUnknownClientScope(factory);
+        assertThat(factory.containsSingleton("customProperties")).isFalse();
     }
 
     @Test
