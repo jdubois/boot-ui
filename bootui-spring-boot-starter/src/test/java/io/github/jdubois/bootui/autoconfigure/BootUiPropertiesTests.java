@@ -231,6 +231,7 @@ class BootUiPropertiesTests {
     void defaultVulnerabilitiesRequestTimeoutIsTenSeconds() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getVulnerabilities().getRequestTimeout()).isEqualTo(Duration.ofSeconds(10));
+        assertThat(props.getVulnerabilities().getScanTimeout()).isEqualTo(Duration.ofSeconds(60));
     }
 
     @Test

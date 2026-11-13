@@ -380,7 +380,8 @@ const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchStatu
               >
               <template v-else
                 >Paste this into <code>{{ client.file }}</code
-                >.</template
+                >, or run <code>bootui init --{{ client.id }}</code> to merge it without overwriting other MCP
+                servers.</template
               >
             </p>
             <pre

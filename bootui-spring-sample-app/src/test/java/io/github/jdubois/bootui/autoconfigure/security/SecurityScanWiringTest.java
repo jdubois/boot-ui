@@ -49,6 +49,9 @@ class SecurityScanWiringTest {
         assertThat(report.filterChainsAnalyzed()).isEqualTo(3);
         assertThat(report.evidence().usable()).isTrue();
         assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.results())
+                .extracting(io.github.jdubois.bootui.core.dto.SecurityRuleResultDto::id)
+                .doesNotContain("SEC-HEAD-010", "SEC-SESSION-007", "SEC-CONFIG-005", "SEC-ACT-004");
         // The custom filter and custom CSRF request matchers remain unobserved.
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.evidence().coverageComplete()).isFalse();

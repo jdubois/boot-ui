@@ -160,7 +160,7 @@ public final class OsvAdvisoryInterpreter {
             } else if (!blank(packageName)
                     && "Maven".equals(item.ecosystem())
                     && (item.name().equals(packageName) || "*".equals(item.name()))) {
-                matching.add(new Entry(item));
+                matching.add(new Entry(item, item.name().equals(packageName)));
             }
         }
 
@@ -169,6 +169,7 @@ public final class OsvAdvisoryInterpreter {
         boolean applicable = false;
         boolean unresolved = unknownIdentity;
         boolean packageSeveritySupplied = false;
+        boolean boundedBranch = false;
         List<Severity> applicableSeverity = new ArrayList<>();
         List<List<String>> candidateStreams = new ArrayList<>();
         for (Entry entry : matching) {
@@ -188,6 +189,9 @@ public final class OsvAdvisoryInterpreter {
                     if (!fixes.isEmpty()) {
                         candidateStreams.add(fixes);
                     }
+                    if (entry.exactPackage && timeline.isBounded(installedVersion)) {
+                        boundedBranch = true;
+                    }
                 }
             } else if (evaluation.applicability() == Applicability.UNRESOLVED) {
                 for (String symbol : entry.affected.symbols()) {
@@ -202,6 +206,43 @@ public final class OsvAdvisoryInterpreter {
         // The v4-over-v3 preference applies across the union of applicable package entries, never per entry.
         Double score = selectScore(packageSeveritySupplied ? applicableSeverity : snapshot(severity));
 
+        List<String> verified = verifyCandidates(installedVersion, matching, unknownIdentity, candidateStreams);
+        if (verified.isEmpty() && boundedBranch) {
+            List<List<String>> crossBranchStreams = new ArrayList<>();
+            for (Entry entry : matching) {
+                if (!entry.exactPackage) {
+                    continue;
+                }
+                for (Timeline timeline : entry.timelines) {
+                    List<String> fixes = timeline.fixesAfter(installedVersion);
+                    if (!fixes.isEmpty()) {
+                        crossBranchStreams.add(fixes);
+                    }
+                }
+            }
+            verified = verifyCandidates(installedVersion, matching, unknownIdentity, crossBranchStreams);
+        }
+        List<String> fixedVersions = DependencyReports.orderFixedVersions(verified, 10);
+        if (maliciousPackage(advisoryId)) {
+            // A synthesized CRITICAL must not sit beside a contradictory computed score.
+            return new Result("CRITICAL", null, fixedVersions, unresolved, true, symbols);
+        }
+        return new Result(
+                score == null
+                        ? DependencyReports.normalizeSeverity(databaseSeverity)
+                        : DependencyReports.normalizeSeverity(score),
+                score,
+                fixedVersions,
+                unresolved,
+                false,
+                symbols);
+    }
+
+    private static List<String> verifyCandidates(
+            String installedVersion,
+            List<Entry> matching,
+            boolean unknownIdentity,
+            List<List<String>> candidateStreams) {
         List<String> verified = new ArrayList<>();
         for (List<String> fixes : candidateStreams) {
             for (String candidate : fixes) {
@@ -222,20 +263,7 @@ public final class OsvAdvisoryInterpreter {
                 }
             }
         }
-        List<String> fixedVersions = DependencyReports.orderFixedVersions(verified, 10);
-        if (maliciousPackage(advisoryId)) {
-            // A synthesized CRITICAL must not sit beside a contradictory computed score.
-            return new Result("CRITICAL", null, fixedVersions, unresolved, true, symbols);
-        }
-        return new Result(
-                score == null
-                        ? DependencyReports.normalizeSeverity(databaseSeverity)
-                        : DependencyReports.normalizeSeverity(score),
-                score,
-                fixedVersions,
-                unresolved,
-                false,
-                symbols);
+        return verified;
     }
 
     private enum Applicability {
@@ -248,10 +276,12 @@ public final class OsvAdvisoryInterpreter {
 
     private static final class Entry {
         private final Affected affected;
+        private final boolean exactPackage;
         private final List<Timeline> timelines;
 
-        private Entry(Affected affected) {
+        private Entry(Affected affected, boolean exactPackage) {
             this.affected = affected;
+            this.exactPackage = exactPackage;
             this.timelines = affected.ranges().stream().map(Timeline::new).toList();
         }
 
@@ -364,6 +394,13 @@ public final class OsvAdvisoryInterpreter {
             if (evaluate(version) != Applicability.MATCHED) {
                 return List.of();
             }
+            return fixesAfter(version);
+        }
+
+        private List<String> fixesAfter(String version) {
+            if (!valid || blank(version)) {
+                return List.of();
+            }
             List<String> fixes = new ArrayList<>();
             for (Event event : events) {
                 if ("fixed".equals(event.type()) && MavenVersionComparator.compare(version, event.version()) < 0) {
@@ -371,6 +408,22 @@ public final class OsvAdvisoryInterpreter {
                 }
             }
             return fixes;
+        }
+
+        private boolean isBounded(String version) {
+            if (evaluate(version) != Applicability.MATCHED) {
+                return false;
+            }
+            if (!limits.isEmpty() && !limits.contains("*")) {
+                return true;
+            }
+            for (Event event : events) {
+                if ("last_affected".equals(event.type())
+                        && MavenVersionComparator.compare(version, event.version()) <= 0) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

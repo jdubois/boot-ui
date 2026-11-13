@@ -204,6 +204,102 @@ class SpringInventoryTests {
     }
 
     @Test
+    void repeatedBeanTypesDoNotExhaustDiscoveryWithOrWithoutAsyncDeclarations() {
+        for (Class<?> type : java.util.List.of(
+                Object.class, ApplicationFixtures.QualifiedAsync.class, ApplicationFixtures.MixedAsync.class)) {
+            tasks.withInitializer(context -> {
+                        var factory = (DefaultListableBeanFactory) context.getBeanFactory();
+                        for (int i = 0; i < 900; i++) {
+                            RootBeanDefinition definition = new RootBeanDefinition(type);
+                            definition.setLazyInit(true);
+                            factory.registerBeanDefinition("repeated" + i, definition);
+                        }
+                    })
+                    .run(context -> {
+                        var snapshot =
+                                SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                        assertThat(snapshot.observations().incomplete()).isEmpty();
+                        assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY))
+                                .isEqualTo(type == ApplicationFixtures.QualifiedAsync.class);
+                        if (type != ApplicationFixtures.QualifiedAsync.class) {
+                            assertThat(snapshot.observations().get(ASYNC_SELECTION, AsyncSelection.class))
+                                    .isEqualTo(AsyncSelection.SELECTED);
+                        }
+                        assertThat(context.getBeanFactory().containsSingleton("repeated0"))
+                                .isFalse();
+                    });
+        }
+    }
+
+    @Test
+    void repeatedFactoryProductsReuseBoundPropertyMetadata() {
+        var factory = new DefaultListableBeanFactory();
+        var owner = new RootBeanDefinition(SpringInventoryTests.class);
+        owner.setLazyInit(true);
+        factory.registerBeanDefinition("factoryOwner", owner);
+        for (int i = 0; i < 900; i++) {
+            var definition = new RootBeanDefinition();
+            definition.setTargetType(ApplicationFixtures.Counter.class);
+            definition.setFactoryBeanName("factoryOwner");
+            definition.setFactoryMethodName("boundCounter");
+            definition.setLazyInit(true);
+            factory.registerBeanDefinition("bound" + i, definition);
+        }
+        var snapshot = SpringInventory.discover(factory, new MockEnvironment(), false);
+        assertThat(snapshot.observations().incomplete()).isEmpty();
+        assertThat(snapshot.mutableSingletonFields()).isEmpty();
+        assertThat(factory.containsSingleton("factoryOwner")).isFalse();
+        assertThat(factory.containsSingleton("bound0")).isFalse();
+    }
+
+    @org.springframework.boot.context.properties.ConfigurationProperties("audit.factory")
+    public ApplicationFixtures.Counter boundCounter() {
+        throw new AssertionError("Discovery must not invoke a factory method");
+    }
+
+    @Test
+    void oversizedTypeDoesNotDiscardIndependentFindingsFromLaterBeans() {
+        net.bytebuddy.dynamic.DynamicType.Builder<?> builder =
+                new net.bytebuddy.ByteBuddy().subclass(Object.class).name("app.advisoraudit.OversizedInventoryType");
+        for (int i = 0; i < 520; i++) {
+            builder = builder.defineMethod("work" + i, void.class, java.lang.reflect.Modifier.PUBLIC)
+                    .intercept(net.bytebuddy.implementation.StubMethod.INSTANCE);
+        }
+        var factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition(
+                "oversized",
+                new RootBeanDefinition(
+                        builder.make().load(getClass().getClassLoader()).getLoaded()));
+        factory.registerBeanDefinition("counter", new RootBeanDefinition(ApplicationFixtures.Counter.class));
+        var snapshot = SpringInventory.discover(factory, new MockEnvironment(), false);
+        assertThat(snapshot.observations().incomplete())
+                .anyMatch(text -> text.contains("per-type member inspection limit"));
+        assertThat(snapshot.mutableSingletonFields()).anyMatch(field -> field.endsWith("#count"));
+        assertThat(factory.containsSingleton("counter")).isFalse();
+    }
+
+    @Test
+    void genuinelyDistinctMetadataStillExhaustsTheMemberBudget() {
+        var factory = new DefaultListableBeanFactory();
+        for (int type = 0; type < 52; type++) {
+            net.bytebuddy.dynamic.DynamicType.Builder<?> builder =
+                    new net.bytebuddy.ByteBuddy().subclass(Object.class).name("app.advisoraudit.LargeInventory" + type);
+            for (int method = 0; method < 400; method++) {
+                builder = builder.defineMethod("work" + method, void.class, java.lang.reflect.Modifier.PUBLIC)
+                        .intercept(net.bytebuddy.implementation.StubMethod.INSTANCE);
+            }
+            factory.registerBeanDefinition(
+                    "distinct" + type,
+                    new RootBeanDefinition(
+                            builder.make().load(getClass().getClassLoader()).getLoaded()));
+        }
+        var report = new SpringScanner(factory, new MockEnvironment(), false, Clock.systemUTC()).scan();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.inspected()).anyMatch(text -> text.contains("member inspection limit"));
+        assertThat(report.evidence().limitations()).isNotEmpty();
+    }
+
+    @Test
     void lazyExecutorIsUnknownRatherThanAnUnreviewedPool() {
         new ApplicationContextRunner()
                 .withUserConfiguration(ApplicationFixtures.AsyncConfiguration.class)
@@ -419,6 +515,29 @@ class SpringInventoryTests {
                             .isEqualTo("SKIPPED");
                     assertThat(SpringScanner.evidence(snapshot).coverageComplete())
                             .isTrue();
+                });
+    }
+
+    @Test
+    void sharedJdkProxyClassDoesNotHideDifferentTargetQualifiers() {
+        tasks.withBean(
+                        "qualifiedAsync",
+                        ApplicationFixtures.AsyncService.class,
+                        ApplicationFixtures.JdkProxiedQualifiedAsyncService::new)
+                .withBean(
+                        "defaultAsync",
+                        ApplicationFixtures.AsyncService.class,
+                        ApplicationFixtures.JdkProxiedDefaultAsyncService::new)
+                .run(context -> {
+                    Class<?> proxyType = context.getBean("qualifiedAsync").getClass();
+                    assertThat(java.lang.reflect.Proxy.isProxyClass(proxyType)).isTrue();
+                    assertThat(context.getBean("defaultAsync").getClass()).isEqualTo(proxyType);
+                    var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.observations().incomplete()).isEmpty();
+                    assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY))
+                            .isFalse();
+                    assertThat(snapshot.observations().get(ASYNC_SELECTION, AsyncSelection.class))
+                            .isEqualTo(AsyncSelection.SELECTED);
                 });
     }
 

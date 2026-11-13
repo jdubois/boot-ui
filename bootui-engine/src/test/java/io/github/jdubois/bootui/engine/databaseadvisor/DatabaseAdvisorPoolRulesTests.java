@@ -466,11 +466,44 @@ class DatabaseAdvisorPoolRulesTests {
                         setting("reserved_connections", "0")),
                 defaults);
         for (DatabaseAdvisorContext context : List.of(mysqlStock, postgresStock)) {
-            for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime)) {
+            for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime, new PoolAcquisitionTimeoutRule())) {
                 assertThat(rule.evaluate(context).status())
                         .as(rule.definition().id())
                         .isEqualTo("PASS");
             }
         }
+    }
+
+    // --- DB-POOL-005 -----------------------------------------------------------------------------------------------
+
+    @Test
+    void acquisitionTimeoutFiresWhenDisabledOrAboveFiveMinutes() {
+        DatabaseAdvisorRule acquisition = new PoolAcquisitionTimeoutRule();
+        SchemaSnapshot schema = mysql("600", "151");
+
+        PoolSettings agroalZero = new PoolSettings("Agroal", 10, 0, 0L, 0L, null, 0L);
+        DatabaseAdvisorRuleResultDto agroalResult = acquisition.evaluate(with(schema, agroalZero));
+        assertThat(agroalResult.status()).isEqualTo("VIOLATION");
+        assertThat(agroalResult.id()).isEqualTo("DB-POOL-005");
+        assertThat(agroalResult.severity()).isEqualTo("MEDIUM");
+        assertThat(reason(agroalResult))
+                .contains("ordersDb", "acquisitionTimeout is 0 (disabled)", "Evidence: effective");
+
+        PoolSettings hikariMaxInt =
+                new PoolSettings("HikariCP", 10, 10, 600_000L, 1_800_000L, 120_000L, (long) Integer.MAX_VALUE);
+        DatabaseAdvisorRuleResultDto hikariDisabled = acquisition.evaluate(with(schema, hikariMaxInt));
+        assertThat(hikariDisabled.status()).isEqualTo("VIOLATION");
+        assertThat(reason(hikariDisabled)).contains("Integer.MAX_VALUE", "HikariCP's representation of 0 / disabled");
+
+        PoolSettings tenMinutes = new PoolSettings("HikariCP", 10, 10, 600_000L, 1_800_000L, 120_000L, 10 * MINUTE);
+        DatabaseAdvisorRuleResultDto excessive = acquisition.evaluate(with(schema, tenMinutes));
+        assertThat(excessive.status()).isEqualTo("VIOLATION");
+        assertThat(reason(excessive)).contains("connectionTimeout is 10 min (above 5 min)");
+
+        PoolSettings fiveMinutes = new PoolSettings("HikariCP", 10, 10, 600_000L, 1_800_000L, 120_000L, 5 * MINUTE);
+        assertThat(acquisition.evaluate(with(schema, fiveMinutes)).status()).isEqualTo("PASS");
+
+        PoolSettings unreadable = new PoolSettings("HikariCP", 10, 10, 600_000L, 1_800_000L, 120_000L, null);
+        assertThat(acquisition.evaluate(with(schema, unreadable)).status()).isEqualTo("SKIPPED");
     }
 }

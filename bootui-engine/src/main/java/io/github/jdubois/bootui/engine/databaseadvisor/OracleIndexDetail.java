@@ -26,7 +26,35 @@ record OracleIndexDetail(
         boolean automatic,
         boolean partitioned,
         String tableOwner,
-        boolean uniquenessKnown) {
+        boolean uniquenessKnown,
+        String orphanedEntries) {
+
+    OracleIndexDetail(
+            String schema,
+            String table,
+            String index,
+            String indexType,
+            boolean unique,
+            String status,
+            String visibility,
+            boolean automatic,
+            boolean partitioned,
+            String tableOwner,
+            boolean uniquenessKnown) {
+        this(
+                schema,
+                table,
+                index,
+                indexType,
+                unique,
+                status,
+                visibility,
+                automatic,
+                partitioned,
+                tableOwner,
+                uniquenessKnown,
+                "NO");
+    }
 
     OracleIndexDetail(
             String schema,

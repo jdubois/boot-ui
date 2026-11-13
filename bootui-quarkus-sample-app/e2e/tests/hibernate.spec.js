@@ -21,7 +21,7 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(69)
+    expect(report.rulesEvaluated).toBe(76)
     // Quarkus persistence units coordinate transactions through JTA, so HIB-CONFIG-008 and HIB-CONFIG-021 are
     // skipped as not applicable rather than missing evidence, and a scan with nothing unobservable is complete.
     expect(report.scan.status).toBe('SCANNED')

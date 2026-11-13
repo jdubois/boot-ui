@@ -57,6 +57,12 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             Pattern.compile("^quarkus\\.tls\\.(.+)\\.hostname-verification-algorithm$");
     private static final Pattern NAMED_OIDC_TENANT = Pattern.compile(
             "^quarkus\\.oidc\\.([^.]+)\\.(?:auth-server-url|public-key|provider|certificate-chain\\..+)$");
+    private static final Pattern NAMED_OIDC_CLIENT = Pattern.compile(
+            "^quarkus\\.oidc-client\\.([^.]+)\\.(?:auth-server-url|token-path|revoke-path|client-id|tls\\.verification|tls\\.tls-configuration-name)$");
+    private static final Pattern PERMISSION_PATHS_KEY =
+            Pattern.compile("^quarkus\\.http\\.auth\\.permission\\.([^.\\[]+)\\.paths(?:\\[\\d+\\])?$");
+    private static final Pattern MGMT_AUTH_PERMISSION_OR_POLICY =
+            Pattern.compile("^quarkus\\.management\\.auth\\.(permission|policy)\\.([^.\\[]+)\\.(.+)$");
     private static final Set<String> SECURE_KAFKA_PROTOCOLS = Set.of("SASL_SSL", "SSL");
     private final Config config;
     private static final int LIMIT = 4096;
@@ -108,7 +114,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                     "QS-OIDC-003");
         }
         if (bool("bootui.internal.sec.custom-tls", false)) {
-            unknown("programmatic TLS configuration", "QS-TLS-002", "QS-HDR-003");
+            unknown("programmatic TLS configuration", "QS-HDR-003");
         }
         if (bool("bootui.internal.sec.custom-headers", false)) {
             unknown(
@@ -274,6 +280,10 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 .anyMatch(prefix -> !bool(prefix + ".token-state-manager.encryption-required", true));
         boolean forwardedHeadersTrustAnyProxy = forwardedHeadersTrustAnyProxy();
         List<String> tlsHostnameVerificationDisabled = tlsHostnameVerificationDisabled(oidcTenants);
+        List<String> insecureOidcClientEndpoints = insecureOidcClientEndpoints();
+        List<String> invalidProdPermissionPaths = invalidProdPermissionPaths();
+        List<String> ignoredManagementAuthPolicies = ignoredManagementAuthPolicies();
+        boolean formSessionEncryptionKeyShort = formSessionEncryptionKeyShort(form);
 
         List<QuarkusSecurityPermission> permissions = permissions();
         List<String> secrets = suspectedSecrets();
@@ -285,6 +295,15 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         }
         if (insecureIdentityProviderUrl) {
             unknownRules.remove("QS-TLS-004");
+        }
+        if (!insecureOidcClientEndpoints.isEmpty()) {
+            unknownRules.remove("QS-OIDC-006");
+        }
+        if (!invalidProdPermissionPaths.isEmpty()) {
+            unknownRules.remove("QS-AUTHZ-005");
+        }
+        if (!ignoredManagementAuthPolicies.isEmpty()) {
+            unknownRules.remove("QS-MGMT-004");
         }
         return new QuarkusSecuritySnapshot(
                 oidc,
@@ -358,6 +377,10 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 legacyTlsProtocols,
                 oidcTokenEncryptionDisabled,
                 forwardedHeadersTrustAnyProxy,
+                insecureOidcClientEndpoints,
+                invalidProdPermissionPaths,
+                ignoredManagementAuthPolicies,
+                formSessionEncryptionKeyShort,
                 new QuarkusSecurityEvidence(
                         unknownRules, List.copyOf(incomplete), List.copyOf(failures), endpoints, endpointMetadata));
     }
@@ -443,7 +466,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             return true;
         }
         if (certificates != keys) {
-            unknown("incomplete listener TLS material", "QS-TLS-002", "QS-HDR-003");
+            unknown("incomplete listener TLS material", "QS-HDR-003");
         }
         String selectedBucket = str("quarkus.http.tls-configuration-name", null);
         String keyStorePrefix = selectedBucket == null || selectedBucket.isBlank()
@@ -477,7 +500,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             incompleteMaterial = true;
         }
         if (incompleteMaterial) {
-            unknown("incomplete TLS registry material", "QS-TLS-002", "QS-HDR-003");
+            unknown("incomplete TLS registry material", "QS-HDR-003");
         }
         return false;
     }
@@ -1033,7 +1056,15 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             for (ConfigSource source : config.getConfigSources()) {
                 if (++sources > 128) {
                     credentialMetadataComplete = false;
-                    unknown("configuration source limit", "QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004");
+                    unknown(
+                            "configuration source limit",
+                            "QS-AUTH-001",
+                            "QS-AUTHZ-001",
+                            "QS-AUTHZ-004",
+                            "QS-AUTHZ-005",
+                            "QS-MGMT-004",
+                            "QS-OIDC-006",
+                            "QS-SESSION-004");
                     break;
                 }
                 String type = source.getClass().getName();
@@ -1064,10 +1095,11 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                                 "QS-GRPC-001",
                                 "QS-GRAPHQL-001",
                                 "QS-MGMT-003",
+                                "QS-MGMT-004",
                                 "QS-AUTH-001",
                                 "QS-AUTHZ-001",
                                 "QS-AUTHZ-004",
-                                "QS-TLS-002",
+                                "QS-AUTHZ-005",
                                 "QS-HDR-003");
                         credentialMetadataComplete = false;
                     }
@@ -1079,7 +1111,15 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 int visited = 0;
                 for (String name : source.getPropertyNames()) {
                     if (++visited > LIMIT || names.size() >= LIMIT) {
-                        unknown("configuration key limit", "QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004");
+                        unknown(
+                                "configuration key limit",
+                                "QS-AUTH-001",
+                                "QS-AUTHZ-001",
+                                "QS-AUTHZ-004",
+                                "QS-AUTHZ-005",
+                                "QS-MGMT-004",
+                                "QS-OIDC-006",
+                                "QS-SESSION-004");
                         break;
                     }
                     if (name != null && name.length() <= 512) {
@@ -1090,7 +1130,13 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                         inventoryName(name);
                         if (nativeEnvironment) {
                             // SmallRye exposes dotted aliases for environment names; canonicalize known OIDC suffixes.
-                            inventoryName(name.replaceFirst("\\.auth\\.server\\.url$", ".auth-server-url")
+                            inventoryName(name.replaceFirst("^quarkus\\.oidc\\.client\\.", "quarkus.oidc-client.")
+                                    .replaceFirst("\\.auth\\.server\\.url$", ".auth-server-url")
+                                    .replaceFirst("\\.token\\.path$", ".token-path")
+                                    .replaceFirst("\\.revoke\\.path$", ".revoke-path")
+                                    .replaceFirst("\\.client\\.id$", ".client-id")
+                                    .replaceFirst("\\.client\\.enabled$", ".client-enabled")
+                                    .replaceFirst("\\.tls\\.tls\\.configuration\\.name$", ".tls.tls-configuration-name")
                                     .replaceFirst("\\.public\\.key$", ".public-key")
                                     .replaceFirst("\\.certificate\\.chain\\.", ".certificate-chain."));
                         }
@@ -1104,7 +1150,15 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
 
     private void inventoryName(String name) {
         if (names.size() >= LIMIT && !names.contains(name)) {
-            unknown("configuration key limit", "QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004");
+            unknown(
+                    "configuration key limit",
+                    "QS-AUTH-001",
+                    "QS-AUTHZ-001",
+                    "QS-AUTHZ-004",
+                    "QS-AUTHZ-005",
+                    "QS-MGMT-004",
+                    "QS-OIDC-006",
+                    "QS-SESSION-004");
         } else {
             names.add(name);
         }
@@ -1357,6 +1411,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         if (key.contains("cors")) {
             return new String[] {"QS-CORS-001", "QS-CORS-002"};
         }
+        if (key.contains("oidc-client")) {
+            return new String[] {"QS-OIDC-006"};
+        }
         if (key.contains("oidc")) {
             if (key.contains(".tls.")) {
                 return new String[] {"QS-DEV-001", "QS-TLS-005"};
@@ -1386,6 +1443,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         if (key.contains("header")) {
             return new String[] {"QS-HDR-001", "QS-HDR-002", "QS-HDR-003", "QS-HDR-004", "QS-HDR-005", "QS-HDR-006"};
         }
+        if (key.contains("session.encryption-key")) {
+            return new String[] {"QS-SESSION-004"};
+        }
         if (key.contains("timeout")) {
             return new String[] {"QS-SESSION-003"};
         }
@@ -1400,18 +1460,14 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         }
         if (key.contains("insecure-requests") || key.contains("ssl") || key.contains("tls")) {
             return new String[] {
-                "QS-TLS-001",
-                "QS-TLS-002",
-                "QS-TLS-003",
-                "QS-TLS-005",
-                "QS-AUTH-002",
-                "QS-AUTH-012",
-                "QS-OIDC-002",
-                "QS-HDR-003"
+                "QS-TLS-001", "QS-TLS-003", "QS-TLS-005", "QS-AUTH-002", "QS-AUTH-012", "QS-OIDC-002", "QS-HDR-003"
             };
         }
+        if (key.contains("management.auth")) {
+            return new String[] {"QS-MGMT-004"};
+        }
         if (key.contains("management")) {
-            return new String[] {"QS-MGMT-001", "QS-MGMT-003"};
+            return new String[] {"QS-MGMT-001", "QS-MGMT-003", "QS-MGMT-004"};
         }
         if (key.contains("graphql")) {
             return new String[] {"QS-GRAPHQL-001", "QS-DEV-002"};
@@ -1431,6 +1487,182 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         if (key.contains("embedded")) {
             return new String[] {"QS-AUTH-007", "QS-AUTH-013", "QS-AUTH-001"};
         }
+        if (key.contains(".http.auth.permission.")) {
+            return new String[] {"QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-002", "QS-AUTHZ-004", "QS-AUTHZ-005"};
+        }
         return new String[] {"QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004"};
+    }
+
+    private List<String> insecureOidcClientEndpoints() {
+        if (isConfigured("bootui.internal.sec.oidc-client-present")
+                && !bool("bootui.internal.sec.oidc-client-present", true)) {
+            return List.of();
+        }
+        if (!bool("quarkus.oidc-client.enabled", true)) {
+            return List.of();
+        }
+        Set<String> prefixes = new LinkedHashSet<>();
+        for (String name : names) {
+            String prefix = oidcClientPrefix(name);
+            if (prefix != null && has(name) && bool(prefix + ".client-enabled", true)) {
+                prefixes.add(prefix);
+                if (prefixes.size() >= 64) {
+                    unknown("OIDC client inventory limit", "QS-OIDC-006");
+                    break;
+                }
+            }
+        }
+        Set<String> findings = new java.util.TreeSet<>();
+        for (String prefix : prefixes) {
+            String labelPrefix = oidcClientLabel(prefix);
+            for (String endpoint : List.of("auth-server-url", "token-path", "revoke-path")) {
+                if (isHttpUrl(str(prefix + "." + endpoint, null))) {
+                    findings.add(labelPrefix + "." + endpoint + " uses plain HTTP");
+                }
+            }
+            if (!has(prefix + ".tls.tls-configuration-name")
+                    && "none".equalsIgnoreCase(str(prefix + ".tls.verification", ""))) {
+                findings.add(labelPrefix + ".tls.verification=none");
+            }
+        }
+        return List.copyOf(findings);
+    }
+
+    private static String oidcClientPrefix(String name) {
+        if (name.equals("quarkus.oidc-client.auth-server-url")
+                || name.equals("quarkus.oidc-client.token-path")
+                || name.equals("quarkus.oidc-client.revoke-path")
+                || name.equals("quarkus.oidc-client.client-id")
+                || name.equals("quarkus.oidc-client.tls.verification")
+                || name.equals("quarkus.oidc-client.tls.tls-configuration-name")) {
+            return "quarkus.oidc-client";
+        }
+        var matcher = NAMED_OIDC_CLIENT.matcher(name);
+        if (!matcher.matches()) {
+            return null;
+        }
+        String clientId = matcher.group(1);
+        if ("tls".equals(clientId)) {
+            return "quarkus.oidc-client";
+        }
+        return "quarkus.oidc-client." + clientId;
+    }
+
+    private static String oidcClientLabel(String prefix) {
+        if ("quarkus.oidc-client".equals(prefix)) {
+            return prefix;
+        }
+        String clientId = prefix.substring("quarkus.oidc-client.".length());
+        return clientId.length() <= 64 && clientId.matches("[A-Za-z0-9_-]+") ? prefix : "quarkus.oidc-client.<named>";
+    }
+
+    private List<String> invalidProdPermissionPaths() {
+        Set<String> permissionKeys = new LinkedHashSet<>();
+        for (String name : names) {
+            var matcher = PERMISSION_PATHS_KEY.matcher(name);
+            if (matcher.matches()) {
+                permissionKeys.add(matcher.group(1));
+                if (permissionKeys.size() >= 128) {
+                    unknown("HTTP permission inventory limit", "QS-AUTHZ-005");
+                    break;
+                }
+            }
+        }
+        Set<String> invalid = new java.util.TreeSet<>();
+        for (String key : permissionKeys) {
+            String prefix = "quarkus.http.auth.permission." + key;
+            String enabled = productionValue(prefix + ".enabled", "true");
+            if ("false".equalsIgnoreCase(enabled.trim())) {
+                continue;
+            }
+            if (!"true".equalsIgnoreCase(enabled.trim())) {
+                failed(prefix + ".enabled");
+                continue;
+            }
+            List<String> paths = productionList(prefix + ".paths");
+            if (paths == null) {
+                continue;
+            }
+            boolean hasDoubleStar =
+                    paths.stream().map(String::trim).anyMatch(path -> path.equals("/**") || path.endsWith("/**"));
+            if (hasDoubleStar) {
+                invalid.add("quarkus.http.auth.permission." + permissionLabel(key) + ".paths");
+            }
+        }
+        return List.copyOf(invalid);
+    }
+
+    private List<String> ignoredManagementAuthPolicies() {
+        boolean securityPresent = capability("security");
+        boolean runtimeEnabled = securityPresent
+                && (isConfigured("quarkus.management.auth.enabled")
+                        ? bool("quarkus.management.auth.enabled", false)
+                        : bool("quarkus.management.auth.basic", false));
+        boolean prodEnabled = securityPresent
+                && (productionValue("quarkus.management.auth.enabled", null) != null
+                        ? prodAwareBoolean("quarkus.management.auth.enabled")
+                        : prodAwareBoolean("quarkus.management.auth.basic"));
+        Set<String> ignored = new java.util.TreeSet<>();
+        for (String name : names) {
+            var matcher = MGMT_AUTH_PERMISSION_OR_POLICY.matcher(name);
+            if (!matcher.matches()) {
+                continue;
+            }
+            String kind = matcher.group(1);
+            String policyName = matcher.group(2);
+            String property = matcher.group(3);
+            if ("enabled".equals(property)) {
+                continue;
+            }
+            boolean runtimePermEnabled = true;
+            boolean prodPermEnabled = true;
+            if ("permission".equals(kind)) {
+                String permPrefix = "quarkus.management.auth.permission." + policyName;
+                runtimePermEnabled = bool(permPrefix + ".enabled", true);
+                String prodPermValue =
+                        productionValue(permPrefix + ".enabled", "true").trim();
+                if (!"true".equalsIgnoreCase(prodPermValue) && !"false".equalsIgnoreCase(prodPermValue)) {
+                    failed(permPrefix + ".enabled");
+                    prodPermEnabled = false;
+                } else {
+                    prodPermEnabled = Boolean.parseBoolean(prodPermValue);
+                }
+            }
+            boolean declaredAtRuntime = has(name);
+            boolean declaredInProd =
+                    nonBlank(literalPropertyValue("%prod." + name)) || nonBlank(literalPropertyValue(name));
+            if ((declaredAtRuntime && runtimePermEnabled && !runtimeEnabled)
+                    || (declaredInProd && prodPermEnabled && !prodEnabled)) {
+                ignored.add("quarkus.management.auth." + kind + "." + permissionLabel(policyName));
+                if (ignored.size() >= 128) {
+                    unknown("management auth policy inventory limit", "QS-MGMT-004");
+                    break;
+                }
+            }
+        }
+        return List.copyOf(ignored);
+    }
+
+    private boolean formSessionEncryptionKeyShort(boolean formAuth) {
+        if (!formAuth) {
+            return false;
+        }
+        String key = "quarkus.http.auth.session.encryption-key";
+        try {
+            String value = config.getOptionalValue(key, String.class).orElse(null);
+            if (value == null) {
+                String raw = literalPropertyValue(key);
+                return raw != null && raw.trim().isEmpty();
+            }
+            if (value.length() > VALUE_LIMIT || value.contains("${")) {
+                failedKeys.add(key);
+                unknown("unresolved or oversized configuration", "QS-SESSION-004");
+                return false;
+            }
+            return value.length() < 16;
+        } catch (RuntimeException | LinkageError ex) {
+            failed(key);
+            return false;
+        }
     }
 }

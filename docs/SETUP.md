@@ -10,6 +10,10 @@ the same console and the same JSON contract.
 - Spring Boot 4.x application on `spring-boot-starter-web` (or `spring-boot-starter-webmvc`)
 - Maven or Gradle (or their local wrappers)
 
+BootUI checks the host platform at startup and rejects proven incompatible framework generations. See
+[Startup compatibility](FRAMEWORK-SUPPORT.md#startup-compatibility) for blocking errors, warnings, and the distinction
+between a missing optional integration and an incompatible one.
+
 ## Add the starter dependency
 
 Adding the starter is the whole install. BootUI ships dormant: it activates in the `dev` and `local` profiles, or when

@@ -46,6 +46,7 @@ class CiAssessmentRunnerTests {
     private boolean finding;
     private int findingRuleCount = 1;
     private boolean springFails = true;
+    private int springReportStatus = 200;
     private boolean springFindingsMedium;
     private boolean architectureFindingsMedium;
     private boolean reverseFindingOrder;
@@ -1204,6 +1205,7 @@ class CiAssessmentRunnerTests {
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"NOT_ASSESSED\"");
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("IDENTITY_CHANGED");
         assertThat(Files.readString(output.resolve("summary.md"))).contains("Assessment errors: `IDENTITY_CHANGED`.");
+        assertThat(Files.readString(output.resolve("junit.xml"))).contains("name=\"assessment\"");
     }
 
     @Test
@@ -1271,9 +1273,91 @@ class CiAssessmentRunnerTests {
         assertThat(bundle).contains("\"findingCount\": 1");
         assertThat(bundle).contains("\"code\": \"SCAN_FAILED\"");
         assertThat(Files.readString(output.resolve("summary.md")))
-                .contains("| architecture | ARCH-001 | HIGH | 1 | yes |", "Assessment errors: `SCAN_FAILED`.");
+                .contains(
+                        "| architecture | ARCH-001 | HIGH | 1 | yes |",
+                        "Assessment errors: `SCAN_FAILED`.",
+                        "| spring | true | NOT_ASSESSED | - | - | SCAN_FAILED |");
         String junit = Files.readString(output.resolve("junit.xml"));
-        assertThat(junit).contains("<failure", "<error");
+        assertThat(junit).contains("<failure", "<error", "name=\"spring\"");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EVIDENCE_UNEVALUABLE", "SCAN_FAILED", "REPORT_FAILED", "TARGET_REQUEST_FAILED"})
+    void identifiesRequiredAdvisorFailuresWithoutChangingTheBundle(String reason) throws Exception {
+        springFails = "SCAN_FAILED".equals(reason);
+        if ("EVIDENCE_UNEVALUABLE".equals(reason)) {
+            responseTransforms.put(
+                    "get_spring_report", body -> replaceResponseField(body, "evidence", JsonValue.parseStrict("""
+                        {"usable":true,"coverageComplete":false,"limitations":["private-evidence-<secret>&"]}
+                        """)));
+        } else if ("REPORT_FAILED".equals(reason)) {
+            springReportStatus = 500;
+        } else if ("TARGET_REQUEST_FAILED".equals(reason)) {
+            responseTransforms.put("get_spring_report", body -> "private-invalid-json");
+        }
+        startServer();
+        Path policy = writePolicyWithSpringAdvisor();
+        Path output = temp.resolve("assessment");
+        var runner = runner(policy, temp.resolve("witness.json"), output);
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        JsonValue bundle = JsonValue.parseStrict(Files.readString(output.resolve("bundle.json")));
+        assertThat(bundle.get("errors").get(0).get("code").asString(null)).isEqualTo(reason);
+        assertThat(bundle.get("advisors").values())
+                .noneMatch(advisor -> "spring".equals(advisor.get("name").asString(null)));
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(1);
+        String summary = Files.readString(output.resolve("summary.md"));
+        assertThat(summary).contains("| spring | true | NOT_ASSESSED | - | - | " + reason + " |");
+        var junit = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(output.resolve("junit.xml").toFile());
+        var errors = junit.getElementsByTagName("error");
+        assertThat(errors.getLength()).isOne();
+        assertThat(errors.item(0)
+                        .getParentNode()
+                        .getAttributes()
+                        .getNamedItem("name")
+                        .getNodeValue())
+                .isEqualTo("spring");
+        assertThat(errors.item(0).getAttributes().getNamedItem("message").getNodeValue())
+                .contains(reason);
+        assertThat(junit.getElementsByTagName("skipped").getLength()).isZero();
+        assertThat(junit.getDocumentElement().getAttribute("tests")).isEqualTo("1");
+        if ("EVIDENCE_UNEVALUABLE".equals(reason)) {
+            assertThat(summary).contains("usable=true", "coverageComplete=false", "reported coverage limitations=1");
+        }
+        for (String file : List.of("bundle.json", "summary.md", "junit.xml")) {
+            assertThat(Files.readString(output.resolve(file)))
+                    .doesNotContain("private-evidence", "<secret>", "private-invalid-json");
+        }
+    }
+
+    @Test
+    void coverageCountsIncludePolicyAdvisorsNotVisitedAfterARequiredFailure() throws Exception {
+        responseTransforms.put("cli", body -> {
+            var tools = JsonValue.parseStrict(body).get("tools").values().stream()
+                    .filter(tool -> !tool.get("name").asString("").contains("architecture"))
+                    .toList();
+            return replaceResponseField(body, "tools", JsonValue.array(tools));
+        });
+        startServer();
+        Path policy = temp.resolve("policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":false,"failOn":"high"},
+                  "spring":{"required":true,"failOn":"high"},
+                  "rest-api":{"required":false,"failOn":"high"},
+                  "security":{"required":false,"failOn":"high"}
+                }}
+                """);
+        Path output = temp.resolve("assessment");
+        var runner = runner(policy, temp.resolve("witness.json"), output);
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("0 of 4 advisors assessed", "unvisited advisors were not assessed");
     }
 
     @Test
@@ -1979,7 +2063,9 @@ class CiAssessmentRunnerTests {
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         int status = path.endsWith("/tools/get_runtime_insights")
                 ? runtimeInsightsStatus
-                : path.endsWith("/cli") ? catalogStatus : 200;
+                : path.endsWith("/tools/get_spring_report")
+                        ? springReportStatus
+                        : path.endsWith("/cli") ? catalogStatus : 200;
         exchange.sendResponseHeaders(status, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();

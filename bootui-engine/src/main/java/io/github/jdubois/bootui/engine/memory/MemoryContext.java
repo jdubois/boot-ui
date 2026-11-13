@@ -27,8 +27,7 @@ record MemoryContext(
         GcEvent latestGcEvent,
         GcEvent postHistogramGcEvent,
         GcTrend gcTrend,
-        BufferPoolTrend bufferPoolTrend,
-        OldGenTrend oldGenTrend,
+        ExplicitGcData explicitGc,
         AdvisorViolationCollector violationCollector) {
 
     MemoryContext(
@@ -43,8 +42,7 @@ record MemoryContext(
             GcEvent latestGcEvent,
             GcEvent postHistogramGcEvent,
             GcTrend gcTrend,
-            BufferPoolTrend bufferPoolTrend,
-            OldGenTrend oldGenTrend) {
+            AdvisorViolationCollector violationCollector) {
         this(
                 memory,
                 threads,
@@ -57,8 +55,35 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
+                null,
+                violationCollector);
+    }
+
+    MemoryContext(
+            MemoryData memory,
+            ThreadData threads,
+            HeapContentData heapContent,
+            PostGcHeapData postGcHeap,
+            ClassLoadingData classLoading,
+            RuntimeData runtime,
+            GcSample preHistogramGc,
+            GcSample postHistogramGc,
+            GcEvent latestGcEvent,
+            GcEvent postHistogramGcEvent,
+            GcTrend gcTrend) {
+        this(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                postHistogramGc,
+                latestGcEvent,
+                postHistogramGcEvent,
+                gcTrend,
+                null,
                 null);
     }
 
@@ -75,8 +100,7 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
+                explicitGc,
                 collector);
     }
 
@@ -92,45 +116,12 @@ record MemoryContext(
         latestGcEvent = latestGcEvent == null ? GcEvent.from(runtime) : latestGcEvent;
         postHistogramGcEvent = postHistogramGcEvent == null ? GcEvent.unavailable() : postHistogramGcEvent;
         gcTrend = gcTrend == null ? GcTrend.unavailable() : gcTrend;
-        bufferPoolTrend = bufferPoolTrend == null ? BufferPoolTrend.unavailable() : bufferPoolTrend;
-        oldGenTrend = oldGenTrend == null ? OldGenTrend.unavailable() : oldGenTrend;
+        explicitGc = explicitGc == null ? ExplicitGcData.from(latestGcEvent) : explicitGc;
     }
 
     /**
      * Backward-compatible constructor for callers that predate the post-histogram GC baseline. The
      * fallback retains aggregate GC counters but cannot preserve a per-collector breakdown.
-     */
-    MemoryContext(
-            MemoryData memory,
-            ThreadData threads,
-            HeapContentData heapContent,
-            PostGcHeapData postGcHeap,
-            ClassLoadingData classLoading,
-            RuntimeData runtime,
-            GcSample preHistogramGc,
-            GcTrend gcTrend,
-            BufferPoolTrend bufferPoolTrend,
-            OldGenTrend oldGenTrend) {
-        this(
-                memory,
-                threads,
-                heapContent,
-                postGcHeap,
-                classLoading,
-                runtime,
-                preHistogramGc,
-                null,
-                null,
-                null,
-                gcTrend,
-                bufferPoolTrend,
-                oldGenTrend);
-    }
-
-    /**
-     * Backward-compatible constructor for callers that predate the cross-scan buffer-pool-growth
-     * and old-generation-trend rules (MEM-POOL-007 / MEM-HEAP-008); both trends default to
-     * unavailable.
      */
     MemoryContext(
             MemoryData memory,
@@ -152,9 +143,7 @@ record MemoryContext(
                 null,
                 null,
                 null,
-                gcTrend,
-                null,
-                null);
+                gcTrend);
     }
 
     /**
@@ -185,51 +174,14 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 trend,
-                bufferPoolTrend,
-                oldGenTrend,
-                violationCollector);
-    }
-
-    /** Returns a copy of this context with the scanner-computed buffer-pool growth trend attached. */
-    MemoryContext withBufferPoolTrend(BufferPoolTrend trend) {
-        return new MemoryContext(
-                memory,
-                threads,
-                heapContent,
-                postGcHeap,
-                classLoading,
-                runtime,
-                preHistogramGc,
-                postHistogramGc,
-                latestGcEvent,
-                postHistogramGcEvent,
-                gcTrend,
-                trend,
-                oldGenTrend,
-                violationCollector);
-    }
-
-    /** Returns a copy of this context with the scanner-computed old-generation usage trend attached. */
-    MemoryContext withOldGenTrend(OldGenTrend trend) {
-        return new MemoryContext(
-                memory,
-                threads,
-                heapContent,
-                postGcHeap,
-                classLoading,
-                runtime,
-                preHistogramGc,
-                postHistogramGc,
-                latestGcEvent,
-                postHistogramGcEvent,
-                gcTrend,
-                bufferPoolTrend,
-                trend,
+                explicitGc,
                 violationCollector);
     }
 
     /** Returns a copy with the scanner-filtered latest GC event attached. */
     MemoryContext withLatestGcEvent(GcEvent event) {
+        ExplicitGcData updatedExplicitGc =
+                event == null || !event.available() ? ExplicitGcData.none() : ExplicitGcData.from(event);
         return new MemoryContext(
                 memory,
                 threads,
@@ -242,8 +194,27 @@ record MemoryContext(
                 event,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
+                explicitGc.count() > 0 && !explicitGc.equals(ExplicitGcData.from(latestGcEvent))
+                        ? explicitGc
+                        : updatedExplicitGc,
+                violationCollector);
+    }
+
+    /** Returns a copy with explicit-GC pause observations attached. */
+    MemoryContext withExplicitGc(ExplicitGcData updatedExplicitGc) {
+        return new MemoryContext(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                postHistogramGc,
+                latestGcEvent,
+                postHistogramGcEvent,
+                gcTrend,
+                updatedExplicitGc,
                 violationCollector);
     }
 
@@ -261,8 +232,7 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
+                explicitGc,
                 violationCollector);
     }
 
@@ -298,10 +268,19 @@ record MemoryContext(
 
     /**
      * A single {@code java.nio} buffer pool reading ({@code BufferPoolMXBean}), typically "direct"
-     * or "mapped". Captured per-pool (unlike the aggregated direct-buffer totals below) so
-     * MEM-POOL-007 can track the direct pool across scans.
+     * or "mapped".
      */
     record BufferPoolSnapshot(String name, long used, long capacity, long count) {}
+
+    /**
+     * Linux cgroup v2 {@code memory.events} counters for kernel memory throttling and OOM activity.
+     */
+    record CgroupMemoryEvents(long high, long max, long oom, long oomKill) {
+
+        boolean hasAnyEvent() {
+            return high > 0 || max > 0 || oom > 0 || oomKill > 0;
+        }
+    }
 
     record MemoryData(
             long heapUsed,
@@ -320,7 +299,11 @@ record MemoryContext(
             Long containerMemoryLimitBytes,
             Long containerMemoryCurrentBytes,
             Long containerMemoryWorkingSetBytes,
-            List<BufferPoolSnapshot> bufferPools) {
+            List<BufferPoolSnapshot> bufferPools,
+            Long containerMemoryHighBytes,
+            CgroupMemoryEvents containerMemoryEvents,
+            Long containerMemoryHighCurrentBytes,
+            Long containerMemoryHighWorkingSetBytes) {
 
         MemoryData {
             pools = pools == null ? List.of() : List.copyOf(pools);
@@ -329,9 +312,92 @@ record MemoryContext(
             bufferPools = bufferPools == null ? List.of() : List.copyOf(bufferPools);
         }
 
+        MemoryData(
+                long heapUsed,
+                long heapCommitted,
+                long heapMax,
+                long nonHeapUsed,
+                long nonHeapCommitted,
+                long nonHeapMax,
+                List<MemoryPoolSnapshot> pools,
+                long directBufferUsed,
+                long directBufferCapacity,
+                long directBufferCount,
+                long maxDirectMemoryBytes,
+                List<String> inputArguments,
+                List<String> gcCollectorNames,
+                Long containerMemoryLimitBytes,
+                Long containerMemoryCurrentBytes,
+                Long containerMemoryWorkingSetBytes,
+                List<BufferPoolSnapshot> bufferPools,
+                Long containerMemoryHighBytes,
+                CgroupMemoryEvents containerMemoryEvents) {
+            this(
+                    heapUsed,
+                    heapCommitted,
+                    heapMax,
+                    nonHeapUsed,
+                    nonHeapCommitted,
+                    nonHeapMax,
+                    pools,
+                    directBufferUsed,
+                    directBufferCapacity,
+                    directBufferCount,
+                    maxDirectMemoryBytes,
+                    inputArguments,
+                    gcCollectorNames,
+                    containerMemoryLimitBytes,
+                    containerMemoryCurrentBytes,
+                    containerMemoryWorkingSetBytes,
+                    bufferPools,
+                    containerMemoryHighBytes,
+                    containerMemoryEvents,
+                    containerMemoryCurrentBytes,
+                    containerMemoryWorkingSetBytes);
+        }
+
+        MemoryData(
+                long heapUsed,
+                long heapCommitted,
+                long heapMax,
+                long nonHeapUsed,
+                long nonHeapCommitted,
+                long nonHeapMax,
+                List<MemoryPoolSnapshot> pools,
+                long directBufferUsed,
+                long directBufferCapacity,
+                long directBufferCount,
+                long maxDirectMemoryBytes,
+                List<String> inputArguments,
+                List<String> gcCollectorNames,
+                Long containerMemoryLimitBytes,
+                Long containerMemoryCurrentBytes,
+                Long containerMemoryWorkingSetBytes,
+                List<BufferPoolSnapshot> bufferPools) {
+            this(
+                    heapUsed,
+                    heapCommitted,
+                    heapMax,
+                    nonHeapUsed,
+                    nonHeapCommitted,
+                    nonHeapMax,
+                    pools,
+                    directBufferUsed,
+                    directBufferCapacity,
+                    directBufferCount,
+                    maxDirectMemoryBytes,
+                    inputArguments,
+                    gcCollectorNames,
+                    containerMemoryLimitBytes,
+                    containerMemoryCurrentBytes,
+                    containerMemoryWorkingSetBytes,
+                    bufferPools,
+                    null,
+                    null);
+        }
+
         /**
-         * Backward-compatible constructor for callers that predate per-pool buffer-pool tracking
-         * (MEM-POOL-007's cross-scan growth-without-release rule); defaults to no per-pool readings.
+         * Backward-compatible constructor for callers that omit {@code containerMemoryWorkingSetBytes}.
          */
         MemoryData(
                 long heapUsed,
@@ -633,23 +699,190 @@ record MemoryContext(
             List<HeapClassHistogramEntryDto> histogram,
             long totalInstances,
             long totalBytes,
-            String collectionError) {
+            String collectionError,
+            List<HeapClassHistogramEntryDto> classLoaderEntries,
+            int dynamicClassLoaderClassCount,
+            long dynamicClassLoaderInstances,
+            int generatedProxyClassCount,
+            long generatedProxyInstances,
+            long generatedProxyBytes) {
+
+        HeapContentData(
+                boolean available,
+                List<HeapClassHistogramEntryDto> histogram,
+                long totalInstances,
+                long totalBytes,
+                String collectionError,
+                List<HeapClassHistogramEntryDto> classLoaderEntries,
+                long dynamicClassLoaderInstances,
+                int generatedProxyClassCount,
+                long generatedProxyInstances,
+                long generatedProxyBytes) {
+            this(
+                    available,
+                    histogram,
+                    totalInstances,
+                    totalBytes,
+                    collectionError,
+                    classLoaderEntries,
+                    classLoaderEntries == null ? 0 : classLoaderEntries.size(),
+                    dynamicClassLoaderInstances,
+                    generatedProxyClassCount,
+                    generatedProxyInstances,
+                    generatedProxyBytes);
+        }
+
+        HeapContentData(
+                boolean available,
+                List<HeapClassHistogramEntryDto> histogram,
+                long totalInstances,
+                long totalBytes,
+                String collectionError) {
+            this(
+                    available,
+                    histogram,
+                    totalInstances,
+                    totalBytes,
+                    collectionError,
+                    HistogramClassSummary.from(histogram));
+        }
+
+        private HeapContentData(
+                boolean available,
+                List<HeapClassHistogramEntryDto> histogram,
+                long totalInstances,
+                long totalBytes,
+                String collectionError,
+                HistogramClassSummary summary) {
+            this(
+                    available,
+                    histogram,
+                    totalInstances,
+                    totalBytes,
+                    collectionError,
+                    summary.classLoaderEntries(),
+                    summary.dynamicClassLoaderClassCount(),
+                    summary.dynamicClassLoaderInstances(),
+                    summary.generatedProxyClassCount(),
+                    summary.generatedProxyInstances(),
+                    summary.generatedProxyBytes());
+        }
 
         HeapContentData(
                 boolean available, List<HeapClassHistogramEntryDto> histogram, long totalInstances, long totalBytes) {
-            this(available, histogram, totalInstances, totalBytes, null);
+            this(available, histogram, totalInstances, totalBytes, (String) null);
         }
 
         HeapContentData {
             histogram = histogram == null ? List.of() : List.copyOf(histogram);
+            classLoaderEntries = classLoaderEntries == null ? List.of() : List.copyOf(classLoaderEntries);
         }
 
         static HeapContentData unavailable() {
-            return new HeapContentData(false, List.of(), 0, 0);
+            return new HeapContentData(false, List.of(), 0, 0, null, List.of(), 0, 0, 0, 0, 0);
         }
 
         static HeapContentData failed() {
-            return new HeapContentData(false, List.of(), 0, 0, "Class histogram collection failed.");
+            return new HeapContentData(
+                    false, List.of(), 0, 0, "Class histogram collection failed.", List.of(), 0, 0, 0, 0, 0);
+        }
+    }
+
+    /**
+     * Pre-truncation ClassLoader and generated-proxy aggregates computed over the complete
+     * {@code GC.class_histogram} before top-200 display truncation.
+     */
+    record HistogramClassSummary(
+            List<HeapClassHistogramEntryDto> classLoaderEntries,
+            int dynamicClassLoaderClassCount,
+            long dynamicClassLoaderInstances,
+            int generatedProxyClassCount,
+            long generatedProxyInstances,
+            long generatedProxyBytes) {
+
+        private static final int MAX_CLASSLOADER_ENTRIES = 10;
+
+        static HistogramClassSummary from(List<HeapClassHistogramEntryDto> entries) {
+            if (entries == null || entries.isEmpty()) {
+                return new HistogramClassSummary(List.of(), 0, 0, 0, 0, 0);
+            }
+            List<HeapClassHistogramEntryDto> loaders = new java.util.ArrayList<>();
+            long loaderInstances = 0;
+            int proxyClasses = 0;
+            long proxyInstances = 0;
+            long proxyBytes = 0;
+            for (HeapClassHistogramEntryDto entry : entries) {
+                if (entry == null || entry.instances() <= 0 || entry.bytes() < 0) {
+                    continue;
+                }
+                String className = entry.className();
+                if (isDynamicClassLoaderClass(className, entry.instances())) {
+                    loaders.add(entry);
+                    loaderInstances = BootUiDiagnosticGcTracker.saturateAdd(loaderInstances, entry.instances());
+                }
+                if (isGeneratedProxyClass(className)) {
+                    proxyClasses++;
+                    proxyInstances = BootUiDiagnosticGcTracker.saturateAdd(proxyInstances, entry.instances());
+                    proxyBytes = BootUiDiagnosticGcTracker.saturateAdd(proxyBytes, entry.bytes());
+                }
+            }
+            loaders.sort(java.util.Comparator.comparingLong(HeapClassHistogramEntryDto::instances)
+                    .reversed()
+                    .thenComparing(java.util.Comparator.comparingLong(HeapClassHistogramEntryDto::bytes)
+                            .reversed())
+                    .thenComparing(HeapClassHistogramEntryDto::className));
+            int totalLoaderClasses = loaders.size();
+            List<HeapClassHistogramEntryDto> topLoaders = totalLoaderClasses <= MAX_CLASSLOADER_ENTRIES
+                    ? List.copyOf(loaders)
+                    : List.copyOf(loaders.subList(0, MAX_CLASSLOADER_ENTRIES));
+            return new HistogramClassSummary(
+                    topLoaders, totalLoaderClasses, loaderInstances, proxyClasses, proxyInstances, proxyBytes);
+        }
+
+        static boolean isDynamicClassLoaderClass(String className, long instances) {
+            if (className == null || instances <= 0 || DominantClassRule.isArrayClass(className)) {
+                return false;
+            }
+            if (isJdkReflectionDelegatingClassLoader(className)) {
+                return false;
+            }
+            if (isStandardSingletonClassLoader(className) && instances <= 5) {
+                return false;
+            }
+            if (className.endsWith("ClassLoader")
+                    || className.equals("javax.management.loading.MLet")
+                    || className.equals("javax.management.loading.PrivateMLet")) {
+                return true;
+            }
+            int dollar = className.lastIndexOf('$');
+            if (dollar > 0 && className.substring(0, dollar).endsWith("ClassLoader")) {
+                String inner = className.substring(dollar + 1);
+                return inner.endsWith("Loader") || inner.equals("ChildFirst") || inner.equals("ParentLast");
+            }
+            return false;
+        }
+
+        private static boolean isJdkReflectionDelegatingClassLoader(String className) {
+            return className.equals("jdk.internal.reflect.DelegatingClassLoader")
+                    || className.equals("sun.reflect.DelegatingClassLoader");
+        }
+
+        private static boolean isStandardSingletonClassLoader(String className) {
+            return className.startsWith("jdk.internal.loader.ClassLoaders$")
+                    || className.equals("org.springframework.boot.loader.launch.LaunchedClassLoader")
+                    || className.equals("org.springframework.boot.loader.LaunchedURLClassLoader")
+                    || className.equals("io.quarkus.bootstrap.runner.RunnerClassLoader");
+        }
+
+        static boolean isGeneratedProxyClass(String className) {
+            if (className == null || DominantClassRule.isArrayClass(className)) {
+                return false;
+            }
+            return className.contains("$$SpringCGLIB$$")
+                    || className.contains("$$EnhancerBy")
+                    || className.contains("$ByteBuddy$")
+                    || className.contains("$Proxy")
+                    || className.startsWith("jdk.proxy");
         }
     }
 
@@ -905,16 +1138,20 @@ record MemoryContext(
      * Identity and duration of the latest completed collector event. GcInfo event ids and end times
      * share the JVM uptime time base, allowing the scanner to suppress a prior scan's histogram GC.
      */
-    record GcEvent(long id, long endTimeMillis, long durationMillis, String collectorName) {
+    record GcEvent(long id, long endTimeMillis, long durationMillis, String collectorName, String gcCause) {
+
+        GcEvent(long id, long endTimeMillis, long durationMillis, String collectorName) {
+            this(id, endTimeMillis, durationMillis, collectorName, null);
+        }
 
         static GcEvent unavailable() {
-            return new GcEvent(-1, -1, -1, null);
+            return new GcEvent(-1, -1, -1, null, null);
         }
 
         static GcEvent from(RuntimeData runtime) {
             return runtime.lastGcDurationMillis() < 0
                     ? unavailable()
-                    : new GcEvent(-1, -1, runtime.lastGcDurationMillis(), runtime.lastGcCollectorName());
+                    : new GcEvent(-1, -1, runtime.lastGcDurationMillis(), runtime.lastGcCollectorName(), null);
         }
 
         boolean available() {
@@ -929,6 +1166,40 @@ record MemoryContext(
                     && id == other.id
                     && endTimeMillis == other.endTimeMillis
                     && java.util.Objects.equals(collectorName, other.collectorName);
+        }
+    }
+
+    /**
+     * Aggregated external stop-the-world {@code System.gc()} pauses observed via
+     * {@code GarbageCollectionNotificationInfo.getGcCause()} (excluding {@code Heap Inspection Initiated GC},
+     * {@code Heap Dump Initiated GC}, and BootUI's own memory offload/low-footprint actions).
+     */
+    record ExplicitGcData(
+            long count,
+            long maxDurationMillis,
+            long totalDurationMillis,
+            String lastCollectorName,
+            boolean notificationsObserved) {
+
+        ExplicitGcData(long count, long maxDurationMillis, long totalDurationMillis, String lastCollectorName) {
+            this(count, maxDurationMillis, totalDurationMillis, lastCollectorName, true);
+        }
+
+        static ExplicitGcData none() {
+            return new ExplicitGcData(0, -1, 0, null, true);
+        }
+
+        static ExplicitGcData unobserved() {
+            return new ExplicitGcData(0, -1, 0, null, false);
+        }
+
+        static ExplicitGcData from(GcEvent event) {
+            if (event == null
+                    || !event.available()
+                    || !GcCollectorKinds.isExternalExplicitFullGc(event.collectorName(), null, event.gcCause())) {
+                return none();
+            }
+            return new ExplicitGcData(1, event.durationMillis(), event.durationMillis(), event.collectorName(), true);
         }
     }
 
@@ -984,37 +1255,6 @@ record MemoryContext(
                 deltas.put(entry.getKey(), delta);
             }
             return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount, deltas);
-        }
-    }
-
-    /**
-     * Sampled net-growth tracking for buffer pools. Missing/unknown observations break consecutive
-     * evidence. Increasing endpoints do not prove no releases occurred between observations.
-     */
-    record BufferPoolTrend(boolean available, Map<String, Integer> consecutiveIncreaseStreaks) {
-
-        BufferPoolTrend {
-            consecutiveIncreaseStreaks =
-                    consecutiveIncreaseStreaks == null ? Map.of() : Map.copyOf(consecutiveIncreaseStreaks);
-        }
-
-        static BufferPoolTrend unavailable() {
-            return new BufferPoolTrend(false, Map.of());
-        }
-
-        int streakFor(String poolName) {
-            return consecutiveIncreaseStreaks.getOrDefault(poolName, 0);
-        }
-    }
-
-    /**
-     * Consecutive increases in post-histogram old-generation occupancy, not retained-size or
-     * verified post-full-GC growth. Missing/invalid readings require a new baseline.
-     */
-    record OldGenTrend(boolean available, int consecutiveIncreaseStreak, long lastUsedBytes) {
-
-        static OldGenTrend unavailable() {
-            return new OldGenTrend(false, 0, -1);
         }
     }
 }

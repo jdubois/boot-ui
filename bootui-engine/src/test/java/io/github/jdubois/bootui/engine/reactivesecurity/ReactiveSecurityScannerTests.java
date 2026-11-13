@@ -1633,7 +1633,7 @@ class ReactiveSecurityScannerTests {
     @Test
     void ruleCountMatchesRegistry() {
         assertThat(ReactiveSecurityRuleRegistry.activeRules()).hasSize(RULE_COUNT);
-        assertThat(RULE_COUNT).isEqualTo(26);
+        assertThat(RULE_COUNT).isEqualTo(32);
     }
 
     @Test
@@ -1649,12 +1649,18 @@ class ReactiveSecurityScannerTests {
                 .map(r -> r.definition().id())
                 .toList();
         assertThat(ids).doesNotHaveDuplicates();
-        assertThat(ids).hasSize(26);
+        assertThat(ids).hasSize(32);
         assertThat(ids)
                 .contains(
+                        "SEC-RXF-AUTH-001",
+                        "SEC-RXF-AUTH-002",
+                        "SEC-RXF-AUTH-003",
+                        "SEC-RXF-HEAD-007",
+                        "SEC-RXF-METHOD-001",
                         "SEC-RXF-ACT-005",
                         "SEC-RXF-OAUTH2-004",
                         "SEC-RXF-OAUTH2-005",
+                        "SEC-RXF-OAUTH2-006",
                         "SEC-RXF-CORS-003",
                         "SEC-RXF-AUTHZ-004")
                 .doesNotContain("SEC-RXF-CONFIG-001", "SEC-RXF-OAUTH2-001", "SEC-RXF-AUTHZ-002", "SEC-RXF-AUTHZ-003");
@@ -1665,6 +1671,195 @@ class ReactiveSecurityScannerTests {
                 .toList();
         assertThat(ids).isEqualTo(idsAgain);
         assertThat(sorted).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void reactiveCspPermissiveScriptRuleFlagsEnforcingUnsafeInlineEvalAndWildcardButIgnoresReportOnly() {
+        WebFilterChainObservation unsafeInline = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter", "AuthorizationWebFilter"),
+                Boolean.FALSE,
+                List.of("ContentSecurityPolicyServerHttpHeadersWriter"),
+                null,
+                null,
+                "default-src 'self'; script-src 'unsafe-inline'",
+                false);
+        assertThat(scan(unsafeInline, List.of(), false).results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-HEAD-007"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("permissive script execution");
+                });
+
+        WebFilterChainObservation reportOnly = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter", "AuthorizationWebFilter"),
+                Boolean.FALSE,
+                List.of("ContentSecurityPolicyServerHttpHeadersWriter"),
+                null,
+                null,
+                "default-src 'self'; script-src 'unsafe-inline'",
+                true);
+        assertThat(scan(reportOnly, List.of(), false).results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-007");
+
+        WebFilterChainObservation nonceBacked = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("HttpHeaderWriterWebFilter", "AuthorizationWebFilter"),
+                Boolean.FALSE,
+                List.of("ContentSecurityPolicyServerHttpHeadersWriter"),
+                null,
+                null,
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' 'unsafe-inline' https:",
+                false);
+        assertThat(scan(nonceBacked, List.of(), false).results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-007");
+    }
+
+    @Test
+    void reactivePasswordEncoderRulesClassifyNoOpLegacyAndWeakBcryptWithoutDoubleReportingNoOp() {
+        WebFilterChainObservation chain = minimalObservation().chains().get(0);
+
+        ReactiveSecurityObservation noOp = new ReactiveSecurityObservation(
+                List.of(chain),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of(),
+                true,
+                List.of(new ReactiveSecurityObservation.PasswordEncoderObservation(
+                        "org.springframework.security.crypto.password.NoOpPasswordEncoder", null)),
+                true,
+                Set.of(),
+                Set.of(),
+                true);
+        SecurityReport noOpReport =
+                ReactiveSecurityScanner.using(() -> noOp, CLOCK).scan();
+        assertThat(noOpReport.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-AUTH-001")
+                .doesNotContain("SEC-RXF-AUTH-002", "SEC-RXF-AUTH-003");
+        assertThat(noOpReport.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-AUTH-001"))
+                .singleElement()
+                .extracting(SecurityRuleResultDto::severity)
+                .isEqualTo("CRITICAL");
+
+        ReactiveSecurityObservation legacyAndWeakBcrypt = new ReactiveSecurityObservation(
+                List.of(chain),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of(),
+                true,
+                List.of(
+                        new ReactiveSecurityObservation.PasswordEncoderObservation(
+                                "org.springframework.security.crypto.password.StandardPasswordEncoder", null),
+                        new ReactiveSecurityObservation.PasswordEncoderObservation(
+                                "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", 6)),
+                true,
+                Set.of(),
+                Set.of(),
+                true);
+        SecurityReport legacyReport =
+                ReactiveSecurityScanner.using(() -> legacyAndWeakBcrypt, CLOCK).scan();
+        assertThat(legacyReport.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-AUTH-002", "SEC-RXF-AUTH-003")
+                .doesNotContain("SEC-RXF-AUTH-001");
+    }
+
+    @Test
+    void reactiveMethodSecurityAndJwtAudienceRulesEvaluateActiveEvidenceAndSkipUnknown() {
+        WebFilterChainObservation chain = minimalObservation().chains().get(0);
+
+        ReactiveSecurityObservation unactivatedMethodAndMissingAudience = new ReactiveSecurityObservation(
+                List.of(chain),
+                List.of(),
+                false,
+                List.of("org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder"),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of(),
+                true,
+                List.of(),
+                true,
+                Set.of(),
+                Set.of("pre-post"),
+                true);
+        SecurityReport flagged = ReactiveSecurityScanner.using(() -> unactivatedMethodAndMissingAudience, CLOCK)
+                .scan();
+        assertThat(flagged.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-METHOD-001", "SEC-RXF-OAUTH2-006");
+
+        ReactiveSecurityEnvironmentSnapshot withAudiences = new ReactiveSecurityEnvironmentSnapshot(
+                false, null, null, false, List.of(), false, false, false, false, null, Set.of(), false, false, false,
+                false, false, Set.of(), true, Map.of(), Set.of(), true, Set.of(), true);
+        ReactiveSecurityObservation activatedAndConfigured = new ReactiveSecurityObservation(
+                List.of(chain),
+                List.of(),
+                false,
+                List.of("org.springframework.security.oauth2.jwt.SupplierReactiveJwtDecoder"),
+                List.of(),
+                List.of(),
+                withAudiences,
+                List.of(),
+                true,
+                List.of(),
+                true,
+                Set.of("pre-post"),
+                Set.of("pre-post"),
+                true);
+        SecurityReport passing = ReactiveSecurityScanner.using(() -> activatedAndConfigured, CLOCK)
+                .scan();
+        assertThat(passing.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-METHOD-001", "SEC-RXF-OAUTH2-006");
+        assertThat(passing.scan().status()).isEqualTo("SCANNED");
+
+        ReactiveSecurityObservation incomplete = new ReactiveSecurityObservation(
+                List.of(chain),
+                List.of(),
+                false,
+                List.of("com.example.CustomReactiveJwtDecoder"),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of(),
+                true,
+                List.of(),
+                false,
+                Set.of(),
+                Set.of("pre-post"),
+                false);
+        SecurityReport partial =
+                ReactiveSecurityScanner.using(() -> incomplete, CLOCK).scan();
+        assertThat(partial.scan().status()).isEqualTo("PARTIAL");
+        assertThat(partial.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain(
+                        "SEC-RXF-AUTH-001",
+                        "SEC-RXF-AUTH-002",
+                        "SEC-RXF-AUTH-003",
+                        "SEC-RXF-METHOD-001",
+                        "SEC-RXF-OAUTH2-006");
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────

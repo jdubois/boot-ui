@@ -273,6 +273,35 @@ public record WebFilterChainObservation(
                 .anyMatch(policy -> policy.policy() != null && !policy.policy().isBlank());
     }
 
+    boolean hasCspDeclaration() {
+        return hasCspWriter()
+                || !cspPolicies.isEmpty()
+                || headerWriterNames.contains("ContentSecurityPolicyServerHttpHeadersWriter");
+    }
+
+    Boolean weakCspObservation() {
+        if (!headerWritersObserved || !cspObserved()) {
+            return null;
+        }
+        if (cspPolicies.isEmpty()) {
+            return headerWriterNames.contains("ContentSecurityPolicyServerHttpHeadersWriter") ? null : Boolean.FALSE;
+        }
+        List<CspObservation> enforcing = cspPolicies.stream()
+                .filter(policy -> Boolean.FALSE.equals(policy.reportOnly()))
+                .toList();
+        if (enforcing.isEmpty()) {
+            return Boolean.FALSE;
+        }
+        if (enforcing.size() != 1) {
+            return null;
+        }
+        CspPolicy.Analysis analysis = CspPolicy.analyze(enforcing.get(0).policy());
+        if (!analysis.complete()) {
+            return null;
+        }
+        return analysis.unsafeInlineScript() || analysis.unsafeEvalScript() || analysis.unrestrictedScript();
+    }
+
     boolean hasEnforcingFrameAncestorsPolicy() {
         List<CspObservation> enforcing = cspPolicies.stream()
                 .filter(policy -> Boolean.FALSE.equals(policy.reportOnly()))

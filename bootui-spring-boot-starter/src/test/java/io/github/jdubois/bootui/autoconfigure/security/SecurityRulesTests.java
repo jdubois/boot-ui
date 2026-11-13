@@ -481,64 +481,6 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
-    // --- SEC-ACT-004: health show-details/show-components should not be unconditional ------
-
-    @Test
-    void healthDetailsExposureFiresForShowDetailsAlways() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("management.endpoint.health.show-details", "always");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("show-details"));
-    }
-
-    @Test
-    void healthDetailsExposureFiresForShowComponentsAlways() {
-        // Spring Boot's show-components=always leaks the same infrastructure/component names as
-        // show-details=always, so it must be caught independently.
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("management.endpoint.health.show-components", "always");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("show-components"));
-    }
-
-    @Test
-    void healthDetailsExposureReportsBothWhenShowDetailsAndShowComponentsAreBothAlways() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("management.endpoint.health.show-details", "always")
-                .withProperty("management.endpoint.health.show-components", "always");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.violationCount()).isEqualTo(2);
-    }
-
-    @Test
-    void healthDetailsExposurePassesWhenNeitherPropertyIsSet() {
-        // Spring Boot's actual default for both properties is 'never' (not 'when-authorized', which
-        // was the pre-3.0 default) -- confirm the rule does not flag the unconfigured/default case.
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(new MockEnvironment()));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    @Test
-    void healthDetailsExposurePassesWhenAuthorizedOnly() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("management.endpoint.health.show-details", "when-authorized")
-                .withProperty("management.endpoint.health.show-components", "when-authorized");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
     // --- SEC-OAUTH-002: custom decoder is advisory ------------------------------------------
 
     @Test
@@ -1546,41 +1488,40 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
-    // --- SEC-CONFIG-005: DevTools development defaults ---------------------------------------
+    // --- DevTools development defaults provenance --------------------------------------------
 
     @Test
-    void errorDisclosureIgnoresDevToolsDefaultsButNotApplicationConfiguration() {
+    void applicationPropertyIgnoresDevToolsDefaultsButNotApplicationConfiguration() {
         Map<String, Object> devToolsDefaults = Map.of(
                 "spring.web.error.include-stacktrace", "always",
                 "spring.web.error.include-message", "always",
                 "spring.web.error.include-binding-errors", "always");
         FilterChainModel chain = chain("any request", List.of("AuthorizationFilter"));
-        ErrorResponseDisclosureRule rule = new ErrorResponseDisclosureRule();
 
         MockEnvironment devtools = new MockEnvironment();
         devtools.getPropertySources()
                 .addLast(new org.springframework.core.env.MapPropertySource("devtools", devToolsDefaults));
-        assertThat(rule.evaluate(context(List.of(chain), devtools)).status()).isEqualTo(SecurityRuleSupport.PASS);
-        assertThat(rule.evaluate(context(List.of(chain), SecurityEnvironmentSnapshot.capture(devtools)))
-                        .status())
+        assertThat(context(List.of(chain), devtools).applicationProperty("spring.web.error.include-stacktrace"))
+                .isNull();
+        assertThat(context(List.of(chain), SecurityEnvironmentSnapshot.capture(devtools))
+                        .applicationProperty("spring.web.error.include-stacktrace"))
                 .as("captured snapshot keeps DevTools provenance")
-                .isEqualTo(SecurityRuleSupport.PASS);
+                .isNull();
 
         devtools.setProperty("spring.web.error.include-stacktrace", "on-param");
-        SecurityRuleResultDto overridden = rule.evaluate(context(List.of(chain), devtools));
-        assertThat(overridden.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(overridden.sampleViolations()).singleElement().asString().contains("include-stacktrace");
+        assertThat(context(List.of(chain), devtools).applicationProperty("spring.web.error.include-stacktrace"))
+                .isEqualTo("on-param");
 
         Properties properties = new Properties();
         properties.putAll(devToolsDefaults);
         MockEnvironment appNamedDevtools = new MockEnvironment();
         appNamedDevtools.getPropertySources().addFirst(new PropertiesPropertySource("devtools", properties));
-        assertThat(rule.evaluate(context(List.of(chain), appNamedDevtools)).violationCount())
+        assertThat(context(List.of(chain), appNamedDevtools).applicationProperty("spring.web.error.include-stacktrace"))
                 .as("only DevTools' own map source is ignored")
-                .isEqualTo(3);
-        assertThat(rule.evaluate(context(List.of(chain), SecurityEnvironmentSnapshot.capture(appNamedDevtools)))
-                        .violationCount())
-                .isEqualTo(3);
+                .isEqualTo("always");
+        assertThat(context(List.of(chain), SecurityEnvironmentSnapshot.capture(appNamedDevtools))
+                        .applicationProperty("spring.web.error.include-stacktrace"))
+                .isEqualTo("always");
     }
 
     // --- SEC-OAUTH-005: opaque-token introspection transport ---------------------------------
@@ -1847,48 +1788,6 @@ class SecurityRulesTests {
                 "object-src 'none'; script-src 'self'; base-uri 'self'; frame-ancestors 'none'");
 
         SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    // --- SEC-HEAD-010: cross-origin isolation headers ---------------------------------------
-
-    @Test
-    void crossOriginIsolationHeadersFiresWhenNeitherCoopNorCoepIsEmitted() {
-        FilterChainModel chain = new FilterChainModel(
-                0,
-                "any request",
-                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
-                null,
-                null,
-                List.of("XContentTypeOptionsHeaderWriter"));
-
-        SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("INFO");
-    }
-
-    @Test
-    void crossOriginIsolationRequiresBothCoopAndCoep() {
-        FilterChainModel chain = new FilterChainModel(
-                0,
-                "any request",
-                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
-                null,
-                null,
-                List.of("CrossOriginOpenerPolicyHeaderWriter"));
-
-        SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-    }
-
-    @Test
-    void crossOriginIsolationHeadersPassesWhenNoHeaderWriterFilterIsPresent() {
-        FilterChainModel chain = chain("any request", List.of("SecurityContextHolderFilter"));
-
-        SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }

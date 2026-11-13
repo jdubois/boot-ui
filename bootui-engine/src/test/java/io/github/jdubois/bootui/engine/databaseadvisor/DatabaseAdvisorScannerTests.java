@@ -234,7 +234,7 @@ class DatabaseAdvisorScannerTests {
                 });
         assertThat(report.diagnostics())
                 .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
-                .hasSize(9)
+                .hasSize(10)
                 .allSatisfy(diagnostic -> assertThat(diagnostic.level()).isEqualTo("INFO"));
         assertThat(report.rulesSkipped()).isGreaterThanOrEqualTo(3);
     }
@@ -361,7 +361,7 @@ class DatabaseAdvisorScannerTests {
 
         assertThat(report.diagnostics())
                 .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
-                .hasSize(9)
+                .hasSize(10)
                 .allSatisfy(diagnostic -> {
                     assertThat(diagnostic.level()).isEqualTo("INFO");
                     assertThat(diagnostic.message()).startsWith("Not applicable:");
@@ -548,6 +548,7 @@ class DatabaseAdvisorScannerTests {
                 .add(VendorAugmentation.available(
                         VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES, List.of(), false))
                 .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_UNLOGGED_TABLES, List.of(), false))
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_PARTITIONS, List.of(), false))
                 .build();
         var postgres = DatabaseAdvisorFixtures.schema("primary", Dialect.POSTGRESQL, List.of(), findings);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
@@ -565,7 +566,7 @@ class DatabaseAdvisorScannerTests {
             assertThat(report.diagnostics())
                     .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-MYSQL-")
                             || diagnostic.source().startsWith("DB-ORACLE-"))
-                    .hasSize(6)
+                    .hasSize(8)
                     .allSatisfy(diagnostic -> {
                         assertThat(diagnostic.level()).isEqualTo("INFO");
                         assertThat(diagnostic.message()).startsWith("Not applicable:");
@@ -962,7 +963,7 @@ class DatabaseAdvisorScannerTests {
                         "DB-POOL-004",
                         "DB-SERVER-002",
                         "DB-SERVER-006");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(45);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(56);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotContainAnyElementsOf(DatabaseAdvisorRuleRegistry.RETIRED_RULE_IDS);

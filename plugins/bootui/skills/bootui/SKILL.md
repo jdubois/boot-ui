@@ -161,6 +161,9 @@ Once it is on the `PATH`:
 bootui --help                                  # every command: arguments, where each <id> comes from, one example
 bootui docs cli                                # this CLI release's guide, offline raw Markdown
 bootui docs --search "blocking sensor" --json    # bundled matches with source files and one-based lines
+bootui instances --json                        # running local dev-mode BootUI instances in ~/.bootui/instances
+bootui --app order-service overview            # target a unique live local instance by appName or instanceId prefix
+bootui init --vscode --print                   # preview or idempotently write IDE/agent MCP config (no tokens)
 bootui tools                                   # what this application actually exposes
 bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
@@ -187,7 +190,13 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   Windows receives instructions to download and review `install.ps1`, then run it after the CLI exits; it cannot replace
   its running jar. Ask before downloading or executing that installer, and never execute a remote script implicitly.
   `manual-action-required` does not mean upgraded. Unrecognized installations are not automatically modified.
-- `--url` (or `BOOTUI_URL`) defaults to `http://localhost:8080`; pass the application's real port.
+- `--url` (or `BOOTUI_URL`) defaults to `http://localhost:8080`; pass the application's real port, or use
+  `bootui instances --json` and `bootui --app <name>` to target a unique running local dev-mode instance by
+  `spring.application.name` / `quarkus.application.name` or `instanceId` prefix (handshake-verified against `/overview`
+  before sending commands; fails closed when multiple instances share the same name).
+- `bootui init` (`--vscode`, `--cursor`, `--claude`, `--print` / `--dry-run`, `--url`, `--api-path`, `--app`) previews or
+  idempotently merges local MCP configuration into `.vscode/mcp.json` or `~/.cursor/mcp.json` without ever writing
+  tokens or headers. Ask before writing IDE configuration files.
 - `--api-path` is only needed when `bootui.api-path` is customised, `--token` only when
   the caller is an untrusted non-loopback peer (use the configured or generated token), and `--timeout` raises the
   60-second wait for a slow scan. Loopback, configured trusted proxy ranges, and trusted container gateways bypass

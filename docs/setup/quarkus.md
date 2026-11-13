@@ -10,6 +10,9 @@ backed by the Quarkus build of the framework-neutral engine.
   (`quarkus.platform.version`, currently the `3.40.1` LTS release)
 - Maven or Gradle (or their local wrappers)
 
+BootUI checks the platform during augmentation, independently of console activation. See
+[Startup compatibility](../FRAMEWORK-SUPPORT.md#startup-compatibility) for blocking diagnostics and capability warnings.
+
 The extension also supports the previous LTS line, 3.33. Every build runs the published build of the extension through
 all of its Quarkus integration fixtures on Quarkus **3.33.4 LTS**, and runs the extension's own tests compiled against
 it. Its core, REST client, production-guard, and Hibernate JVM fixtures have also passed with Quarkus 3.39.5. Quarkus

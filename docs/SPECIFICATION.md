@@ -30,7 +30,7 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all ten panel-buffer signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST
+`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 32-rule Security advisor, and REST
 Client capture over instrumented `WebClient` instances; HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter**
 serves most panels over the same engine; panels with no Quarkus equivalent (such as Conditions, Startup Timeline, Spring
@@ -1157,7 +1157,9 @@ Data sources:
 - The application's embedded CycloneDX SBOM (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
   files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`. Components declared not
   shipped (`scope: "excluded"` or `cdx:maven:package:test=true`), with their nested components, are skipped unless the
-  archive census finds their JAR.
+  archive census finds their JAR. Strictly when the archive census coverage is `COMPLETE`, SBOM-only `scope: "optional"`
+  components (and their nested components) not in the census and unshipped versions of duplicate `groupId:artifactId`
+  SBOM entries are also reconciled out.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
 - Quarkus instead reads coordinates captured from its build-time resolved application model. A missing/blank model, a
@@ -1277,9 +1279,11 @@ Features:
   are failures. Select maximum AVAILABLE probability across own/retained CVE aliases, with the same record's percentile
   and a stable CVE tie-break. Valid zero is available, not unknown. This is a prioritization heuristic, not combined
   exploit likelihood. Lookups can be disabled independently, and disabled/no-CVE enrichment makes no FIRST call.
-- Keep `fixedVersions` and `fixAvailable` with evidence-backed candidate semantics: only a fixed event closing a
-  supported affected interval containing the installed version can supply a target. Require a positively newer Maven
-  comparison and recheck against **all matching entries**, including explicit versions and overlapping/reintroduced
+- Keep `fixedVersions` and `fixAvailable` with evidence-backed candidate semantics: a fixed event closing a supported
+  affected interval containing the installed version—or, when the installed version's matched `ECOSYSTEM` interval is
+  bounded by `last_affected` or a finite `limit` and has no verified same-branch fix, a fixed event from a sibling
+  `Maven` `affected[]` entry (or range) of the same `groupId:artifactId`—can supply a target. Require a positively newer
+  Maven comparison and recheck against **all matching entries**, including explicit versions and overlapping/reintroduced
   intervals; affected or unresolved targets are not verified upgrades. Filter before de-duplication, Maven ordering,
   and the ten-candidate limit. Neither last_affected nor limit, Git hashes, or unsupported range domains supplies a
   target. False/empty means no candidate was established, not that the dependency is unaffected or no upstream fix
@@ -1335,9 +1339,11 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
-- Existing per-request byte limits remain 5 MiB for querybatch and 1 MiB for details/EPSS. Per-request timeouts,
-  no automatic redirect following, configured service bases, and interrupt restoration remain unchanged; a total scan
-  deadline and retry/backoff policy are deferred.
+- Existing per-request byte limits remain 5 MiB for querybatch and 1 MiB for details/EPSS. Per-request timeouts
+  (`bootui.vulnerabilities.request-timeout`, default `10s`), a configurable whole-scan deadline budget
+  (`bootui.vulnerabilities.scan-timeout`, default `60s`) shared across querybatch pages, detail waves, and EPSS chunks,
+  no automatic redirect following, configured service bases, and interrupt restoration are enforced; a retry/backoff
+  policy remains deferred.
 - Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result, and a report
   with unidentified archives or skipped packages must never render as full coverage.
 - An unreadable Spring `pom.properties` resource, a malformed or unreadable SBOM, and an unreadable classpath archive
@@ -1354,8 +1360,7 @@ Acceptance criteria:
 
 Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
-classifiers. PURL literal-plus decoding/namespace rewriting, SBOM runtime scope beyond test-only and `excluded`
-components, and unreadable container/archive
+classifiers. Unreadable container/archive
 diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
 and the whole JSON is parsed first. Quarkus `COMPLETE` reflects its wholly decoded build-time model. Neither a provider
 nor a consumer trusting that flag independently verifies a complete runtime inventory.
@@ -1378,7 +1383,7 @@ dependency graph, but Spring's classpath-based inventory has no equivalent graph
 shipped asymmetrically.
 
 CVSS v2 calculation, full assessment/vector provenance (including which CVSS version produced `score`), selected EPSS
-CVE/date/model fields, cross-request date pinning, and a total scan deadline remain deferred. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
+CVE/date/model fields, and cross-request date pinning remain deferred. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
 The browser's same-package lexical version sorting remains a separate presentation limitation. Completed OSV queries
 do not prove exploitability, reachability, absence of unknown advisories, or application safety.
 
@@ -2549,8 +2554,8 @@ Data sources:
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no
   application-row query, no database link, and no production `ojdbc` dependency.
 - The Hibernate/JPA metamodel, when available, for cross-referencing explicitly named entity tables (including
-  `@SecondaryTable`), columns, foreign keys, unique constraints, numeric precision/scale and `IDENTITY` key generation
-  with observed schema metadata.
+  `@SecondaryTable`), columns, foreign keys, unique constraints, `@Index` declarations, `@Enumerated(STRING)` lengths,
+  `@SequenceGenerator` names, numeric precision/scale and `IDENTITY` key generation with observed schema metadata.
 - The JDBC driver settings the scan connection's URL reports and the pool's driver properties carry (a short
   allow-list of non-secret names, everything else discarded unread), and the sanitized sizing of the HikariCP or Agroal
   pool attributed to the datasource, read without borrowing a connection.
@@ -2562,21 +2567,23 @@ Features:
 
 - Run an explicit, read-only scan over a fixed generic ruleset covering missing primary keys, foreign-key columns
   without known supporting access paths, exact index-definition overlap, foreign-key/referenced-column domain
-  discrepancies, redundant unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys and
-  MySQL/MariaDB/Oracle invisible or ignored indexes.
+  discrepancies, redundant unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys,
+  MySQL/MariaDB/Oracle invisible or ignored indexes, and `SET NULL` foreign keys on `NOT NULL` columns.
   These are contextual structural reviews, not workload or business-intent verdicts.
 - Augment the generic scan for PostgreSQL with invalid-index (excluding an index still building `CONCURRENTLY`),
-  sequence-exhaustion, `NOT VALID` constraint, missing-replica-identity and unlogged-table checks; for MySQL/MariaDB with
-  non-InnoDB-engine, non-`utf8mb4`, and `AUTO_INCREMENT`-exhaustion checks; and for Oracle with unusable-index,
-  disabled/unvalidated-constraint, and sequence/identity-exhaustion checks. A driver-reported "Oracle" product name is
+  sequence-exhaustion, `NOT VALID` constraint, missing-replica-identity, unlogged-table and empty-partitioned-table
+  checks; for MySQL/MariaDB with non-InnoDB-engine, non-`utf8mb4`, `AUTO_INCREMENT`-exhaustion, and MySQL 8.0.16+
+  unenforced-check-constraint checks; and for Oracle with unusable-index, disabled/unvalidated-constraint,
+  sequence/identity-exhaustion, and global-index `ORPHANED_ENTRIES` checks. A driver-reported "Oracle" product name is
   confirmed against the server's version banner before Oracle augmentation runs, since some Oracle-compatible
   databases report the same product name; Tibero, OceanBase, EDB Postgres Advanced Server, and H2's Oracle
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
-- Judge the JDBC driver settings (nine `DB-DRIVER-*` rules: batching rewrite, prepared-statement caches, savepoints,
-  diagnostic settings, socket timeout and application name), compare the connection pool with the server's limits
-  (three `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
-  need (five `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
-  Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since the verdict belongs to the scored advisor.
+- Judge the JDBC driver settings (ten `DB-DRIVER-*` rules: batching rewrite, `autoReconnect`, prepared-statement caches,
+  savepoints, diagnostic settings, socket timeout and application name), check connection-pool timeouts and compare the
+  connection pool with the server's limits (four `DB-POOL-*` rules) and flag server settings that remove a safety net or
+  the data the PostgreSQL and MySQL panels need (six `DB-SERVER-*` rules). These rules never run on missing evidence:
+  they are `SKIPPED` with a reason, and the Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since
+  the verdict belongs to the scored advisor.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
   `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a
   physical naming strategy; discrepancies do not establish broken effective runtime mappings. Composite
@@ -2614,7 +2621,7 @@ Out of scope for the current release surface:
 - Executing DDL, querying application data, changing schema objects, or changing Hibernate mappings.
 - Workload or query-plan analysis, partition management, and index suggestions derived from observed query usage.
 - Guessing effective physical names or sequence optimizer contracts from annotations alone.
-- Oracle orphaned-entry, chained-row, unused-index, fragmentation, and sequence-gap warnings, and any AWR/ASH-derived
+- Oracle chained-row, unused-index, fragmentation, and sequence-gap warnings, and any AWR/ASH-derived
   finding, none of which can be evaluated from `ALL_*` views alone without an elevated role or workload assumptions
   this advisor does not make.
 
@@ -3562,6 +3569,7 @@ Initial properties:
 | `bootui.email.max-body-length`               | `200000`                                | Maximum characters retained per captured text/HTML body.                                           |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
+| `bootui.vulnerabilities.scan-timeout`           | `60s`                                   | Whole-scan deadline budget across OSV batch queries, advisory-detail fetches, and EPSS enrichment. |
 | `bootui.vulnerabilities.max-packages`           | `500`                                   | Maximum packages sent in one OSV batch query; the excess is reported as `scan.packagesSkipped`.   |
 | `bootui.vulnerabilities.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
 | `bootui.vulnerabilities.epss-enabled`           | `true`                                  | Allow the batched FIRST.org EPSS exploit-probability lookup during a scan.                        |
@@ -3611,6 +3619,8 @@ Initial properties:
 | `bootui.cli.max-results`                     | `200`                                   | Maximum items returned by paginated command-line read tools, tracked separately from the MCP cap. |
 | `bootui.cli.max-concurrent-calls`            | `20`                                    | Maximum concurrent command-line tool calls; additional calls are refused with `429`. |
 | `bootui.cli.execution-timeout`               | `30s`                                   | Maximum wall-clock duration of a command-line tool call; timeouts return `504`. |
+| `bootui.cli.instance-discovery.enabled`      | `true` in dev, `false` in tests         | Write an atomic `0600` local discovery lease file (`<instanceId>.json`) after port binding, and delete it on shutdown. |
+| `bootui.cli.instances-dir`                   | `~/.bootui/instances`                   | Directory where local instance discovery lease files are written (also overridable via `BOOTUI_HOME`). |
 
 Every visible panel must support `bootui.panels.<panel-id>.enabled`; panels with mutating browser actions must also
 support `bootui.panels.<panel-id>.read-only`. These properties are specified panel-by-panel in

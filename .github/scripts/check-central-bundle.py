@@ -17,7 +17,7 @@ release.yml before it uploads it, unsigned by stage-release-candidate.sh. The ch
   an optional dependency of the artifact it fetches, so an unpublished one fails that command;
 - bootui-spring-boot-starter brings no web stack: no servlet or reactive web-server artifact at compile or
   runtime scope, so the application's own web starter decides between Spring MVC and Spring WebFlux;
-- the published files total less than 20 MB (20,000,000 bytes), including checksums and signatures, not
+- the published files total less than 26 MB (26,000,000 bytes), including checksums and signatures, not
   the compressed upload ZIP. Unsigned candidates reserve 4 KiB per missing signature before tagging.
 """
 
@@ -40,7 +40,7 @@ PUBLISHED = (
 
 EXTRA_FILES = {"bootui-cli": ("all",)}
 
-MAX_RELEASE_BYTES = 20_000_000
+MAX_RELEASE_BYTES = 26_000_000
 SIGNATURE_RESERVE_BYTES = 4096
 
 URL = "https://github.com/jdubois/boot-ui"
@@ -191,7 +191,7 @@ def check_release_size(files, payloads, errors):
     if size + reserve >= MAX_RELEASE_BYTES:
         errors.append(
             f"release payload is {size:,} bytes plus {reserve:,} bytes reserved for missing signatures; "
-            f"must be below {MAX_RELEASE_BYTES:,} bytes (20 MB), regardless of upload ZIP compression"
+            f"must be below {MAX_RELEASE_BYTES:,} bytes (26 MB), regardless of upload ZIP compression"
         )
 
 

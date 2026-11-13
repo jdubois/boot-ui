@@ -22,7 +22,7 @@ class GcEventSourceTests {
         try (GcEventSource source = GcEventSource.start(sink)) {
             assertThat(source.collectors()).isPositive();
 
-            System.gc();
+            io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker.SHARED.run(System::gc);
             long deadline = System.nanoTime() + 5_000_000_000L;
             while (events.isEmpty() && System.nanoTime() < deadline) {
                 Thread.sleep(10);
@@ -46,7 +46,7 @@ class GcEventSourceTests {
         GcEventSource source = GcEventSource.start(event -> events.add(event));
         source.close();
 
-        System.gc();
+        io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker.SHARED.run(System::gc);
         Thread.sleep(200);
 
         assertThat(events).isEmpty();

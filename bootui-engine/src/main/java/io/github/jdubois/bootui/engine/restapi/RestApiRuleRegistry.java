@@ -21,6 +21,8 @@ final class RestApiRuleRegistry {
             new DuplicatePathVariableTokenRule(),
             new CatchAllPatternRule(),
             new DeepResourceNestingRule(),
+            new UnannotatedPathVariableParameterRule(),
+            new ConflictingClassAndMethodHttpMethodsRule(),
             // Naming & resource design
             new ResourcePathsAreNounsRule(),
             new CollectionsUsePluralNounsRule(),
@@ -45,6 +47,7 @@ final class RestApiRuleRegistry {
             new UnboundedMapRequestParamRule(),
             new IdempotencyKeyOnCreationEndpointsRule(),
             new SingleRequestBodyRule(),
+            new NestedDtoValidationCascadeRule(),
             // DTO & payload contracts
             new NoEntitiesInResponsesRule(),
             new NoUntypedResponseBodiesRule(),
@@ -54,6 +57,7 @@ final class RestApiRuleRegistry {
             new CollectionReadsArePaginatedRule(),
             new ReturnPagedTypeRule(),
             new ConsistentPaginationVocabularyRule(),
+            new AvoidDirectSpringDataPageSerializationRule(),
             // Versioning & content negotiation
             new ApiIsVersionedRule(),
             new MutatingEndpointsDeclareMediaTypesRule(),
@@ -62,6 +66,7 @@ final class RestApiRuleRegistry {
             new ResponseProducingEndpointsDeclareProducesRule(),
             new MixedVersioningStrategiesRule(),
             new BodylessHandlersDoNotRequireContentTypeRule(),
+            new MultipartAndFormConsumesCompatibilityRule(),
             // Error handling & documentation
             new CentralizedExceptionHandlingRule(),
             new NoBroadThrowsOnHandlersRule(),

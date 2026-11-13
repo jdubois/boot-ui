@@ -341,8 +341,8 @@ index. Discovery is single-module; the `bootui.internal.base-packages` key (comm
 
 The REST API panel runs a curated, zero-config ruleset against the host application's web layer: `@RestController` /
 `@Controller` handlers on Spring, or JAX-RS resources on Quarkus. It derives a read-only model (methods, paths,
-parameters, return types, validation, declared throws) and evaluates 60 stable rule definitions across eight categories,
-of which 45 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
+parameters, return types, validation, declared throws) and evaluates 65 stable rule definitions across eight categories,
+of which 50 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
 error handling and documentation. Security concerns belong to the Security panel.
 
 The scan runs on demand and caches its last report; the list shows only flagged rules. See
@@ -436,6 +436,7 @@ half with a stated reason otherwise.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
 - A MySQL invisible, MariaDB ignored, or Oracle invisible index that writes still maintain.
+- A foreign key specifying `ON DELETE SET NULL` or `ON UPDATE SET NULL` where all referencing child columns are `NOT NULL`.
   :::
 
 ::: details What each dialect adds
@@ -447,18 +448,21 @@ half with a stated reason otherwise.
 - Constraints currently not validated.
 - A table publishing updates or deletes with no usable replica identity.
 - An `UNLOGGED` table or leaf partition.
+- A partitioned table (`relkind = 'p'`) with zero attached partitions.
 
 **MySQL/MariaDB:**
 
 - Tables on a non-transactional storage engine.
 - The legacy three-byte `utf8mb3` character set.
 - An `AUTO_INCREMENT` counter nearing its column type's capacity.
+- Unenforced MySQL 8.0.16+ check constraints (`ENFORCED = 'NO'`).
 
 **Oracle:**
 
 - Unusable indexes, including per-partition status.
 - Disabled or unvalidated constraints.
 - A non-cycling sequence or identity generator nearing exhaustion.
+- Global indexes with `ORPHANED_ENTRIES = 'YES'` from deferred partition maintenance.
 
 The dialect comes from `DatabaseMetaData.getDatabaseProductName()`, the version string, and the JDBC URL; MariaDB is
 detected as its own dialect even through the MySQL driver, and an "Oracle" product name is confirmed against
@@ -468,7 +472,7 @@ dependency in BootUI. Partitioned tables are reported once on the parent.
 
 ::: details What the JDBC driver checks add
 
-Nine rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
+Ten rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
 pool's driver properties (HikariCP `dataSourceProperties`, Agroal additional JDBC properties); no other setting, user
 name or password is kept, and no application data is read. Batching is taken from the Hibernate observations of the
 persistence unit attributed to the datasource's pool.
@@ -476,6 +480,7 @@ persistence unit attributed to the datasource's pool.
 - PostgreSQL (pgjdbc): `reWriteBatchedInserts` is not `true` while Hibernate batches writes.
 - MySQL Connector/J: `rewriteBatchedStatements` is not `true` while Hibernate batches writes.
 - MySQL Connector/J: `useAffectedRows` is `true`.
+- MySQL Connector/J: `autoReconnect` or `autoReconnectForPools` is `true`.
 - MySQL Connector/J: the prepared-statement cache is off, or its size (below 250) or SQL limit (below 2048) is small.
 - PostgreSQL (pgjdbc): the prepared-statement cache is disabled, or `autosave=always` sets a savepoint per query.
 - Connector/J and pgjdbc: a diagnostic setting such as `profileSQL` or `logUnclosedConnections` is on.
@@ -489,13 +494,14 @@ or unknown (batching rules only), or the evidence could not be settled. See
 
 ::: details What the connection-pool checks add
 
-Three rules compare the HikariCP or Agroal pool behind a PostgreSQL, MySQL or MariaDB datasource with the server's own
-limits. The pool's numbers are read without borrowing a connection; the server's `wait_timeout`/`idle_session_timeout`
+Four rules check the HikariCP or Agroal pool behind a datasource and compare its sizing and lifetime with the server's
+own limits. The pool's numbers are read without borrowing a connection; the server's `wait_timeout`/`idle_session_timeout`
 and connection limits are read in the same bounded scan, as the scan connection's session sees them.
 
 - A pool that can hold an idle connection longer than the server allows (HikariCP only).
 - A pool larger than the connections the server lets an ordinary role hold.
 - A pool whose connections are never retired for age (`maxLifetime` of `0`).
+- A pool whose connection acquisition timeout is disabled (`0` on Agroal, `Integer.MAX_VALUE` on HikariCP) or exceeds 5 minutes.
 
 A pool that cannot be attributed, another pool library, or a server value that could not be read leaves the rule
 `SKIPPED` with the reason. See [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#connection-pool).
@@ -503,14 +509,15 @@ A pool that cannot be attributed, another pool library, or a server value that c
 
 ::: details What the database-server checks add
 
-Five rules read a few settings of the PostgreSQL or MySQL server in the same bounded scan, as the scan connection's own
-session sees them, and flag the values that remove a safety net or the data the
+Six rules read a few settings of the PostgreSQL, MySQL or MariaDB server in the same bounded scan, as the scan
+connection's own session sees them, and flag the values that remove a safety net or the data the
 [PostgreSQL and MySQL panels](database.md) need. The panels stay neutral; the verdict is here, where it is scored and can
 be dismissed.
 
 - PostgreSQL: no `idle_in_transaction_session_timeout`, `autovacuum` off, `pg_stat_statements` not loaded or not
   created, and `track_io_timing` off.
 - MySQL: `performance_schema` off (skipped on MariaDB).
+- MySQL and MariaDB: session `sql_mode` lacks both `STRICT_TRANS_TABLES` and `STRICT_ALL_TABLES`.
 
 A setting the server did not report, one this version lacks, or a read that failed leaves the rule `SKIPPED` with the
 reason. Capacity-tuning values such as `shared_buffers` are deliberately not judged. See
@@ -520,9 +527,11 @@ reason. Capacity-tuning values such as `shared_buffers` are deliberately not jud
 ::: details What the Hibernate cross-reference checks
 
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
-- An explicit declared table or column name not observed in the scoped metadata.
-- Supported nondefault nullability mismatches, not guessed Java-to-JDBC type mappings.
-- A declared `@Column(length=...)` longer than a bounded physical string column.
+- An explicit declared table, column, `@Index`, or `@SequenceGenerator` name not observed in the scoped metadata.
+- Supported nondefault nullability mismatches on `@Column(nullable = false)` and `@JoinColumn(nullable = false)` /
+  `optional = false`, not guessed Java-to-JDBC type mappings.
+- A declared `@Column(length=...)` or `@Enumerated(EnumType.STRING)` constant name longer than a bounded physical
+  string column.
 - A positive `@Column(precision=..., scale=...)` wider than a bounded physical `DECIMAL`/`NUMERIC` column.
 - A mapped unique constraint with no physical index that enforces it.
 - An explicitly named `@Id` with `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
@@ -552,7 +561,7 @@ common performance and mapping risks: eager fetching, problematic identifier gen
 unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. It never intercepts queries, invokes
 repositories, executes SQL, or modifies mappings. See [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md).
 
-The catalog has 69 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
+The catalog has 76 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
 findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) names every failed or incompletely evaluated
 rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
 every mapping or query was verified.
@@ -564,7 +573,7 @@ a connection; a unit that cannot be attributed to one pool, and any JTA unit, is
 
 ::: details On Quarkus
 
-The panel runs the same 69-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
+The panel runs the same 76-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
 `EntityManagerFactory` across all persistence units. Spring Data query rules skip when repository metadata is
 unavailable. Differences:
 
@@ -598,11 +607,11 @@ With verified Panache transformation, the public-persistent-field finding does n
 
 ![BootUI Memory panel](../images/bootui-memory.webp)
 
-The Memory panel runs an explicit, read-only scan over the live JVM management beans: heap and memory pools, garbage
-collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked findings such as heap
-pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead, thread deadlocks, and
-collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they expose. The scan is on
-demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
+The Memory panel runs an explicit, read-only scan of 31 active rules over the live JVM management beans: heap and
+memory pools, garbage collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked
+findings such as heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead,
+thread deadlocks, and collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they
+expose. The scan is on demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
 [Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
 you re-run the checks.
 
@@ -619,7 +628,7 @@ panel and `/bootui/api/security` contract support all three stacks.
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it analyses Spring Security when present: already-created `SecurityFilterChain` configuration and
+On Spring Boot it evaluates a 50-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
 supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
 also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
 check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
@@ -627,7 +636,7 @@ verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 
 ### Spring WebFlux
 
-On WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
+On WebFlux it evaluates a dedicated 32-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
 CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own permit-all chain. The shared static
 analyzer configuration check is also available when Spring Security is absent.
 
@@ -635,7 +644,7 @@ analyzer configuration check is also available when Spring Security is absent.
 
 ![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
-On Quarkus it runs a Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
+On Quarkus it runs a 48-rule Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
 endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS and transport policy,
 forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), response headers, and
 `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The shared static analyzer configuration check
@@ -656,7 +665,7 @@ Spring Boot hardening gaps. Quarkus CORS, OIDC, and TLS are reviewed by the Secu
 It never crawls endpoints, sends SQL/XSS/destructive payloads, contacts external hosts, or includes raw response bodies,
 cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not proof of exploitability.
 
-The 77 active checks each carry a stable `PT-*` identifier, OWASP 2025 category, evidence source, and recommendation.
+The 64 active checks each carry a stable `PT-*` identifier, OWASP 2025 category, evidence source, and recommendation.
 The panel shows **Findings by severity**. Failed or bounded-away evidence produces a `PARTIAL` scan. See
 [PENTEST-CHECKS.md](../PENTEST-CHECKS.md). Pentesting supports the shared [dismiss/restore workflow](#dismissing-findings)
 by exact `PT-*` ID; dismissal does not dismiss an equivalent Security advisor finding.
@@ -727,7 +736,10 @@ degrades to `PARTIAL`, and every advisory that did fetch is kept.
 The scanner follows OSV's `next_page_token` on `/v1/querybatch`, bounded by 20 page rounds per chunk (degrading to
 `PARTIAL` at the bound). The package list, already bounded by `bootui.vulnerabilities.max-packages`, is split into
 batches of at most 1,000 queries, OSV's hard limit. Detail fetches run with bounded concurrency (up to 10) and a
-configured advisory-detail cap. Request timeouts are not a whole-scan deadline.
+configured advisory-detail cap. Each HTTP call is bounded by `bootui.vulnerabilities.request-timeout` (default `10s`),
+and the whole scan across `/v1/querybatch` pages, `/v1/vulns/{id}` detail waves, and EPSS chunks is bounded by
+`bootui.vulnerabilities.scan-timeout` (default `60s`), degrading to `PARTIAL` while retaining all advisories fetched
+so far.
 
 Responses are validated, and malformed results fail visibly instead of reading as a clean scan. A later failure preserves earlier pages as `PARTIAL`; failure before any valid page is `ERROR`, with the local inventory retained.
 :::
@@ -743,10 +755,12 @@ the scan or discards OSV results.
 ### Fix availability
 
 Each advisory carries `fixedVersions` and `fixAvailable`. A candidate must be a `fixed` event closing a supported Maven
-interval containing the installed version, be newer under Maven `ComparableVersion` ordering, and be unaffected across
-all matching entries. Git/SEMVER ranges and `last_affected`/`limit` boundaries supply no upgrades. A false signal or
-empty list means no target was established, not that the dependency is safe or that no upstream fix exists. Candidates
-are upgrade evidence, not guarantees of publication or compatibility; BootUI does not install them.
+interval containing the installed version (or, when the installed branch is bounded by `last_affected` or a finite
+`limit` without a verified same-branch fix, a `fixed` event from a sibling `Maven` entry of the same
+`groupId:artifactId`), be newer under Maven `ComparableVersion` ordering, and be unaffected across all matching entries.
+Git/SEMVER ranges and `last_affected`/`limit` boundaries themselves supply no upgrades. A false signal or empty list
+means no target was established, not that the dependency is safe or that no upstream fix exists. Candidates are upgrade
+evidence, not guarantees of publication or compatibility; BootUI does not install them.
 
 ### Dismissing a vulnerability
 
@@ -762,7 +776,9 @@ The Spring adapter resolves coordinates from three sources, in decreasing author
 
 1. **The embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`). Maven PURLs carry
    the `groupId` no manifest header carries. A component declared not shipped (`scope: "excluded"`, or the
-   `cdx:maven:package:test=true` property) is left out unless the archive census finds its JAR.
+   `cdx:maven:package:test=true` property) is left out unless the archive census finds its JAR. Strictly when archive
+   census coverage is `COMPLETE`, SBOM-only `scope: "optional"` components not in the census and unshipped versions of
+   duplicate `groupId:artifactId` SBOM entries are also reconciled out.
 2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, including inside a repackaged archive's nested
    JARs.
 3. **`java.class.path` entries**, read through the Maven repository layout or an adjacent POM. A group id is derived from

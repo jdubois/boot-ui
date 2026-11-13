@@ -1,6 +1,6 @@
 # Database checks
 
-The Database advisor runs **45 fixed, on-demand checks** over the physical schema reported by the application's
+The Database advisor runs **56 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations, already-retained SQL Trace
 observations, the JDBC driver settings configured in the URL and the connection pool, the connection pool compared with
 the server's limits, and a few of the database server's own settings. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
@@ -82,12 +82,12 @@ percent-encoded parts joined with `|`, derived from the physical object and neve
 | An index, constraint or column    | the table parts, then `index=`, `fk=`, `constraint=`, `column=` or `partition=`                 |
 | A pair (duplicate index or key)   | the table parts, then both names in sorted order, so the pair has one identity                   |
 | A sequence                        | `ds=<datasource>`, `schema=`, `sequence=`                                                        |
-| A Hibernate mapping mismatch      | the resolved table parts, then `attribute=` and `column=` (or `columns=`, `unique=`)             |
-| A mapped entity with no table     | `ds=<datasource>`, then `entity=<entity>`, then `relation=` or `secondary=`      |
+| A Hibernate mapping mismatch      | the resolved table parts, then `attribute=` and `column=` (or `columns=`, `unique=`, `indexcolumn=`) |
+| A mapped entity with no table or sequence | `ds=<datasource>`, then `entity=<entity>`, then `relation=`, `secondary=` or `attribute=` + `sequence=` |
 | A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
-| A JDBC driver setting (DB-DRIVER-001..009) | `ds=<datasource>`, then `setting=<setting name>` (`setting=cachePrepStmts` for DB-DRIVER-004); never a value |
-| A connection-pool setting (DB-POOL-001..003) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
-| A database-server setting (DB-SERVER-001, 003..005, 007) | `ds=<datasource>`, then `server=<setting name>` (`server=pg_stat_statements` for DB-SERVER-004); never a value |
+| A JDBC driver setting (DB-DRIVER-001..010) | `ds=<datasource>`, then `setting=<setting name>` (`setting=cachePrepStmts` for DB-DRIVER-004); never a value |
+| A connection-pool setting (DB-POOL-001..003, 005) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size`, `pool=max-lifetime` or `pool=connection-timeout`; never a value |
+| A database-server setting (DB-SERVER-001, 003..005, 007..008) | `ds=<datasource>`, then `server=<setting name>` (`server=pg_stat_statements` for DB-SERVER-004); never a value |
 
 Catalog, schema and table are separate parts, so a table named `a.b` cannot alias table `b` of schema `a`. A comparison
 never claims a finding is resolved for DB-RUNTIME-001, because its evidence is the SQL Trace window, or for a rule or
@@ -211,6 +211,17 @@ indexes cannot be re-enabled through hints. See [MySQL invisible indexes](https:
 [MariaDB ignored indexes](https://mariadb.com/docs/server/ha-and-performance/optimization-and-tuning/optimization-and-indexes/ignored-indexes)
 and [Oracle invisible indexes](https://docs.oracle.com/en/database/oracle/oracle-database/19/admin/managing-indexes.html).
 
+### DB-SCHEMA-011 - Foreign key specifies SET NULL on a NOT NULL column
+
+**HIGH.** Reports a foreign key declaring `ON DELETE SET NULL` or `ON UPDATE SET NULL` (`importedKeySetNull`) where
+**every** referencing child column is `NOT NULL`. Executing the referential action on a parent delete or key update
+is then guaranteed to fail the child table's `NOT NULL` constraint. Requiring all referencing columns of a composite
+foreign key to be `NOT NULL` avoids false positives on PostgreSQL 15+ column-subset `ON DELETE SET NULL (col)`
+constraints, where `DatabaseMetaData.getImportedKeys()` reports `importedKeySetNull` for all constraint columns even
+when only a nullable subset is nulled. Disabled or unenforced foreign keys are excluded. Either make the referencing
+column(s) nullable or change the referential action to `RESTRICT`, `NO ACTION` or `CASCADE`.
+See [PostgreSQL foreign key constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK).
+
 ## Dialect detection and catalog augmentation
 
 The product/version/JDBC metadata distinguishes PostgreSQL, MySQL and MariaDB. Oracle-specific augmentation
@@ -292,6 +303,15 @@ PostgreSQL 13-18 rejects unlogged partitioned tables, so their persistence flag 
 or failed catalog read is `SKIPPED`, not clean.
 See [CREATE TABLE UNLOGGED](https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-UNLOGGED).
 
+### DB-PG-006 - PostgreSQL partitioned table has no attached partitions
+
+**HIGH.** Reports a declaratively partitioned parent table (`pg_class.relkind = 'p'`) that has zero attached child
+partitions in `pg_inherits`, excluding system and extension-owned tables. Because a partitioned parent table holds no
+storage of its own, every `INSERT` into it fails immediately at runtime with
+`no partition of relation "..." found for row` until at least one partition (or a `DEFAULT` partition) is created or
+attached.
+See [PostgreSQL table partitioning](https://www.postgresql.org/docs/current/ddl-partitioning.html).
+
 ## MySQL and MariaDB
 
 ### DB-MYSQL-001 - Tables on a non-transactional storage engine
@@ -324,6 +344,15 @@ persistent InnoDB counters from **10.2.4**, not only an in-memory counter on mod
 does not make allocation transactional or gapless. Review column bounds and referencing columns without
 querying application `MAX(id)` or resetting counters.
 See [MariaDB InnoDB counter handling](https://mariadb.com/docs/server/server-usage/storage-engines/innodb/auto_increment-handling-in-innodb).
+
+### DB-MYSQL-004 - Unenforced MySQL check constraints
+
+**LOW.** Reports a MySQL 8.0.16+ `CHECK` constraint on a base table whose
+`information_schema.table_constraints.ENFORCED` column is `'NO'`, completing cross-dialect constraint-state coverage
+alongside `DB-PG-003` and `DB-ORACLE-002`. An unenforced check constraint remains in DDL metadata but validates
+neither new writes nor existing rows. MariaDB and MySQL versions before 8.0.16 do not support `NOT ENFORCED` check
+constraints and are `SKIPPED` as not applicable.
+See [MySQL CHECK constraints](https://dev.mysql.com/doc/refman/8.4/en/create-table-check-constraints.html).
 
 ## Oracle
 
@@ -366,6 +395,15 @@ sequence. Review bounds and precision without querying application rows.
 See [ALL_SEQUENCES](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_SEQUENCES.html),
 [ALL_TAB_IDENTITY_COLS](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_TAB_IDENTITY_COLS.html)
 and [NUMBER types](https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/Data-Types.html).
+
+### DB-ORACLE-004 - Oracle global indexes with orphaned partition entries
+
+**LOW.** Reports an Oracle global index with `ALL_INDEXES.ORPHANED_ENTRIES = 'YES'`, excluding domain indexes and
+indexes already reported `UNUSABLE` by `DB-ORACLE-001`. When a partition is dropped or truncated with
+`UPDATE INDEXES`, Oracle keeps global indexes `VALID` and marks `ORPHANED_ENTRIES = 'YES'` for asynchronous cleanup by
+`PMO_DEFERRED_GIDX_MAINT_JOB` / `DBMS_PART.CLEANUP_GIDX`. If deferred maintenance does not run, index scans continue
+filtering stale entries from dropped partitions.
+See [ALL_INDEXES](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_INDEXES.html).
 
 ## Hibernate mapping
 
@@ -485,6 +523,40 @@ schema-generation metadata, not input validation.
 See [PostgreSQL numeric types](https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL)
 and [MySQL 8.4 fixed-point types](https://dev.mysql.com/doc/refman/8.4/en/fixed-point-types.html).
 
+### DB-HIB-011 - Declared JPA `@Index` has no matching observed index
+
+**MEDIUM.** Cross-references explicit `@Table(indexes = @Index(...))` and `@SecondaryTable(indexes = @Index(...))`
+declarations against observed base-table indexes leading on the declared column list and explicit `ASC`/`DESC`
+direction. Hibernate's `SchemaValidator` (`ddl-auto=validate`) ignores `@Index` annotations, so a missing migration
+leaves the table unindexed without failing startup validation. Unique `@Index(unique = true)` declarations already
+covered by `@UniqueConstraint` or `@Column(unique = true)` are left to `DB-HIB-005`.
+See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).
+
+### DB-HIB-012 - Non-nullable association join column allows `NULL` in the observed schema
+
+**MEDIUM.** Compares explicit `@JoinColumn(name = "...", nullable = false)` and owning
+`@ManyToOne`/`@OneToOne(optional = false)` declarations on non-inheritance base tables with observed physical column
+nullability. When an association is declared non-optional, Hibernate can emit an `INNER JOIN` that silently drops rows
+whose foreign-key column is `NULL`. Views, materialized views and inheritance hierarchies (where `SINGLE_TABLE`
+subclass columns must be nullable) are excluded.
+See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).
+
+### DB-HIB-013 - Enum constant name exceeds observed character column length
+
+**HIGH.** Compares the longest constant `.name().length()` of an explicit `@Enumerated(EnumType.STRING)` attribute
+(without `@EnumeratedValue`, `@Convert` or a native column definition) against a bounded physical `VARCHAR(n)` or
+`CHAR(n)` column size, even when `@Column(length)` was left at its 255 default. An enum constant longer than the
+physical column is guaranteed to fail or truncate when persisted. Unbounded text columns and MySQL/MariaDB native
+`ENUM`/`SET` columns are excluded.
+See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).
+
+### DB-HIB-014 - Declared JPA sequence generator name not found in the observed schema
+
+**HIGH.** Cross-references explicit `@SequenceGenerator(sequenceName = ...)` declarations on `@Id`
+`@GeneratedValue(strategy = GenerationType.SEQUENCE)` attributes targeting the connected schema against a complete
+observed PostgreSQL or Oracle sequence inventory, honoring identifier case folding.
+See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).
+
 ## Runtime SQL
 
 ### DB-RUNTIME-001 - SQL text variations with predicate literals
@@ -538,7 +610,7 @@ Agroal datasource that Quarkus has not created yet cannot be read: both are repo
 | pgjdbc | The **URL wins** (*"the value from Properties object is ignored"*); a pool value is trusted only when the URL was read | `Boolean.parseBoolean`: only `true` (any case) is true, no trimming | `Integer.parseInt`: no trimming, no fraction; anything else is `SKIPPED` |
 | MySQL Connector/J | No precedence is relied on: differing values are `SKIPPED` as unsettled, and a value from one source is not trusted while the other could not be read. (Connector/J 9.7 lets a `Properties` value override the URL; older lines were not checked.) | `true`, `false`, `yes`, `no` (any case); anything else is `SKIPPED` | Parsed as a double and truncated (`2048.0` and `2e3` are valid); a value below the property's minimum (`prepStmtCacheSize` 0, `prepStmtCacheSqlLimit` 1, `socketTimeout` 0), which the driver refuses, or anything else is `SKIPPED` |
 
-Driver rules use the **JDBC driver** category: `DB-DRIVER-001` to `003` are `MEDIUM`, `DB-DRIVER-004` to `009` are
+Driver rules use the **JDBC driver** category: `DB-DRIVER-001` to `003` and `010` are `MEDIUM`, `DB-DRIVER-004` to `009` are
 `LOW`. Verified against pgjdbc 42.7.13 and MySQL Connector/J 9.7.0, the versions the sample applications resolve
 (Spring Boot 4.1 and Quarkus 3.40): names and defaults come from the drivers' own `PGProperty` and
 `PropertyDefinitions` sources, as does the precedence above; the vendor documentation is cited in each rule. A finding
@@ -640,6 +712,15 @@ PostgreSQL panel reads. No query is run and the configured name is never echoed.
 pool's data-source properties (for HikariCP, `spring.datasource.hikari.data-source-properties.ApplicationName`);
 no mapping from `spring.application.name` to pgjdbc is established, so none is recommended.
 See [pgjdbc connection parameters](https://jdbc.postgresql.org/documentation/use/).
+
+### DB-DRIVER-010 - MySQL Connector/J `autoReconnect` is enabled
+
+**MEDIUM.** Applies to MySQL Connector/J. Fires when `autoReconnect` or `autoReconnectForPools` (both default `false`)
+is `true` in the JDBC URL or the pool's driver properties. Connector/J documents that *"the use of this feature is not
+recommended, because it has side effects related to session state and data consistency"* and can corrupt in-flight
+transactions while hiding dead connections from HikariCP or Agroal. Let the connection pool manage connection
+validation and replacement instead.
+See [Connector/J high availability properties](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-high-availability-and-clustering.html).
 ## Connection pool
 
 A pool and the database server each enforce limits, and the two have to agree: a session the server closed while the pool
@@ -676,6 +757,7 @@ application, and changes the meaning of both server limits; dismiss the rule whe
 | `DB-POOL-001` | MEDIUM | the pool can hold an idle connection longer than the server allows |
 | `DB-POOL-002` | MEDIUM | the pool's maximum size exceeds the connections the server lets an ordinary role hold |
 | `DB-POOL-003` | LOW | `maxLifetime` is `0` (no limit) and `DB-POOL-001` does not report the datasource |
+| `DB-POOL-005` | MEDIUM | the pool's connection acquisition timeout is disabled (`0` on Agroal, `Integer.MAX_VALUE` on HikariCP) or exceeds 5 minutes |
 
 ### DB-POOL-001 - Connection pool can keep a connection idle longer than the server allows
 
@@ -733,6 +815,15 @@ inaccurate Quarkus default (`50`, whereas `quarkus.datasource.jdbc.max-size` def
 same finding identity (`ds=<datasource>|pool=maximum-size`) as `DB-POOL-002`. `DB-POOL-002` remains the check for a
 pool whose maximum size exceeds the server's usable connections.
 
+### DB-POOL-005 - Connection pool has a disabled or excessive acquisition timeout
+
+**MEDIUM.** Fires when the attributed HikariCP or Agroal pool's connection acquisition timeout
+(`PoolSettings.connectionTimeoutMs()`) is disabled (`0` on Agroal, or `Integer.MAX_VALUE` ms when HikariCP converts
+`connectionTimeout=0`) or exceeds 5 minutes (`300,000` ms). Callers waiting on an exhausted pool or an unreachable
+database then block for minutes or indefinitely instead of failing fast. Stock HikariCP (`30` s) and Quarkus Agroal
+(`5` s) defaults pass.
+See [HikariCP configuration](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby).
+
 ## Server
 
 These rules read **a few settings of the database server itself** and flag the values that remove a safety net or the
@@ -760,6 +851,7 @@ the datasource and the setting, never on the value.
 | `DB-SERVER-004` | PostgreSQL | LOW | `pg_stat_statements` is not in `shared_preload_libraries`, or its extension is not created in the connected database |
 | `DB-SERVER-005` | PostgreSQL | LOW | `track_io_timing = off` |
 | `DB-SERVER-007` | MySQL | LOW | `performance_schema = OFF` |
+| `DB-SERVER-008` | MySQL / MariaDB | MEDIUM | session `sql_mode` includes neither `STRICT_TRANS_TABLES` nor `STRICT_ALL_TABLES` |
 
 ### DB-SERVER-001 - PostgreSQL does not end sessions that are idle in a transaction
 
@@ -825,6 +917,14 @@ evidence behind the MySQL panel's Statement ranking, Sessions and blocking and I
 read-only at runtime. **MariaDB is `SKIPPED`**: it leaves the Performance Schema off by default and BootUI treats MariaDB as
 best effort. The variable exists from MySQL 5.5; below that the rule is `SKIPPED` as unsupported. See
 [Performance Schema startup configuration](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-startup-configuration.html).
+
+### DB-SERVER-008 - MySQL/MariaDB strict transactional SQL mode is disabled
+
+**MEDIUM.** Fires on MySQL and MariaDB when the scan connection's session `sql_mode` contains neither
+`STRICT_TRANS_TABLES` nor `STRICT_ALL_TABLES`. Both MySQL 8.0+ and MariaDB 10.2.4+ enable `STRICT_TRANS_TABLES` by
+default; without a strict mode, out-of-range numbers, truncated strings and omitted `NOT NULL` columns can be coerced
+to implicit placeholders instead of raising an error.
+See [MySQL strict SQL mode](https://dev.mysql.com/doc/refman/8.4/en/sql-mode.html#sql-mode-strict).
 
 ## Retired rules
 

@@ -148,6 +148,9 @@ public final class DependencyReports {
                 .anyMatch(vulnerability -> !hasKnownSeverity(vulnerability))) {
             limitations.add("Findings with unknown severity are excluded from score penalties.");
         }
+        if ("PARTIAL".equals(status) && limitations.isEmpty()) {
+            limitations.add("The vulnerability scan did not complete within its configured limits.");
+        }
         return new AdvisorEvidenceDto(usable, limitations.isEmpty(), limitations);
     }
 

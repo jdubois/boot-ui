@@ -29,43 +29,49 @@ import org.junit.jupiter.api.Test;
 
 class MemoryScannerTests {
 
-    private static final int RULE_COUNT = 32;
+    private static final int RULE_COUNT = 31;
     private static final long MB = 1024L * 1024;
     private static final long GB = 1024L * 1024 * 1024;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {7, 10000})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {3, 10000})
     void retainsCountedPoolObservationsWithoutSamplingOrCountingInternalSeverityChecks(int retentionLimit) {
         AtomicInteger collections = new AtomicInteger();
-        MemoryScanner scanner = new MemoryScanner(() -> growingDirectPools(collections.incrementAndGet()), CLOCK);
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    collections.incrementAndGet();
+                    return bloatedCollectionsContext();
+                },
+                CLOCK);
         scanner.setViolationRetentionLimit(() -> retentionLimit);
-        scanner.scan();
-        scanner.scan();
-        scanner.scan();
         MemoryReport report = scanner.scan();
         String scanId = report.violationDetails().scanId();
-        String ruleId = "MEM-POOL-007";
-        List<String> expected = java.util.stream.IntStream.range(0, 16)
-                .mapToObj(
-                        index -> MemoryRuleSupport.detail(
-                                "'direct' buffer pool usage increased on 3 consecutive scan intervals (now "
-                                        + MemoryFormat.bytes((104L + index) * MB)
-                                        + "); net growth does not prove missing releases or a leak. Confirm comparable workload conditions."))
-                .toList();
+        String ruleId = "MEM-CONTENT-002";
+        List<String> expected = List.of(
+                MemoryRuleSupport.detail(
+                        "java.util.ArrayList occupies 104.0 MiB (17% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded."),
+                MemoryRuleSupport.detail(
+                        "java.util.LinkedList occupies 103.0 MiB (17% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded."),
+                MemoryRuleSupport.detail(
+                        "java.util.HashMap occupies 102.0 MiB (17% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded."),
+                MemoryRuleSupport.detail(
+                        "java.util.LinkedHashMap occupies 101.0 MiB (16% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded."),
+                MemoryRuleSupport.detail(
+                        "java.util.TreeMap occupies 100.0 MiB (16% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded."));
         assertThat(report.results())
                 .filteredOn(result -> result.id().equals(ruleId))
                 .singleElement()
                 .satisfies(result -> {
-                    assertThat(result.violationCount()).isEqualTo(16);
-                    assertThat(result.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
+                    assertThat(result.violationCount()).isEqualTo(5);
+                    assertThat(result.sampleViolations()).containsExactlyElementsOf(expected);
                 });
         int total = report.results().stream()
                 .mapToInt(MemoryRuleResultDto::violationCount)
                 .sum();
         assertThat(report.violationDetails().total()).isEqualTo(total);
         assertThat(report.violationDetails().retained()).isEqualTo(Math.min(total, retentionLimit));
-        var page = scanner.ruleViolations(ruleId, scanId, 0, 11);
+        var page = scanner.ruleViolations(ruleId, scanId, 0, 3);
         AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
                 AdvisorScanState.ruleIds(
                         MemoryRuleRegistry.activeRules(),
@@ -73,12 +79,12 @@ class MemoryScannerTests {
                 report.results().stream().map(evaluated -> evaluated.id()).toList(),
                 report.violationDetails().scanId(),
                 (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
-        assertThat(page.violationCount()).isEqualTo(16);
+        assertThat(page.violationCount()).isEqualTo(5);
         if (retentionLimit > total) {
-            assertThat(page.violations()).containsExactlyElementsOf(expected.subList(0, 11));
+            assertThat(page.violations()).containsExactlyElementsOf(expected.subList(0, 3));
             assertThat(page.page().hasMore()).isTrue();
-            var last = scanner.ruleViolations(ruleId, scanId, 11, 11);
-            assertThat(last.violations()).containsExactlyElementsOf(expected.subList(11, 16));
+            var last = scanner.ruleViolations(ruleId, scanId, 3, 3);
+            assertThat(last.violations()).containsExactlyElementsOf(expected.subList(3, 5));
             assertThat(last.page().hasMore()).isFalse();
             assertThat(last.truncated()).isFalse();
         } else {
@@ -88,35 +94,21 @@ class MemoryScannerTests {
         assertThat(scanner.applyDismissals(report, java.util.Set.of(ruleId)).violationDetails())
                 .isEqualTo(report.violationDetails());
         assertThat(scanner.lastReport()).isSameAs(report);
-        assertThat(collections).hasValue(4);
+        assertThat(collections).hasValue(1);
     }
 
-    private static MemoryContext growingDirectPools(int sample) {
+    private static MemoryContext bloatedCollectionsContext() {
         MemoryContext baseline = healthyContext();
-        MemoryData memory = baseline.memory();
-        var pools = java.util.stream.IntStream.range(0, 16)
-                .mapToObj(index -> new MemoryContext.BufferPoolSnapshot(
-                        "direct", (100L + sample + index) * MB, (100L + sample + index) * MB, 1))
-                .toList();
-        MemoryData growing = new MemoryData(
-                memory.heapUsed(),
-                memory.heapCommitted(),
-                memory.heapMax(),
-                memory.nonHeapUsed(),
-                memory.nonHeapCommitted(),
-                memory.nonHeapMax(),
-                memory.pools(),
-                240 * MB,
-                240 * MB,
-                16,
-                256 * MB,
-                memory.inputArguments(),
-                memory.gcCollectorNames(),
-                null,
-                null,
-                pools);
+        List<HeapClassHistogramEntryDto> histogram = List.of(
+                new HeapClassHistogramEntryDto(1, "java.util.ArrayList", 2_000_000, 104 * MB),
+                new HeapClassHistogramEntryDto(2, "java.util.LinkedList", 2_000_000, 103 * MB),
+                new HeapClassHistogramEntryDto(3, "java.util.HashMap", 2_000_000, 102 * MB),
+                new HeapClassHistogramEntryDto(4, "java.util.LinkedHashMap", 2_000_000, 101 * MB),
+                new HeapClassHistogramEntryDto(5, "java.util.TreeMap", 2_000_000, 100 * MB),
+                new HeapClassHistogramEntryDto(6, "byte[]", 1_000_000, 90 * MB));
+        HeapContentData heapContent = new HeapContentData(true, histogram, 11_000_000, 600 * MB);
         return new MemoryContext(
-                growing, baseline.threads(), baseline.heapContent(), baseline.classLoading(), baseline.runtime());
+                baseline.memory(), baseline.threads(), heapContent, baseline.classLoading(), baseline.runtime());
     }
 
     @Test
@@ -300,7 +292,7 @@ class MemoryScannerTests {
     }
 
     @Test
-    void runawayCpuThreadIsFlagged() {
+    void retiredCpuThreadAndClassLoadingChurnRulesAreNotFlaggedAndDismissalsStayValid() {
         ThreadInfoDto hot = new ThreadInfoDto(
                 42,
                 "worker-1",
@@ -322,12 +314,20 @@ class MemoryScannerTests {
         ThreadData threads = new ThreadData(
                 20, 20, 5, true, false, List.of(), List.of(new ThreadStateCountDto("RUNNABLE", 20)), List.of(hot));
         MemoryContext context = new MemoryContext(
-                healthyMemory(), threads, HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
+                healthyMemory(),
+                threads,
+                HeapContentData.unavailable(),
+                new ClassLoadingData(9000, 60_000, 51_000),
+                healthyRuntime());
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
 
         MemoryReport report = scanner.scan();
 
-        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-THREAD-004");
+        assertThat(report.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContainAnyElementsOf(MemoryScanner.RETIRED_RULE_IDS);
+        assertThat(scanner.applyDismissals(report, MemoryScanner.RETIRED_RULE_IDS))
+                .isEqualTo(report);
     }
 
     @Test
@@ -435,21 +435,6 @@ class MemoryScannerTests {
         MemoryReport report = scanner.scan();
 
         assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-POOL-004");
-    }
-
-    @Test
-    void classLoadingChurnIsFlagged() {
-        MemoryContext context = new MemoryContext(
-                healthyMemory(),
-                ThreadData.empty(),
-                HeapContentData.unavailable(),
-                new ClassLoadingData(9000, 60_000, 51_000),
-                healthyRuntime());
-        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
-
-        MemoryReport report = scanner.scan();
-
-        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-CLASS-002");
     }
 
     @Test
@@ -646,9 +631,7 @@ class MemoryScannerTests {
                             post,
                             preEvent,
                             postEvent,
-                            MemoryContext.GcTrend.unavailable(),
-                            null,
-                            null);
+                            MemoryContext.GcTrend.unavailable());
                 },
                 CLOCK,
                 tracker);
@@ -666,23 +649,27 @@ class MemoryScannerTests {
         lowFootprint.enable();
 
         // Scan 2 must ignore both Scan 1's 20s histogram GC and Low-Footprint/Offload's 55s Full GC
+        // (even if GcEventSource delivered an asynchronous "System.gc()" notification for that offload GC).
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 675_000L, 55_000L);
         MemoryReport secondReport = scanner.scan();
         assertThat(secondReport.results())
                 .extracting(MemoryRuleResultDto::id)
-                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006");
+                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006", "MEM-GC-009");
 
         // Positive control: a genuine application Full GC (8,000 ms over 20,000 ms window) after Scan 2
-        // still triggers MEM-GC-003, MEM-GC-005, and MEM-GC-006.
+        // still triggers MEM-GC-003, MEM-GC-005, and MEM-GC-006, and an external System.gc() triggers MEM-GC-009.
         uptime.addAndGet(20_000L);
         gcTime.addAndGet(8_000L);
         long appGcId = gcCount.incrementAndGet();
-        oldGenCount.incrementAndGet();
+        long appOldGenId = oldGenCount.incrementAndGet();
         latestEvent.set(new MemoryContext.GcEvent(appGcId, uptime.get(), 8_000L, "G1 Old Generation"));
+        tracker.recordGcNotification(
+                "G1 Old Generation", appOldGenId, "end of major GC", "System.gc()", uptime.get(), 8_000L);
 
         MemoryReport thirdReport = scanner.scan();
         assertThat(thirdReport.results())
                 .extracting(MemoryRuleResultDto::id)
-                .contains("MEM-GC-003", "MEM-GC-005", "MEM-GC-006")
+                .contains("MEM-GC-003", "MEM-GC-005", "MEM-GC-006", "MEM-GC-009")
                 .doesNotContain("MEM-GC-002");
     }
 
@@ -703,9 +690,7 @@ class MemoryScannerTests {
                 post1,
                 MemoryContext.GcEvent.unavailable(),
                 postEvent1,
-                MemoryContext.GcTrend.unavailable(),
-                null,
-                null);
+                MemoryContext.GcTrend.unavailable());
         // After a transient failure, Scan 3 sees lifetime gcTime = 60,000L (50,000L of which was Scan 1's histogram)
         // and still sees postEvent1 as the latest completed event.
         MemoryContext third = new MemoryContext(
@@ -719,9 +704,7 @@ class MemoryScannerTests {
                 new MemoryContext.GcSample(660_000L, 60_000L, 51L),
                 postEvent1,
                 postEvent1,
-                MemoryContext.GcTrend.unavailable(),
-                null,
-                null);
+                MemoryContext.GcTrend.unavailable());
 
         MemoryScanner scanner = new MemoryScanner(
                 () -> {
@@ -739,6 +722,53 @@ class MemoryScannerTests {
         assertThat(scanner.scan().results())
                 .extracting(MemoryRuleResultDto::id)
                 .doesNotContain("MEM-GC-002", "MEM-GC-006");
+    }
+
+    @Test
+    void counterDiscontinuityBetweenScansResetsTrackerExplicitGcObservationsAndAcceptsReusedIds() {
+        AtomicInteger step = new AtomicInteger();
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker();
+        MemoryContext.GcSample firstSample =
+                new MemoryContext.GcSample(200_000L, 1_000L, 10L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcSample resetSample =
+                new MemoryContext.GcSample(50_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 0L));
+        MemoryContext first = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                healthyRuntime(),
+                firstSample,
+                firstSample,
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcTrend.unavailable());
+        MemoryContext afterReset = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                healthyRuntime(),
+                resetSample,
+                resetSample,
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcTrend.unavailable());
+
+        MemoryScanner scanner =
+                new MemoryScanner(() -> step.incrementAndGet() == 1 ? first : afterReset, CLOCK, tracker);
+
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 100_000L, 250L);
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-009");
+
+        // Counter discontinuity on Scan 2 clears pre-reset explicit GCs
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-009");
+
+        // Reused gcId=1 in the new epoch is accepted again
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 60_000L, 300L);
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-009");
     }
 
     private static MemoryRuleResultDto result(String id, String status) {

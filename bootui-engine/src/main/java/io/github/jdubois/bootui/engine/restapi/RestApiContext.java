@@ -131,6 +131,7 @@ final class RestApiEvaluationEvidence {
     private boolean openApiKnown = true;
     private boolean versioningKnown = true;
     private RestApiScanner.SpringWebStack springWebStack = RestApiScanner.SpringWebStack.UNKNOWN;
+    private boolean springDataPageViaDtoConfigured;
     private boolean applicable;
     private boolean usable;
     private boolean evaluated;
@@ -159,6 +160,15 @@ final class RestApiEvaluationEvidence {
     /** Scan-wide observation of the Spring request stack, unaffected by {@link #reset()}. */
     void springWebStack(RestApiScanner.SpringWebStack stack) {
         this.springWebStack = stack == null ? RestApiScanner.SpringWebStack.UNKNOWN : stack;
+    }
+
+    boolean springDataPageViaDtoConfigured() {
+        return springDataPageViaDtoConfigured;
+    }
+
+    /** Scan-wide observation of Spring Data VIA_DTO page serialization, unaffected by {@link #reset()}. */
+    void springDataPageViaDtoConfigured(boolean configured) {
+        this.springDataPageViaDtoConfigured = configured;
     }
 
     boolean evaluated() {

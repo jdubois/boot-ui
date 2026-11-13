@@ -248,6 +248,54 @@ class DependencyCatalogTests {
         assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 0, List.of()));
     }
 
+    @Test
+    void reconcilesDuplicateCoordinateSbomConflictsAndUnshippedOptionalComponentsWhenCensusIsComplete()
+            throws Exception {
+        Path fatJar = repackagedJar(
+                "app.jar", "BOOT-INF/lib/", List.of("jackson-databind-2.21.6.jar", "shipped-optional-1.2.0.jar"));
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [
+                  {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.5"},
+                  {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.6"},
+                  {"purl": "pkg:maven/com.example/compile-only-optional@1.0.0", "scope": "optional",
+                   "components": [{"purl": "pkg:maven/com.example/nested-under-optional@1.0.0"}]},
+                  {"purl": "pkg:maven/com.example/shipped-optional@1.2.0", "scope": "optional"}
+                ]}
+                """);
+
+        DependencyInventory inventory = withClassPathInventory(resolver, fatJar.toString());
+
+        assertThat(inventory.coverage().status()).isEqualTo(DependencyCoverageDto.COMPLETE);
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName, DependencyDto::version)
+                .containsExactly(
+                        tuple("com.example:shipped-optional", "1.2.0"),
+                        tuple("com.fasterxml.jackson.core:jackson-databind", "2.21.6"));
+    }
+
+    @Test
+    void retainsOptionalAndConflictingSbomComponentsWhenArchiveCensusIsIncomplete() throws Exception {
+        Path fatJar = repackagedJar(
+                "app.jar", "BOOT-INF/lib/", List.of("jackson-databind-2.21.6.jar", "shaded-mystery-1.0.jar"));
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [
+                  {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.5"},
+                  {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.6"},
+                  {"purl": "pkg:maven/com.example/compile-only-optional@1.0.0", "scope": "optional"}
+                ]}
+                """);
+
+        DependencyInventory inventory = withClassPathInventory(resolver, fatJar.toString());
+
+        assertThat(inventory.coverage().status()).isEqualTo(DependencyCoverageDto.INCOMPLETE);
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName, DependencyDto::version)
+                .containsExactly(
+                        tuple("com.example:compile-only-optional", "1.0.0"),
+                        tuple("com.fasterxml.jackson.core:jackson-databind", "2.21.5"),
+                        tuple("com.fasterxml.jackson.core:jackson-databind", "2.21.6"));
+    }
+
     // -----------------------------------------------------------------------------------------------
     // Coverage
     // -----------------------------------------------------------------------------------------------

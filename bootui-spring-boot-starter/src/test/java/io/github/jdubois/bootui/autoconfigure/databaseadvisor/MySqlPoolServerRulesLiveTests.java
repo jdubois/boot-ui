@@ -62,5 +62,7 @@ class MySqlPoolServerRulesLiveTests {
                 dataSource, PoolServerLiveSupport.hikari(10, 10, 0, 45_000L, 0), mysql.getPassword());
 
         assertThat(PoolServerLiveSupport.outcome(report, "DB-SERVER-007")).isEqualTo("PASS");
+        assertThat(PoolServerLiveSupport.outcome(report, "DB-SERVER-008")).isEqualTo("PASS");
+        assertThat(PoolServerLiveSupport.outcome(report, "DB-POOL-005")).isEqualTo("PASS");
     }
 }

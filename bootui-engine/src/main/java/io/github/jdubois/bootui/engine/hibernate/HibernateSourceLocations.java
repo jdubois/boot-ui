@@ -43,13 +43,22 @@ final class HibernateSourceLocations {
                     type = type.getSuperclass();
                 }
                 for (HibernateAttributeModel attribute : entity.attributes()) {
-                    if (HibernateEntityModel.isExpandableEmbedded(attribute)) {
+                    if (HibernateEntityModel.isExpandableEmbedded(attribute)
+                            || attribute.annotation("jakarta.persistence.EmbeddedId") != null) {
                         Class<?> embeddedType = attribute.rawType();
                         for (int depth = 0;
                                 embeddedType != null && embeddedType != Object.class && depth < MAX_SUPERCLASS_DEPTH;
                                 depth++) {
                             types.putIfAbsent(embeddedType.getName(), embeddedType);
                             embeddedType = embeddedType.getSuperclass();
+                        }
+                    } else if (attribute.isElementCollection()) {
+                        Class<?> elementType = EmbeddableSetEqualityRule.elementType(attribute);
+                        for (int depth = 0;
+                                elementType != null && elementType != Object.class && depth < MAX_SUPERCLASS_DEPTH;
+                                depth++) {
+                            types.putIfAbsent(elementType.getName(), elementType);
+                            elementType = elementType.getSuperclass();
                         }
                     }
                 }
