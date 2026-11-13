@@ -193,10 +193,8 @@ final class PostgresCatalogReader {
             "reserved_connections",
             "idle_session_timeout",
             "idle_in_transaction_session_timeout",
-            "statement_timeout",
             "autovacuum",
             "track_io_timing",
-            "log_min_duration_statement",
             "shared_preload_libraries");
 
     /** Whether {@code pg_stat_statements} is created in the connected database; a constant, so nothing is bound. */

@@ -14,7 +14,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/** The fire / no-fire / skip matrix of DB-SERVER-001..007: the database server's own settings. */
+/** The fire / no-fire / skip matrix of DB-SERVER-001, 003..005, 007: the database server's own settings. */
 class DatabaseAdvisorServerRulesTests {
 
     private static final String EVIDENCE = "Evidence: effective, as seen by the scan connection.";
@@ -117,14 +117,6 @@ class DatabaseAdvisorServerRulesTests {
                                 "0",
                                 "60000"),
                         new Case(
-                                new PostgresStatementTimeoutRule(),
-                                "DB-SERVER-002",
-                                "LOW",
-                                "statement_timeout",
-                                0,
-                                "0",
-                                "30000"),
-                        new Case(
                                 new PostgresAutovacuumDisabledRule(),
                                 "DB-SERVER-003",
                                 "MEDIUM",
@@ -139,15 +131,7 @@ class DatabaseAdvisorServerRulesTests {
                                 "track_io_timing",
                                 0,
                                 "off",
-                                "on"),
-                        new Case(
-                                new PostgresSlowStatementLogRule(),
-                                "DB-SERVER-006",
-                                "LOW",
-                                "log_min_duration_statement",
-                                0,
-                                "-1",
-                                "500"))
+                                "on"))
                 .map(Arguments::of);
     }
 
@@ -262,18 +246,11 @@ class DatabaseAdvisorServerRulesTests {
     @Test
     void postgresSettingValuesAreJudgedInTheirOwnUnitAndAtTheirBoundaries() {
         // 0 is disabled whatever the unit; any positive value is a timeout, however small
-        assertThat(run(new PostgresStatementTimeoutRule(), postgres(17, setting("statement_timeout", "1", "ms")))
-                        .status())
-                .isEqualTo("PASS");
-        // 0 logs every statement and is a deliberate choice; only -1 is "never"
         assertThat(run(
-                                new PostgresSlowStatementLogRule(),
-                                postgres(17, setting("log_min_duration_statement", "0", "ms")))
+                                new PostgresIdleInTransactionTimeoutRule(),
+                                postgres(17, setting("idle_in_transaction_session_timeout", "1", "ms")))
                         .status())
                 .isEqualTo("PASS");
-        assertThat(run(new PostgresSlowStatementLogRule(), postgres(17, setting("log_min_duration_statement", "-2")))
-                        .status())
-                .isEqualTo("SKIPPED");
         // a boolean is read in the server's own spelling, case-insensitively, and nothing else
         assertThat(run(new PostgresAutovacuumDisabledRule(), postgres(17, setting("autovacuum", "OFF")))
                         .status())
@@ -585,28 +562,21 @@ class DatabaseAdvisorServerRulesTests {
     // --- the rule set ------------------------------------------------------------------------------------------------
 
     @Test
-    void theSevenServerRulesAreRegisteredWithOneStableIdAndTheServerCategoryEach() {
+    void theFiveServerRulesAreRegisteredWithOneStableIdAndTheServerCategoryEach() {
         List<DatabaseAdvisorRule> server = DatabaseAdvisorRuleRegistry.activeRules().stream()
                 .filter(rule -> rule.definition().id().startsWith("DB-SERVER-"))
                 .toList();
 
         assertThat(server)
                 .extracting(rule -> rule.definition().id())
-                .containsExactly(
-                        "DB-SERVER-001",
-                        "DB-SERVER-002",
-                        "DB-SERVER-003",
-                        "DB-SERVER-004",
-                        "DB-SERVER-005",
-                        "DB-SERVER-006",
-                        "DB-SERVER-007");
+                .containsExactly("DB-SERVER-001", "DB-SERVER-003", "DB-SERVER-004", "DB-SERVER-005", "DB-SERVER-007");
         assertThat(server).allSatisfy(rule -> {
             assertThat(rule.definition().category()).isEqualTo(DatabaseAdvisorCategory.SERVER);
             assertThat(rule.definition().learnMoreUrl()).startsWith("https://");
         });
         assertThat(server)
                 .extracting(rule -> rule.definition().severity())
-                .containsExactly("LOW", "LOW", "MEDIUM", "LOW", "LOW", "LOW", "LOW");
+                .containsExactly("LOW", "MEDIUM", "LOW", "LOW", "LOW");
     }
 
     @Test
