@@ -23,6 +23,7 @@ import org.springframework.core.env.Environment;
 
 /** Explicit, single-flight, read-only inspection. Discovery never initializes application beans. */
 final class SpringScanner {
+    static final Set<String> RETIRED_RULE_IDS = SpringRuleRegistry.RETIRED_RULE_IDS;
     private static final String ANALYZER = "BootUI Spring Advisor";
     private static final String DISCLAIMER =
             "Bounded Spring metadata and configuration checks are review prompts, not runtime or deployment verdicts. "
