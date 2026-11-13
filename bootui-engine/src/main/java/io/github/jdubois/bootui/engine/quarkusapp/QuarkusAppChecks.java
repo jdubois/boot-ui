@@ -110,7 +110,7 @@ final class QuarkusAppChecks {
                             + " schema-management.halt-on-error, then remove the legacy declarations; an explicit legacy"
                             + " value takes precedence on this Quarkus baseline.",
                     "hibernate-orm",
-                    Set.of("legacy"),
+                    Set.of("legacy", "clean"),
                     Set.of("legacy")),
             new Check(
                     "QA-CFG-005",
@@ -187,7 +187,7 @@ final class QuarkusAppChecks {
                     "Use a positive finite timer appropriate for the remote service, or restore the standard"
                             + " Quarkus defaults (15s connect / 30s read). Long finite timers are not inherently invalid.",
                     "rest-client",
-                    Set.of("connect-zero", "read-zero"),
+                    Set.of("connect-zero", "read-zero", "positive"),
                     Set.of("connect-zero", "read-zero")),
             new Check(
                     "QA-WEB-004",
@@ -205,11 +205,12 @@ final class QuarkusAppChecks {
                     "Synchronized virtual-thread entry method on JDK 21–23",
                     "Performance",
                     "LOW",
-                    "Registered REST methods dispatched on virtual threads are synchronized on the running JDK 21–23."
+                    "Registered entry methods dispatched on virtual threads are synchronized on the running JDK 21–23."
                             + " Blocking while holding the monitor can pin a carrier thread; blocking and pinning"
                             + " have not been observed. JDK 24+ removes this synchronized-related pinning.",
                     "Review whether these entry methods block while synchronized. Consider targeted locking changes"
-                            + " only when justified, or use JDK 24+; do not replace all synchronization indiscriminately.",
+                            + " such as @io.quarkus.arc.Lock only when justified, or use JDK 24+; do not replace all"
+                            + " synchronization indiscriminately.",
                     "virtual-threads",
                     Set.of(),
                     Set.of()));
@@ -233,6 +234,7 @@ final class QuarkusAppChecks {
     record Evaluation(
             List<SpringRuleResultDto> findings,
             List<SpringRuleResultDto> errors,
+            List<SpringRuleResultDto> skipped,
             List<String> limitations,
             int rulesEvaluated,
             boolean evidenceInspected,
@@ -250,6 +252,7 @@ final class QuarkusAppChecks {
     static Evaluation evaluate(QuarkusAppSnapshot snapshot, AdvisorViolationCollector collector) {
         List<SpringRuleResultDto> findings = new ArrayList<>();
         List<SpringRuleResultDto> errors = new ArrayList<>();
+        List<SpringRuleResultDto> skipped = new ArrayList<>();
         List<String> limitations = new ArrayList<>();
         Map<String, Set<Reason>> failures = new HashMap<>();
         QuarkusAppMetadata metadata = snapshot == null ? null : snapshot.metadata();
@@ -278,6 +281,15 @@ final class QuarkusAppChecks {
                 if ((snapshot == null || !snapshot.evaluatedConfigurationRules().contains(check.id()))
                         && !failures.containsKey(check.id())) {
                     fail(failures, check.id(), Reason.CONFIGURATION_UNAVAILABLE);
+                }
+                if (snapshot != null && metadata != null && metadata.available()) {
+                    if (check.id().equals("QA-CFG-004") && metadata.hibernateOrmSupported()) {
+                        applicableObservation = true;
+                    } else if (check.id().equals("QA-WEB-003")
+                            && metadata.restClientSupported()
+                            && !metadata.restClients().isEmpty()) {
+                        applicableObservation = true;
+                    }
                 }
                 if (snapshot != null) {
                     for (Setting setting :
@@ -311,16 +323,20 @@ final class QuarkusAppChecks {
                 if (metadata == null || !metadata.available()) {
                     fail(failures, check.id(), Reason.METADATA_UNAVAILABLE);
                 }
-                if (metadata != null) {
+                if (metadata != null && metadata.available()) {
                     if (check.id().equals("QA-PERF-002")) {
                         if (snapshot.runtimeJdkMajorVersion() <= 0) {
                             fail(failures, check.id(), Reason.RUNTIME_JDK_UNAVAILABLE);
                         } else {
                             samples.addAll(metadata.synchronizedVirtualThreadMethods());
-                            applicableObservation =
-                                    !metadata.synchronizedVirtualThreadMethods().isEmpty();
+                            applicableObservation = metadata.endpointCount() > 0
+                                    || !metadata.synchronizedVirtualThreadMethods()
+                                            .isEmpty();
                         }
                     } else {
+                        applicableObservation = check.id().equals("QA-CDI-002")
+                                ? metadata.endpointCount() > 0 && metadata.beanCount() > 0
+                                : metadata.beanCount() > 0;
                         for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
                             String fieldRule = fieldRule(field);
                             if (fieldRule == null) {
@@ -358,7 +374,11 @@ final class QuarkusAppChecks {
             if (reasons != null) {
                 // A finding is the rule's outcome; its incomplete coverage stays visible in the limitations.
                 if (unique.isEmpty()) {
-                    errors.add(error(check, reasons));
+                    if (reasons.equals(Set.of(Reason.PRODUCTION_UNOBSERVED))) {
+                        skipped.add(skipped(check, reasons));
+                    } else {
+                        errors.add(error(check, reasons));
+                    }
                 }
                 limitations.add(check.id() + ": " + limitation(check, reasons));
             } else {
@@ -368,7 +388,13 @@ final class QuarkusAppChecks {
             }
         }
         return new Evaluation(
-                List.copyOf(findings), List.copyOf(errors), List.copyOf(limitations), evaluated, inspected, usable);
+                List.copyOf(findings),
+                List.copyOf(errors),
+                List.copyOf(skipped),
+                List.copyOf(limitations),
+                evaluated,
+                inspected,
+                usable);
     }
 
     /** Normal scopes share the client-proxy mechanism; only singleton fields are reached directly. */
@@ -401,6 +427,14 @@ final class QuarkusAppChecks {
     }
 
     private static SpringRuleResultDto error(Check check, Set<Reason> reasons) {
+        return diagnostic(check, reasons, "ERROR");
+    }
+
+    private static SpringRuleResultDto skipped(Check check, Set<Reason> reasons) {
+        return diagnostic(check, reasons, "SKIPPED");
+    }
+
+    private static SpringRuleResultDto diagnostic(Check check, Set<Reason> reasons, String status) {
         String recommendation =
                 "Restore the required application metadata or configuration evidence and run the checks again.";
         if (PRODUCTION_RULES.contains(check.id())) {
@@ -413,7 +447,7 @@ final class QuarkusAppChecks {
                 check.category(),
                 check.severity(),
                 limitation(check, reasons),
-                "ERROR",
+                status,
                 0,
                 List.of(),
                 recommendation,

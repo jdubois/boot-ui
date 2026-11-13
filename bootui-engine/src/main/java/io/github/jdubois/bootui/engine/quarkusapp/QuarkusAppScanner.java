@@ -110,7 +110,7 @@ public final class QuarkusAppScanner {
                 status,
                 message,
                 clock.millis(),
-                inspected(snap),
+                inspected(snap, evaluation),
                 snap == null || snap.metadata() == null ? 0 : snap.metadata().beanCount(),
                 evaluation.rulesEvaluated(),
                 evaluation.findings(),
@@ -125,7 +125,7 @@ public final class QuarkusAppScanner {
         return new AdvisorEvidenceDto(evaluation.usable(), evaluation.coverageComplete(), evaluation.limitations());
     }
 
-    private static List<String> inspected(QuarkusAppSnapshot s) {
+    private static List<String> inspected(QuarkusAppSnapshot s, QuarkusAppChecks.Evaluation evaluation) {
         List<String> out = new ArrayList<>();
         if (s == null) {
             return out;
@@ -140,6 +140,11 @@ public final class QuarkusAppScanner {
         }
         if (!s.activeProfiles().isEmpty()) {
             out.add(s.activeProfiles().size() + " active profiles");
+        }
+        if (evaluation != null) {
+            for (SpringRuleResultDto skipped : evaluation.skipped()) {
+                out.add(skipped.id() + " (SKIPPED): " + skipped.description());
+            }
         }
         return out;
     }

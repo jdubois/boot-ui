@@ -44,11 +44,12 @@ class BootUiQuarkusSpringResourceTest {
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
         assertThat(scanned.path("rulesEvaluated").asInt()).isGreaterThan(0);
-        assertThat(scanned.path("analysisErrors").size()).isGreaterThan(0);
+        assertThat(scanned.path("analysisErrors")).isEmpty();
+        assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
         assertThat(ruleIds(scanned))
                 .as("any application advisor finding must be a Quarkus QA-* rule, never a Spring one")
                 .allMatch(id -> id.startsWith("QA-"))
-                .contains("QA-CDI-003", "QA-CDI-004")
+                .contains("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-WEB-001", "QA-WEB-004")
                 .doesNotContain(
                         "QA-CDI-001",
                         "QA-CFG-001",
