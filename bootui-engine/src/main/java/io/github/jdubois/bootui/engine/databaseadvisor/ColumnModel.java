@@ -85,10 +85,14 @@ record ColumnModel(
     /** {@code varchar(255)} / {@code numeric(10,2)} / {@code int8}, for finding details. */
     String describeType() {
         String base = typeName == null ? "unknown" : typeName;
-        if (decimalDigits != null && decimalDigits > 0 && size != null && isDecimalType()) {
+        if (decimalDigits != null && decimalDigits > 0 && size != null && size > 0 && size <= 1000 && isDecimalType()) {
             return base + "(" + size + "," + decimalDigits + ")";
         }
-        if (size != null && size > 0 && hasMeaningfulSize()) {
+        if (size != null
+                && size > 0
+                && size < Integer.MAX_VALUE
+                && (!isDecimalType() || (size <= 1000 && (decimalDigits == null || decimalDigits != -127)))
+                && hasMeaningfulSize()) {
             return base + "(" + size + ")";
         }
         return base;

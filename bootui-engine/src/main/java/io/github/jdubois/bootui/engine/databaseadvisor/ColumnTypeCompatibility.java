@@ -16,16 +16,25 @@ import java.util.Map;
 final class ColumnTypeCompatibility {
 
     /** Integer rank so a narrower child column can be told from a merely differently-named one. */
-    private static final Map<String, Integer> INTEGER_RANKS = Map.of(
-            "tinyint", 1,
-            "smallint", 2,
-            "int2", 2,
-            "mediumint", 3,
-            "int", 4,
-            "integer", 4,
-            "int4", 4,
-            "bigint", 5,
-            "int8", 5);
+    private static final Map<String, Integer> INTEGER_RANKS = Map.ofEntries(
+            Map.entry("tinyint", 1),
+            Map.entry("smallint", 2),
+            Map.entry("int2", 2),
+            Map.entry("smallserial", 2),
+            Map.entry("serial2", 2),
+            Map.entry("mediumint", 3),
+            Map.entry("int", 4),
+            Map.entry("integer", 4),
+            Map.entry("int4", 4),
+            Map.entry("serial", 4),
+            Map.entry("serial4", 4),
+            Map.entry("bigint", 5),
+            Map.entry("int8", 5),
+            Map.entry("bigserial", 5),
+            Map.entry("serial8", 5));
+
+    /** pgjdbc and other drivers report sentinel sizes of 1000 or more for an unconstrained numeric. */
+    private static final int MAX_BOUNDED_DECIMAL_PRECISION = 1000;
 
     private ColumnTypeCompatibility() {}
 
@@ -45,14 +54,8 @@ final class ColumnTypeCompatibility {
             case UUID -> true;
             case NUMERIC ->
                 (integerRank(child) != null && integerRank(parent) != null)
-                        || (isDecimal(child)
-                                && isDecimal(parent)
-                                && child.size() != null
-                                && parent.size() != null
-                                && child.size() > 0
-                                && parent.size() > 0
-                                && child.decimalDigits() != null
-                                && parent.decimalDigits() != null);
+                        || ((isBoundedDecimal(child) || isUnconstrainedDecimal(child))
+                                && (isBoundedDecimal(parent) || isUnconstrainedDecimal(parent)));
             case STRING, BINARY ->
                 child.size() != null && parent.size() != null && child.size() > 0 && parent.size() > 0;
             default -> false;
@@ -120,12 +123,18 @@ final class ColumnTypeCompatibility {
     }
 
     private static String decimalMismatch(ColumnModel child, ColumnModel parent) {
-        if (child.size() == null
-                || parent.size() == null
-                || child.decimalDigits() == null
-                || parent.decimalDigits() == null
-                || child.size() <= 0
-                || parent.size() <= 0) {
+        boolean childBounded = isBoundedDecimal(child);
+        boolean parentBounded = isBoundedDecimal(parent);
+        boolean childUnconstrained = isUnconstrainedDecimal(child);
+        boolean parentUnconstrained = isUnconstrainedDecimal(parent);
+        if (childUnconstrained && (parentUnconstrained || parentBounded)) {
+            return null;
+        }
+        if (childBounded && parentUnconstrained) {
+            return "a bounded numeric precision/scale (" + child.size() + "," + child.decimalDigits()
+                    + " vs unconstrained)";
+        }
+        if (!childBounded || !parentBounded) {
             return null;
         }
         int childScale = child.decimalDigits();
@@ -145,9 +154,35 @@ final class ColumnTypeCompatibility {
             return null;
         }
         if (child.size() < parent.size()) {
+            if (parent.size() == Integer.MAX_VALUE) {
+                return "a shorter declared length (" + child.size() + " vs unbounded)";
+            }
             return "a shorter declared length (" + child.size() + " vs " + parent.size() + ")";
         }
         return null;
+    }
+
+    private static boolean isBoundedDecimal(ColumnModel column) {
+        return isDecimal(column)
+                && column.size() != null
+                && column.size() > 0
+                && column.size() <= MAX_BOUNDED_DECIMAL_PRECISION
+                && column.decimalDigits() != null
+                && column.decimalDigits() != -127;
+    }
+
+    private static boolean isUnconstrainedDecimal(ColumnModel column) {
+        if (!isDecimal(column) || column.size() == null || column.decimalDigits() == null) {
+            return false;
+        }
+        if (column.size() > MAX_BOUNDED_DECIMAL_PRECISION && column.decimalDigits() == 0) {
+            return true;
+        }
+        String typeName =
+                column.typeName() == null ? "" : column.typeName().trim().toLowerCase(Locale.ROOT);
+        return ("number".equals(typeName) || "numeric".equals(typeName) || "decimal".equals(typeName))
+                && ((column.size() == 0 && (column.decimalDigits() == 0 || column.decimalDigits() == -127))
+                        || (column.size() == 38 && column.decimalDigits() == -127));
     }
 
     private static boolean isDecimal(ColumnModel column) {

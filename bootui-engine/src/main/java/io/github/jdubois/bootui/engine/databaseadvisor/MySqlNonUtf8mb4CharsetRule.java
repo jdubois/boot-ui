@@ -76,6 +76,9 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
                     eligible++;
                 }
             }
+            if (VendorRuleSupport.complete(schema, VendorFindingKinds.MYSQL_COLUMN_CHARSETS)) {
+                eligible++;
+            }
             collectTableDefaults(schema, details);
             collectColumns(schema, details);
         }

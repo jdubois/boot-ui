@@ -93,6 +93,91 @@ public final class DefaultDatabaseAdvisorEvidenceProvider implements DatabaseAdv
         return byDataSource;
     }
 
+    @Override
+    public Map<String, String> entityDataSources() {
+        HibernateAdvisorObservationSource source = hibernate.get();
+        if (source == null) {
+            return Map.of();
+        }
+        Map<String, String> byPool = entityPools(source.observe());
+        if (byPool.isEmpty()) {
+            return Map.of();
+        }
+        ConnectionPoolProvider provider = pools.get();
+        Map<String, String> dataSourceByPool = new HashMap<>();
+        Set<String> ambiguousPools = new HashSet<>();
+        for (NamedDataSource dataSource : uniquelyNamed()) {
+            poolOf(provider, dataSource).map(ConnectionPoolInfo::beanName).ifPresent(pool -> {
+                String previous = dataSourceByPool.put(pool, dataSource.name());
+                if (previous != null && !previous.equals(dataSource.name())) {
+                    ambiguousPools.add(pool);
+                }
+            });
+        }
+        ambiguousPools.forEach(dataSourceByPool::remove);
+        if (dataSourceByPool.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> byEntity = new LinkedHashMap<>();
+        byPool.forEach((entityName, poolName) -> {
+            String dataSourceName = dataSourceByPool.get(poolName);
+            if (dataSourceName != null) {
+                byEntity.put(entityName, dataSourceName);
+            }
+        });
+        return Map.copyOf(byEntity);
+    }
+
+    /**
+     * The attributed pool name per entity name, when the entity's persistence unit is attributed to a single pool and
+     * no other unit (including an unattributed unit or an unreadable factory) could map that entity elsewhere.
+     */
+    static Map<String, String> entityPools(HibernateAdvisorObservation observation) {
+        if (observation == null
+                || observation.diagnostics().stream()
+                        .anyMatch(diagnostic ->
+                                diagnostic.reason() == HibernateObservationDiagnostic.Reason.FACTORY_UNAVAILABLE)) {
+            return Map.of();
+        }
+        Map<String, String> byEntity = new LinkedHashMap<>();
+        Set<String> ambiguous = new HashSet<>();
+        for (HibernatePersistenceUnitObservation unit : observation.units()) {
+            HibernatePoolObservation pool = unit.pool();
+            String poolName = pool == null ? null : pool.dataSourceName();
+            for (io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel entity : unit.entities()) {
+                if (entity == null) {
+                    continue;
+                }
+                for (String key : entityKeys(entity)) {
+                    if (poolName == null || poolName.isBlank()) {
+                        ambiguous.add(key);
+                        byEntity.remove(key);
+                    } else if (!ambiguous.contains(key)) {
+                        String existing = byEntity.put(key, poolName);
+                        if (existing != null && !existing.equals(poolName)) {
+                            ambiguous.add(key);
+                            byEntity.remove(key);
+                        }
+                    }
+                }
+            }
+        }
+        return Map.copyOf(byEntity);
+    }
+
+    private static List<String> entityKeys(io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel entity) {
+        List<String> keys = new ArrayList<>(2);
+        if (entity.name() != null && !entity.name().isBlank()) {
+            keys.add(entity.name());
+        }
+        if (entity.javaType() != null
+                && !entity.javaType().getName().isBlank()
+                && !keys.contains(entity.javaType().getName())) {
+            keys.add(entity.javaType().getName());
+        }
+        return keys;
+    }
+
     /**
      * The effective batching per pool, keyed like {@link HibernatePoolObservation#dataSourceName()}. A pool is
      * {@code ENABLED} (with the smallest batch size among its batching units) as soon as one unit on it batches,

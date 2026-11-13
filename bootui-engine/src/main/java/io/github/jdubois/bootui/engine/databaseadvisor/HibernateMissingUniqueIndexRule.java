@@ -80,7 +80,7 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                 eligible++;
                 continue;
             }
-            if (resolution.schema().dialect() == Dialect.ORACLE
+            if (oracleConstraintUncertain(resolution.schema(), table)
                     || (isPrimaryKey(table, columns)
                             && table.metadata().primaryKeyEnforced() == null
                             && !primaryKeyEnforced(resolution.schema(), table))
@@ -105,6 +105,28 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                     DatabaseIdentities.table(resolution.schema(), table, DatabaseIdentities.each("unique", columns)));
         }
         return eligible;
+    }
+
+    private boolean oracleConstraintUncertain(SchemaSnapshot schema, TableModel table) {
+        if (schema.dialect() != Dialect.ORACLE) {
+            return false;
+        }
+        if (!VendorRuleSupport.complete(schema, VendorFindingKinds.ORACLE_CONSTRAINTS)
+                || !VendorRuleSupport.complete(schema, VendorFindingKinds.ORACLE_INDEX_DETAILS)) {
+            return true;
+        }
+        return schema.vendorFindings().findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
+                .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
+                        && java.util.Objects.equals(table.name(), constraint.table())
+                        && ("P".equals(constraint.constraintType()) || "U".equals(constraint.constraintType())))
+                .anyMatch(constraint -> !constraint.enabled()
+                        || !constraint.validatedAgainstExistingRows()
+                        || constraint.indexName() == null
+                        || !java.util.Objects.equals(table.schema(), constraint.indexOwner())
+                        || table.indexes().stream()
+                                .noneMatch(index -> constraint.indexName().equals(index.name())
+                                        && Boolean.TRUE.equals(index.uniquenessKnown())
+                                        && index.unique()));
     }
 
     private boolean primaryKeyEnforced(SchemaSnapshot schema, TableModel table) {
