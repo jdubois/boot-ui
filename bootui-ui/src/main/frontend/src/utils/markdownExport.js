@@ -455,6 +455,36 @@ function securitySection(doc, profile, sections, level) {
   truncated(doc, 'Security events', section)
 }
 
+function authorizationsSection(doc, profile, journalProfile, level) {
+  const authorizations = profile?.authorizations ?? journalProfile?.authorizations ?? []
+  if (!authorizations.length) return
+  push(doc, heading(level, 'Authorization decisions'))
+  const lines = authorizations.map((decision) => {
+    const target = decision.subject
+      ? `${decision.target ?? 'METHOD'} ${decision.subject}`
+      : (decision.target ?? 'REQUEST')
+    const parts = [
+      inlineCode(target),
+      decision.granted ? 'Granted' : 'Denied',
+      inlineCode(decision.authentication ?? 'UNKNOWN'),
+      plural(decision.authorities ?? 0, 'authority', 'authorities')
+    ]
+    if (decision.rule) parts.push(`rule ${inlineCode(decision.rule)}`)
+    if (decision.durationMicros != null && decision.durationMicros > 0) {
+      parts.push(formatDuration(decision.durationMicros / 1000))
+    }
+    return `- ${parts.join(' · ')}`
+  })
+  push(doc, lines.join('\n'))
+  const truncationNote = (journalProfile?.notes ?? profile?.notes ?? []).find(
+    (note) => typeof note === 'string' && note.startsWith('Showing ') && note.includes(' authorization decisions')
+  )
+  if (truncationNote) {
+    push(doc, escapeMarkdown(truncationNote))
+    omit(doc, `Authorization decisions: ${truncationNote}`)
+  }
+}
+
 function restCallsSection(doc, profile, sections, level) {
   const section = sections.REST_CLIENT
   if (!section) return
@@ -519,12 +549,13 @@ function notesSection(doc, profile, level) {
   push(doc, heading(level, 'Notes'), notes.map((note) => `- ${escapeMarkdown(note)}`).join('\n'))
 }
 
-function profileBody(doc, profile, exceptionDetails, level) {
+function profileBody(doc, profile, exceptionDetails, journalProfile, level) {
   const sections = profileSections(profile)
   requestSection(doc, profile, level)
   sqlSection(doc, profile, sections, level)
   exceptionsSection(doc, profile, sections, exceptionDetails, level)
   securitySection(doc, profile, sections, level)
+  authorizationsSection(doc, profile, journalProfile, level)
   restCallsSection(doc, profile, sections, level)
   cacheSection(doc, profile, sections, level)
   traceSection(doc, profile, level)
@@ -539,10 +570,10 @@ function profileBody(doc, profile, exceptionDetails, level) {
  * exception's stack trace and recent occurrences.
  *
  * @param {any} profile a `RequestProfileDto`
- * @param {{exceptionDetails?: Record<string, {detail?: any, error?: string}> | null, omissions?: string[]}} [options]
+ * @param {{exceptionDetails?: Record<string, {detail?: any, error?: string}> | null, omissions?: string[], journalProfile?: any}} [options]
  * @returns {{markdown: string, omissions: string[]}}
  */
-export function profileMarkdown(profile, {exceptionDetails = null, omissions = []} = {}) {
+export function profileMarkdown(profile, {exceptionDetails = null, omissions = [], journalProfile = null} = {}) {
   const doc = newDocument()
   const request = profile?.request
   const title = request ? `${request.method ?? ''} ${request.path ?? ''}`.trim() : ''
@@ -551,7 +582,7 @@ export function profileMarkdown(profile, {exceptionDetails = null, omissions = [
     push(doc, `The profile is unavailable: ${escapeMarkdown(profile?.unavailableReason || 'no reason was given.')}`)
     return finish(doc)
   }
-  profileBody(doc, profile, exceptionDetails, 2)
+  profileBody(doc, profile, exceptionDetails, journalProfile, 2)
   for (const text of omissions) omit(doc, text)
   return finish(doc)
 }

@@ -695,4 +695,77 @@ class JournalActivityFeedTests {
         assertThat(((TransactionPayload) failed.interned(new JournalDictionary(100, 10_000))).begun())
                 .isFalse();
     }
+
+    @Test
+    void deniedAuthorizationDecisionsRenderAsSecurityRowsWhileGrantedChecksStayOutOfTheFeed() {
+        add(
+                event(
+                        "r1",
+                        null,
+                        JournalSource.AUTHORIZATION,
+                        2_000_000,
+                        "http-1",
+                        new AuthorizationPayload(
+                                AuthorizationPayload.REQUEST,
+                                null,
+                                "hasAnyAuthority(ROLE_ADMIN)",
+                                AuthorizationPayload.AUTHENTICATED,
+                                true,
+                                2)),
+                1_000);
+        add(
+                event(
+                        "r1",
+                        null,
+                        JournalSource.AUTHORIZATION,
+                        3_000_000,
+                        "http-1",
+                        new AuthorizationPayload(
+                                AuthorizationPayload.METHOD,
+                                "OrderService#cancel",
+                                "ExpressionAuthorizationDecision",
+                                AuthorizationPayload.AUTHENTICATED,
+                                false,
+                                1)),
+                1_001);
+        add(
+                event(
+                        "r2",
+                        null,
+                        JournalSource.AUTHORIZATION,
+                        0,
+                        "vert.x-eventloop-1",
+                        new AuthorizationPayload(
+                                AuthorizationPayload.REQUEST,
+                                null,
+                                "RolesAllowedCheck",
+                                AuthorizationPayload.ANONYMOUS,
+                                false,
+                                0)),
+                1_002);
+        add(http("r1", "POST", "/api/orders/1/cancel", "/api/orders/{id}/cancel", 403, 10), 1_003);
+        add(http("r2", "GET", "/api/secure", "/api/secure", 401, 5), 1_004);
+
+        Feed rendered = feed.render(entries, EVENT_ID, "run", Filter.NONE, 0);
+
+        List<ActivityEntryDto> security = rendered.entries().stream()
+                .filter(entry -> entry.type().equals(JournalActivityFeed.TYPE_SECURITY))
+                .toList();
+        assertThat(security)
+                .extracting(
+                        ActivityEntryDto::summary,
+                        ActivityEntryDto::detail,
+                        ActivityEntryDto::severity,
+                        ActivityEntryDto::durationMs,
+                        ActivityEntryDto::parentId)
+                .containsExactly(
+                        tuple("Request authorization denied", "ANONYMOUS · RolesAllowedCheck", "WARN", null, "r2"),
+                        tuple(
+                                "Method authorization denied: OrderService#cancel",
+                                "AUTHENTICATED (1 authority) · ExpressionAuthorizationDecision",
+                                "WARN",
+                                3L,
+                                "r1"));
+        assertThat(rendered.typeCounts()).containsEntry(JournalActivityFeed.TYPE_SECURITY, 2);
+    }
 }

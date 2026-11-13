@@ -116,7 +116,7 @@ public final class McpToolDescriptions {
                     "get_request_profile",
                     "Open a profileable request or scheduled/message execution id from get_live_activity or a "
                             + "get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or "
-                            + "execution label, resources and touched metadata when retained, plus HTTP-exchange "
+                            + "execution label, authorizations, resources and touched metadata when retained, plus HTTP-exchange "
                             + "details when available; otherwise source=buffers "
                             + "with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation "
                             + "tiers). An id neither retains is a tool error; available=false with source=none means "

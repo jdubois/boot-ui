@@ -240,6 +240,8 @@ test.describe('BootUI on Spring WebFlux', () => {
     const journal = drawer.locator('.request-journal')
     await expect(journal.getByRole('heading', {name: 'Recorded by the runtime journal'})).toHaveCount(1)
     await expect(journal).toContainText('GET /api/greetings/{name}')
+    await expect(journal.getByRole('heading', {name: 'Authorization decisions'})).toBeVisible()
+    await expect(journal.locator('.request-journal__authorizations')).toContainText('Granted')
 
     // Copy for AI renders the same reactive profile through the shared Markdown helper.
     await drawer.getByRole('button', {name: 'Copy for AI'}).click()

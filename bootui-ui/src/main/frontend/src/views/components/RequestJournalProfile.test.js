@@ -270,4 +270,93 @@ describe('RequestJournalProfile', () => {
       'Hibernate'
     )
   })
+
+  it('renders authorization decisions and offers the Spring Security explain link on 401 and 403 requests', () => {
+    const RouterLinkStub = {
+      props: ['to'],
+      template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
+    }
+    const wrapper = mount(RequestJournalProfile, {
+      props: {
+        profile: journalProfile({
+          status: 403,
+          route: 'POST /api/orders/{id}/cancel',
+          authorizations: [
+            {
+              target: 'REQUEST',
+              subject: null,
+              rule: 'hasAnyAuthority(ROLE_USER, ROLE_ADMIN)',
+              authentication: 'AUTHENTICATED',
+              granted: true,
+              authorities: 1,
+              offsetMillis: 1,
+              durationMicros: 350
+            },
+            {
+              target: 'METHOD',
+              subject: 'OrderService#cancel',
+              rule: null,
+              authentication: 'AUTHENTICATED',
+              granted: false,
+              authorities: 1,
+              offsetMillis: 4,
+              durationMicros: null
+            }
+          ]
+        }),
+        method: 'POST',
+        path: '/api/orders/42/cancel',
+        status: 403
+      },
+      global: {stubs: {RouterLink: RouterLinkStub}}
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('Authorization decisions')
+    expect(text).toContain('REQUEST')
+    expect(text).toContain('METHOD')
+    expect(text).toContain('OrderService#cancel')
+    expect(text).toContain('AUTHENTICATED · 1 authority')
+    expect(text).toContain('hasAnyAuthority(ROLE_USER, ROLE_ADMIN)')
+    expect(text).toContain('Granted')
+    expect(text).toContain('Denied')
+    expect(text).toContain('350.0 µs')
+    expect(text).toContain('Explain in Spring Security')
+    expect(text).toContain('Static filter-chain matching')
+    const explainLink = wrapper
+      .findAll('a.router-link-stub')
+      .find((node) => node.text().includes('Explain in Spring Security'))
+    expect(JSON.parse(explainLink.attributes('data-to'))).toEqual({
+      path: '/spring-security',
+      query: {method: 'POST', path: '/api/orders/42/cancel'}
+    })
+  })
+
+  it('hides the Spring Security explain link when the spring-security panel is disabled, on 200 requests, or without a concrete path', () => {
+    const okWrapper = mount(RequestJournalProfile, {
+      props: {profile: journalProfile({status: 200, authorizations: []}), method: 'GET', path: '/api/orders/42'}
+    })
+    expect(okWrapper.text()).not.toContain('Authorization decisions')
+    expect(okWrapper.text()).not.toContain('Explain in Spring Security')
+
+    const templateOnlyWrapper = mount(RequestJournalProfile, {
+      props: {profile: journalProfile({status: 403, route: 'GET /api/orders/{id}'})}
+    })
+    expect(templateOnlyWrapper.text()).not.toContain('Explain in Spring Security')
+
+    const disabledWrapper = mount(RequestJournalProfile, {
+      props: {profile: journalProfile({status: 401}), method: 'GET', path: '/api/orders/42'},
+      global: {
+        provide: {
+          panels: {
+            value: {
+              platform: 'spring-boot',
+              panels: [{id: 'spring-security', available: true, enabled: false}]
+            }
+          }
+        }
+      }
+    })
+    expect(disabledWrapper.text()).not.toContain('Explain in Spring Security')
+  })
 })
