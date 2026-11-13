@@ -39,7 +39,7 @@ class RestApiScanWiringTest {
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.basePackages()).contains("io.github.jdubois.bootui.sample");
         assertThat(report.controllersAnalyzed()).isPositive();
-        assertThat(report.rulesEvaluated()).isEqualTo(60);
+        assertThat(report.rulesEvaluated()).isEqualTo(65);
         assertThat(report.results())
                 .extracting(result -> result.id())
                 .doesNotContain(
