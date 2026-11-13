@@ -3967,7 +3967,7 @@ final class EmbeddableSetEqualityRule extends AbstractHibernateRule {
                 && !java.util.SortedSet.class.isAssignableFrom(type);
     }
 
-    private static Class<?> elementType(HibernateAttributeModel attribute) {
+    static Class<?> elementType(HibernateAttributeModel attribute) {
         if (attribute.genericType() instanceof java.lang.reflect.ParameterizedType parameterized
                 && parameterized.getActualTypeArguments().length == 1
                 && parameterized.getActualTypeArguments()[0] instanceof Class<?> element) {
@@ -4086,5 +4086,901 @@ final class PostgresLobRule extends AbstractHibernateRule {
             return null;
         }
         return true;
+    }
+}
+
+final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
+
+    private static final String ACCESS = "jakarta.persistence.Access";
+    private static final String ENTITY = "jakarta.persistence.Entity";
+    private static final String MAPPED_SUPERCLASS = "jakarta.persistence.MappedSuperclass";
+    private static final String EMBEDDABLE = "jakarta.persistence.Embeddable";
+    private static final String EMBEDDED = "jakarta.persistence.Embedded";
+    private static final String EMBEDDED_ID = "jakarta.persistence.EmbeddedId";
+    private static final String ELEMENT_COLLECTION = "jakarta.persistence.ElementCollection";
+    private static final String ID = "jakarta.persistence.Id";
+
+    private static final Set<String> ATTRIBUTE_MAPPING_ANNOTATIONS = Set.of(
+            "jakarta.persistence.Column",
+            "org.hibernate.annotations.Formula",
+            "jakarta.persistence.Enumerated",
+            "jakarta.persistence.Lob",
+            "jakarta.persistence.Temporal",
+            "jakarta.persistence.Transient",
+            "jakarta.persistence.Convert",
+            "jakarta.persistence.Converts",
+            "org.hibernate.annotations.JdbcTypeCode",
+            "jakarta.persistence.JoinColumn",
+            "jakarta.persistence.JoinColumns",
+            "jakarta.persistence.JoinTable",
+            "jakarta.persistence.OneToOne",
+            "jakarta.persistence.ManyToOne",
+            "jakarta.persistence.OneToMany",
+            "jakarta.persistence.ManyToMany",
+            "jakarta.persistence.ElementCollection",
+            "jakarta.persistence.Embedded",
+            "jakarta.persistence.Version",
+            "org.hibernate.annotations.NaturalId");
+
+    MismatchedAccessPlacementRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-025",
+                "JPA mapping annotations should match the class access type",
+                HibernateCategory.MAPPING,
+                "HIGH",
+                "Detects attribute-mapping annotations placed on getter methods when the class uses AccessType.FIELD,"
+                        + " or on backing fields when the class uses AccessType.PROPERTY, without an explicit @Access"
+                        + " override.",
+                "Move the mapping annotations to match the class's access type (field vs getter), or annotate the"
+                        + " member with @Access(AccessType.FIELD) or @Access(AccessType.PROPERTY) when mixed access is"
+                        + " intentional.",
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html#a119"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity :
+                context.targets(context.entities(), candidate -> candidate.javaType() != null)) {
+            Class<?> entityType = entity.javaType();
+            if (entityType == null) {
+                continue;
+            }
+            String defaultAccess = resolveHierarchyDefaultAccessType(entityType);
+            Set<Class<?>> visited = new HashSet<>();
+            Set<String> inspectedPrefixes = new HashSet<>();
+            visited.add(entityType);
+            inspectHierarchy(context, entity, entityType, "", defaultAccess, visited, inspectedPrefixes, 0, details);
+        }
+        return violation(context, details);
+    }
+
+    private static void inspectHierarchy(
+            HibernateContext context,
+            HibernateEntityModel entity,
+            Class<?> rootType,
+            String prefix,
+            String fallbackAccess,
+            Set<Class<?>> visited,
+            Set<String> inspectedPrefixes,
+            int depth,
+            AdvisorFindings details) {
+        for (Class<?> current = rootType;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            if (!isManagedClass(current) || current.isRecord() || isFrameworkClass(current)) {
+                continue;
+            }
+            String classAccess = explicitAccessType(current.getDeclaredAnnotations());
+            String effectiveAccess = classAccess != null
+                    ? classAccess
+                    : fallbackAccess != null ? fallbackAccess : inferClassAccessFromMappings(current);
+            if ("FIELD".equals(effectiveAccess)) {
+                for (java.lang.reflect.Method method : current.getDeclaredMethods()) {
+                    if (!isGetterMethod(method)) {
+                        continue;
+                    }
+                    if ("PROPERTY".equals(explicitAccessType(method.getDeclaredAnnotations()))
+                            || "PROPERTY".equals(counterpartFieldAccessType(current, method))) {
+                        continue;
+                    }
+                    List<String> matched = allowlistedAnnotationNames(
+                            method.getDeclaredAnnotations(), counterpartField(current, method));
+                    if (!matched.isEmpty()) {
+                        String memberName = method.getName() + "()";
+                        String qualified = prefix.isEmpty() ? memberName : prefix + "." + memberName;
+                        details.add(
+                                entity.name() + "#" + qualified + " places " + String.join(", ", matched)
+                                        + " on a getter while " + current.getSimpleName()
+                                        + " uses AccessType.FIELD, so Hibernate ignores the annotation(s).",
+                                HibernateLocations.of(current, method.getName(), false),
+                                HibernateIdentities.of(context, entity, "member=" + qualified));
+                    }
+                }
+            } else if ("PROPERTY".equals(effectiveAccess)) {
+                for (java.lang.reflect.Field field : current.getDeclaredFields()) {
+                    if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+                        continue;
+                    }
+                    if ("FIELD".equals(explicitAccessType(field.getDeclaredAnnotations()))
+                            || "FIELD".equals(counterpartGetterAccessType(current, field))) {
+                        continue;
+                    }
+                    List<String> matched = allowlistedAnnotationNames(
+                            field.getDeclaredAnnotations(), counterpartGetter(current, field));
+                    if (!matched.isEmpty()) {
+                        String qualified = prefix.isEmpty() ? field.getName() : prefix + "." + field.getName();
+                        details.add(
+                                entity.name() + "#" + qualified + " places " + String.join(", ", matched)
+                                        + " on a field while " + current.getSimpleName()
+                                        + " uses AccessType.PROPERTY, so Hibernate ignores the annotation(s).",
+                                HibernateLocations.of(current, field.getName(), true),
+                                HibernateIdentities.of(context, entity, "member=" + qualified));
+                    }
+                }
+            }
+            if (depth + 1 < HibernateEntityModel.MAX_EMBEDDED_DEPTH && effectiveAccess != null) {
+                inspectEmbeddedMembers(
+                        context,
+                        entity,
+                        current,
+                        prefix,
+                        effectiveAccess,
+                        visited,
+                        inspectedPrefixes,
+                        depth + 1,
+                        details);
+            }
+        }
+    }
+
+    private static void inspectEmbeddedMembers(
+            HibernateContext context,
+            HibernateEntityModel entity,
+            Class<?> declaringClass,
+            String prefix,
+            String enclosingAccess,
+            Set<Class<?>> visited,
+            Set<String> inspectedPrefixes,
+            int nextDepth,
+            AdvisorFindings details) {
+        for (java.lang.reflect.Field field : declaringClass.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())
+                    || field.isSynthetic()
+                    || hasAnnotation(field.getDeclaredAnnotations(), "jakarta.persistence.Transient")) {
+                continue;
+            }
+            String memberAccess = explicitAccessType(field.getDeclaredAnnotations());
+            boolean persistentField = "FIELD".equals(memberAccess)
+                    || ("FIELD".equals(enclosingAccess)
+                            && !"PROPERTY".equals(memberAccess)
+                            && !"PROPERTY".equals(counterpartGetterAccessType(declaringClass, field)));
+            if (!persistentField) {
+                continue;
+            }
+            Class<?> embeddedType =
+                    resolveEmbeddedType(field.getType(), field.getGenericType(), field.getDeclaredAnnotations());
+            String childPrefix = prefix.isEmpty() ? field.getName() : prefix + "." + field.getName();
+            if (embeddedType != null && inspectedPrefixes.add(childPrefix) && visited.add(embeddedType)) {
+                try {
+                    inspectHierarchy(
+                            context,
+                            entity,
+                            embeddedType,
+                            childPrefix,
+                            memberAccess != null ? memberAccess : enclosingAccess,
+                            visited,
+                            inspectedPrefixes,
+                            nextDepth,
+                            details);
+                } finally {
+                    visited.remove(embeddedType);
+                }
+            }
+        }
+        for (java.lang.reflect.Method method : declaringClass.getDeclaredMethods()) {
+            if (!isGetterMethod(method)
+                    || hasAnnotation(method.getDeclaredAnnotations(), "jakarta.persistence.Transient")) {
+                continue;
+            }
+            String memberAccess = explicitAccessType(method.getDeclaredAnnotations());
+            boolean persistentGetter = "PROPERTY".equals(memberAccess)
+                    || ("PROPERTY".equals(enclosingAccess)
+                            && !"FIELD".equals(memberAccess)
+                            && !"FIELD".equals(counterpartFieldAccessType(declaringClass, method)));
+            if (!persistentGetter) {
+                continue;
+            }
+            Class<?> embeddedType = resolveEmbeddedType(
+                    method.getReturnType(), method.getGenericReturnType(), method.getDeclaredAnnotations());
+            String prop = HibernateAttributeModel.propertyNameFromMethodName(method.getName());
+            String childPrefix = prefix.isEmpty() ? prop : prefix + "." + prop;
+            if (embeddedType != null && inspectedPrefixes.add(childPrefix) && visited.add(embeddedType)) {
+                try {
+                    inspectHierarchy(
+                            context,
+                            entity,
+                            embeddedType,
+                            childPrefix,
+                            memberAccess != null ? memberAccess : enclosingAccess,
+                            visited,
+                            inspectedPrefixes,
+                            nextDepth,
+                            details);
+                } finally {
+                    visited.remove(embeddedType);
+                }
+            }
+        }
+    }
+
+    private static Class<?> resolveEmbeddedType(
+            Class<?> rawType, java.lang.reflect.Type genericType, Annotation[] annotations) {
+        if (rawType == null) {
+            return null;
+        }
+        if (hasAnnotation(annotations, ELEMENT_COLLECTION)) {
+            if (genericType instanceof java.lang.reflect.ParameterizedType parameterized
+                    && parameterized.getActualTypeArguments().length > 0) {
+                java.lang.reflect.Type[] args = parameterized.getActualTypeArguments();
+                if (args[args.length - 1] instanceof Class<?> element
+                        && hasAnnotation(element.getAnnotations(), EMBEDDABLE)) {
+                    return element;
+                }
+            }
+            return null;
+        }
+        if (hasAnnotation(annotations, EMBEDDED)
+                || hasAnnotation(annotations, EMBEDDED_ID)
+                || hasAnnotation(rawType.getAnnotations(), EMBEDDABLE)) {
+            return hasAnnotation(rawType.getAnnotations(), EMBEDDABLE) ? rawType : null;
+        }
+        return null;
+    }
+
+    private static String resolveHierarchyDefaultAccessType(Class<?> entityType) {
+        boolean fieldId = false;
+        boolean propertyId = false;
+        for (Class<?> current = entityType;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            if (explicitAccessType(current.getDeclaredAnnotations()) != null) {
+                continue;
+            }
+            for (java.lang.reflect.Field field : current.getDeclaredFields()) {
+                if (!Modifier.isStatic(field.getModifiers())
+                        && explicitAccessType(field.getDeclaredAnnotations()) == null
+                        && hasIdAnnotation(field.getDeclaredAnnotations())) {
+                    fieldId = true;
+                }
+            }
+            for (java.lang.reflect.Method method : current.getDeclaredMethods()) {
+                if (isGetterMethod(method)
+                        && explicitAccessType(method.getDeclaredAnnotations()) == null
+                        && hasIdAnnotation(method.getDeclaredAnnotations())) {
+                    propertyId = true;
+                }
+            }
+        }
+        if (fieldId && !propertyId) {
+            return "FIELD";
+        }
+        if (propertyId && !fieldId) {
+            return "PROPERTY";
+        }
+        return null;
+    }
+
+    private static String inferClassAccessFromMappings(Class<?> type) {
+        boolean hasFieldMapping = false;
+        boolean hasMethodMapping = false;
+        for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+            if (!Modifier.isStatic(field.getModifiers())
+                    && explicitAccessType(field.getDeclaredAnnotations()) == null
+                    && (hasIdAnnotation(field.getDeclaredAnnotations())
+                            || hasNonTransientAllowlistedAnnotation(field.getDeclaredAnnotations()))) {
+                hasFieldMapping = true;
+            }
+        }
+        for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+            if (isGetterMethod(method)
+                    && explicitAccessType(method.getDeclaredAnnotations()) == null
+                    && (hasIdAnnotation(method.getDeclaredAnnotations())
+                            || hasNonTransientAllowlistedAnnotation(method.getDeclaredAnnotations()))) {
+                hasMethodMapping = true;
+            }
+        }
+        if (hasFieldMapping && !hasMethodMapping) {
+            return "FIELD";
+        }
+        if (hasMethodMapping && !hasFieldMapping) {
+            return "PROPERTY";
+        }
+        return null;
+    }
+
+    private static boolean hasNonTransientAllowlistedAnnotation(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            String name = annotation.annotationType().getName();
+            if (!"jakarta.persistence.Transient".equals(name) && ATTRIBUTE_MAPPING_ANNOTATIONS.contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isGetterMethod(java.lang.reflect.Method method) {
+        if (Modifier.isStatic(method.getModifiers())
+                || method.isSynthetic()
+                || method.isBridge()
+                || method.getParameterCount() != 0
+                || method.getReturnType() == Void.TYPE) {
+            return false;
+        }
+        String name = method.getName();
+        if (name.startsWith("get") && name.length() > 3 && Character.isUpperCase(name.charAt(3))) {
+            return true;
+        }
+        return name.startsWith("is")
+                && name.length() > 2
+                && Character.isUpperCase(name.charAt(2))
+                && (method.getReturnType() == boolean.class || method.getReturnType() == Boolean.class);
+    }
+
+    private static boolean isFrameworkClass(Class<?> type) {
+        String name = type.getName();
+        return name.startsWith("org.springframework.")
+                || name.startsWith("org.hibernate.")
+                || name.startsWith("io.quarkus.");
+    }
+
+    private static java.lang.reflect.Field counterpartField(Class<?> declaringClass, java.lang.reflect.Method getter) {
+        String property = HibernateAttributeModel.propertyNameFromMethodName(getter.getName());
+        for (String candidate : List.of(property, getter.getName())) {
+            try {
+                java.lang.reflect.Field field = declaringClass.getDeclaredField(candidate);
+                if (!Modifier.isStatic(field.getModifiers()) && !field.isSynthetic()) {
+                    return field;
+                }
+            } catch (NoSuchFieldException ex) {
+                // Try next field name candidate.
+            }
+        }
+        return null;
+    }
+
+    private static java.lang.reflect.Method counterpartGetter(Class<?> declaringClass, java.lang.reflect.Field field) {
+        String name = field.getName();
+        if (name.isEmpty()) {
+            return null;
+        }
+        String capitalized = Character.toUpperCase(name.charAt(0)) + name.substring(1);
+        for (String candidate : List.of("get" + capitalized, "is" + capitalized, name)) {
+            try {
+                java.lang.reflect.Method getter = declaringClass.getDeclaredMethod(candidate);
+                if (isGetterMethod(getter)) {
+                    return getter;
+                }
+            } catch (NoSuchMethodException ex) {
+                // Try next accessor convention.
+            }
+        }
+        return null;
+    }
+
+    private static String counterpartFieldAccessType(Class<?> declaringClass, java.lang.reflect.Method getter) {
+        java.lang.reflect.Field field = counterpartField(declaringClass, getter);
+        return field == null ? null : explicitAccessType(field.getDeclaredAnnotations());
+    }
+
+    private static String counterpartGetterAccessType(Class<?> declaringClass, java.lang.reflect.Field field) {
+        java.lang.reflect.Method getter = counterpartGetter(declaringClass, field);
+        return getter == null ? null : explicitAccessType(getter.getDeclaredAnnotations());
+    }
+
+    private static boolean isManagedClass(Class<?> type) {
+        Annotation[] annotations = type.getDeclaredAnnotations();
+        return hasAnnotation(annotations, ENTITY)
+                || hasAnnotation(annotations, MAPPED_SUPERCLASS)
+                || hasAnnotation(annotations, EMBEDDABLE);
+    }
+
+    private static boolean hasIdAnnotation(Annotation[] annotations) {
+        return hasAnnotation(annotations, ID) || hasAnnotation(annotations, EMBEDDED_ID);
+    }
+
+    private static boolean hasAnnotation(Annotation[] annotations, String typeName) {
+        for (Annotation annotation : annotations) {
+            if (typeName.equals(annotation.annotationType().getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String explicitAccessType(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            if (ACCESS.equals(annotation.annotationType().getName())) {
+                try {
+                    Object value =
+                            annotation.annotationType().getMethod("value").invoke(annotation);
+                    if (value instanceof Enum<?> enumValue) {
+                        return enumValue.name();
+                    }
+                } catch (ReflectiveOperationException | RuntimeException ex) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static List<String> allowlistedAnnotationNames(
+            Annotation[] annotations, java.lang.reflect.AnnotatedElement counterpart) {
+        Annotation[] counterpartAnnotations =
+                counterpart == null ? new Annotation[0] : counterpart.getDeclaredAnnotations();
+        List<String> matched = new ArrayList<>();
+        for (Annotation annotation : annotations) {
+            String typeName = annotation.annotationType().getName();
+            if (!ATTRIBUTE_MAPPING_ANNOTATIONS.contains(typeName)) {
+                continue;
+            }
+            if (hasAnnotation(counterpartAnnotations, typeName)) {
+                continue;
+            }
+            if ("jakarta.persistence.Transient".equals(typeName)) {
+                // @Transient on a computed helper getter (no backing field in FIELD access) or an unexposed helper
+                // field (no getter in PROPERTY access) does not leave a persistent attribute mapped by mistake.
+                if (counterpart == null || hasAnnotation(counterpartAnnotations, "jakarta.persistence.Transient")) {
+                    continue;
+                }
+            }
+            matched.add("@" + annotation.annotationType().getSimpleName());
+        }
+        return matched;
+    }
+}
+
+final class DeprecatedGenericGeneratorRule extends AbstractHibernateRule {
+
+    private static final String GENERIC_GENERATOR = "org.hibernate.annotations.GenericGenerator";
+    private static final String GENERIC_GENERATORS = "org.hibernate.annotations.GenericGenerators";
+
+    DeprecatedGenericGeneratorRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-MAP-027",
+                        "Deprecated @GenericGenerator should be replaced",
+                        HibernateCategory.MAPPING,
+                        "LOW",
+                        "Detects Hibernate's deprecated @GenericGenerator and @GenericGenerators annotations, which were"
+                                + " deprecated in Hibernate ORM 6.5 and 7.0.",
+                        "Replace @GenericGenerator with a meta-annotated @IdGeneratorType annotation, @UuidGenerator, or"
+                                + " standard JPA @SequenceGenerator / @TableGenerator.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : context.targets(context.entities())) {
+            if (entity.annotationInHierarchy(GENERIC_GENERATOR) != null
+                    || entity.annotationInHierarchy(GENERIC_GENERATORS) != null) {
+                details.add(
+                        entity.name()
+                                + " declares deprecated @GenericGenerator; prefer @IdGeneratorType, @UuidGenerator,"
+                                + " or @SequenceGenerator.",
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
+            }
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.annotation(GENERIC_GENERATOR) != null
+                        || attribute.annotation(GENERIC_GENERATORS) != null) {
+                    details.add(
+                            attribute.description()
+                                    + " declares deprecated @GenericGenerator; prefer @IdGeneratorType,"
+                                    + " @UuidGenerator, or @SequenceGenerator.",
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+}
+
+final class KotlinDataClassEntityRule extends AbstractHibernateRule {
+
+    KotlinDataClassEntityRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-ENTITY-011",
+                "Kotlin entities should not be declared as data class",
+                HibernateCategory.ENTITY_DESIGN,
+                "HIGH",
+                "Detects Kotlin @Entity classes declared as data class. Compiler-generated equals, hashCode,"
+                        + " toString, and copy methods include primary-constructor properties, breaking JPA Set"
+                        + " semantics across persist() and triggering unintended lazy loading.",
+                "Declare the @Entity as a regular class (or open class) and implement equals, hashCode, and"
+                        + " toString explicitly over stable identifier state without traversing lazy associations.",
+                "https://kotlinlang.org/docs/no-arg-plugin.html#jpa-support"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : context.targets(
+                context.entities(), candidate -> KotlinReflection.isKotlinClass(candidate.javaType()))) {
+            if (KotlinReflection.isDataClass(entity.javaType())) {
+                details.add(
+                        entity.name()
+                                + " is declared as a Kotlin data class; generated equals, hashCode, toString, and"
+                                + " copy methods break JPA identity and lazy-loading semantics.",
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
+            }
+        }
+        return violation(context, details);
+    }
+}
+
+final class PanacheEntityIdShadowingRule extends AbstractHibernateRule {
+
+    private static final Set<String> PANACHE_ENTITY_CLASSES = Set.of(
+            "io.quarkus.hibernate.orm.panache.PanacheEntity",
+            "io.quarkus.hibernate.reactive.panache.PanacheEntity",
+            "io.quarkus.hibernate.orm.panache.kotlin.PanacheEntity",
+            "io.quarkus.hibernate.reactive.panache.kotlin.PanacheEntity");
+    private static final String ID = "jakarta.persistence.Id";
+    private static final String EMBEDDED_ID = "jakarta.persistence.EmbeddedId";
+
+    PanacheEntityIdShadowingRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-ENTITY-012",
+                "PanacheEntity subclasses should not shadow id or declare custom identifiers",
+                HibernateCategory.ENTITY_DESIGN,
+                "HIGH",
+                "Detects Quarkus PanacheEntity subclasses that declare their own id field or a custom @Id /"
+                        + " @EmbeddedId attribute, conflicting with the id field inherited from PanacheEntity.",
+                "Extend PanacheEntityBase instead of PanacheEntity when declaring a custom identifier or id field,"
+                        + " or remove the duplicate id declaration to use PanacheEntity's default Long id.",
+                "https://quarkus.io/guides/hibernate-orm-panache#custom-ids"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity :
+                context.targets(context.entities(), PanacheEntityIdShadowingRule::isPanacheEntitySubclass)) {
+            Set<String> conflictingMembers = findConflictingIdMembers(entity);
+            if (!conflictingMembers.isEmpty()) {
+                details.add(
+                        entity.name() + " extends PanacheEntity and declares custom identifier member(s) ("
+                                + String.join(", ", conflictingMembers)
+                                + "), shadowing PanacheEntity.id; extend PanacheEntityBase instead.",
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
+            }
+        }
+        return violation(context, details);
+    }
+
+    private static boolean isPanacheEntitySubclass(HibernateEntityModel entity) {
+        if (findPanacheEntitySuperclass(entity.javaType()) != null) {
+            return true;
+        }
+        return entity.attributes().stream()
+                .anyMatch(attribute -> PANACHE_ENTITY_CLASSES.contains(attribute.entityName()));
+    }
+
+    private static Class<?> findPanacheEntitySuperclass(Class<?> type) {
+        if (type == null) {
+            return null;
+        }
+        for (Class<?> current = type.getSuperclass();
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            if (PANACHE_ENTITY_CLASSES.contains(current.getName())) {
+                return current;
+            }
+        }
+        return null;
+    }
+
+    private static Set<String> findConflictingIdMembers(HibernateEntityModel entity) {
+        Set<String> members = new LinkedHashSet<>();
+        Class<?> panacheSuper = findPanacheEntitySuperclass(entity.javaType());
+        if (panacheSuper != null) {
+            for (Class<?> current = entity.javaType();
+                    current != null && current != panacheSuper && current != Object.class;
+                    current = current.getSuperclass()) {
+                for (java.lang.reflect.Field field : current.getDeclaredFields()) {
+                    if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+                        continue;
+                    }
+                    if ("id".equals(field.getName()) || hasIdOrEmbeddedId(field.getDeclaredAnnotations())) {
+                        members.add(field.getName());
+                    }
+                }
+                for (java.lang.reflect.Method method : current.getDeclaredMethods()) {
+                    if (Modifier.isStatic(method.getModifiers())
+                            || method.isSynthetic()
+                            || method.isBridge()
+                            || method.getParameterCount() != 0
+                            || method.getReturnType() == Void.TYPE) {
+                        continue;
+                    }
+                    if (hasIdOrEmbeddedId(method.getDeclaredAnnotations())) {
+                        members.add(method.getName() + "()");
+                    }
+                }
+            }
+        }
+        for (HibernateAttributeModel attribute : entity.attributes()) {
+            if (PANACHE_ENTITY_CLASSES.contains(attribute.entityName())) {
+                continue;
+            }
+            if ("id".equals(attribute.propertyName())
+                    || attribute.hasId()
+                    || attribute.annotation(EMBEDDED_ID) != null) {
+                members.add(attribute.name());
+            }
+        }
+        return members;
+    }
+
+    private static boolean hasIdOrEmbeddedId(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            String typeName = annotation.annotationType().getName();
+            if (ID.equals(typeName) || EMBEDDED_ID.equals(typeName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+final class MultipleLazyLobSameGroupRule extends AbstractHibernateRule {
+
+    private static final String LAZY_GROUP = "org.hibernate.annotations.LazyGroup";
+    private static final String DEFAULT_GROUP = "DEFAULT";
+
+    MultipleLazyLobSameGroupRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-FETCH-009",
+                        "Multiple lazy @Lob attributes should use distinct @LazyGroup names",
+                        HibernateCategory.FETCHING,
+                        "LOW",
+                        "Detects bytecode-enhanced entities with two or more @Lob @Basic(fetch = FetchType.LAZY) attributes"
+                                + " sharing the same @LazyGroup (default \"DEFAULT\"), so accessing one lazy @Lob initializes"
+                                + " all of them in a single SELECT.",
+                        "Assign distinct @LazyGroup names to independent lazy @Lob attributes on bytecode-enhanced entities"
+                                + " so accessing one large payload does not materialize the others.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity :
+                context.targets(context.entities(), MultipleLazyLobSameGroupRule::hasMultipleLazyLobs)) {
+            if (!context.isHibernateEnhancementEnabled(entity)) {
+                continue;
+            }
+            Map<String, List<String>> groups = new LinkedHashMap<>();
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!isLazyLob(attribute)) {
+                    continue;
+                }
+                Annotation lazyGroup = attribute.annotation(LAZY_GROUP);
+                String group = lazyGroup == null ? null : attribute.annotationStringValue(lazyGroup, "value");
+                String effectiveGroup = group == null || group.isBlank() ? DEFAULT_GROUP : group;
+                groups.computeIfAbsent(effectiveGroup, ignored -> new ArrayList<>())
+                        .add(attribute.name());
+            }
+            for (Map.Entry<String, List<String>> entry : groups.entrySet()) {
+                if (entry.getValue().size() >= 2) {
+                    details.add(
+                            entity.name() + " declares multiple lazy @Lob attributes ("
+                                    + String.join(", ", entry.getValue()) + ") in @LazyGroup \"" + entry.getKey()
+                                    + "\", so accessing one loads all of them.",
+                            HibernateLocations.of(entity),
+                            HibernateIdentities.of(context, entity, "group=" + entry.getKey()));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+
+    private static boolean hasMultipleLazyLobs(HibernateEntityModel entity) {
+        int count = 0;
+        for (HibernateAttributeModel attribute : entity.attributes()) {
+            if (isLazyLob(attribute) && ++count >= 2) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLazyLob(HibernateAttributeModel attribute) {
+        Class<?> type = attribute.rawType();
+        boolean locator = type != null
+                && (java.sql.Blob.class.isAssignableFrom(type) || java.sql.Clob.class.isAssignableFrom(type));
+        return attribute.isLob() && attribute.hasBasicLazy() && !attribute.isTransient() && !locator;
+    }
+}
+
+final class OpenProjectionValueRule extends AbstractHibernateRule {
+
+    private static final String SPRING_VALUE = "org.springframework.beans.factory.annotation.Value";
+
+    OpenProjectionValueRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-QUERY-009",
+                        "Spring Data interface projections should avoid @Value SpEL",
+                        HibernateCategory.QUERY,
+                        "MEDIUM",
+                        "Detects Spring Data repository methods returning an interface projection with"
+                                + " @org.springframework.beans.factory.annotation.Value, which turns the projection into an"
+                                + " open projection and forces Spring Data JPA to fetch the full root entity.",
+                        "Replace @Value SpEL on projection interface getters with closed projection accessors and compute"
+                                + " derived values in Java default interface methods.",
+                        "https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html#projections.interfaces.open"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No repository metadata was detected.");
+        }
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : context.targets(
+                    repository.methods(),
+                    candidate -> !candidate.modifying()
+                            && !candidate.nativeQuery()
+                            && (!candidate.hasQuery()
+                                    || HibernateRuleModelSupport.selectsWholeRootEntity(candidate.query()))
+                            && (!context.observed() || candidate.evidence().verifiedQueryMethod())
+                            && isProjectionInterface(projectionType(candidate), candidate, repository))) {
+                Class<?> projection = projectionType(method);
+                List<String> openMethods = findValueAnnotatedMethods(projection);
+                if (!openMethods.isEmpty()) {
+                    details.add(
+                            method.description() + " returns open projection " + projection.getSimpleName()
+                                    + " (@Value on " + String.join(", ", openMethods)
+                                    + "), forcing Spring Data JPA to fetch the full entity.",
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+
+    private static Class<?> projectionType(HibernateRepositoryMethodModel method) {
+        Class<?> element = method.evidence().returnElementType();
+        return element != null ? element : method.returnType();
+    }
+
+    private static boolean isProjectionInterface(
+            Class<?> type, HibernateRepositoryMethodModel method, HibernateRepositoryModel repository) {
+        if (type == null || !type.isInterface()) {
+            return false;
+        }
+        if (type.equals(method.domainType()) || type.equals(repository.domainType())) {
+            return false;
+        }
+        String name = type.getName();
+        return !name.startsWith("java.")
+                && !name.startsWith("javax.")
+                && !name.startsWith("jakarta.")
+                && !name.startsWith("org.springframework.")
+                && !name.startsWith("kotlin.");
+    }
+
+    private static List<String> findValueAnnotatedMethods(Class<?> projectionInterface) {
+        if (projectionInterface == null) {
+            return List.of();
+        }
+        Set<String> openMethods = new LinkedHashSet<>();
+        Set<Class<?>> visited = new HashSet<>();
+        collectValueAnnotatedMethods(projectionInterface, visited, openMethods);
+        return List.copyOf(openMethods);
+    }
+
+    private static void collectValueAnnotatedMethods(Class<?> iface, Set<Class<?>> visited, Set<String> openMethods) {
+        if (iface == null || !visited.add(iface)) {
+            return;
+        }
+        for (java.lang.reflect.Method method : iface.getDeclaredMethods()) {
+            if (Modifier.isStatic(method.getModifiers())
+                    || method.isSynthetic()
+                    || method.isBridge()
+                    || method.getParameterCount() != 0
+                    || method.getReturnType() == Void.TYPE) {
+                continue;
+            }
+            for (Annotation annotation : method.getDeclaredAnnotations()) {
+                if (SPRING_VALUE.equals(annotation.annotationType().getName())) {
+                    openMethods.add(method.getName() + "()");
+                    break;
+                }
+            }
+        }
+        for (Class<?> superIface : iface.getInterfaces()) {
+            collectValueAnnotatedMethods(superIface, visited, openMethods);
+        }
+    }
+}
+
+final class NaturalIdCacheWithoutEntityCacheRule extends AbstractHibernateRule {
+
+    private static final String NATURAL_ID_CACHE = "org.hibernate.annotations.NaturalIdCache";
+    private static final String CACHEABLE = "jakarta.persistence.Cacheable";
+
+    NaturalIdCacheWithoutEntityCacheRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-CACHE-004",
+                        "@NaturalIdCache entities should also enable entity second-level caching",
+                        HibernateCategory.CACHING,
+                        "MEDIUM",
+                        "Detects entities annotated with @NaturalIdCache that do not declare entity second-level caching"
+                                + " (@jakarta.persistence.Cacheable or @org.hibernate.annotations.Cache) in a cache-enabled"
+                                + " persistence unit.",
+                        "Add @Cacheable or @org.hibernate.annotations.Cache alongside @NaturalIdCache so resolving a cached"
+                                + " natural ID does not still hit the database to load the entity state.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-natural-id"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (context.observed() && Boolean.FALSE.equals(context.factorySettings().secondLevelCache())) {
+            return skipped("Unit second-level cache is disabled.");
+        }
+        if (!context.observed()
+                && context.isPropertyFalse(
+                        "spring.jpa.properties.hibernate.cache.use_second_level_cache",
+                        "hibernate.cache.use_second_level_cache")) {
+            return skipped("Unit second-level cache is disabled.");
+        }
+        List<HibernateEntityModel> candidates = context.targets(
+                context.entities(), candidate -> candidate.annotationInHierarchy(NATURAL_ID_CACHE) != null);
+        if (candidates.isEmpty()) {
+            return pass();
+        }
+        if (context.observed()) {
+            context.required(context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING);
+        }
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : candidates) {
+            if (!isEntitySecondLevelCached(entity)) {
+                details.add(
+                        entity.name()
+                                + " declares @NaturalIdCache without entity second-level caching (@Cacheable or"
+                                + " @Cache), so natural-id lookups still query the database to load the entity.",
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
+            }
+        }
+        return violation(context, details);
+    }
+
+    private static boolean isEntitySecondLevelCached(HibernateEntityModel entity) {
+        String usage = entity.hibernateCacheUsageName();
+        if (usage != null && !"NONE".equals(usage)) {
+            return true;
+        }
+        if (entity.hibernateCacheAnnotation() != null && usage == null) {
+            return true;
+        }
+        Annotation cacheable = entity.annotationInHierarchy(CACHEABLE);
+        if (cacheable != null) {
+            Boolean value = entity.annotationBooleanValue(cacheable, "value");
+            return value == null || value;
+        }
+        return false;
     }
 }
