@@ -211,7 +211,7 @@ Logic lives entirely in `bootui-engine`; the Quarkus adapter adds at most a triv
 
 | Panel                                                 | Notes                                                                             |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `Memory`, `Live Memory`, `JVM Tuning`, `Heap Dump`, `Threads` | Pure JVM MXBeans                                                           |
+| `Memory`, `Live Memory`, `JVM Tuning`, `Heap Dump`, `Threads` | Pure JVM MXBeans (28-rule Memory advisor; see [MEMORY-CHECKS.md](MEMORY-CHECKS.md)) |
 | `Metrics`                                             | Micrometer — same API                                                             |
 | `Hibernate` advisor                                   | Same 69-rule registry/report contract; unit-specific native observations and explicit incomplete scans; Spring Data query rules are inapplicable without verified JPA repository metadata |
 | `Hibernate Statistics`                                | Standalone Database-section panel over `org.hibernate.stat.Statistics`, gated on the same Hibernate ORM capability as the advisor; its runtime-enable action has the same read-only and cross-site-write protection as Spring |

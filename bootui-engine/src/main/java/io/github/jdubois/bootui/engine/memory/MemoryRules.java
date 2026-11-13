@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
-import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryPoolSnapshot;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ThreadData;
@@ -9,6 +8,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+
+final class MemoryRules {
+
+    static final Set<String> RETIRED_RULE_IDS = MemoryRuleRegistry.RETIRED_RULE_IDS;
+
+    private MemoryRules() {}
+}
 
 /**
  * Static Memory Advisor rules. Each rule reads only from {@link MemoryContext} and returns a
@@ -691,69 +698,6 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
     }
 }
 
-final class RunawayCpuThreadRule extends AbstractMemoryRule {
-
-    private static final long CPU_THRESHOLD_MILLIS = 60_000L;
-    private static final double UPTIME_FRACTION = 0.5;
-    private static final int MAX_REPORTED = 5;
-
-    RunawayCpuThreadRule() {
-        super(
-                new MemoryRuleDefinition(
-                        "MEM-THREAD-004",
-                        "Runnable threads with very high lifetime CPU usage",
-                        MemoryCategory.THREADS,
-                        "INFO",
-                        "Highlights RUNNABLE platform threads whose accumulated CPU time is a large fraction of the"
-                                + " JVM's uptime, i.e. they have kept a core busy for much of the process's life. CPU time"
-                                + " is cumulative since the thread started, so this is a hot-loop candidate to"
-                                + " investigate, not a confirmed problem. The rule skips when its bounded platform-thread"
-                                + " detail page is incomplete.",
-                        "Correlate with two consecutive thread snapshots; if CPU keeps climbing for the same thread,"
-                                + " profile its stack for a hot or spinning loop.",
-                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        ThreadData threads = context.threads();
-        if (!threads.cpuTimeSupported()) {
-            return skipped("Per-thread CPU timing is not supported or not enabled on this JVM.");
-        }
-        if (threads.detailsTruncated()) {
-            return skipped(
-                    "Per-thread details are capped at 1,000 platform threads; CPU-hot-thread analysis is incomplete.");
-        }
-        long uptimeMillis = context.runtime().uptimeMillis();
-        if (uptimeMillis <= 0) {
-            return skipped("JVM uptime is not available to normalize thread CPU time.");
-        }
-        long minCpuMillis = Math.max(CPU_THRESHOLD_MILLIS, (long) (uptimeMillis * UPTIME_FRACTION));
-        List<ThreadInfoDto> hot = new ArrayList<>();
-        boolean missingCpu = threads.threads().isEmpty();
-        for (ThreadInfoDto thread : threads.threads()) {
-            if (thread.cpuTimeMillis() == null || thread.cpuTimeMillis() < 0) missingCpu = true;
-            if ("RUNNABLE".equalsIgnoreCase(thread.state())
-                    && thread.cpuTimeMillis() != null
-                    && thread.cpuTimeMillis() >= minCpuMillis) {
-                hot.add(thread);
-            }
-        }
-        if (hot.isEmpty()) {
-            return missingCpu ? missingPass() : pass();
-        }
-        hot.sort((left, right) -> Long.compare(right.cpuTimeMillis(), left.cpuTimeMillis()));
-        List<String> details = new ArrayList<>();
-        for (ThreadInfoDto thread : hot.subList(0, Math.min(MAX_REPORTED, hot.size()))) {
-            int percent = MemoryFormat.percentOf(thread.cpuTimeMillis(), uptimeMillis);
-            details.add("Thread '" + thread.name() + "' (id " + thread.id() + ") has used "
-                    + (thread.cpuTimeMillis() / 1000) + "s of accumulated CPU (" + percent
-                    + "% of JVM uptime) and is currently RUNNABLE; the snapshot does not establish its past states.");
-        }
-        return missingCpu ? violation(context, details).withMissingEvidence() : violation(context, details);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Heap content
 // ---------------------------------------------------------------------------
@@ -1371,55 +1315,6 @@ final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
 }
 
 // ---------------------------------------------------------------------------
-// Class loading (churn)
-// ---------------------------------------------------------------------------
-
-final class ClassLoadingChurnRule extends AbstractMemoryRule {
-
-    private static final long UNLOAD_THRESHOLD = 50_000L;
-    private static final long MIN_UPTIME_MILLIS = 1_800_000L;
-    private static final long UNLOAD_RATE_PER_MIN = 1_000L;
-
-    ClassLoadingChurnRule() {
-        super(new MemoryRuleDefinition(
-                "MEM-CLASS-002",
-                "High class-loading churn",
-                MemoryCategory.CLASS_LOADING,
-                "INFO",
-                "Reports a large lifetime class-unload count or lifetime-average rate. These counters can reflect a"
-                        + " past burst or redeployment and do not establish sustained recent churn.",
-                "Compare recent class-loading observations under representative load before changing dynamic"
-                        + " generation, caches, or classloader lifecycles.",
-                "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        long unloaded = context.classLoading().unloadedClasses();
-        if (unloaded < 0) return missingPass();
-        if (unloaded >= UNLOAD_THRESHOLD) {
-            return violation(
-                    context,
-                    unloaded
-                            + " classes have been unloaded since start; this historical total does not establish"
-                            + " current churn.");
-        }
-        long uptimeMillis = context.runtime().uptimeMillis();
-        if (uptimeMillis >= MIN_UPTIME_MILLIS) {
-            long minutes = uptimeMillis / 60_000L;
-            long ratePerMin = minutes > 0 ? unloaded / minutes : 0;
-            if (ratePerMin >= UNLOAD_RATE_PER_MIN) {
-                return violation(
-                        context,
-                        "Lifetime-average class unloading is about " + ratePerMin + "/min (" + unloaded + " over "
-                                + minutes + " min); this does not establish a sustained recent rate.");
-            }
-        }
-        return context.classLoading().loadedClasses() <= 0 ? missingPass() : pass();
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Native memory (thread stacks)
 // ---------------------------------------------------------------------------
 
@@ -1857,115 +1752,5 @@ final class NonGenerationalZgcRule extends AbstractMemoryRule {
                         + " JDK 24, so re-validate without it."
                 : "this is the JDK 21-22 default; evaluate -XX:+ZGenerational under representative load.";
         return violation(context, "ZGC is running in non-generational mode; " + action);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Memory pools (buffer pool growth trend)
-// ---------------------------------------------------------------------------
-
-final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
-
-    private static final int GROWTH_STREAK_THRESHOLD = 3;
-
-    BufferPoolGrowthWithoutReleaseRule() {
-        super(
-                new MemoryRuleDefinition(
-                        "MEM-POOL-007",
-                        "Direct buffer usage has increased across comparable scans",
-                        MemoryCategory.MEMORY_POOLS,
-                        "LOW",
-                        "Reports three increases in estimated direct-buffer used bytes across four comparable"
-                                + " snapshots. Missing or unknown readings break the streak. Net growth does not establish"
-                                + " that no releases occurred between samples or that a leak exists; cache warmup and"
-                                + " changing load can produce the same observations. Mapped buffers are excluded. Severity"
-                                + " is MEDIUM only when capacity is also near a known effective direct-memory cap.",
-                        "Compare representative steady-state load and supported buffer-pool lifecycle metrics before"
-                                + " investigating retention. Use library release/close APIs where required, not manual"
-                                + " Cleaner calls.",
-                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/BufferPoolMXBean.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        MemoryContext.BufferPoolTrend trend = context.bufferPoolTrend();
-        Optional<MemoryContext.BufferPoolSnapshot> direct = context.memory().bufferPools().stream()
-                .filter(pool -> "direct".equalsIgnoreCase(pool.name()))
-                .findFirst();
-        if (direct.isEmpty()
-                || direct.get().used() < 0
-                || !trend.available()
-                || !trend.consecutiveIncreaseStreaks().containsKey(direct.get().name())) {
-            return skipped("No comparable direct-buffer usage baseline is available.");
-        }
-        List<MemoryContext.BufferPoolSnapshot> pools = context.memory().bufferPools();
-        List<String> details = new ArrayList<>();
-        boolean escalateToHigh = false;
-        boolean directPoolAtStaticThreshold = MemoryRuleSupport.VIOLATION.equals(new DirectBufferGrowthRule()
-                .evaluate(context.withViolationCollector(null))
-                .status());
-        for (MemoryContext.BufferPoolSnapshot pool : pools) {
-            if (!"direct".equalsIgnoreCase(pool.name())) {
-                continue;
-            }
-            int streak = trend.streakFor(pool.name());
-            if (streak < GROWTH_STREAK_THRESHOLD) {
-                continue;
-            }
-            if (directPoolAtStaticThreshold) {
-                escalateToHigh = true;
-            }
-            details.add("'" + pool.name() + "' buffer pool usage increased on " + streak
-                    + " consecutive scan intervals (now " + MemoryFormat.bytes(pool.used())
-                    + "); net growth does not prove missing releases or a leak. Confirm comparable workload"
-                    + " conditions.");
-        }
-        if (details.isEmpty()) {
-            return pass();
-        }
-        return violation(context, escalateToHigh ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Heap pressure (old-generation usage trend)
-// ---------------------------------------------------------------------------
-
-final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
-
-    private static final int GROWTH_STREAK_THRESHOLD = 3;
-
-    OldGenerationTrendingUpwardRule() {
-        super(new MemoryRuleDefinition(
-                "MEM-HEAP-008",
-                "Old-generation occupancy is increasing across comparable scans",
-                MemoryCategory.HEAP_PRESSURE,
-                "LOW",
-                "Reports three increases in old-generation occupancy across four comparable post-histogram snapshots."
-                        + " Missing observations break the streak. A histogram request does not verify full collection;"
-                        + " occupancy is not retained size, and normal warmup or changing load can produce the same"
-                        + " trend.",
-                "Compare observations under stable load and confirmed collector-specific reclamation before"
-                        + " investigating a leak. Use an explicitly requested heap/JFR investigation only when evidence"
-                        + " warrants its cost.",
-                "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        MemoryContext.OldGenTrend trend = context.oldGenTrend();
-        if (!trend.available()) {
-            return skipped("No previous scan to compare; re-run the scan several times to measure the"
-                    + " old-generation trend.");
-        }
-        if (trend.consecutiveIncreaseStreak() < GROWTH_STREAK_THRESHOLD) {
-            return pass();
-        }
-        return violation(
-                context,
-                "Post-histogram old-generation occupancy has increased on " + trend.consecutiveIncreaseStreak()
-                        + " consecutive scan intervals (now " + MemoryFormat.bytes(trend.lastUsedBytes())
-                        + "); this does not establish retained-size growth or a leak. Confirm stable workload and"
-                        + " collection evidence.");
     }
 }

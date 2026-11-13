@@ -27,8 +27,6 @@ record MemoryContext(
         GcEvent latestGcEvent,
         GcEvent postHistogramGcEvent,
         GcTrend gcTrend,
-        BufferPoolTrend bufferPoolTrend,
-        OldGenTrend oldGenTrend,
         AdvisorViolationCollector violationCollector) {
 
     MemoryContext(
@@ -42,9 +40,7 @@ record MemoryContext(
             GcSample postHistogramGc,
             GcEvent latestGcEvent,
             GcEvent postHistogramGcEvent,
-            GcTrend gcTrend,
-            BufferPoolTrend bufferPoolTrend,
-            OldGenTrend oldGenTrend) {
+            GcTrend gcTrend) {
         this(
                 memory,
                 threads,
@@ -57,8 +53,6 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
                 null);
     }
 
@@ -75,8 +69,6 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
                 collector);
     }
 
@@ -92,45 +84,11 @@ record MemoryContext(
         latestGcEvent = latestGcEvent == null ? GcEvent.from(runtime) : latestGcEvent;
         postHistogramGcEvent = postHistogramGcEvent == null ? GcEvent.unavailable() : postHistogramGcEvent;
         gcTrend = gcTrend == null ? GcTrend.unavailable() : gcTrend;
-        bufferPoolTrend = bufferPoolTrend == null ? BufferPoolTrend.unavailable() : bufferPoolTrend;
-        oldGenTrend = oldGenTrend == null ? OldGenTrend.unavailable() : oldGenTrend;
     }
 
     /**
      * Backward-compatible constructor for callers that predate the post-histogram GC baseline. The
      * fallback retains aggregate GC counters but cannot preserve a per-collector breakdown.
-     */
-    MemoryContext(
-            MemoryData memory,
-            ThreadData threads,
-            HeapContentData heapContent,
-            PostGcHeapData postGcHeap,
-            ClassLoadingData classLoading,
-            RuntimeData runtime,
-            GcSample preHistogramGc,
-            GcTrend gcTrend,
-            BufferPoolTrend bufferPoolTrend,
-            OldGenTrend oldGenTrend) {
-        this(
-                memory,
-                threads,
-                heapContent,
-                postGcHeap,
-                classLoading,
-                runtime,
-                preHistogramGc,
-                null,
-                null,
-                null,
-                gcTrend,
-                bufferPoolTrend,
-                oldGenTrend);
-    }
-
-    /**
-     * Backward-compatible constructor for callers that predate the cross-scan buffer-pool-growth
-     * and old-generation-trend rules (MEM-POOL-007 / MEM-HEAP-008); both trends default to
-     * unavailable.
      */
     MemoryContext(
             MemoryData memory,
@@ -152,9 +110,7 @@ record MemoryContext(
                 null,
                 null,
                 null,
-                gcTrend,
-                null,
-                null);
+                gcTrend);
     }
 
     /**
@@ -185,46 +141,6 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 trend,
-                bufferPoolTrend,
-                oldGenTrend,
-                violationCollector);
-    }
-
-    /** Returns a copy of this context with the scanner-computed buffer-pool growth trend attached. */
-    MemoryContext withBufferPoolTrend(BufferPoolTrend trend) {
-        return new MemoryContext(
-                memory,
-                threads,
-                heapContent,
-                postGcHeap,
-                classLoading,
-                runtime,
-                preHistogramGc,
-                postHistogramGc,
-                latestGcEvent,
-                postHistogramGcEvent,
-                gcTrend,
-                trend,
-                oldGenTrend,
-                violationCollector);
-    }
-
-    /** Returns a copy of this context with the scanner-computed old-generation usage trend attached. */
-    MemoryContext withOldGenTrend(OldGenTrend trend) {
-        return new MemoryContext(
-                memory,
-                threads,
-                heapContent,
-                postGcHeap,
-                classLoading,
-                runtime,
-                preHistogramGc,
-                postHistogramGc,
-                latestGcEvent,
-                postHistogramGcEvent,
-                gcTrend,
-                bufferPoolTrend,
-                trend,
                 violationCollector);
     }
 
@@ -242,8 +158,6 @@ record MemoryContext(
                 event,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
                 violationCollector);
     }
 
@@ -261,8 +175,6 @@ record MemoryContext(
                 latestGcEvent,
                 postHistogramGcEvent,
                 gcTrend,
-                bufferPoolTrend,
-                oldGenTrend,
                 violationCollector);
     }
 
@@ -298,8 +210,7 @@ record MemoryContext(
 
     /**
      * A single {@code java.nio} buffer pool reading ({@code BufferPoolMXBean}), typically "direct"
-     * or "mapped". Captured per-pool (unlike the aggregated direct-buffer totals below) so
-     * MEM-POOL-007 can track the direct pool across scans.
+     * or "mapped".
      */
     record BufferPoolSnapshot(String name, long used, long capacity, long count) {}
 
@@ -330,8 +241,7 @@ record MemoryContext(
         }
 
         /**
-         * Backward-compatible constructor for callers that predate per-pool buffer-pool tracking
-         * (MEM-POOL-007's cross-scan growth-without-release rule); defaults to no per-pool readings.
+         * Backward-compatible constructor for callers that omit {@code containerMemoryWorkingSetBytes}.
          */
         MemoryData(
                 long heapUsed,
@@ -984,37 +894,6 @@ record MemoryContext(
                 deltas.put(entry.getKey(), delta);
             }
             return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount, deltas);
-        }
-    }
-
-    /**
-     * Sampled net-growth tracking for buffer pools. Missing/unknown observations break consecutive
-     * evidence. Increasing endpoints do not prove no releases occurred between observations.
-     */
-    record BufferPoolTrend(boolean available, Map<String, Integer> consecutiveIncreaseStreaks) {
-
-        BufferPoolTrend {
-            consecutiveIncreaseStreaks =
-                    consecutiveIncreaseStreaks == null ? Map.of() : Map.copyOf(consecutiveIncreaseStreaks);
-        }
-
-        static BufferPoolTrend unavailable() {
-            return new BufferPoolTrend(false, Map.of());
-        }
-
-        int streakFor(String poolName) {
-            return consecutiveIncreaseStreaks.getOrDefault(poolName, 0);
-        }
-    }
-
-    /**
-     * Consecutive increases in post-histogram old-generation occupancy, not retained-size or
-     * verified post-full-GC growth. Missing/invalid readings require a new baseline.
-     */
-    record OldGenTrend(boolean available, int consecutiveIncreaseStreak, long lastUsedBytes) {
-
-        static OldGenTrend unavailable() {
-            return new OldGenTrend(false, 0, -1);
         }
     }
 }

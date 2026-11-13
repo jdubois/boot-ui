@@ -461,45 +461,6 @@ class MemoryRulesTests {
         assertThat(result.severity()).isEqualTo("LOW");
     }
 
-    @Test
-    void cpuHotThreadRuleSkipsWhenThreadDetailsAreTruncated() {
-        ThreadInfoDto hot = new ThreadInfoDto(
-                1001,
-                "worker-1001",
-                "RUNNABLE",
-                5,
-                false,
-                false,
-                290_000L,
-                100_000L,
-                0,
-                0,
-                false,
-                false,
-                false,
-                null,
-                null,
-                null,
-                List.of());
-        ThreadData threads = new ThreadData(
-                1001,
-                1001,
-                0,
-                true,
-                false,
-                List.of(),
-                List.of(new ThreadStateCountDto("RUNNABLE", 1001)),
-                List.of(hot),
-                true);
-        MemoryContext context = context(
-                memory(256 * MB, 2 * GB, List.of(), null, List.of()),
-                threads,
-                PostGcHeapData.unavailable(),
-                healthyRuntime());
-
-        assertThat(find(scan(context), "MEM-THREAD-004")).isNull();
-    }
-
     // --- MEM-GC-003: recent GC overhead (cross-scan trend) -----------------------------------
 
     @Test
@@ -1331,128 +1292,58 @@ class MemoryRulesTests {
         assertThat(find(scanner.scan(), "MEM-GC-006")).isNull();
     }
 
-    // --- MEM-POOL-007: buffer pool growth without release (new rule) -------------------------
+    // --- Retired rules: MEM-HEAP-008, MEM-POOL-007, MEM-CLASS-002, MEM-THREAD-004 ------------
 
     @Test
-    void directBufferNetGrowthWithoutPressureIsLow() {
+    void retiredMemoryRulesStayReservedAndNeverEmitFindings() {
+        assertThat(MemoryRules.RETIRED_RULE_IDS)
+                .isEqualTo(MemoryRuleRegistry.RETIRED_RULE_IDS)
+                .isEqualTo(MemoryScanner.RETIRED_RULE_IDS)
+                .contains("MEM-HEAP-008", "MEM-POOL-007", "MEM-CLASS-002", "MEM-THREAD-004");
+
+        ThreadInfoDto hotThread = new ThreadInfoDto(
+                42,
+                "netty-nio-1",
+                "RUNNABLE",
+                5,
+                false,
+                false,
+                290_000L,
+                100_000L,
+                0,
+                0,
+                false,
+                false,
+                false,
+                null,
+                null,
+                null,
+                List.of());
+        ThreadData threads = new ThreadData(
+                20,
+                20,
+                5,
+                true,
+                false,
+                List.of(),
+                List.of(new ThreadStateCountDto("RUNNABLE", 20)),
+                List.of(hotThread));
         MemoryScanner scanner = new MemoryScanner(
                 sequence(
-                        bufferPoolContext(100 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext(150 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext(200 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext(250 * MB, 10 * MB, 1 * GB)),
+                        retiredSignalsContext(100 * MB, 100 * MB, threads, 60_000L),
+                        retiredSignalsContext(150 * MB, 150 * MB, threads, 60_000L),
+                        retiredSignalsContext(200 * MB, 200 * MB, threads, 60_000L),
+                        retiredSignalsContext(250 * MB, 250 * MB, threads, 60_000L)),
                 CLOCK);
 
         scanner.scan();
         scanner.scan();
         scanner.scan();
-        MemoryRuleResultDto result = find(scanner.scan(), "MEM-POOL-007");
+        MemoryReport fourthScan = scanner.scan();
 
-        assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("LOW");
-        assertThat(result.sampleViolations().get(0))
-                .contains("'direct'", "3 consecutive scan intervals", "does not prove");
-    }
-
-    @Test
-    void directBufferNetGrowthNearKnownCapIsMedium() {
-        // Same growth streak as above, but the aggregate direct-buffer capacity is also >= 80% of
-        // -XX:MaxDirectMemorySize, so MEM-POOL-003's static threshold is independently crossed too.
-        MemoryScanner scanner = new MemoryScanner(
-                sequence(
-                        bufferPoolContext(100 * MB, 900 * MB, 1 * GB),
-                        bufferPoolContext(150 * MB, 900 * MB, 1 * GB),
-                        bufferPoolContext(200 * MB, 900 * MB, 1 * GB),
-                        bufferPoolContext(250 * MB, 900 * MB, 1 * GB)),
-                CLOCK);
-
-        scanner.scan();
-        scanner.scan();
-        scanner.scan();
-        MemoryRuleResultDto result = find(scanner.scan(), "MEM-POOL-007");
-
-        assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("MEDIUM");
-    }
-
-    @Test
-    void bufferPoolUsageThatDipsResetsTheStreakAndIsNotFlagged() {
-        MemoryScanner scanner = new MemoryScanner(
-                sequence(
-                        bufferPoolContext(100 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext(150 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext(120 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext(180 * MB, 10 * MB, 1 * GB)),
-                CLOCK);
-
-        scanner.scan();
-        scanner.scan();
-        scanner.scan();
-
-        assertThat(find(scanner.scan(), "MEM-POOL-007")).isNull();
-    }
-
-    @Test
-    void mappedBufferGrowthIsNotReportedAsADirectMemoryLeak() {
-        MemoryScanner scanner = new MemoryScanner(
-                sequence(
-                        bufferPoolContext("mapped", 100 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext("mapped", 150 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext("mapped", 200 * MB, 10 * MB, 1 * GB),
-                        bufferPoolContext("mapped", 250 * MB, 10 * MB, 1 * GB)),
-                CLOCK);
-
-        scanner.scan();
-        scanner.scan();
-        scanner.scan();
-
-        assertThat(find(scanner.scan(), "MEM-POOL-007")).isNull();
-    }
-
-    // --- MEM-HEAP-008: old-generation usage trending upward (new rule) -----------------------
-
-    @Test
-    void oldGenerationUsageIncreasingEveryScanIsFlagged() {
-        MemoryScanner scanner = new MemoryScanner(
-                sequence(
-                        oldGenContext(100 * MB),
-                        oldGenContext(150 * MB),
-                        oldGenContext(200 * MB),
-                        oldGenContext(250 * MB)),
-                CLOCK);
-
-        scanner.scan();
-        scanner.scan();
-        scanner.scan();
-        MemoryRuleResultDto result = find(scanner.scan(), "MEM-HEAP-008");
-
-        assertThat(result).isNotNull();
-        assertThat(result.severity()).isEqualTo("LOW");
-        assertThat(result.sampleViolations().get(0)).contains("3 consecutive scan intervals", "does not establish");
-    }
-
-    @Test
-    void oldGenerationUsageThatDipsResetsTheStreakAndIsNotFlagged() {
-        MemoryScanner scanner = new MemoryScanner(
-                sequence(
-                        oldGenContext(100 * MB),
-                        oldGenContext(150 * MB),
-                        oldGenContext(120 * MB),
-                        oldGenContext(180 * MB)),
-                CLOCK);
-
-        scanner.scan();
-        scanner.scan();
-        scanner.scan();
-
-        assertThat(find(scanner.scan(), "MEM-HEAP-008")).isNull();
-    }
-
-    @Test
-    void oldGenerationTrendFirstScanIsNotFlagged() {
-        MemoryScanner scanner = new MemoryScanner(sequence(oldGenContext(100 * MB)), CLOCK);
-
-        assertThat(find(scanner.scan(), "MEM-HEAP-008")).isNull();
+        assertThat(fourthScan.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContainAnyElementsOf(MemoryRules.RETIRED_RULE_IDS);
     }
 
     // --- helpers -----------------------------------------------------------------------------
@@ -1513,9 +1404,7 @@ class MemoryRulesTests {
                 sample,
                 null,
                 null,
-                GcTrend.unavailable(),
-                null,
-                null);
+                GcTrend.unavailable());
     }
 
     private static MemoryContext gcEventContext(GcEvent latestGcEvent, GcEvent postHistogramGcEvent) {
@@ -1531,9 +1420,7 @@ class MemoryRulesTests {
                 sample,
                 latestGcEvent,
                 postHistogramGcEvent,
-                GcTrend.unavailable(),
-                null,
-                null);
+                GcTrend.unavailable());
     }
 
     private static RuntimeData healthyRuntime() {
@@ -1610,18 +1497,8 @@ class MemoryRulesTests {
                 GcTrend.unavailable());
     }
 
-    /**
-     * Builds a context carrying a single "direct" {@link MemoryContext.BufferPoolSnapshot} reading
-     * (for MEM-POOL-007's cross-scan growth trend) alongside the aggregate direct-buffer scalars
-     * MEM-POOL-003 reads, so tests can independently control whether the static threshold also fires.
-     */
-    private static MemoryContext bufferPoolContext(
-            long directPoolUsed, long directBufferCapacity, long maxDirectMemoryBytes) {
-        return bufferPoolContext("direct", directPoolUsed, directBufferCapacity, maxDirectMemoryBytes);
-    }
-
-    private static MemoryContext bufferPoolContext(
-            String poolName, long poolUsed, long directBufferCapacity, long maxDirectMemoryBytes) {
+    private static MemoryContext retiredSignalsContext(
+            long directPoolUsed, long postGcOldGenUsedBytes, ThreadData threads, long unloadedClasses) {
         MemoryData memory = new MemoryData(
                 256 * MB,
                 256 * MB,
@@ -1630,24 +1507,24 @@ class MemoryRulesTests {
                 80 * MB,
                 256 * MB,
                 List.of(),
-                directBufferCapacity,
-                directBufferCapacity,
+                10 * MB,
+                10 * MB,
                 10,
-                maxDirectMemoryBytes,
+                1 * GB,
                 List.of(),
                 List.of("G1 Young Generation"),
                 null,
                 null,
-                List.of(new MemoryContext.BufferPoolSnapshot(poolName, poolUsed, poolUsed, 10)));
-        return context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
-    }
-
-    private static MemoryContext oldGenContext(long postGcOldGenUsedBytes) {
-        return context(
-                healthyMemoryForSwap(),
-                ThreadData.empty(),
+                List.of(new MemoryContext.BufferPoolSnapshot("direct", directPoolUsed, directPoolUsed, 10)));
+        return new MemoryContext(
+                memory,
+                threads,
+                HeapContentData.unavailable(),
                 new PostGcHeapData(true, postGcOldGenUsedBytes, true, postGcOldGenUsedBytes),
-                healthyRuntime());
+                new ClassLoadingData(9_000, 70_000, unloadedClasses),
+                healthyRuntime(),
+                null,
+                GcTrend.unavailable());
     }
 
     private static ThreadData threads(int total) {
