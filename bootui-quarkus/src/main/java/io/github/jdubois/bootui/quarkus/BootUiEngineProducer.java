@@ -1055,6 +1055,8 @@ public class BootUiEngineProducer {
                 config.getOptionalValue("bootui.exceptions.max-stack-frames", Integer.class)
                         .orElse(50));
         store.setApplicationPackages(basePackages.basePackages());
+        store.setBindingDiagnosticExtractor(
+                new io.github.jdubois.bootui.quarkus.exceptions.QuarkusBindingDiagnosticsExtractor());
         // When OpenTelemetry is present, install the span enricher so each captured exception stamps
         // bootui.exception.* on the active request span; absent OpenTelemetry it is unresolvable and the
         // store keeps the neutral no-op.

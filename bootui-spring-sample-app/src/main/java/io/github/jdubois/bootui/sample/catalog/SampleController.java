@@ -16,7 +16,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.MethodParameter;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.MapBindingResult;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -122,7 +126,10 @@ public class SampleController {
     }
 
     @GetMapping("/boom")
-    public String boom() {
+    public String boom(@RequestParam(name = "scenario", required = false) String scenario) {
+        if ("validation".equals(scenario)) {
+            throw sampleValidationFailure();
+        }
         try {
             Integer.parseInt("not-a-number");
             return "unreachable";
@@ -130,6 +137,46 @@ public class SampleController {
             throw new IllegalStateException(
                     "Sample failure for the BootUI Exceptions panel demo (apiToken=sample-secret-token)", cause);
         }
+    }
+
+    private static RuntimeException sampleValidationFailure() {
+        try {
+            MapBindingResult bindingResult = new MapBindingResult(Map.of(), "sampleOrderRequest");
+            bindingResult.addError(new FieldError(
+                    "sampleOrderRequest",
+                    "customer.email",
+                    "alice-secret@example.com",
+                    false,
+                    new String[] {"Email.sampleOrderRequest.customer.email", "Email"},
+                    null,
+                    "must be a well-formed email address"));
+            bindingResult.addError(new FieldError(
+                    "sampleOrderRequest",
+                    "items[0].quantity",
+                    -3,
+                    false,
+                    new String[] {"Positive.sampleOrderRequest.items.quantity", "Positive"},
+                    null,
+                    "must be greater than 0"));
+            bindingResult.addError(new FieldError(
+                    "sampleOrderRequest",
+                    "attributes[secretApiKey]",
+                    "   ",
+                    false,
+                    new String[] {"NotBlank.sampleOrderRequest.attributes", "NotBlank"},
+                    null,
+                    "must not be blank"));
+            MethodParameter parameter =
+                    new MethodParameter(SampleController.class.getDeclaredMethod("boom", String.class), 0);
+            return sneakyThrow(new MethodArgumentNotValidException(parameter, bindingResult));
+        } catch (NoSuchMethodException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> RuntimeException sneakyThrow(Throwable throwable) throws E {
+        throw (E) throwable;
     }
 
     /**

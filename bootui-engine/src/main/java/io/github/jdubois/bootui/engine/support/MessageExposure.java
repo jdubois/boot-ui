@@ -138,6 +138,53 @@ public final class MessageExposure {
     private static final Pattern BARE_CREDENTIAL = Pattern.compile(
             "(?i)(?<![A-Za-z0-9_-])(bearer|basic|negotiate|ntlm)[ \\t]++(?:\\\\?[\"'])?" + "([A-Za-z0-9._~+/-]++=*+)");
 
+    /**
+     * Spring {@code FieldError.toString()} rejected-value segment:
+     * {@code rejected value [<raw>]; codes [...]}. Matched reluctantly up to {@code ]; codes [} first so a rejected
+     * value that itself contains {@code ]} cannot escape the mask.
+     */
+    private static final Pattern REJECTED_VALUE_BEFORE_CODES =
+            Pattern.compile("(?is)(rejected value \\[).*?(\\];\\s*codes\\s*\\[)");
+
+    /** Fallback for a {@code rejected value [...]} segment without a following {@code codes [...]} clause. */
+    private static final Pattern REJECTED_VALUE_BRACKETED =
+            Pattern.compile("(?i)(rejected value \\[)[^\\]\\r\\n]*(\\])");
+
+    /**
+     * Spring {@code FieldError} / {@code TypeMismatchException} field or property names carrying bracketed keys or
+     * indices, such as {@code on field 'attributes[secretKey]'} or {@code for property 'items[0]'}.
+     */
+    private static final Pattern QUOTED_FIELD_WITH_BRACKETS =
+            Pattern.compile("((?:on field|for property) ')([^'\\r\\n]*\\[[^'\\r\\n]*)(')");
+
+    /** Jackson {@code MismatchedInputException} / {@code InvalidFormatException} quoted string literal. */
+    private static final Pattern JACKSON_FROM_STRING =
+            Pattern.compile("(?i)(\\bfrom String\\s+)\"(?:[^\"\\\\\\r\\n]|\\\\.)*\"(?:\\[truncated[^\\]]*\\])?");
+
+    /** Jackson scalar literal in {@code from Number value (...)}, {@code from Boolean value (...)}, etc. */
+    private static final Pattern JACKSON_FROM_SCALAR =
+            Pattern.compile("(?i)(\\bfrom (?:Number|Integer|Floating-point|Boolean) value\\s*\\()[^)\\r\\n]*(\\))");
+
+    /** Jackson {@code UnrecognizedPropertyException} / {@code IgnoredPropertyException} property name literal. */
+    private static final Pattern JACKSON_UNRECOGNIZED_PROPERTY =
+            Pattern.compile("(?i)(\\b(?:Unrecognized|Ignored) (?:field|property)\\s+)\"(?:[^\"\\\\\\r\\n]|\\\\.)*\"");
+
+    /** Trailing reference-chain element for an unrecognized/ignored property. */
+    private static final Pattern JACKSON_REFERENCE_CHAIN_TAIL =
+            Pattern.compile("(through reference chain: [^\\r\\n)]*)\\[\"[^\"\\r\\n]*\"\\](\\s*\\))");
+
+    /** Map key inside a Jackson {@code through reference chain: ...Map["key"]} description. */
+    private static final Pattern JACKSON_MAP_REFERENCE_KEY = Pattern.compile("(Map)\\[\"[^\"\\r\\n]*\"\\]");
+
+    /**
+     * Jakarta Validation {@code ConstraintViolationException} property path carrying bracketed keys/indices before
+     * {@code : }, such as {@code create.request.attributes[secretKey]: must not be blank}.
+     */
+    private static final Pattern CONSTRAINT_PATH_WITH_BRACKETS = Pattern.compile(
+            "(?m)(^|,\\s*)([A-Za-z_$][A-Za-z0-9_$.]*(?:\\[[^\\]:\\r\\n]*\\])+(?:\\.[A-Za-z0-9_$.<> ]+)*)(:\\s)");
+
+    private static final Pattern BRACKET_CONTENT = Pattern.compile("\\[[^\\]\\r\\n]*\\]");
+
     private static final MessageExposure OMIT = new MessageExposure(true, false);
 
     private static final MessageExposure MASK = new MessageExposure(false, true);
@@ -220,7 +267,80 @@ public final class MessageExposure {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        return maskBareCredentials(maskAssignments(text));
+        return scrubBindingLiterals(maskBareCredentials(maskAssignments(text)));
+    }
+
+    /**
+     * Scrubs raw user-input values and unknown/map property keys embedded in framework binding and validation
+     * messages ({@code rejected value [...]}, Jackson {@code from String "..."}, {@code Unrecognized field "..."},
+     * and bracketed map keys in field paths). Returns {@code text} as the same instance when nothing matches.
+     */
+    public static String scrubBindingLiterals(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String result = text;
+        if (result.contains("rejected value [") || result.contains("Rejected value [")) {
+            result = replaceIfMatched(
+                    result, REJECTED_VALUE_BEFORE_CODES, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+            result = replaceIfMatched(
+                    result, REJECTED_VALUE_BRACKETED, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        }
+        if (result.contains("on field '") || result.contains("for property '")) {
+            result = replaceIfMatched(
+                    result,
+                    QUOTED_FIELD_WITH_BRACKETS,
+                    m -> m.group(1) + BRACKET_CONTENT.matcher(m.group(2)).replaceAll("[*]") + m.group(3));
+        }
+        if (result.contains("from ") || result.contains("From ")) {
+            result = replaceIfMatched(
+                    result, JACKSON_FROM_STRING, m -> m.group(1) + "\"" + SecretMasker.MASKED_VALUE + "\"");
+            result = replaceIfMatched(
+                    result, JACKSON_FROM_SCALAR, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        }
+        if (result.contains("Unrecognized ")
+                || result.contains("unrecognized ")
+                || result.contains("Ignored ")
+                || result.contains("ignored ")) {
+            boolean hadUnrecognized =
+                    JACKSON_UNRECOGNIZED_PROPERTY.matcher(result).find();
+            if (hadUnrecognized) {
+                result = replaceIfMatched(
+                        result,
+                        JACKSON_UNRECOGNIZED_PROPERTY,
+                        m -> m.group(1) + "\"" + SecretMasker.MASKED_VALUE + "\"");
+                result = replaceIfMatched(
+                        result,
+                        JACKSON_REFERENCE_CHAIN_TAIL,
+                        m -> m.group(1) + "[\"" + SecretMasker.MASKED_VALUE + "\"]" + m.group(2));
+            }
+        }
+        if (result.contains("through reference chain:")) {
+            result = replaceIfMatched(result, JACKSON_MAP_REFERENCE_KEY, m -> m.group(1) + "[*]");
+        }
+        if (result.indexOf('[') >= 0 && result.indexOf(':') >= 0) {
+            result = replaceIfMatched(
+                    result,
+                    CONSTRAINT_PATH_WITH_BRACKETS,
+                    m -> m.group(1) + BRACKET_CONTENT.matcher(m.group(2)).replaceAll("[*]") + m.group(3));
+        }
+        return result.equals(text) ? text : result;
+    }
+
+    private static String replaceIfMatched(
+            String text, Pattern pattern, java.util.function.Function<Matcher, String> replacer) {
+        Matcher matcher = pattern.matcher(text);
+        if (!matcher.find()) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.length());
+        int last = 0;
+        do {
+            sb.append(text, last, matcher.start()).append(replacer.apply(matcher));
+            last = matcher.end();
+        } while (matcher.find());
+        sb.append(text, last, text.length());
+        return sb.toString();
     }
 
     private static String maskAssignments(String text) {

@@ -21,6 +21,8 @@ public class BootUiExceptionHandlerResolver implements HandlerExceptionResolver,
 
     private final ExceptionStore store;
 
+    private final SpringBindingDiagnosticsExtractor diagnostics = new SpringBindingDiagnosticsExtractor();
+
     public BootUiExceptionHandlerResolver(ExceptionStore store) {
         this.store = store;
     }
@@ -29,13 +31,16 @@ public class BootUiExceptionHandlerResolver implements HandlerExceptionResolver,
     public ModelAndView resolveException(
             HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         try {
+            String handlerDescription = describeHandler(handler);
             store.record(
                     ex,
                     Thread.currentThread().getName(),
                     request != null ? request.getMethod() : null,
                     request != null ? request.getRequestURI() : null,
-                    describeHandler(handler),
-                    "web");
+                    handlerDescription,
+                    "web",
+                    null,
+                    diagnostics.extract(ex, handler, handlerDescription));
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's error handling.
         }

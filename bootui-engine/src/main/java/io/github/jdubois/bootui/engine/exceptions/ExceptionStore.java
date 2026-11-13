@@ -74,6 +74,9 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
     /** Upper bound on a retained raw message, before display masking/truncation. */
     private static final int MAX_MESSAGE_LENGTH = 4096;
 
+    /** Maximum number of binding/validation diagnostics retained per occurrence. */
+    public static final int MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE = BindingDiagnostics.MAX_DIAGNOSTICS_PER_OCCURRENCE;
+
     private final int maxGroups;
     private final int maxOccurrencesPerGroup;
     private final int maxStackFrames;
@@ -87,6 +90,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
 
     private volatile List<String> applicationPackages = List.of();
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
+    private volatile BindingDiagnosticExtractor bindingDiagnosticExtractor = (throwable, handler) -> List.of();
     private final CorrelationSource correlation = new CorrelationSource();
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
@@ -142,13 +146,23 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
     }
 
     /**
+     * Installs the adapter-specific {@link BindingDiagnosticExtractor} used to extract structured
+     * validation/binding metadata when an occurrence is recorded. Passing {@code null} restores the
+     * default no-op (which still extracts {@code jakarta.validation.ConstraintViolationException} when
+     * Jakarta Validation is present).
+     */
+    public void setBindingDiagnosticExtractor(BindingDiagnosticExtractor extractor) {
+        this.bindingDiagnosticExtractor = extractor == null ? (throwable, handler) -> List.of() : extractor;
+    }
+
+    /**
      * Records a thrown exception. No-ops if any {@link Throwable} in this throwable's cause chain was
      * already recorded, so a failure observed by more than one feeder — and a framework wrapper around
      * an already-seen cause — counts once. The whole chain is then marked seen so a later wrapper of the
      * same cause is also recognized as a duplicate.
      */
     public void record(Throwable throwable, String thread, String method, String path, String handler, String source) {
-        record(throwable, thread, method, path, handler, source, null);
+        record(throwable, thread, method, path, handler, source, null, List.of());
     }
 
     /**
@@ -171,11 +185,29 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String handler,
             String source,
             String traceId) {
+        record(throwable, thread, method, path, handler, source, traceId, List.of());
+    }
+
+    /**
+     * Records a thrown exception together with pre-extracted binding/validation diagnostics for this
+     * occurrence. When {@code bindingDiagnostics} is empty or {@code null}, the store falls back to its
+     * configured {@link BindingDiagnosticExtractor} and the optional Jakarta Validation reader.
+     */
+    public void record(
+            Throwable throwable,
+            String thread,
+            String method,
+            String path,
+            String handler,
+            String source,
+            String traceId,
+            List<BindingDiagnostic> bindingDiagnostics) {
         if (paused || throwable == null || ignore.test(throwable) || !markSeen(throwable)) {
             return;
         }
         List<Frame> frames = buildFrames(throwable.getStackTrace());
         List<Cause> causes = buildCauses(throwable);
+        List<BindingDiagnostic> resolvedDiagnostics = resolveBindingDiagnostics(throwable, handler, bindingDiagnostics);
         capture(
                 throwable.getClass().getName(),
                 throwable.getMessage(),
@@ -188,7 +220,28 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                 handler,
                 source,
                 traceId,
-                ThrowableMarks.of(throwable));
+                ThrowableMarks.of(throwable),
+                resolvedDiagnostics);
+    }
+
+    private List<BindingDiagnostic> resolveBindingDiagnostics(
+            Throwable throwable, String handler, List<BindingDiagnostic> supplied) {
+        List<BindingDiagnostic> raw = supplied;
+        if (raw == null || raw.isEmpty()) {
+            try {
+                raw = bindingDiagnosticExtractor.extract(throwable, handler);
+            } catch (RuntimeException | LinkageError ignored) {
+                raw = List.of();
+            }
+        }
+        if ((raw == null || raw.isEmpty()) && ConstraintViolationReader.hasConstraintViolationInChain(throwable)) {
+            try {
+                raw = ConstraintViolationReader.extract(throwable, handler);
+            } catch (RuntimeException | LinkageError ignored) {
+                raw = List.of();
+            }
+        }
+        return raw == null ? List.of() : raw;
     }
 
     /**
@@ -250,7 +303,8 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String handler,
             String source,
             String traceId,
-            ThrowableMarks marks) {
+            ThrowableMarks marks,
+            List<BindingDiagnostic> rawDiagnostics) {
         String className = exceptionClassName == null ? "java.lang.Throwable" : exceptionClassName;
         List<Frame> safeFrames = frames == null ? List.of() : frames;
         List<Cause> safeCauses = causes == null ? List.of() : causes;
@@ -260,8 +314,21 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
         CorrelationContext context = correlation.current();
+        List<BindingDiagnostic> boundedDiagnostics = boundDiagnostics(rawDiagnostics);
+        boolean diagnosticsTruncated =
+                rawDiagnostics != null && rawDiagnostics.size() > MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE;
         Occurrence occurrence = new Occurrence(
-                now, thread, method, path, handler, source, traceId, context.requestId(), context.executionId());
+                now,
+                thread,
+                method,
+                path,
+                handler,
+                source,
+                traceId,
+                context.requestId(),
+                context.executionId(),
+                boundedDiagnostics,
+                diagnosticsTruncated);
 
         synchronized (lock) {
             Group group = groups.get(fingerprint);
@@ -696,10 +763,49 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         }
     }
 
+    private static List<BindingDiagnostic> boundDiagnostics(List<BindingDiagnostic> diagnostics) {
+        if (diagnostics == null || diagnostics.isEmpty()) {
+            return List.of();
+        }
+        int limit = Math.min(diagnostics.size(), MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE);
+        List<BindingDiagnostic> bounded = new ArrayList<>(limit);
+        for (int i = 0; i < limit; i++) {
+            BindingDiagnostic item = diagnostics.get(i);
+            if (item == null) {
+                continue;
+            }
+            bounded.add(new BindingDiagnostic(
+                    BindingDiagnostics.truncate(item.targetType()),
+                    BindingDiagnostics.normalizeNumericIndices(item.fieldPath()),
+                    BindingDiagnostics.truncate(item.reason()),
+                    item.unrecognizedProperty()));
+        }
+        return List.copyOf(bounded);
+    }
+
     public record Frame(
             String declaringClass, String methodName, String fileName, int lineNumber, boolean applicationFrame) {}
 
     public record Cause(String exceptionClassName, String message, List<Frame> frames, int commonFrames) {}
+
+    /**
+     * Metadata-only validation or binding diagnostic captured for an {@link Occurrence}.
+     *
+     * @param unrecognizedProperty {@code true} when {@code fieldPath} names an unknown input property
+     *     that must be replaced with {@code "(unrecognized property)"} unless value exposure is {@code FULL}
+     */
+    public record BindingDiagnostic(String targetType, String fieldPath, String reason, boolean unrecognizedProperty) {
+
+        public BindingDiagnostic(String targetType, String fieldPath, String reason) {
+            this(targetType, fieldPath, reason, false);
+        }
+    }
+
+    /** Adapter hook that extracts metadata-only binding/validation diagnostics from a thrown exception. */
+    @FunctionalInterface
+    public interface BindingDiagnosticExtractor {
+        List<BindingDiagnostic> extract(Throwable throwable, String handler);
+    }
 
     public record Occurrence(
             long timestamp,
@@ -710,8 +816,38 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String source,
             String traceId,
             String requestId,
+            String executionId,
+            List<BindingDiagnostic> bindingDiagnostics,
+            boolean bindingDiagnosticsTruncated) {
 
-            String executionId) {
+        public Occurrence {
+            bindingDiagnostics = bindingDiagnostics == null ? List.of() : List.copyOf(bindingDiagnostics);
+        }
+
+        /** Without binding diagnostics. */
+        public Occurrence(
+                long timestamp,
+                String thread,
+                String requestMethod,
+                String requestPath,
+                String handler,
+                String source,
+                String traceId,
+                String requestId,
+                String executionId) {
+            this(
+                    timestamp,
+                    thread,
+                    requestMethod,
+                    requestPath,
+                    handler,
+                    source,
+                    traceId,
+                    requestId,
+                    executionId,
+                    List.of(),
+                    false);
+        }
 
         /** Without BootUI's execution identity. */
         public Occurrence(

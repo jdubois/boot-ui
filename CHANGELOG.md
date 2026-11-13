@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
+  and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

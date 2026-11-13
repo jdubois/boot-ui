@@ -324,7 +324,36 @@ function occurrenceLine(occurrence) {
   if (occurrence.thread) parts.push(`thread ${inlineCode(occurrence.thread)}`)
   if (occurrence.handler) parts.push(`handler ${inlineCode(occurrence.handler)}`)
   if (occurrence.traceId) parts.push(`trace id ${inlineCode(occurrence.traceId)}`)
+  if (occurrence.bindingDiagnostics?.length) {
+    const items = occurrence.bindingDiagnostics
+      .map((d) => inlineCode(`${d.fieldPath ?? ''}: ${d.reason ?? ''}`))
+      .join(', ')
+    parts.push(`diagnostics ${items}${occurrence.bindingDiagnosticsTruncated ? ' (truncated)' : ''}`)
+  }
   return `- ${parts.join(' · ')}`
+}
+
+function tableCodeCell(value) {
+  return inlineCode(String(value || '—').replace(/\|/g, '\\|'))
+}
+
+function bindingDiagnosticsSection(doc, occurrence, owner, level) {
+  const diagnostics = occurrence?.bindingDiagnostics ?? []
+  if (!diagnostics.length) return
+  const rows = [
+    '| Target | Field / parameter | Reason / expected type |',
+    '| --- | --- | --- |',
+    ...diagnostics.map(
+      (d) => `| ${tableCodeCell(d.targetType)} | ${tableCodeCell(d.fieldPath)} | ${tableCodeCell(d.reason)} |`
+    )
+  ]
+  push(doc, heading(level, 'Binding & validation diagnostics'), rows.join('\n'))
+  if (occurrence?.bindingDiagnosticsTruncated) {
+    omit(
+      doc,
+      `Binding & validation diagnostics of ${owner ?? 'the exception'}: only the first ${diagnostics.length} diagnostics of the occurrence are retained.`
+    )
+  }
 }
 
 function occurrencesSection(doc, detail, level) {
@@ -380,6 +409,7 @@ function exceptionsSection(doc, profile, sections, exceptionDetails, level) {
     if (tier) facts.push(bullet('Correlation', tier))
     push(doc, facts.join('\n'))
     messageBlock(doc, exception.message, exception.exceptionClassName, level + 2)
+    bindingDiagnosticsSection(doc, exception, exception.exceptionClassName, level + 2)
 
     if (!exceptionDetails) return
     const groupId = exception.exceptionGroupId
@@ -568,6 +598,7 @@ export function exceptionMarkdown(detail, {correlated = null, correlationUnavail
   push(doc, heading(2, 'Summary'), facts.join('\n'))
 
   messageBlock(doc, group.message, group.exceptionClassName, 2)
+  bindingDiagnosticsSection(doc, detail?.occurrences?.[0], group.exceptionClassName, 2)
   stackTraceSection(doc, detail ?? {}, 2)
   occurrencesSection(doc, detail ?? {}, 2)
 

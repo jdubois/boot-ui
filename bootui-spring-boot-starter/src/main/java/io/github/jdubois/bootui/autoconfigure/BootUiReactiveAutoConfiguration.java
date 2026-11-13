@@ -1041,6 +1041,8 @@ public class BootUiReactiveAutoConfiguration {
                     config.getMaxOccurrencesPerGroup(),
                     config.getMaxStackFrames(),
                     DisconnectedClientHelper::isClientDisconnectedException);
+            store.setBindingDiagnosticExtractor(
+                    new io.github.jdubois.bootui.autoconfigure.exceptions.SpringBindingDiagnosticsExtractor());
             try {
                 if (AutoConfigurationPackages.has(applicationContext)) {
                     store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));

@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
+import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.BindingDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.ErrorContractLinkDto;
 import io.github.jdubois.bootui.core.dto.ExceptionCauseDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
@@ -10,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractLinkResolver;
 import io.github.jdubois.bootui.engine.support.MessageExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -156,6 +159,13 @@ public final class ExceptionsService {
     }
 
     private ExceptionOccurrenceDto toOccurrenceDto(ExceptionStore.Occurrence occurrence) {
+        boolean fullExposure = exposure.valueExposure() == ValueExposure.FULL;
+        List<BindingDiagnosticDto> diagnostics = occurrence.bindingDiagnostics().stream()
+                .map(d -> new BindingDiagnosticDto(
+                        d.targetType(),
+                        BindingDiagnostics.exposeFieldPath(d.fieldPath(), d.unrecognizedProperty(), fullExposure),
+                        d.reason()))
+                .toList();
         return new ExceptionOccurrenceDto(
                 occurrence.timestamp(),
                 occurrence.thread(),
@@ -165,10 +175,16 @@ public final class ExceptionsService {
                 occurrence.source(),
                 occurrence.traceId(),
                 occurrence.requestId(),
-                occurrence.executionId());
+                occurrence.executionId(),
+                diagnostics,
+                occurrence.bindingDiagnosticsTruncated());
     }
 
     private String displayMessage(String message) {
-        return MessageExposure.current(exposure).apply(message);
+        String exposed = MessageExposure.current(exposure).apply(message);
+        if (exposed == null || exposure.valueExposure() == ValueExposure.FULL) {
+            return exposed;
+        }
+        return MessageExposure.scrubBindingLiterals(exposed);
     }
 }
