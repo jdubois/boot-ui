@@ -104,6 +104,8 @@ public class QuarkusHttpExchangeCaptureFilter {
     private final RuntimeEventSink journal;
     private final QuarkusPanelAccessConfig panelAccessConfig;
     private final BootUiQuarkusSafetyFilter safetyFilter;
+    private final java.util.concurrent.atomic.AtomicBoolean loggedInvalidExposeHeaderConfig =
+            new java.util.concurrent.atomic.AtomicBoolean();
 
     public QuarkusHttpExchangeCaptureFilter(
             HttpExchangeBuffer buffer, Instance<TraceIdSource> traceIdProvider, Config config) {
@@ -224,8 +226,8 @@ public class QuarkusHttpExchangeCaptureFilter {
         String thread = Thread.currentThread().getName();
         AtomicReference<Map<String, List<String>>> committedResponseHeaders = new AtomicReference<>();
         rc.addHeadersEndHandler(v -> {
+            exposeRequestIdHeaderIfAllowed(rc, requestId);
             try {
-                exposeRequestIdHeaderIfAllowed(rc, requestId);
                 committedResponseHeaders.set(headers(rc.response().headers()));
             } catch (RuntimeException failure) {
                 logCaptureFailure(failure);
@@ -269,9 +271,6 @@ public class QuarkusHttpExchangeCaptureFilter {
                                     RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
                 } catch (RuntimeException ex) {
                     // Publishing never disturbs the request it observes.
-                }
-                if (committedResponseHeaders.get() == null) {
-                    exposeRequestIdHeaderIfAllowed(rc, requestId);
                 }
                 buffer.record(new CapturedHttpExchange(
                         started,
@@ -379,16 +378,20 @@ public class QuarkusHttpExchangeCaptureFilter {
     }
 
     private void exposeRequestIdHeaderIfAllowed(RoutingContext rc, String requestId) {
-        if (!shouldExposeRequestIdHeader(rc)) {
-            return;
-        }
-        HttpServerResponse response = rc.response();
-        if (response == null || response.headWritten()) {
-            return;
-        }
-        io.vertx.core.MultiMap responseHeaders = response.headers();
-        if (responseHeaders != null && !responseHeaders.contains(RequestIds.RESPONSE_HEADER)) {
-            responseHeaders.set(RequestIds.RESPONSE_HEADER, requestId);
+        try {
+            if (!shouldExposeRequestIdHeader(rc)) {
+                return;
+            }
+            HttpServerResponse response = rc.response();
+            if (response == null || response.headWritten()) {
+                return;
+            }
+            io.vertx.core.MultiMap responseHeaders = response.headers();
+            if (responseHeaders != null && !responseHeaders.contains(RequestIds.RESPONSE_HEADER)) {
+                responseHeaders.set(RequestIds.RESPONSE_HEADER, requestId);
+            }
+        } catch (RuntimeException ex) {
+            // Diagnostics header emission never disturbs response commitment or exchange capture.
         }
     }
 
@@ -406,7 +409,10 @@ public class QuarkusHttpExchangeCaptureFilter {
             return config.getOptionalValue(EXPOSE_REQUEST_ID_HEADER_KEY, Boolean.class)
                     .orElse(Boolean.FALSE);
         } catch (IllegalArgumentException ex) {
-            LOG.warnf("Ignoring invalid BootUI property '%s'; falling back to false.", EXPOSE_REQUEST_ID_HEADER_KEY);
+            if (loggedInvalidExposeHeaderConfig.compareAndSet(false, true)) {
+                LOG.warnf(
+                        "Ignoring invalid BootUI property '%s'; falling back to false.", EXPOSE_REQUEST_ID_HEADER_KEY);
+            }
             return false;
         }
     }

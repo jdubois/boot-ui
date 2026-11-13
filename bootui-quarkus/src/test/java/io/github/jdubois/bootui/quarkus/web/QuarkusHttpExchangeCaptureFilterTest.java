@@ -274,6 +274,26 @@ class QuarkusHttpExchangeCaptureFilterTest {
         completeRequest(invalidConfigFilter, invalidConfigRc);
         assertThat(invalidConfigRc.response().headers().get("X-BootUI-Request-Id"))
                 .isNull();
+
+        // A failure inside header emission is isolated and never drops the captured exchange or its response headers.
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
+        when(traceIdProvider.isResolvable()).thenReturn(false);
+        Config enabledConfig = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(
+                        Map.of("bootui.http-exchanges.expose-request-id-header", "true"), "test", 1000))
+                .build();
+        io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter throwingSafety =
+                mock(io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter.class);
+        when(throwingSafety.isTrustedSource(any())).thenThrow(new IllegalStateException("safety check failed"));
+        QuarkusHttpExchangeCaptureFilter isolatedFilter = new QuarkusHttpExchangeCaptureFilter(
+                buffer, traceIdProvider, enabledConfig, null, null, throwingSafety);
+        RoutingContext isolatedRc = mockRequest("/orders", "127.0.0.1");
+        isolatedRc.response().headers().set("X-App", "preserved");
+        int beforeCount = buffer.snapshot().size();
+        completeRequest(isolatedFilter, isolatedRc);
+        assertThat(buffer.snapshot()).hasSize(beforeCount + 1);
+        assertThat(buffer.snapshot().get(0).responseHeaders().get("X-App")).containsExactly("preserved");
     }
 
     @Test
@@ -548,9 +568,10 @@ class QuarkusHttpExchangeCaptureFilterTest {
         return captor.getValue();
     }
 
-    /** Runs the filter and then fires the body-end handler it registered, as Vert.x does on response end. */
+    /** Runs the filter and then fires the headers-end and body-end handlers it registered, as Vert.x does on response end. */
     private static void completeRequest(QuarkusHttpExchangeCaptureFilter filter, RoutingContext rc) {
         filter.handle(rc);
+        headersEndHandler(rc).handle(null);
         bodyEndHandler(rc).handle(null);
     }
 

@@ -24,6 +24,8 @@ import jakarta.servlet.AsyncListener;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletRequestWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
@@ -140,13 +142,17 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     /** The request attribute marking a request one of whose async redispatches threw. */
     static final String ASYNC_DISPATCH_FAILED_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".asyncFailed";
 
+    /** The request attribute holding the ownership state of {@link RequestIds#RESPONSE_HEADER} across dispatches. */
+    static final String REQUEST_ID_HEADER_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".requestIdHeader";
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         if (isAsyncDispatch(request) || request.getDispatcherType() == DispatcherType.ERROR) {
+            HttpServletResponse effectiveResponse = wrapForRequestIdHeaderOnRedispatch(request, response);
             boolean threw = true;
             try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(asyncContext(request))) {
-                chain.doFilter(request, response);
+                chain.doFilter(request, effectiveResponse);
                 threw = false;
             } finally {
                 if (threw && isAsyncDispatch(request)) {
@@ -197,13 +203,49 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             HttpServletRequest request, HttpServletResponse response, String requestId) {
         try {
             if (!exposeRequestIdHeader.getAsBoolean()
-                    || !trustedSource.test(request.getRemoteAddr())
+                    || !trustedSource.test(rawRemoteAddr(request))
                     || response.containsHeader(RequestIds.RESPONSE_HEADER)) {
                 return response;
             }
-            return new RequestIdHeaderResponse(response, requestId);
+            RequestIdHeaderState state = new RequestIdHeaderState(requestId);
+            request.setAttribute(REQUEST_ID_HEADER_ATTRIBUTE, state);
+            return new RequestIdHeaderResponse(response, state);
         } catch (RuntimeException ex) {
             return response;
+        }
+    }
+
+    private static HttpServletResponse wrapForRequestIdHeaderOnRedispatch(
+            HttpServletRequest request, HttpServletResponse response) {
+        if (response instanceof RequestIdHeaderResponse) {
+            return response;
+        }
+        Object attr = request.getAttribute(REQUEST_ID_HEADER_ATTRIBUTE);
+        if (attr instanceof RequestIdHeaderState state) {
+            return new RequestIdHeaderResponse(response, state);
+        }
+        return response;
+    }
+
+    /**
+     * Unwraps any {@link ServletRequestWrapper} (such as Spring's {@code ForwardedHeaderFilter}) so the
+     * trusted-source check always inspects the underlying socket peer address rather than a forwarded header.
+     */
+    private static String rawRemoteAddr(HttpServletRequest request) {
+        ServletRequest current = request;
+        while (current instanceof ServletRequestWrapper wrapper && wrapper.getRequest() != null) {
+            current = wrapper.getRequest();
+        }
+        return current == null ? null : current.getRemoteAddr();
+    }
+
+    private static final class RequestIdHeaderState {
+
+        private final String requestId;
+        private boolean applicationOwned;
+
+        private RequestIdHeaderState(String requestId) {
+            this.requestId = requestId;
         }
     }
 
@@ -214,46 +256,67 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
      */
     private static final class RequestIdHeaderResponse extends HttpServletResponseWrapper {
 
-        private final String requestId;
-        private boolean applicationOwned;
+        private final RequestIdHeaderState state;
 
-        private RequestIdHeaderResponse(HttpServletResponse response, String requestId) {
+        private RequestIdHeaderResponse(HttpServletResponse response, RequestIdHeaderState state) {
             super(response);
-            this.requestId = requestId;
-            super.setHeader(RequestIds.RESPONSE_HEADER, requestId);
-        }
-
-        @Override
-        public synchronized boolean containsHeader(String name) {
-            if (isRequestIdHeader(name) && !applicationOwned) {
-                return false;
+            this.state = state;
+            synchronized (state) {
+                if (!state.applicationOwned && !response.containsHeader(RequestIds.RESPONSE_HEADER)) {
+                    super.setHeader(RequestIds.RESPONSE_HEADER, state.requestId);
+                }
             }
-            return super.containsHeader(name);
         }
 
         @Override
-        public synchronized void setHeader(String name, String value) {
-            if (isRequestIdHeader(name)) {
-                applicationOwned = true;
+        public boolean containsHeader(String name) {
+            synchronized (state) {
+                if (isRequestIdHeader(name) && !state.applicationOwned) {
+                    return false;
+                }
+                return super.containsHeader(name);
             }
-            super.setHeader(name, value);
         }
 
         @Override
-        public synchronized void addHeader(String name, String value) {
-            if (isRequestIdHeader(name) && !applicationOwned) {
-                applicationOwned = true;
+        public void setHeader(String name, String value) {
+            synchronized (state) {
+                if (isRequestIdHeader(name)) {
+                    state.applicationOwned = true;
+                }
                 super.setHeader(name, value);
-                return;
             }
-            super.addHeader(name, value);
         }
 
         @Override
-        public synchronized void reset() {
-            super.reset();
-            applicationOwned = false;
-            super.setHeader(RequestIds.RESPONSE_HEADER, requestId);
+        public void addHeader(String name, String value) {
+            synchronized (state) {
+                if (isRequestIdHeader(name) && !state.applicationOwned) {
+                    state.applicationOwned = true;
+                    super.setHeader(name, value);
+                    return;
+                }
+                super.addHeader(name, value);
+            }
+        }
+
+        @Override
+        public void reset() {
+            synchronized (state) {
+                super.reset();
+                state.applicationOwned = false;
+                super.setHeader(RequestIds.RESPONSE_HEADER, state.requestId);
+            }
+        }
+
+        @Override
+        public void resetBuffer() {
+            synchronized (state) {
+                super.resetBuffer();
+                if (!state.applicationOwned && !super.containsHeader(RequestIds.RESPONSE_HEADER)) {
+                    super.setHeader(RequestIds.RESPONSE_HEADER, state.requestId);
+                }
+            }
         }
 
         private static boolean isRequestIdHeader(String name) {

@@ -19,13 +19,16 @@ import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
 import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.HttpHandlerDecoratorFactory;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.server.ServerWebExchange;
@@ -105,10 +108,11 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 return correlated(CorrelationContext.BOOTUI, () -> handler.handle(request, response));
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
-            registerRequestIdHeaderCommit(request, response, correlation.requestId());
-            return correlated(correlation, () -> assembled(correlation, () -> handler.handle(request, response)))
-                    .doFinally(
-                            signal -> writeRequestIdHeaderWhenUncommitted(request, response, correlation.requestId()));
+            ServerHttpResponse effectiveResponse =
+                    decorateResponseForRequestIdHeader(request, response, correlation.requestId());
+            return correlated(
+                            correlation, () -> assembled(correlation, () -> handler.handle(request, effectiveResponse)))
+                    .doFinally(signal -> writeRequestIdHeaderWhenUncommitted(effectiveResponse));
         };
     }
 
@@ -125,14 +129,16 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             Object existing = context.getOrDefault(CONTEXT_KEY, null);
             if (existing instanceof CorrelationContext correlation) {
                 exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
+                ServerWebExchange effectiveExchange = ensureDecoratedExchange(exchange, correlation.requestId());
                 try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-                    return tracked(exchange, correlation, chain);
+                    return tracked(effectiveExchange, correlation, chain);
                 }
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
             exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
-            registerRequestIdHeaderCommit(exchange.getRequest(), exchange.getResponse(), correlation.requestId());
-            return correlated(correlation, () -> assembled(correlation, () -> tracked(exchange, correlation, chain)));
+            ServerWebExchange effectiveExchange = ensureDecoratedExchange(exchange, correlation.requestId());
+            return correlated(
+                    correlation, () -> assembled(correlation, () -> tracked(effectiveExchange, correlation, chain)));
         });
     }
 
@@ -145,8 +151,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
         String requestId = correlation.requestId();
         if (!AgentRequestValues.active()) {
             return trackedChain(exchange, correlation, chain)
-                    .doFinally(signal -> writeRequestIdHeaderWhenUncommitted(
-                            exchange.getRequest(), exchange.getResponse(), requestId));
+                    .doFinally(signal -> writeRequestIdHeaderWhenUncommitted(exchange.getResponse()));
         }
         pushRequestValues(exchange, requestId);
         Mono<Void> tracked;
@@ -158,35 +163,40 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
         }
         return tracked.doFinally(signal -> {
             AgentRequestValues.end(requestId);
-            writeRequestIdHeaderWhenUncommitted(exchange.getRequest(), exchange.getResponse(), requestId);
+            writeRequestIdHeaderWhenUncommitted(exchange.getResponse());
         });
     }
 
-    private void registerRequestIdHeaderCommit(
-            ServerHttpRequest request, ServerHttpResponse response, String requestId) {
-        response.beforeCommit(() -> {
-            writeRequestIdHeaderIfAllowed(request, response, requestId);
-            return Mono.empty();
-        });
-    }
-
-    private void writeRequestIdHeaderWhenUncommitted(
-            ServerHttpRequest request, ServerHttpResponse response, String requestId) {
-        if (!response.isCommitted()) {
-            writeRequestIdHeaderIfAllowed(request, response, requestId);
+    private ServerWebExchange ensureDecoratedExchange(ServerWebExchange exchange, String requestId) {
+        ServerHttpResponse current = exchange.getResponse();
+        if (current instanceof RequestIdHeaderResponse) {
+            return exchange;
         }
+        ServerHttpResponse decorated = decorateResponseForRequestIdHeader(exchange.getRequest(), current, requestId);
+        return decorated == current
+                ? exchange
+                : exchange.mutate().response(decorated).build();
     }
 
-    private void writeRequestIdHeaderIfAllowed(
+    private ServerHttpResponse decorateResponseForRequestIdHeader(
             ServerHttpRequest request, ServerHttpResponse response, String requestId) {
+        if (response instanceof RequestIdHeaderResponse) {
+            return response;
+        }
         try {
             if (!shouldExposeRequestIdHeader(request)
                     || response.getHeaders().containsHeader(RequestIds.RESPONSE_HEADER)) {
-                return;
+                return response;
             }
-            response.getHeaders().set(RequestIds.RESPONSE_HEADER, requestId);
+            return new RequestIdHeaderResponse(response, requestId);
         } catch (RuntimeException ex) {
-            // Diagnostics header emission never disturbs the response.
+            return response;
+        }
+    }
+
+    private static void writeRequestIdHeaderWhenUncommitted(ServerHttpResponse response) {
+        if (response instanceof RequestIdHeaderResponse decorated && !decorated.isCommitted()) {
+            decorated.applyIfUncommitted();
         }
     }
 
@@ -196,13 +206,78 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 && localhostOnlyFilter.isTrustedSource(remoteAddress(request));
     }
 
+    /**
+     * Unwraps any {@link ServerHttpRequestDecorator} (such as {@code ForwardedHeaderTransformer}) so the
+     * trusted-source check always inspects the underlying socket peer address rather than a forwarded header.
+     */
     private static String remoteAddress(ServerHttpRequest request) {
-        InetSocketAddress remote = request.getRemoteAddress();
+        ServerHttpRequest current = request;
+        while (current instanceof ServerHttpRequestDecorator decorator) {
+            current = decorator.getDelegate();
+        }
+        InetSocketAddress remote = current.getRemoteAddress();
         if (remote == null) {
             return null;
         }
         InetAddress address = remote.getAddress();
         return address != null ? address.getHostAddress() : null;
+    }
+
+    /**
+     * Applies {@link RequestIds#RESPONSE_HEADER} before response commitment while reconciling after any
+     * downstream {@code beforeCommit} callback so an application header added during commitment replaces
+     * BootUI's default rather than producing duplicate values.
+     */
+    private static final class RequestIdHeaderResponse extends ServerHttpResponseDecorator {
+
+        private final String requestId;
+        private boolean bootUiAdded;
+
+        private RequestIdHeaderResponse(ServerHttpResponse delegate, String requestId) {
+            super(delegate);
+            this.requestId = requestId;
+            super.beforeCommit(this::applyBeforeCommit);
+        }
+
+        @Override
+        public void beforeCommit(Supplier<? extends Mono<Void>> action) {
+            super.beforeCommit(action);
+            super.beforeCommit(this::reconcileAfterAction);
+        }
+
+        private Mono<Void> applyBeforeCommit() {
+            applyIfUncommitted();
+            return Mono.empty();
+        }
+
+        private Mono<Void> reconcileAfterAction() {
+            try {
+                if (!bootUiAdded) {
+                    applyIfUncommitted();
+                    return Mono.empty();
+                }
+                List<String> values = getHeaders().get(RequestIds.RESPONSE_HEADER);
+                if (values != null && values.size() > 1 && requestId.equals(values.get(0))) {
+                    List<String> appValues = List.copyOf(values.subList(1, values.size()));
+                    getHeaders().put(RequestIds.RESPONSE_HEADER, appValues);
+                    bootUiAdded = false;
+                }
+            } catch (RuntimeException ex) {
+                // Diagnostics header reconciliation never disturbs the response.
+            }
+            return Mono.empty();
+        }
+
+        private void applyIfUncommitted() {
+            try {
+                if (!getHeaders().containsHeader(RequestIds.RESPONSE_HEADER)) {
+                    getHeaders().set(RequestIds.RESPONSE_HEADER, requestId);
+                    bootUiAdded = true;
+                }
+            } catch (RuntimeException ex) {
+                // Diagnostics header emission never disturbs the response.
+            }
+        }
     }
 
     /**

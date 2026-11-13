@@ -432,6 +432,24 @@ class ReactiveRequestCorrelationFilterTests {
         assertThat(untrusted.getResponse().getHeaders().getFirst("X-BootUI-Request-Id"))
                 .isNull();
 
+        // A request decorator (such as ForwardedHeaderTransformer) rewriting getRemoteAddress() to loopback cannot
+        // bypass peer trust.
+        org.springframework.http.server.reactive.ServerHttpRequest spoofedRequest =
+                new org.springframework.http.server.reactive.ServerHttpRequestDecorator(untrusted.getRequest()) {
+                    @Override
+                    public java.net.InetSocketAddress getRemoteAddress() {
+                        return loopback.getRequest().getRemoteAddress();
+                    }
+                };
+        MockServerWebExchange spoofedExchange = exchangeWithRemote("/api/orders", "203.0.113.9");
+        exposingFilter
+                .filter(
+                        spoofedExchange.mutate().request(spoofedRequest).build(),
+                        ex -> ex.getResponse().setComplete())
+                .block(Duration.ofSeconds(5));
+        assertThat(spoofedExchange.getResponse().getHeaders().getFirst("X-BootUI-Request-Id"))
+                .isNull();
+
         // BootUI's own requests never receive X-BootUI-Request-Id.
         MockServerWebExchange bootUi = exchangeWithRemote("/bootui/api/overview", "127.0.0.1");
         exposingFilter
@@ -443,13 +461,31 @@ class ReactiveRequestCorrelationFilterTests {
 
         // If the handler already set X-BootUI-Request-Id, BootUI never overwrites it.
         MockServerWebExchange customHeader = exchangeWithRemote("/api/orders", "127.0.0.1");
-        HttpHandler decorated = exposingFilter.apply((req, res) -> exposingFilter.filter(customHeader, ex -> {
-            ex.getResponse().getHeaders().set("X-BootUI-Request-Id", "app-custom-id");
-            return ex.getResponse().setComplete();
-        }));
+        HttpHandler decorated = exposingFilter.apply((req, res) ->
+                exposingFilter.filter(customHeader.mutate().response(res).build(), ex -> {
+                    ex.getResponse().getHeaders().set("X-BootUI-Request-Id", "app-custom-id");
+                    return ex.getResponse().setComplete();
+                }));
         decorated.handle(customHeader.getRequest(), customHeader.getResponse()).block(Duration.ofSeconds(5));
         assertThat(customHeader.getResponse().getHeaders().get("X-BootUI-Request-Id"))
                 .containsExactly("app-custom-id");
+
+        // If a downstream beforeCommit callback adds X-BootUI-Request-Id, it replaces BootUI's default without
+        // producing duplicate values.
+        MockServerWebExchange commitAddedHeader = exchangeWithRemote("/api/orders", "127.0.0.1");
+        HttpHandler commitDecorated = exposingFilter.apply((req, res) ->
+                exposingFilter.filter(commitAddedHeader.mutate().response(res).build(), ex -> {
+                    ex.getResponse().beforeCommit(() -> {
+                        ex.getResponse().getHeaders().add("X-BootUI-Request-Id", "commit-added-id");
+                        return Mono.empty();
+                    });
+                    return ex.getResponse().setComplete();
+                }));
+        commitDecorated
+                .handle(commitAddedHeader.getRequest(), commitAddedHeader.getResponse())
+                .block(Duration.ofSeconds(5));
+        assertThat(commitAddedHeader.getResponse().getHeaders().get("X-BootUI-Request-Id"))
+                .containsExactly("commit-added-id");
 
         // Disabling the http-exchanges panel suppresses the header even when expose-request-id-header=true.
         properties.panel("http-exchanges").setEnabled(false);
