@@ -199,11 +199,12 @@ wait_for_bootui() {
   echo "${label}: BootUI served its index and bundled assets."
 }
 
-# Usage: create_spring_smoke_project <dir> <web-starter> <port>
+# Usage: create_spring_smoke_project <dir> <web-starter> <port> [boot-version]
 # The application declares its own web starter, as every Spring Boot web application does; the BootUI starter
 # brings none. SmokeApplication prints the web application type Spring Boot deduced and the server it started.
 create_spring_smoke_project() {
   local project_dir="$1" web_starter="$2" port="$3"
+  local boot_version="${4:-$SPRING_BOOT_VERSION}"
   mkdir -p "$project_dir/src/main/java/smoke" "$project_dir/src/main/resources"
   cat > "$project_dir/pom.xml" <<SPRING_POM
 <?xml version="1.0" encoding="UTF-8"?>
@@ -212,7 +213,7 @@ create_spring_smoke_project() {
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>${SPRING_BOOT_VERSION}</version>
+    <version>${boot_version}</version>
   </parent>
   <groupId>smoke</groupId>
   <artifactId>${web_starter}-consumer-smoke</artifactId>
@@ -504,6 +505,22 @@ QUARKUS_POM
 consumer_mvn -f "$QUARKUS_SMOKE_DIR/pom.xml" package -Dmaven.test.skip=true
 echo "Quarkus extension smoke test passed."
 
+echo "=== Compatibility: rejected Quarkus platform below the declared minimum ==="
+QUARKUS_OLD_DIR="$WORK_DIR/quarkus-old"
+mkdir -p "$QUARKUS_OLD_DIR/src/main/java"
+sed "s|<version>${QUARKUS_VERSION}</version>|<version>3.32.4</version>|g" \
+  "$QUARKUS_SMOKE_DIR/pom.xml" > "$QUARKUS_OLD_DIR/pom.xml"
+if consumer_mvn -f "$QUARKUS_OLD_DIR/pom.xml" package -Dmaven.test.skip=true \
+  > "$QUARKUS_OLD_DIR/rejected.log" 2>&1; then
+  echo "::error::Quarkus below BootUI's declared minimum unexpectedly augmented."
+  exit 1
+fi
+if ! grep -Fq 'BOOTUI-COMPAT-010' "$QUARKUS_OLD_DIR/rejected.log"; then
+  echo "::error::Quarkus rejection did not include BootUI's compatibility diagnostic."
+  cat "$QUARKUS_OLD_DIR/rejected.log"
+  exit 1
+fi
+
 # ── 5/5: Java agent — bootui-agent ──────────────────────────────────────────────────────────────────────────
 # The published POM must give a consumer no dependency: the bridge and Byte Buddy are shaded in and declared
 # optional, and bootui-agent-bridge is never published, so the runtime classpath must hold the agent jar alone.
@@ -554,6 +571,63 @@ if ! grep -Fxq -- "$AGENT_DORMANT_LINE" "$AGENT_STDERR"; then
   exit 1
 fi
 echo "Java agent smoke test passed."
+
+# Separate supported-line evidence from the current build baseline. These are consumer fixtures,
+# not an exact-patch allowlist used by the runtime compatibility policy.
+echo "=== Compatibility: supported Spring Boot 4.0 line ==="
+SPRING_40_DIR="$WORK_DIR/spring-40"
+create_spring_smoke_project "$SPRING_40_DIR" "spring-boot-starter-web" "$MVC_PORT" "4.0.8"
+run_spring_smoke "Spring Boot 4.0" "$SPRING_40_DIR" "$MVC_PORT" "SERVLET" \
+  "org.springframework.boot.tomcat.TomcatWebServer"
+stop_app
+
+echo "=== Compatibility: rejected Spring Boot 3 generation ==="
+SPRING_3_DIR="$WORK_DIR/spring-3"
+create_spring_smoke_project "$SPRING_3_DIR" "spring-boot-starter-web" "$MVC_PORT" "3.5.0"
+cat > "$SPRING_3_DIR/src/main/java/smoke/SmokeApplication.java" <<'SPRING_3_APPLICATION'
+package smoke;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SmokeApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(SmokeApplication.class, args);
+    }
+}
+SPRING_3_APPLICATION
+consumer_mvn -q -f "$SPRING_3_DIR/pom.xml" -Dmaven.test.skip=true package
+for mode in ON OFF AUTO; do
+  rejection_log="$SPRING_3_DIR/rejected-${mode}.log"
+  java -jar "$SPRING_3_DIR/target/spring-boot-starter-web-consumer-smoke-1.jar" \
+    "--bootui.enabled=$mode" --spring.profiles.active=prod --spring.main.web-application-type=none \
+    > "$rejection_log" 2>&1 &
+  APP_PID=$!
+  deadline=$(( SECONDS + 60 ))
+  while kill -0 "$APP_PID" 2>/dev/null; do
+    if (( SECONDS > deadline )); then
+      stop_app
+      echo "::error::Spring Boot 3 did not reject within 60 seconds ($mode)."
+      cat "$rejection_log"
+      exit 1
+    fi
+    sleep 1
+  done
+  if wait "$APP_PID"; then
+    APP_PID=""
+    echo "::error::Spring Boot 3 unexpectedly started with BootUI ($mode)."
+    exit 1
+  fi
+  APP_PID=""
+  if ! grep -Fq 'BOOTUI-COMPAT-001' "$rejection_log" \
+    || ! grep -Fq 'APPLICATION FAILED TO START' "$rejection_log"; then
+    echo "::error::Spring Boot 3 did not render BootUI's compatibility failure analysis ($mode)."
+    cat "$rejection_log"
+    exit 1
+  fi
+done
+echo "Spring Boot 3 rejected with a rendered diagnostic, including OFF and production profiles."
 
 # ── Where BootUI came from ──────────────────────────────────────────────────────────────────────────────────
 # Together, the consumers above resolved every published coordinate, and only those: a parent POM, the agent

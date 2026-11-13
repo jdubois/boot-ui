@@ -845,6 +845,7 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 | `bootui.panels.vulnerabilities.read-only` | `false` | Disable on-demand OSV scan requests.                    |
 | `bootui.vulnerabilities.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
 | `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
+| `bootui.vulnerabilities.scan-timeout`        | `60s`   | Whole-scan deadline budget across OSV batch queries, advisory-detail fetches, and EPSS enrichment; when exceeded, the scan degrades to `PARTIAL` while retaining advisories fetched so far. |
 | `bootui.vulnerabilities.max-packages`        | `500`   | Maximum packages included in one OSV batch query; the excess is reported as `scan.packagesSkipped`. |
 | `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
 | `bootui.vulnerabilities.osv-base-uri`        | `https://api.osv.dev` | Base URI of the OSV.dev API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |

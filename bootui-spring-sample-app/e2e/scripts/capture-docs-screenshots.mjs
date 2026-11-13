@@ -2089,7 +2089,7 @@ const security = {
     'any request'
   ],
   filterChainsAnalyzed: 2,
-  rulesEvaluated: 54,
+  rulesEvaluated: 50,
   violationsFound: 5,
   severityCounts: [
     {severity: 'HIGH', count: 2},
@@ -2102,7 +2102,7 @@ const security = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 2 application filter chains.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 54,
+    rulesEvaluated: 50,
     filterChainsAnalyzed: 2,
     violationsFound: 5
   },
@@ -2343,7 +2343,7 @@ const quarkusSecurity = {
     '@RolesAllowed → SecureResource#secured [USER]'
   ],
   filterChainsAnalyzed: 3,
-  rulesEvaluated: 45,
+  rulesEvaluated: 44,
   violationsFound: 5,
   severityCounts: [
     {severity: 'CRITICAL', count: 1},
@@ -2356,7 +2356,7 @@ const quarkusSecurity = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 3 permission policies.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 45,
+    rulesEvaluated: 44,
     filterChainsAnalyzed: 3,
     violationsFound: 5
   },
@@ -2419,7 +2419,7 @@ const memoryAdvisor = {
   disclaimer:
     'Heuristic JVM memory, GC, and thread rules run against the live management beans only. ' +
     'Findings are review prompts; validate against the application workload and a profiler before acting.',
-  rulesEvaluated: 32,
+  rulesEvaluated: 31,
   violationsFound: 3,
   summary: {
     heapUsedPercent: 82,
@@ -2441,9 +2441,9 @@ const memoryAdvisor = {
   scan: {
     analyzer: 'BootUI Memory Advisor',
     status: 'SCANNED',
-    message: 'Memory Advisor evaluated 32 rules against the live management beans.',
+    message: 'Memory Advisor evaluated 31 rules against the live management beans.',
     scannedAt: nowMillis - 24_000,
-    rulesEvaluated: 32,
+    rulesEvaluated: 31,
     violationsFound: 3
   },
   results: [

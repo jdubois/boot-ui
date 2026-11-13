@@ -33,6 +33,8 @@ final class SpringRuleRegistry {
             new RestTemplateInUseRule(),
             new DefaultPackageComponentsRule(),
             new MutableSingletonFieldRule(),
+            new DormantResilienceAnnotationsRule(),
+            new DormantInfrastructureAnnotationsRule(),
             // Configuration
             new DebugOrTraceLoggingRule(),
             new RemovedOrRenamedPropertyRule(),
@@ -51,6 +53,9 @@ final class SpringRuleRegistry {
             new SchedulerPoolTooSmallRule(),
             new UnboundedAsyncQueueRule(),
             new VirtualThreadsBeforeJep491Rule(),
+            new VirtualThreadsExecutorBackoffRule(),
+            new IgnoredVirtualThreadPoolPropertiesRule(),
+            new IncompleteTaskShutdownTerminationRule(),
             new InMemoryCacheManagerRule(),
             // Web and HTTP
             new ResponseCompressionDisabledRule(),

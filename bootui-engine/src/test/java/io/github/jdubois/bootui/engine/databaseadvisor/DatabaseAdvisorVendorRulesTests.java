@@ -1252,6 +1252,252 @@ class DatabaseAdvisorVendorRulesTests {
                 .isEqualTo(SKIPPED);
     }
 
+    // --- DB-PG-006: PostgreSQL partitioned table with zero attached partitions ---
+
+    @Test
+    void postgresEmptyPartitionedTableRuleFlagsPartitionedParentWithNoAttachedPartitions() {
+        SchemaSnapshot postgres = vendorSchema(
+                "ds",
+                Dialect.POSTGRESQL,
+                VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_PARTITIONS,
+                        List.of(
+                                new PostgresPartitionInfo("public", "events", true, false, false),
+                                new PostgresPartitionInfo("public", "events_2026_01", false, true, false),
+                                new PostgresPartitionInfo("public", "empty_metrics", true, false, true)),
+                        false));
+        DatabaseAdvisorRuleResultDto result = new PostgresEmptyPartitionedTableRule().evaluate(context(postgres));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.severity()).isEqualTo(DatabaseAdvisorRuleSupport.HIGH);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("public.empty_metrics", "no attached partitions in pg_inherits", "every INSERT")
+                .doesNotContain("events");
+
+        SchemaSnapshot healthy = vendorSchema(
+                "ds",
+                Dialect.POSTGRESQL,
+                VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_PARTITIONS,
+                        List.of(
+                                new PostgresPartitionInfo("public", "events", true, false, false),
+                                new PostgresPartitionInfo("public", "events_2026_01", false, true, false)),
+                        false));
+        assertThat(new PostgresEmptyPartitionedTableRule()
+                        .evaluate(context(healthy))
+                        .status())
+                .isEqualTo(PASS);
+    }
+
+    @Test
+    void postgresEmptyPartitionedTableRuleSkipsBeforePostgres10WithoutCoverageWarning() {
+        SchemaSnapshot pg96 = new SchemaSnapshot(
+                "pg",
+                Dialect.POSTGRESQL,
+                "PostgreSQL",
+                DatabaseVersion.of(9, 6, "9.6"),
+                "LOWER",
+                List.of(),
+                VendorFindings.EMPTY,
+                List.of(),
+                false,
+                null);
+        DatabaseAdvisorContext context = context(pg96);
+        assertThat(new PostgresEmptyPartitionedTableRule().evaluate(context).status())
+                .isEqualTo(SKIPPED);
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    // --- DB-MYSQL-004: unenforced MySQL 8.0.16+ check constraints ---
+
+    @Test
+    void mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql() {
+        SchemaSnapshot mysql = new SchemaSnapshot(
+                "ds",
+                Dialect.MYSQL,
+                "MySQL",
+                new DatabaseVersion(8, 4, 0, "8.4.0"),
+                "LOWER",
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_UNENFORCED_CHECK_CONSTRAINTS,
+                                List.of(new MySqlUnenforcedCheckConstraint("sales", "orders", "chk_orders_total")),
+                                false))
+                        .build(),
+                List.of(),
+                false,
+                null);
+        DatabaseAdvisorRuleResultDto violation = new MySqlUnenforcedCheckConstraintRule().evaluate(context(mysql));
+        assertThat(violation.status()).isEqualTo(VIOLATION);
+        assertThat(violation.severity()).isEqualTo(DatabaseAdvisorRuleSupport.LOW);
+        assertThat(violation.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("chk_orders_total", "sales.orders", "NOT ENFORCED");
+
+        SchemaSnapshot clean = new SchemaSnapshot(
+                "ds",
+                Dialect.MYSQL,
+                "MySQL",
+                new DatabaseVersion(8, 4, 0, "8.4.0"),
+                "LOWER",
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_UNENFORCED_CHECK_CONSTRAINTS, List.of(), false))
+                        .build(),
+                List.of(),
+                false,
+                null);
+        assertThat(new MySqlUnenforcedCheckConstraintRule()
+                        .evaluate(context(clean))
+                        .status())
+                .isEqualTo(PASS);
+
+        DatabaseAdvisorContext mariadb = context(schema("maria", Dialect.MARIADB, List.of()));
+        DatabaseAdvisorRuleResultDto mariaSkipped = new MySqlUnenforcedCheckConstraintRule().evaluate(mariadb);
+        assertThat(mariaSkipped.status()).isEqualTo(SKIPPED);
+        assertThat(mariaSkipped.sampleViolations().get(0)).contains("MariaDB does not support NOT ENFORCED");
+        assertThat(mariadb.evaluationDiagnostics()).isEmpty();
+
+        SchemaSnapshot mysql57 = new SchemaSnapshot(
+                "old",
+                Dialect.MYSQL,
+                "MySQL",
+                new DatabaseVersion(5, 7, 44, "5.7.44"),
+                "LOWER",
+                List.of(),
+                VendorFindings.EMPTY,
+                List.of(),
+                false,
+                null);
+        DatabaseAdvisorContext oldContext = context(mysql57);
+        assertThat(new MySqlUnenforcedCheckConstraintRule().evaluate(oldContext).status())
+                .isEqualTo(SKIPPED);
+        assertThat(oldContext.evaluationDiagnostics()).isEmpty();
+    }
+
+    // --- DB-ORACLE-004: Oracle global indexes with orphaned entries ---
+
+    @Test
+    void oracleOrphanedIndexEntriesRuleReportsGlobalIndexesWithOrphanedEntriesAndExcludesUnusableAndDomain() {
+        SchemaSnapshot oracle = vendorSchema(
+                "ds",
+                Dialect.ORACLE,
+                VendorAugmentation.available(
+                        VendorFindingKinds.ORACLE_INDEX_DETAILS,
+                        List.of(
+                                new OracleIndexDetail(
+                                        "APP",
+                                        "ORDERS",
+                                        "IX_ORDERS_GLOBAL",
+                                        "NORMAL",
+                                        false,
+                                        "VALID",
+                                        "VISIBLE",
+                                        false,
+                                        false,
+                                        "APP",
+                                        true,
+                                        "YES"),
+                                new OracleIndexDetail(
+                                        "APP",
+                                        "ORDERS",
+                                        "IX_ORDERS_UNUSABLE",
+                                        "NORMAL",
+                                        false,
+                                        "UNUSABLE",
+                                        "VISIBLE",
+                                        false,
+                                        false,
+                                        "APP",
+                                        true,
+                                        "YES"),
+                                new OracleIndexDetail(
+                                        "APP",
+                                        "ORDERS",
+                                        "IX_ORDERS_DOMAIN",
+                                        "DOMAIN",
+                                        false,
+                                        "VALID",
+                                        "VISIBLE",
+                                        false,
+                                        false,
+                                        "APP",
+                                        true,
+                                        "YES"),
+                                new OracleIndexDetail(
+                                        "APP",
+                                        "ORDERS",
+                                        "IX_ORDERS_CLEAN",
+                                        "NORMAL",
+                                        false,
+                                        "VALID",
+                                        "VISIBLE",
+                                        false,
+                                        false,
+                                        "APP",
+                                        true,
+                                        "NO")),
+                        false));
+        DatabaseAdvisorRuleResultDto result = new OracleOrphanedIndexEntriesRule().evaluate(context(oracle));
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.severity()).isEqualTo(DatabaseAdvisorRuleSupport.LOW);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("APP.IX_ORDERS_GLOBAL", "APP.ORDERS", "ORPHANED_ENTRIES = YES")
+                .doesNotContain("IX_ORDERS_UNUSABLE", "IX_ORDERS_DOMAIN", "IX_ORDERS_CLEAN");
+
+        SchemaSnapshot clean = vendorSchema(
+                "ds",
+                Dialect.ORACLE,
+                VendorAugmentation.available(
+                        VendorFindingKinds.ORACLE_INDEX_DETAILS,
+                        List.of(new OracleIndexDetail(
+                                "APP",
+                                "ORDERS",
+                                "IX_ORDERS_CLEAN",
+                                "NORMAL",
+                                false,
+                                "VALID",
+                                "VISIBLE",
+                                false,
+                                false,
+                                "APP",
+                                true,
+                                "NO")),
+                        false));
+        assertThat(new OracleOrphanedIndexEntriesRule().evaluate(context(clean)).status())
+                .isEqualTo(PASS);
+
+        SchemaSnapshot unknown = vendorSchema(
+                "ds",
+                Dialect.ORACLE,
+                VendorAugmentation.available(
+                        VendorFindingKinds.ORACLE_INDEX_DETAILS,
+                        List.of(new OracleIndexDetail(
+                                "APP",
+                                "ORDERS",
+                                "IX_ORDERS_UNKNOWN",
+                                "NORMAL",
+                                false,
+                                "VALID",
+                                "VISIBLE",
+                                false,
+                                false,
+                                "APP",
+                                true,
+                                null)),
+                        false));
+        DatabaseAdvisorContext unknownContext = context(unknown);
+        assertThat(new OracleOrphanedIndexEntriesRule().evaluate(unknownContext).status())
+                .isEqualTo(SKIPPED);
+        assertThat(unknownContext.evaluationDiagnostics()).isNotEmpty();
+    }
+
     private static PostgresSequenceUsage pgSequence(
             long frontier,
             long start,

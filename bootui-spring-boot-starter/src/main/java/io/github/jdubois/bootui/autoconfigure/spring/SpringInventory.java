@@ -95,7 +95,9 @@ final class SpringInventory {
     private final List<Entry> entries = new ArrayList<>();
     private final Map<Fact, Object> facts = new EnumMap<>(Fact.class);
     private final Set<String> incomplete = new LinkedHashSet<>();
+    private final boolean beanIndexComplete;
     private int members;
+    private int dormantMembers;
     private boolean complete = true;
 
     private SpringInventory(ConfigurableListableBeanFactory factory) {
@@ -165,6 +167,10 @@ final class SpringInventory {
                 partial();
             }
         }
+        this.beanIndexComplete = this.complete;
+        if (!this.beanIndexComplete) {
+            facts.put(BEAN_INDEX_INCOMPLETE, true);
+        }
     }
 
     static SpringContext discover(ConfigurableListableBeanFactory factory, Environment environment, boolean reactive) {
@@ -177,9 +183,29 @@ final class SpringInventory {
         observeFactory();
         List<String> defaultPackage = new ArrayList<>();
         List<String> mutable = new ArrayList<>();
-        int handlers = inspectApplicationTypes(defaultPackage, mutable);
+        List<String> dormantResilience = new ArrayList<>();
+        List<String> dormantInfrastructure = new ArrayList<>();
+        int handlers = inspectApplicationTypes(defaultPackage, mutable, dormantResilience, dormantInfrastructure);
         boolean async = entry(ASYNC_PROCESSOR) != null;
         boolean scheduling = entry(SCHEDULED_PROCESSOR) != null;
+        boolean taskExecutionPropertiesPresent = !typed(
+                        "org.springframework.boot.autoconfigure.task.TaskExecutionProperties")
+                .isEmpty();
+        facts.put(TASK_EXECUTION_PROPERTIES, taskExecutionPropertiesPresent);
+        Entry appTaskExecutor = entry("applicationTaskExecutor");
+        boolean bootApplicationTaskExecutorPresent =
+                isBoot(appTaskExecutor, "org.springframework.boot.autoconfigure.task.");
+        if (bootApplicationTaskExecutorPresent
+                && "org.springframework.core.task.SimpleAsyncTaskExecutor"
+                        .equals(appTaskExecutor.type().getName())) {
+            facts.put(BOOT_VIRTUAL_TASK_EXECUTOR, true);
+        }
+        Entry taskScheduler = entry("taskScheduler");
+        if (isBoot(taskScheduler, "org.springframework.boot.autoconfigure.task.")
+                && "org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler"
+                        .equals(taskScheduler.type().getName())) {
+            facts.put(BOOT_VIRTUAL_TASK_SCHEDULER, true);
+        }
         observeAsync(async);
         observeScheduling(scheduling);
         observeBootConfiguration(reactive);
@@ -199,8 +225,7 @@ final class SpringInventory {
                         .map(Entry::ref)
                         .toList())
                 .taskExecutors(refs("org.springframework.core.task.TaskExecutor"))
-                .bootApplicationTaskExecutorPresent(
-                        isBoot(entry("applicationTaskExecutor"), "org.springframework.boot.autoconfigure.task."))
+                .bootApplicationTaskExecutorPresent(bootApplicationTaskExecutorPresent)
                 .executors(refs("java.util.concurrent.Executor"))
                 .dataSources(refs("javax.sql.DataSource"))
                 .pooledTaskExecutors(typed("org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor").stream()
@@ -233,6 +258,9 @@ final class SpringInventory {
                 .reactiveHandlerMethodCount(handlers)
                 .defaultPackageBeans(defaultPackage)
                 .mutableSingletonFields(mutable)
+                .dormantResilienceBeans(dormantResilience)
+                .dormantInfrastructureBeans(dormantInfrastructure)
+                .taskExecutionPropertiesPresent(taskExecutionPropertiesPresent)
                 .applicationSecurityChainPresent(applicationSecurityChain)
                 .observations(new SpringObservations(facts, List.copyOf(incomplete)))
                 .build();
@@ -341,8 +369,107 @@ final class SpringInventory {
         return new CacheManagerRef(entry.name(), type.getName());
     }
 
-    private int inspectApplicationTypes(List<String> packages, List<String> mutable) {
+    private record DormantAnnotationChecks(
+            Class<? extends Annotation> coreRetryable,
+            Class<? extends Annotation> concurrencyLimit,
+            Class<? extends Annotation> springRetryable,
+            Class<? extends Annotation> asyncAnnotation,
+            List<Class<? extends Annotation>> scheduledAnnotations,
+            List<Class<? extends Annotation>> cacheAnnotations,
+            List<Class<? extends Annotation>> txAnnotations,
+            boolean txAdvisorActive,
+            boolean txManagerPresent) {
+        boolean anyNeeded() {
+            return coreRetryable != null
+                    || concurrencyLimit != null
+                    || springRetryable != null
+                    || asyncAnnotation != null
+                    || !scheduledAnnotations.isEmpty()
+                    || !cacheAnnotations.isEmpty()
+                    || !txAnnotations.isEmpty();
+        }
+    }
+
+    private DormantAnnotationChecks buildDormantAnnotationChecks() {
+        if (!beanIndexComplete) {
+            return new DormantAnnotationChecks(null, null, null, null, List.of(), List.of(), List.of(), true, true);
+        }
+        boolean coreRetryEnabled =
+                entry("org.springframework.resilience.annotation.internalRetryAnnotationProcessor") != null
+                        || entry("retryAdvisor") != null
+                                && isType(
+                                        entry("retryAdvisor").type(),
+                                        "org.springframework.resilience.annotation.RetryAnnotationBeanPostProcessor")
+                        || !typed("org.springframework.resilience.annotation.RetryAnnotationBeanPostProcessor")
+                                .isEmpty();
+        boolean concurrencyLimitEnabled =
+                entry("org.springframework.resilience.annotation.internalConcurrencyLimitProcessor") != null
+                        || entry("concurrencyLimitAdvisor") != null
+                                && isType(
+                                        entry("concurrencyLimitAdvisor").type(),
+                                        "org.springframework.resilience.annotation.ConcurrencyLimitBeanPostProcessor")
+                        || !typed("org.springframework.resilience.annotation.ConcurrencyLimitBeanPostProcessor")
+                                .isEmpty();
+        boolean springRetryEnabled = entry("org.springframework.retry.annotation.RetryConfiguration") != null
+                || !typed("org.springframework.retry.annotation.RetryConfiguration")
+                        .isEmpty();
+        boolean asyncActive = entry(ASYNC_PROCESSOR) != null
+                || !typed("org.springframework.scheduling.annotation.AsyncAnnotationBeanPostProcessor")
+                        .isEmpty()
+                || !typed("org.springframework.aop.interceptor.AsyncExecutionAspectSupport")
+                        .isEmpty();
+        boolean schedulingActive = entry(SCHEDULED_PROCESSOR) != null
+                || !typed("org.springframework.scheduling.config.ScheduledTaskHolder")
+                        .isEmpty();
+        boolean cachingActive = entry("org.springframework.cache.config.internalCacheAdvisor") != null
+                || !typed("org.springframework.cache.interceptor.CacheAspectSupport")
+                        .isEmpty()
+                || !typed("org.springframework.cache.interceptor.BeanFactoryCacheOperationSourceAdvisor")
+                        .isEmpty();
+        boolean txAdvisorActive = entry("org.springframework.transaction.config.internalTransactionAdvisor") != null
+                || !typed("org.springframework.transaction.interceptor.TransactionAspectSupport")
+                        .isEmpty()
+                || !typed("org.springframework.transaction.interceptor.BeanFactoryTransactionAttributeSourceAdvisor")
+                        .isEmpty();
+        boolean txManagerPresent =
+                !typed("org.springframework.transaction.TransactionManager").isEmpty()
+                        || !typed("org.springframework.transaction.annotation.TransactionManagementConfigurer")
+                                .isEmpty();
+        return new DormantAnnotationChecks(
+                coreRetryEnabled ? null : presentAnnotation("org.springframework.resilience.annotation.Retryable"),
+                concurrencyLimitEnabled
+                        ? null
+                        : presentAnnotation("org.springframework.resilience.annotation.ConcurrencyLimit"),
+                springRetryEnabled ? null : presentAnnotation("org.springframework.retry.annotation.Retryable"),
+                asyncActive ? null : presentAnnotation("org.springframework.scheduling.annotation.Async"),
+                schedulingActive
+                        ? List.of()
+                        : presentAnnotations(
+                                "org.springframework.scheduling.annotation.Scheduled",
+                                "org.springframework.scheduling.annotation.Schedules"),
+                cachingActive
+                        ? List.of()
+                        : presentAnnotations(
+                                "org.springframework.cache.annotation.Cacheable",
+                                "org.springframework.cache.annotation.CachePut",
+                                "org.springframework.cache.annotation.CacheEvict",
+                                "org.springframework.cache.annotation.Caching"),
+                (txAdvisorActive && txManagerPresent)
+                        ? List.of()
+                        : presentAnnotations(
+                                "org.springframework.transaction.annotation.Transactional",
+                                "jakarta.transaction.Transactional"),
+                txAdvisorActive,
+                txManagerPresent);
+    }
+
+    private int inspectApplicationTypes(
+            List<String> packages,
+            List<String> mutable,
+            List<String> dormantResilience,
+            List<String> dormantInfrastructure) {
         int handlers = 0;
+        DormantAnnotationChecks dormantChecks = buildDormantAnnotationChecks();
         for (Entry entry : entries) {
             if (members >= MAX_TOTAL_MEMBERS) {
                 partial();
@@ -351,8 +478,11 @@ final class SpringInventory {
             Class<?> type = entry.type();
             if (!entry.application()
                     || type.getName().startsWith("io.github.jdubois.bootui.autoconfigure.")
-                    || type.getName().startsWith("org.springframework.")
-                    || type.isInterface()) continue;
+                    || type.getName().startsWith("org.springframework.")) continue;
+            if (dormantChecks.anyNeeded() && !type.getName().startsWith("java.")) {
+                inspectEntryDormantAnnotations(entry, type, dormantChecks, dormantResilience, dormantInfrastructure);
+            }
+            if (type.isInterface()) continue;
             if (type.getPackageName().isEmpty()) {
                 if (packages.size() < 50) packages.add(entry.name());
                 else partial();
@@ -392,6 +522,258 @@ final class SpringInventory {
             }
         }
         return handlers;
+    }
+
+    private void inspectEntryDormantAnnotations(
+            Entry entry,
+            Class<?> rawType,
+            DormantAnnotationChecks checks,
+            List<String> dormantResilience,
+            List<String> dormantInfrastructure) {
+        if (isType(rawType, "org.springframework.data.repository.Repository")) return;
+        Class<?> targetType = rawType;
+        if (java.lang.reflect.Proxy.isProxyClass(rawType)) {
+            Class<?> resolved = resolveProxyTargetType(entry.name());
+            if (resolved != null && !resolved.isInterface() && !java.lang.reflect.Proxy.isProxyClass(resolved)) {
+                if (resolved.getName().startsWith("io.github.jdubois.bootui.autoconfigure.")
+                        || resolved.getName().startsWith("org.springframework.")
+                        || resolved.getName().startsWith("java.")) {
+                    return;
+                }
+                targetType = resolved;
+            }
+        }
+        try {
+            Method[] publicMethods = targetType.getMethods();
+            if (!dormantBudget(publicMethods.length)) return;
+            inspectDormantAnnotations(
+                    entry, targetType, publicMethods, checks, dormantResilience, dormantInfrastructure);
+        } catch (RuntimeException | LinkageError ex) {
+            partial();
+        }
+    }
+
+    private void inspectDormantAnnotations(
+            Entry entry,
+            Class<?> type,
+            Method[] publicMethods,
+            DormantAnnotationChecks checks,
+            List<String> dormantResilience,
+            List<String> dormantInfrastructure) {
+        List<Method> methods = null;
+        if (checks.coreRetryable() != null) {
+            if (hasAnyAnnotation(type, List.of(checks.coreRetryable()))) {
+                addBoundedFinding(
+                        dormantResilience,
+                        entry.name() + " (" + type.getName()
+                                + "): @Retryable (Spring Framework 7) is present without RetryAnnotationBeanPostProcessor; add @EnableResilientMethods.");
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry,
+                        type,
+                        methods,
+                        List.of(checks.coreRetryable()),
+                        false,
+                        dormantResilience,
+                        ": @Retryable (Spring Framework 7) is present without RetryAnnotationBeanPostProcessor; add @EnableResilientMethods.");
+            }
+        }
+        if (checks.concurrencyLimit() != null) {
+            if (hasAnyAnnotation(type, List.of(checks.concurrencyLimit()))) {
+                addBoundedFinding(
+                        dormantResilience,
+                        entry.name() + " (" + type.getName()
+                                + "): @ConcurrencyLimit is present without ConcurrencyLimitBeanPostProcessor; add @EnableResilientMethods.");
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry,
+                        type,
+                        methods,
+                        List.of(checks.concurrencyLimit()),
+                        false,
+                        dormantResilience,
+                        ": @ConcurrencyLimit is present without ConcurrencyLimitBeanPostProcessor; add @EnableResilientMethods.");
+            }
+        }
+        if (checks.springRetryable() != null) {
+            if (hasAnyAnnotation(type, List.of(checks.springRetryable()))) {
+                addBoundedFinding(
+                        dormantResilience,
+                        entry.name() + " (" + type.getName()
+                                + "): @Retryable (Spring Retry) is present without RetryConfiguration; add @EnableRetry.");
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry,
+                        type,
+                        methods,
+                        List.of(checks.springRetryable()),
+                        false,
+                        dormantResilience,
+                        ": @Retryable (Spring Retry) is present without RetryConfiguration; add @EnableRetry.");
+            }
+        }
+        if (checks.asyncAnnotation() != null) {
+            if (hasAnyAnnotation(type, List.of(checks.asyncAnnotation()))) {
+                addBoundedFinding(
+                        dormantInfrastructure,
+                        entry.name() + " (" + type.getName()
+                                + "): @Async is present without AsyncAnnotationBeanPostProcessor or AsyncExecutionAspectSupport; add @EnableAsync.");
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry,
+                        type,
+                        methods,
+                        List.of(checks.asyncAnnotation()),
+                        false,
+                        dormantInfrastructure,
+                        ": @Async is present without AsyncAnnotationBeanPostProcessor or AsyncExecutionAspectSupport; add @EnableAsync.");
+            }
+        }
+        if (!checks.scheduledAnnotations().isEmpty()) {
+            if (hasAnyAnnotation(type, checks.scheduledAnnotations())) {
+                addBoundedFinding(
+                        dormantInfrastructure,
+                        entry.name() + " (" + type.getName()
+                                + "): @Scheduled is present without ScheduledAnnotationBeanPostProcessor; add @EnableScheduling.");
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry,
+                        type,
+                        methods,
+                        checks.scheduledAnnotations(),
+                        true,
+                        dormantInfrastructure,
+                        ": @Scheduled is present without ScheduledAnnotationBeanPostProcessor; add @EnableScheduling.");
+            }
+        }
+        if (!checks.cacheAnnotations().isEmpty()) {
+            if (hasAnyAnnotation(type, checks.cacheAnnotations())) {
+                addBoundedFinding(
+                        dormantInfrastructure,
+                        entry.name() + " (" + type.getName()
+                                + "): Spring cache annotation is present without CacheAspectSupport/internalCacheAdvisor; add @EnableCaching.");
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry,
+                        type,
+                        methods,
+                        checks.cacheAnnotations(),
+                        false,
+                        dormantInfrastructure,
+                        ": Spring cache annotation is present without CacheAspectSupport/internalCacheAdvisor; add @EnableCaching.");
+            }
+        }
+        if (!checks.txAnnotations().isEmpty()) {
+            String suffix = !checks.txAdvisorActive() && !checks.txManagerPresent()
+                    ? ": @Transactional is present without TransactionAspectSupport or a TransactionManager bean; add @EnableTransactionManagement and configure a TransactionManager."
+                    : !checks.txAdvisorActive()
+                            ? ": @Transactional is present without TransactionAspectSupport/internalTransactionAdvisor; add @EnableTransactionManagement."
+                            : ": @Transactional is present without a TransactionManager bean in the context.";
+            if (hasAnyAnnotation(type, checks.txAnnotations())) {
+                addBoundedFinding(dormantInfrastructure, entry.name() + " (" + type.getName() + ")" + suffix);
+            } else {
+                methods = methods != null ? methods : candidateMethods(type, publicMethods);
+                recordMethodAnnotations(
+                        entry, type, methods, checks.txAnnotations(), false, dormantInfrastructure, suffix);
+            }
+        }
+    }
+
+    private void recordMethodAnnotations(
+            Entry entry,
+            Class<?> type,
+            List<Method> methods,
+            List<Class<? extends Annotation>> annotations,
+            boolean includePrivate,
+            List<String> targetList,
+            String messageSuffix) {
+        Set<String> seenMethodNames = new HashSet<>();
+        for (Method method : methods) {
+            if (!includePrivate && Modifier.isPrivate(method.getModifiers())) continue;
+            if (hasAnyAnnotation(method, annotations) && seenMethodNames.add(method.getName())) {
+                if (!addBoundedFinding(
+                        targetList,
+                        entry.name() + " (" + type.getName() + "#" + method.getName() + ")" + messageSuffix)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private boolean addBoundedFinding(List<String> list, String detail) {
+        if (list.size() >= 50) {
+            partial();
+            return false;
+        }
+        list.add(SpringRuleSupport.detail(detail));
+        return true;
+    }
+
+    private List<Method> candidateMethods(Class<?> type, Method[] publicMethods) {
+        List<Method> result = new ArrayList<>(publicMethods.length);
+        for (Method method : publicMethods) {
+            if (method.getDeclaringClass() != Object.class
+                    && !method.isBridge()
+                    && !method.isSynthetic()
+                    && !Modifier.isStatic(method.getModifiers())) {
+                result.add(method);
+            }
+        }
+        Class<?> owner = type.isInterface() || java.lang.reflect.Proxy.isProxyClass(type) ? null : type;
+        int depth = 0;
+        while (owner != null && owner != Object.class && !owner.getName().startsWith("java.")) {
+            if (++depth > 16) {
+                partial();
+                break;
+            }
+            Method[] declared = owner.getDeclaredMethods();
+            int nonPublic = 0;
+            for (Method method : declared) {
+                if (!Modifier.isPublic(method.getModifiers())) {
+                    nonPublic++;
+                }
+            }
+            if (declared.length > MAX_MEMBERS || !dormantBudget(nonPublic)) {
+                partial();
+                break;
+            }
+            for (Method method : declared) {
+                int mods = method.getModifiers();
+                if (Modifier.isPublic(mods) || Modifier.isStatic(mods) || method.isBridge() || method.isSynthetic()) {
+                    continue;
+                }
+                result.add(method);
+            }
+            owner = owner.getSuperclass();
+        }
+        result.sort(java.util.Comparator.comparing(Method::getName)
+                .thenComparing(m -> Arrays.toString(m.getParameterTypes())));
+        return result;
+    }
+
+    private static boolean hasAnyAnnotation(
+            java.lang.reflect.AnnotatedElement element, List<Class<? extends Annotation>> annotations) {
+        for (Class<? extends Annotation> annotation : annotations) {
+            if (AnnotatedElementUtils.findMergedAnnotation(element, annotation) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean dormantBudget(int count) {
+        dormantMembers += count;
+        if (count > MAX_MEMBERS || dormantMembers > MAX_TOTAL_MEMBERS) {
+            partial();
+            return false;
+        }
+        return true;
     }
 
     private boolean boundFactoryMethod(Entry entry) {
@@ -584,36 +966,46 @@ final class SpringInventory {
                 if (definition.getFactoryMethodName() == null) {
                     if (definition instanceof AbstractBeanDefinition abd && abd.hasBeanClass()) {
                         Class<?> beanClass = ClassUtils.getUserClass(abd.getBeanClass());
-                        if (!beanClass.isInterface() && !java.lang.reflect.Proxy.isProxyClass(beanClass)) {
+                        if (!beanClass.isInterface()
+                                && !java.lang.reflect.Proxy.isProxyClass(beanClass)
+                                && !org.springframework.beans.factory.FactoryBean.class.isAssignableFrom(beanClass)) {
                             return beanClass;
                         }
                     }
                     if (definition.getBeanClassName() != null) {
                         Class<?> resolved = ClassUtils.getUserClass(ClassUtils.resolveClassName(
                                 definition.getBeanClassName(), factory.getBeanClassLoader()));
-                        if (!resolved.isInterface() && !java.lang.reflect.Proxy.isProxyClass(resolved)) {
+                        if (!resolved.isInterface()
+                                && !java.lang.reflect.Proxy.isProxyClass(resolved)
+                                && !org.springframework.beans.factory.FactoryBean.class.isAssignableFrom(resolved)) {
                             return resolved;
                         }
                     }
                 }
                 if (definition instanceof RootBeanDefinition root && root.getTargetType() != null) {
                     Class<?> targetType = ClassUtils.getUserClass(root.getTargetType());
-                    if (!targetType.isInterface() && !java.lang.reflect.Proxy.isProxyClass(targetType)) {
+                    if (!targetType.isInterface()
+                            && !java.lang.reflect.Proxy.isProxyClass(targetType)
+                            && !org.springframework.beans.factory.FactoryBean.class.isAssignableFrom(targetType)) {
                         return targetType;
                     }
                 }
             }
             Object singleton = factory.getSingleton(name);
-            Class<?> advised = present("org.springframework.aop.framework.Advised");
-            Class<?> targetSourceType = present("org.springframework.aop.TargetSource");
-            if (singleton != null && advised != null && targetSourceType != null && advised.isInstance(singleton)) {
-                Object targetSource = advised.getMethod("getTargetSource").invoke(singleton);
-                if (targetSource != null
-                        && Boolean.TRUE.equals(
-                                targetSourceType.getMethod("isStatic").invoke(targetSource))) {
-                    Object target = targetSourceType.getMethod("getTarget").invoke(targetSource);
-                    if (target != null && target != singleton) {
-                        return ClassUtils.getUserClass(target.getClass());
+            if (singleton != null && java.lang.reflect.Proxy.isProxyClass(singleton.getClass())) {
+                Object handler = java.lang.reflect.Proxy.getInvocationHandler(singleton);
+                Class<?> advisedSupportType = present("org.springframework.aop.framework.AdvisedSupport");
+                if (exact(handler, "org.springframework.aop.framework.JdkDynamicAopProxy")
+                        && advisedSupportType != null) {
+                    Object advised = field(handler, handler.getClass(), "advised");
+                    if (advised != null && advisedSupportType.isInstance(advised)) {
+                        Object targetSource = field(advised, advisedSupportType, "targetSource");
+                        if (exact(targetSource, "org.springframework.aop.target.SingletonTargetSource")) {
+                            Object target = field(targetSource, targetSource.getClass(), "target");
+                            if (target != null && target != singleton) {
+                                return ClassUtils.getUserClass(target.getClass());
+                            }
+                        }
                     }
                 }
             }
@@ -1334,6 +1726,21 @@ final class SpringInventory {
         } catch (ClassNotFoundException | LinkageError ex) {
             return null;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Class<? extends Annotation> presentAnnotation(String name) {
+        Class<?> type = present(name);
+        return type != null && Annotation.class.isAssignableFrom(type) ? (Class<? extends Annotation>) type : null;
+    }
+
+    private static List<Class<? extends Annotation>> presentAnnotations(String... names) {
+        List<Class<? extends Annotation>> result = new ArrayList<>(names.length);
+        for (String name : names) {
+            Class<? extends Annotation> type = presentAnnotation(name);
+            if (type != null) result.add(type);
+        }
+        return List.copyOf(result);
     }
 
     private static boolean hasAnnotation(Class<?> type, String name) {

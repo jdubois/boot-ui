@@ -295,4 +295,20 @@ class KotlinArchitectureRulesTests {
             assertThat(location.kind()).isEqualTo("METHOD");
         });
     }
+
+    @Test
+    void cacheableRuleFlagsUnitReturningKotlinFunctionsAndAllowsValueReturningSuspendFunctions() {
+        ArchitectureRuleResultDto result = evaluate(new CacheableAndCachePutMethodsShouldNotReturnVoidRule());
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-027");
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("cacheVoidOrder"))
+                .anySatisfy(sample -> assertThat(sample).contains("cacheSuspendUnitOrder"))
+                .anySatisfy(sample -> assertThat(sample).contains("quarkusCacheSuspendUnitOrder"))
+                .noneSatisfy(sample -> assertThat(sample).contains("cacheSuspendValuedOrder"))
+                .noneSatisfy(sample -> assertThat(sample).contains("quarkusCacheSuspendValuedOrder"))
+                .noneSatisfy(sample -> assertThat(sample).contains("$suspendImpl"));
+    }
 }

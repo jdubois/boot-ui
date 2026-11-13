@@ -1,8 +1,30 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
 import java.util.List;
+import java.util.Set;
 
 final class SecurityRuleRegistry {
+
+    /**
+     * Rule IDs that were removed from the catalogue. They stay reserved so existing dismissals never silently apply
+     * to a different check; see docs/SECURITY-CHECKS.md.
+     */
+    static final Set<String> RETIRED_RULE_IDS = Set.of(
+            "SEC-AUTH-003",
+            "SEC-AUTH-005",
+            "SEC-SESSION-005",
+            "SEC-SESSION-007",
+            "SEC-SESSION-009",
+            "SEC-HEAD-005",
+            "SEC-HEAD-006",
+            "SEC-HEAD-010",
+            "SEC-CORS-003",
+            "SEC-CORS-004",
+            "SEC-ACT-004",
+            "SEC-OAUTH-001",
+            "SEC-CONFIG-003",
+            "SEC-CONFIG-004",
+            "SEC-CONFIG-005");
 
     private static final List<SecurityRule> ACTIVE_RULES = List.of(
             // Authentication & passwords
@@ -29,7 +51,6 @@ final class SecurityRuleRegistry {
             new SessionCookieHttpOnlyRule(),
             new SessionCookieSameSiteRule(),
             new BearerTokenStatefulRule(),
-            new ConcurrentSessionControlRule(),
             new WeakRememberMeKeyRule(),
             // Transport & security headers
             new HstsHeaderRule(),
@@ -39,7 +60,6 @@ final class SecurityRuleRegistry {
             new HeaderWritersDisabledRule(),
             new WeakHstsPolicyRule(),
             new WeakContentSecurityPolicyRule(),
-            new CrossOriginIsolationHeadersRule(),
             // CORS
             new CorsWildcardOriginRule(),
             new CorsWildcardWithCredentialsRule(),
@@ -51,7 +71,6 @@ final class SecurityRuleRegistry {
             new ActuatorWildcardExposureRule(),
             new ActuatorSensitiveExposureRule(),
             new ActuatorUnprotectedRule(),
-            new HealthDetailsExposureRule(),
             new ShutdownEndpointEnabledRule(),
             new ManagementPortIsolationRule(),
             new ActuatorShowValuesRule(),
@@ -64,7 +83,6 @@ final class SecurityRuleRegistry {
             // Configuration hygiene
             new SecurityDebugRule(),
             new H2ConsoleFrameOptionsRule(),
-            new ErrorResponseDisclosureRule(),
             new HttpsEnforcementRule(),
             new HardcodedSecretPropertyRule(),
             new StrictHttpFirewallWeakenedRule(),

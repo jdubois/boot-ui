@@ -917,6 +917,7 @@ public class BootUiEngineConfiguration {
                 Clock.systemUTC());
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         scanner.setSpringWebStack(() -> springWebStack(applicationContext));
+        scanner.setSpringDataPageViaDtoConfigured(() -> isSpringDataPageViaDtoConfigured(environment));
         return scanner;
     }
 
@@ -2068,6 +2069,11 @@ public class BootUiEngineConfiguration {
             return RestApiScanner.SpringWebStack.SERVLET;
         }
         return RestApiScanner.SpringWebStack.UNKNOWN;
+    }
+
+    static boolean isSpringDataPageViaDtoConfigured(Environment environment) {
+        String mode = environment.getProperty("spring.data.web.pageable.serialization-mode");
+        return mode != null && ("via_dto".equalsIgnoreCase(mode.trim()) || "via-dto".equalsIgnoreCase(mode.trim()));
     }
 
     private static boolean isSpringApiVersioningConfigured(

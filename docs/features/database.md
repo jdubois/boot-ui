@@ -14,8 +14,8 @@ For each pool it shows the identity and library, the masked JDBC URL and usernam
 sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry an unavailable reason. A live chart
 polls bounded snapshots of active, idle, total, and pending connections every two seconds.
 
-The panel only shows settings; it never judges them. Whether the pool's lifetime, keepalive and size agree with the
-database server's limits is checked by the
+The panel only shows settings; it never judges them. Whether the pool's lifetime, keepalive, acquisition timeout and
+size agree with the database server's limits is checked by the
 [Connection pool rules](../DATABASE-ADVISOR-CHECKS.md#connection-pool) of the Database advisor.
 
 The connections each request held at once are in [Runtime Insights](runtime-insights.md) (`connections-per-request`);
@@ -143,8 +143,9 @@ PostgreSQL-and-Redis stack.
 
 The MySQL panel is the operational sibling of the PostgreSQL panel. It reports what the connected server says, from
 MySQL's own Performance Schema and Information Schema. That complements the Database advisor's schema checks and SQL
-Trace's view of the statements this JVM issued. When the Performance Schema is off, the Database advisor's
-[Server rules](../DATABASE-ADVISOR-CHECKS.md#server) say so (`DB-SERVER-007`); the panel itself only reports it.
+Trace's view of the statements this JVM issued. When the Performance Schema is off or strict transactional `sql_mode`
+is disabled, the Database advisor's [Server rules](../DATABASE-ADVISOR-CHECKS.md#server) say so (`DB-SERVER-007`,
+`DB-SERVER-008`); the panel itself only reports the raw settings.
 
 Each datasource is one card, with vital signs in view and the other sections as tabs. A section that could not be read
 names its reason, so incomplete evidence never reads as an idle server. There are no grades, severities, or

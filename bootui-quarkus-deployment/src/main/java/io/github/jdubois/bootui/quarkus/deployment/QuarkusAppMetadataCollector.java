@@ -72,8 +72,24 @@ final class QuarkusAppMetadataCollector {
             DotName.createSimple("io.quarkus.websockets.next.OnPongMessage"),
             DotName.createSimple("io.quarkus.websockets.next.OnClose"),
             DotName.createSimple("io.quarkus.websockets.next.OnError"));
-    private static final List<String> ALL_RULES =
-            List.of("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002", "QA-WEB-003");
+    private static final List<String> ALL_RULES = List.of(
+            "QA-CDI-002",
+            "QA-CDI-003",
+            "QA-CDI-004",
+            "QA-CDI-005",
+            "QA-CDI-006",
+            "QA-PERF-002",
+            "QA-PERF-003",
+            "QA-PERF-004",
+            "QA-WEB-003");
+    private static final Set<DotName> REACTIVE_RETURN_TYPES = Set.of(
+            DotName.createSimple("io.smallrye.mutiny.Uni"),
+            DotName.createSimple("io.smallrye.mutiny.Multi"),
+            DotName.createSimple("java.util.concurrent.CompletionStage"),
+            DotName.createSimple("java.util.concurrent.CompletableFuture"),
+            DotName.createSimple("java.util.concurrent.Flow$Publisher"),
+            DotName.createSimple("org.reactivestreams.Publisher"));
+    private static final DotName REST_RESPONSE = DotName.createSimple("org.jboss.resteasy.reactive.RestResponse");
 
     private static final Set<String> IMMUTABLE_VALUE_TYPES = Set.of(
             "java.lang.String",
@@ -227,6 +243,8 @@ final class QuarkusAppMetadataCollector {
                 // A nondeterministic stream prefix must not be presented as a deterministic application inventory.
                 beans.clear();
                 state.clients.clear();
+                state.unproxyableBeans.clear();
+                state.defaultPackageBeans.clear();
                 state.problem(ALL_RULES, QuarkusAppMetadataStore.INCOMPLETE);
                 return beans;
             }
@@ -239,7 +257,25 @@ final class QuarkusAppMetadataCollector {
                     state.problem(ALL_RULES, QuarkusAppMetadataStore.INCOMPLETE);
                 } else {
                     beans.put(name, bean);
+                    String pkg = bean.getBeanClass().packagePrefix();
+                    if (pkg == null || pkg.isEmpty()) {
+                        state.defaultPackageBeans.add(name);
+                    }
+                    if (bean.getScope().isNormal()) {
+                        ClassInfo beanClass = bean.getTarget()
+                                .filter(t -> t.kind() == AnnotationTarget.Kind.CLASS)
+                                .map(AnnotationTarget::asClass)
+                                .orElseGet(() -> combined.getClassByName(bean.getBeanClass()));
+                        if (beanClass != null && isUnproxyableNormalScopedClass(bean, beanClass, combined)) {
+                            state.unproxyableBeans.add(name);
+                        }
+                    }
                 }
+            } else if ((bean.isProducerMethod() || bean.isProducerField())
+                    && bean.getBeanClass() != null
+                    && application.getClassByName(bean.getBeanClass()) != null
+                    && bean.getScope().isNormal()) {
+                collectUnproxyableProducer(bean, combined, state);
             }
             if (state.restClientSupported
                     && bean.getQualifiers().stream()
@@ -306,13 +342,17 @@ final class QuarkusAppMetadataCollector {
             return resources; // Quarkus REST produces neither build item when there are no resources.
         }
         if (entries.isEmpty() || endpoints.isEmpty()) {
-            state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.UNRESOLVED);
+            state.problem(
+                    List.of("QA-CDI-002", "QA-PERF-002", "QA-PERF-003", "QA-PERF-004"),
+                    QuarkusAppMetadataStore.UNRESOLVED);
             return resources;
         }
         if (entries.get().getEntries().size() > MAX_MEMBERS
                 || endpoints.get().getResourceClasses().size() > MAX_CLASSES
                 || endpoints.get().getSubResourceClasses().size() > MAX_CLASSES) {
-            state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+            state.problem(
+                    List.of("QA-CDI-002", "QA-PERF-002", "QA-PERF-003", "QA-PERF-004"),
+                    QuarkusAppMetadataStore.INCOMPLETE);
             return resources;
         }
         Set<String> rootClasses = new HashSet<>();
@@ -342,7 +382,9 @@ final class QuarkusAppMetadataCollector {
             try {
                 state.members.take();
             } catch (LimitReached exception) {
-                state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+                state.problem(
+                        List.of("QA-CDI-002", "QA-PERF-002", "QA-PERF-003", "QA-PERF-004"),
+                        QuarkusAppMetadataStore.INCOMPLETE);
                 break;
             }
             if (entry.getActualClassInfo() == null || entry.getResourceMethod().getHttpMethod() == null) {
@@ -364,12 +406,21 @@ final class QuarkusAppMetadataCollector {
                     MethodInfo implementation = endpointImplementation(entry, combined);
                     if (implementation == null || Modifier.isAbstract(implementation.flags())) {
                         state.problem(List.of("QA-PERF-002"), QuarkusAppMetadataStore.UNRESOLVED);
+                        MethodInfo declared = entry.getMethodInfo();
+                        if (declared != null && isReactiveReturnType(declared.returnType())) {
+                            addBoundedMethod(state.reactiveVirtualMethods, methodId(owner, declared));
+                        }
                         continue;
+                    }
+                    String methodId = methodId(owner, implementation);
+                    addBoundedMethod(state.allVirtualMethods, methodId);
+                    if (isReactiveReturnType(implementation.returnType())
+                            || isReactiveReturnType(entry.getMethodInfo().returnType())) {
+                        addBoundedMethod(state.reactiveVirtualMethods, methodId);
                     }
                     if (!Modifier.isSynchronized(implementation.flags())) {
                         continue;
                     }
-                    String methodId = methodId(owner, implementation);
                     if (methodId.length() > remainingMethodCharacters) {
                         throw new LimitReached();
                     }
@@ -377,7 +428,8 @@ final class QuarkusAppMetadataCollector {
                         remainingMethodCharacters -= methodId.length();
                     }
                 } catch (LimitReached exception) {
-                    state.problem(List.of("QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+                    state.problem(
+                            List.of("QA-PERF-002", "QA-PERF-003", "QA-PERF-004"), QuarkusAppMetadataStore.INCOMPLETE);
                 }
             }
         }
@@ -404,16 +456,23 @@ final class QuarkusAppMetadataCollector {
                     for (MethodInfo method : current.methods().stream()
                             .sorted(Comparator.comparing(MethodInfo::name).thenComparing(MethodInfo::toString))
                             .toList()) {
-                        if (!Modifier.isSynchronized(method.flags())
-                                || Modifier.isStatic(method.flags())
+                        if (Modifier.isStatic(method.flags())
                                 || Modifier.isAbstract(method.flags())
                                 || method.isSynthetic()) {
                             continue;
                         }
-                        if (!isNonRestVirtualThreadEntryMethod(method, classVirtualThread)) {
+                        boolean nonRestEntry = isNonRestVirtualThreadEntryMethod(method, classVirtualThread);
+                        if (!nonRestEntry) {
                             continue;
                         }
                         String methodId = methodId(owner, method);
+                        addBoundedMethod(state.allVirtualMethods, methodId);
+                        if (isReactiveReturnType(method.returnType())) {
+                            addBoundedMethod(state.reactiveVirtualMethods, methodId);
+                        }
+                        if (!Modifier.isSynchronized(method.flags())) {
+                            continue;
+                        }
                         if (methodId.length() > remainingMethodCharacters) {
                             throw new LimitReached();
                         }
@@ -430,9 +489,162 @@ final class QuarkusAppMetadataCollector {
                     current = index.getClassByName(parent);
                 }
             } catch (LimitReached exception) {
-                state.problem(List.of("QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+                state.problem(List.of("QA-PERF-002", "QA-PERF-003", "QA-PERF-004"), QuarkusAppMetadataStore.INCOMPLETE);
                 return;
             }
+        }
+    }
+
+    private static void addBoundedMethod(Set<String> target, String methodId) {
+        if (methodId.length() > QuarkusAppMetadataStore.MAX_STRING_BYTES || target.size() >= MAX_MEMBERS) {
+            throw new LimitReached();
+        }
+        target.add(methodId);
+    }
+
+    private static boolean isReactiveReturnType(Type returnType) {
+        if (returnType == null) {
+            return false;
+        }
+        Type candidate = returnType;
+        if (candidate.kind() == Type.Kind.PARAMETERIZED_TYPE
+                && candidate.name().equals(REST_RESPONSE)
+                && !candidate.asParameterizedType().arguments().isEmpty()) {
+            candidate = candidate.asParameterizedType().arguments().get(0);
+        }
+        return REACTIVE_RETURN_TYPES.contains(candidate.name());
+    }
+
+    private static void collectUnproxyableProducer(BeanInfo bean, IndexView combined, State state) {
+        AnnotationTarget target = bean.getTarget().orElse(null);
+        if (target == null) {
+            return;
+        }
+        try {
+            if (bean.isProducerMethod() && target.kind() == AnnotationTarget.Kind.METHOD) {
+                MethodInfo method = target.asMethod();
+                if (isUnproxyableProducerReturnType(bean, method.returnType(), combined)) {
+                    String id = methodId(bean.getBeanClass().toString(), method);
+                    addBoundedMethod(state.unproxyableBeans, id);
+                }
+            } else if (bean.isProducerField() && target.kind() == AnnotationTarget.Kind.FIELD) {
+                FieldInfo field = target.asField();
+                if (isUnproxyableProducerReturnType(bean, field.type(), combined)) {
+                    String id = bean.getBeanClass().toString() + "." + field.name();
+                    addBoundedMethod(state.unproxyableBeans, id);
+                }
+            }
+        } catch (LimitReached exception) {
+            state.problem(List.of("QA-CDI-005"), QuarkusAppMetadataStore.INCOMPLETE);
+        }
+    }
+
+    private static boolean isUnproxyableProducerReturnType(BeanInfo bean, Type returnType, IndexView combined) {
+        if (returnType == null
+                || returnType.kind() == Type.Kind.PRIMITIVE
+                || returnType.kind() == Type.Kind.ARRAY
+                || returnType.kind() == Type.Kind.VOID) {
+            return false;
+        }
+        DotName typeName = returnType.name();
+        ClassInfo typeInfo = combined == null ? null : combined.getClassByName(typeName);
+        if (typeName.toString().startsWith("java.")) {
+            if (typeInfo != null) {
+                return !Modifier.isInterface(typeInfo.flags());
+            }
+            try {
+                Class<?> clazz =
+                        Class.forName(typeName.toString(), false, QuarkusAppMetadataCollector.class.getClassLoader());
+                return !clazz.isInterface();
+            } catch (ClassNotFoundException | RuntimeException | LinkageError ignored) {
+                return false;
+            }
+        }
+        return typeInfo != null && isUnproxyableNormalScopedClass(bean, typeInfo, combined);
+    }
+
+    private static boolean isUnproxyableNormalScopedClass(BeanInfo bean, ClassInfo typeInfo, IndexView combined) {
+        if (Modifier.isInterface(typeInfo.flags())) {
+            return false;
+        }
+        if (typeInfo.name().toString().startsWith("java.")) {
+            return true;
+        }
+        if (hasRuntimeDeferredUnproxyableError(bean)) {
+            return true;
+        }
+        if (typeInfo.isSealed()) {
+            return true;
+        }
+        boolean transformUnproxyable = isTransformUnproxyableClasses(bean);
+        if (typeInfo.isFinal() && !typeInfo.isRecord() && !transformUnproxyable) {
+            return true;
+        }
+        MethodInfo noArgs = typeInfo.method("<init>");
+        if (noArgs == null) {
+            if (!transformUnproxyable) {
+                return true;
+            }
+            DotName superName = typeInfo.superName();
+            if (superName != null && !superName.toString().equals("java.lang.Object")) {
+                return !superHasAccessibleNoArgsConstructor(superName, combined);
+            }
+            return false;
+        }
+        return Modifier.isPrivate(noArgs.flags()) && !transformUnproxyable;
+    }
+
+    private static boolean superHasAccessibleNoArgsConstructor(DotName superName, IndexView combined) {
+        if (combined != null) {
+            ClassInfo superClass = combined.getClassByName(superName);
+            if (superClass != null) {
+                MethodInfo superNoArgs = superClass.method("<init>");
+                return superNoArgs != null && !Modifier.isPrivate(superNoArgs.flags());
+            }
+        }
+        String name = superName.toString();
+        if (name.startsWith("java.") || name.startsWith("jakarta.")) {
+            try {
+                Class<?> superClazz = Class.forName(name, false, QuarkusAppMetadataCollector.class.getClassLoader());
+                var ctor = superClazz.getDeclaredConstructor();
+                return !Modifier.isPrivate(ctor.getModifiers());
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasRuntimeDeferredUnproxyableError(BeanInfo bean) {
+        try {
+            var getDeployment = BeanInfo.class.getDeclaredMethod("getDeployment");
+            getDeployment.setAccessible(true);
+            Object deployment = getDeployment.invoke(bean);
+            if (deployment == null) {
+                return false;
+            }
+            var hasDeferred =
+                    deployment.getClass().getDeclaredMethod("hasRuntimeDeferredUnproxyableError", BeanInfo.class);
+            hasDeferred.setAccessible(true);
+            return Boolean.TRUE.equals(hasDeferred.invoke(deployment, bean));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isTransformUnproxyableClasses(BeanInfo bean) {
+        try {
+            var getDeployment = BeanInfo.class.getDeclaredMethod("getDeployment");
+            getDeployment.setAccessible(true);
+            Object deployment = getDeployment.invoke(bean);
+            if (deployment == null) {
+                return true;
+            }
+            var field = deployment.getClass().getDeclaredField("transformUnproxyableClasses");
+            field.setAccessible(true);
+            return field.getBoolean(deployment);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return true;
         }
     }
 
@@ -703,6 +915,10 @@ final class QuarkusAppMetadataCollector {
         private final Budget fieldCharacters = new Budget(QuarkusAppMetadataStore.MAX_RESOURCE_BYTES / 3);
         private final List<SharedField> fields = new ArrayList<>();
         private final Set<String> virtualMethods = new TreeSet<>();
+        private final Set<String> reactiveVirtualMethods = new TreeSet<>();
+        private final Set<String> allVirtualMethods = new TreeSet<>();
+        private final Set<String> unproxyableBeans = new TreeSet<>();
+        private final Set<String> defaultPackageBeans = new TreeSet<>();
         private final Map<String, RestClient> clients = new TreeMap<>();
         private final Set<QuarkusAppEvidenceProblem> problems =
                 new TreeSet<>(Comparator.comparing(QuarkusAppEvidenceProblem::ruleId)
@@ -740,7 +956,11 @@ final class QuarkusAppMetadataCollector {
                     fields,
                     List.copyOf(virtualMethods),
                     List.copyOf(clients.values()),
-                    List.copyOf(problems));
+                    List.copyOf(problems),
+                    List.copyOf(unproxyableBeans),
+                    List.copyOf(defaultPackageBeans),
+                    List.copyOf(reactiveVirtualMethods),
+                    List.copyOf(allVirtualMethods));
         }
     }
 }

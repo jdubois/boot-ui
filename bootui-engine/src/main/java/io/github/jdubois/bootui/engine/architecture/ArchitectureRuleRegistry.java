@@ -55,7 +55,10 @@ final class ArchitectureRuleRegistry {
             new NoDirectThreadInstantiationRule(),
             new StaticInjectionPointsAreIgnoredRule(),
             new LegacyJavaxInjectionAnnotationsShouldBeMigratedRule(),
-            new HttpClientsShouldUseBootBuildersRule());
+            new HttpClientsShouldUseBootBuildersRule(),
+            new CacheableAndCachePutMethodsShouldNotReturnVoidRule(),
+            new ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule(),
+            new NoSharedStatefulJdkFormattersAndParsersRule());
 
     private ArchitectureRuleRegistry() {}
 

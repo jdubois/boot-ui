@@ -35,15 +35,21 @@ class QuarkusAppScannerTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
     private static final Set<String> CONFIG_RULES = Set.of(
+            "QA-CDI-007",
             "QA-CFG-002",
             "QA-CFG-003",
             "QA-CFG-004",
             "QA-CFG-005",
+            "QA-CFG-006",
+            "QA-CFG-007",
             "QA-PROD-002",
             "QA-PROD-003",
+            "QA-DB-002",
             "QA-WEB-001",
             "QA-WEB-003",
-            "QA-WEB-004");
+            "QA-WEB-004",
+            "QA-WEB-005",
+            "QA-PERF-005");
     private static final Set<String> RETIRED_RULES = QuarkusAppChecks.RETIRED_RULES;
 
     private static final class Snap {
@@ -72,6 +78,94 @@ class QuarkusAppScannerTest {
             return this;
         }
 
+        Snap unproxyableBeans(String... beans) {
+            metadata = new QuarkusAppMetadata(
+                    true,
+                    4,
+                    2,
+                    0,
+                    0,
+                    8,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(beans),
+                    List.of(),
+                    List.of(),
+                    List.of());
+            return this;
+        }
+
+        Snap defaultPackageBeans(String... beans) {
+            metadata = new QuarkusAppMetadata(
+                    true,
+                    4,
+                    2,
+                    0,
+                    0,
+                    8,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(beans),
+                    List.of(),
+                    List.of());
+            return this;
+        }
+
+        Snap reactiveVirtualMethods(String... methods) {
+            metadata = new QuarkusAppMetadata(
+                    true,
+                    4,
+                    2,
+                    0,
+                    0,
+                    8,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(methods),
+                    List.of());
+            return this;
+        }
+
+        Snap virtualThreadMethods(String... methods) {
+            metadata = new QuarkusAppMetadata(
+                    true,
+                    4,
+                    2,
+                    0,
+                    0,
+                    8,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(methods));
+            return this;
+        }
+
         Snap metadataProblem(String rule) {
             metadata = new QuarkusAppMetadata(
                     metadata.available(),
@@ -86,7 +180,11 @@ class QuarkusAppScannerTest {
                     metadata.sharedFields(),
                     metadata.synchronizedVirtualThreadMethods(),
                     metadata.restClients(),
-                    List.of(new QuarkusAppEvidenceProblem(rule, "password=must-not-be-rendered")));
+                    List.of(new QuarkusAppEvidenceProblem(rule, "password=must-not-be-rendered")),
+                    metadata.unproxyableNormalScopedBeans(),
+                    metadata.defaultPackageBeans(),
+                    metadata.reactiveVirtualThreadMethods(),
+                    metadata.virtualThreadMethods());
             return this;
         }
 
@@ -179,7 +277,7 @@ class QuarkusAppScannerTest {
                 true, 0, 0, 0, 0, 8, false, false, false, List.of(), List.of(), List.of(), List.of());
         snap.runtimeJdk = 24;
         SpringReport report = scan(snap);
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(23);
         assertThat(report.inspected()).isNotEmpty();
         assertThat(report.evidence().usable()).isFalse();
         assertThat(report.evidence().coverageComplete()).isTrue();
@@ -203,7 +301,7 @@ class QuarkusAppScannerTest {
         assertThat(report.evidence().usable()).isTrue();
         assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
-        assertThat(report.rulesEvaluated()).isEqualTo(6);
+        assertThat(report.rulesEvaluated()).isEqualTo(16);
     }
 
     @Test
@@ -254,7 +352,7 @@ class QuarkusAppScannerTest {
     }
 
     @Test
-    void auditedCatalogKeepsThirteenIdentifiersAndRetiresEightWithoutReuse() {
+    void auditedCatalogKeepsTwentyThreeIdentifiersAndRetiresEightWithoutReuse() {
         assertThat(QuarkusAppChecks.RETIRED_RULES)
                 .containsExactlyInAnyOrder(
                         "QA-CDI-001",
@@ -270,20 +368,30 @@ class QuarkusAppScannerTest {
                         "QA-CDI-002",
                         "QA-CDI-003",
                         "QA-CDI-004",
+                        "QA-CDI-005",
+                        "QA-CDI-006",
+                        "QA-CDI-007",
                         "QA-CFG-002",
                         "QA-CFG-003",
                         "QA-CFG-004",
                         "QA-CFG-005",
+                        "QA-CFG-006",
+                        "QA-CFG-007",
                         "QA-PROD-002",
                         "QA-PROD-003",
+                        "QA-DB-002",
                         "QA-WEB-001",
                         "QA-WEB-003",
                         "QA-WEB-004",
-                        "QA-PERF-002");
-        assertThat(QuarkusAppChecks.ruleCount()).isEqualTo(13);
+                        "QA-WEB-005",
+                        "QA-PERF-002",
+                        "QA-PERF-003",
+                        "QA-PERF-004",
+                        "QA-PERF-005");
+        assertThat(QuarkusAppChecks.ruleCount()).isEqualTo(23);
         Set<String> audited = new HashSet<>(QuarkusAppChecks.ruleIds());
         audited.addAll(RETIRED_RULES);
-        assertThat(audited).hasSize(21);
+        assertThat(audited).hasSize(31);
         assertThat(QuarkusAppChecks.ruleIds()).doesNotContainAnyElementsOf(RETIRED_RULES);
     }
 
@@ -295,8 +403,8 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
-        assertThat(report.scan().rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(23);
+        assertThat(report.scan().rulesEvaluated()).isEqualTo(23);
         assertThat(report.componentsAnalyzed()).isEqualTo(4);
         assertThat(report.scan().componentsAnalyzed()).isEqualTo(4);
         assertThat(report.scan().status()).isEqualTo("SCANNED");
@@ -315,7 +423,7 @@ class QuarkusAppScannerTest {
         }
         assertThat(scan(snap).results()).isEmpty();
         assertThat(scan(snap).analysisErrors()).isEmpty();
-        assertThat(scan(snap).rulesEvaluated()).isEqualTo(13);
+        assertThat(scan(snap).rulesEvaluated()).isEqualTo(23);
     }
 
     @Test
@@ -373,20 +481,33 @@ class QuarkusAppScannerTest {
 
     @ParameterizedTest
     @CsvSource({
+        "QA-CDI-007,disabled,MEDIUM",
         "QA-CFG-002,true,MEDIUM",
         "QA-CFG-003,verbose,MEDIUM",
         "QA-CFG-004,legacy,LOW",
         "QA-CFG-005,true,HIGH",
+        "QA-CFG-006,deprecated,LOW",
+        "QA-CFG-007,validate-unknown-disabled,MEDIUM",
+        "QA-CFG-007,log-values-enabled,MEDIUM",
         "QA-PROD-002,create,HIGH",
         "QA-PROD-002,update,HIGH",
         "QA-PROD-002,drop,CRITICAL",
         "QA-PROD-002,drop-and-create,CRITICAL",
         "QA-PROD-003,in-memory,MEDIUM",
+        "QA-DB-002,pooling-disabled,MEDIUM",
+        "QA-DB-002,validation-disabled,MEDIUM",
         "QA-WEB-001,default-disabled,INFO",
         "QA-WEB-003,connect-zero,MEDIUM",
         "QA-WEB-003,read-zero,MEDIUM",
         "QA-WEB-004,zero,INFO",
-        "QA-WEB-004,absent,INFO"
+        "QA-WEB-004,absent,INFO",
+        "QA-WEB-005,unlimited-body-size,LOW",
+        "QA-WEB-005,unlimited-form-buffered-bytes,LOW",
+        "QA-WEB-005,unlimited-form-fields,LOW",
+        "QA-WEB-005,retained-uploads,LOW",
+        "QA-PERF-005,core-exceeds-max,MEDIUM",
+        "QA-PERF-005,max-non-positive,MEDIUM",
+        "QA-PERF-005,interrupt-not-before-timeout,MEDIUM"
     })
     void normalizedSettingsHaveExplicitTriggersAndSeverities(String id, String value, String severity) {
         SpringReport report = scan(new Snap().setting(id, value));
@@ -401,35 +522,49 @@ class QuarkusAppScannerTest {
 
     @ParameterizedTest
     @CsvSource({
+        "QA-CDI-007,enabled",
         "QA-CFG-002,false",
         "QA-CFG-003,normal",
         "QA-CFG-005,false",
+        "QA-CFG-006,clean",
+        "QA-CFG-007,validate-unknown-enabled",
+        "QA-CFG-007,log-values-disabled",
         "QA-PROD-002,none",
         "QA-PROD-002,validate",
         "QA-PROD-003,persistent-or-unclassified",
+        "QA-DB-002,enabled",
         "QA-WEB-001,enabled",
         "QA-WEB-001,disabled",
-        "QA-WEB-004,positive"
+        "QA-WEB-003,positive",
+        "QA-WEB-004,positive",
+        "QA-WEB-005,bounded",
+        "QA-PERF-005,valid"
     })
     void normalizedNonTriggersAreSuccessfullyEvaluated(String id, String value) {
         SpringReport report = scan(new Snap().setting(id, value));
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(23);
     }
 
     @ParameterizedTest
     @ValueSource(
             strings = {
+                "QA-CDI-007",
                 "QA-CFG-002",
                 "QA-CFG-003",
                 "QA-CFG-004",
                 "QA-CFG-005",
+                "QA-CFG-006",
+                "QA-CFG-007",
                 "QA-PROD-002",
                 "QA-PROD-003",
+                "QA-DB-002",
                 "QA-WEB-001",
                 "QA-WEB-003",
-                "QA-WEB-004"
+                "QA-WEB-004",
+                "QA-WEB-005",
+                "QA-PERF-005"
             })
     void unknownOrNullClassificationIsAnErrorEvenWhenMarkedEvaluated(String id) {
         for (String value : new String[] {"password=unclassified", null}) {
@@ -438,7 +573,7 @@ class QuarkusAppScannerTest {
             assertThat(report.analysisErrors())
                     .extracting(SpringRuleResultDto::id)
                     .containsExactly(id);
-            assertThat(report.rulesEvaluated()).isEqualTo(12);
+            assertThat(report.rulesEvaluated()).isEqualTo(22);
             assertThat(report.scan().status()).isEqualTo("PARTIAL");
             assertThat(report.toString()).doesNotContain("password=unclassified");
         }
@@ -470,7 +605,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(new Snap().setting("QA-PROD-002", value));
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-PROD-002");
-        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.rulesEvaluated()).isEqualTo(22);
     }
 
     @Test
@@ -506,7 +641,7 @@ class QuarkusAppScannerTest {
         // The provider emits no finding observations for finite timers, independently of their length.
         SpringReport report = scan(new Snap());
         assertThat(find(report, "QA-WEB-003")).isNull();
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(23);
         SpringRuleResultDto zero = find(scan(new Snap().setting("QA-WEB-003", "read-zero")), "QA-WEB-003");
         assertThat(zero.description()).contains("That timer is disabled", "other application deadlines");
         assertThat(zero.recommendation()).contains("Long finite timers are not inherently invalid");
@@ -523,6 +658,33 @@ class QuarkusAppScannerTest {
         assertThat(result.description()).contains("running JDK 21–23", "have not been observed");
     }
 
+    @Test
+    void unproxyableDefaultPackageAndVirtualThreadRulesEvaluateMetadata() {
+        SpringRuleResultDto unproxyable =
+                find(scan(new Snap().unproxyableBeans("com.example.SealedBean")), "QA-CDI-005");
+        assertThat(unproxyable.severity()).isEqualTo("HIGH");
+        assertThat(unproxyable.sampleViolations()).containsExactly("com.example.SealedBean");
+
+        SpringRuleResultDto defaultPkg = find(scan(new Snap().defaultPackageBeans("DefaultBean")), "QA-CDI-006");
+        assertThat(defaultPkg.severity()).isEqualTo("LOW");
+        assertThat(defaultPkg.sampleViolations()).containsExactly("DefaultBean");
+
+        Snap reactive = new Snap().reactiveVirtualMethods("com.example.Resource#uniEndpoint()");
+        reactive.runtimeJdk = 25;
+        SpringRuleResultDto reactiveFinding = find(scan(reactive), "QA-PERF-003");
+        assertThat(reactiveFinding.severity()).isEqualTo("MEDIUM");
+        assertThat(reactiveFinding.sampleViolations()).containsExactly("com.example.Resource#uniEndpoint()");
+
+        Snap jdk21Vt = new Snap().virtualThreadMethods("com.example.Resource#blockingOnVt()");
+        jdk21Vt.runtimeJdk = 21;
+        SpringRuleResultDto vtInfo = find(scan(jdk21Vt), "QA-PERF-004");
+        assertThat(vtInfo.severity()).isEqualTo("INFO");
+        assertThat(vtInfo.sampleViolations()).containsExactly("com.example.Resource#blockingOnVt()");
+
+        jdk21Vt.runtimeJdk = 24;
+        assertThat(find(scan(jdk21Vt), "QA-PERF-004")).isNull();
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {17, 20, 24, 25})
     void runtimeJdkNotAugmentationJdkDeterminesSynchronizedPinningApplicability(int jdk) {
@@ -531,7 +693,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-PERF-002")).isNull();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(23);
     }
 
     @Test
@@ -540,22 +702,32 @@ class QuarkusAppScannerTest {
         snap.runtimeJdk = 0;
         SpringReport report = scan(snap);
         assertThat(report.results()).isEmpty();
-        assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-PERF-002");
-        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.analysisErrors())
+                .extracting(SpringRuleResultDto::id)
+                .containsExactly("QA-PERF-002", "QA-PERF-004");
+        assertThat(report.rulesEvaluated()).isEqualTo(21);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
     @Test
-    void missingApplicableMetadataPreservesConfigurationFindingsAndMarksFourChecksUnknown() {
+    void missingApplicableMetadataPreservesConfigurationFindingsAndMarksMetadataChecksUnknown() {
         Snap snap = new Snap().setting("QA-CFG-002", "true");
         snap.metadata = QuarkusAppMetadata.unavailable();
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-CFG-002")).isNotNull();
-        assertThat(report.rulesEvaluated()).isEqualTo(9);
+        assertThat(report.rulesEvaluated()).isEqualTo(15);
         assertThat(report.componentsAnalyzed()).isZero();
         assertThat(report.analysisErrors())
                 .extracting(SpringRuleResultDto::id)
-                .containsExactly("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002");
+                .containsExactly(
+                        "QA-CDI-002",
+                        "QA-CDI-003",
+                        "QA-CDI-004",
+                        "QA-CDI-005",
+                        "QA-CDI-006",
+                        "QA-PERF-002",
+                        "QA-PERF-003",
+                        "QA-PERF-004");
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.inspected()).noneMatch(text -> text.contains("0 registered REST endpoints"));
     }
@@ -566,8 +738,10 @@ class QuarkusAppScannerTest {
         snap.metadata = QuarkusAppMetadata.unavailable();
         snap.runtimeJdk = 24;
         SpringReport report = scan(snap);
-        assertThat(report.rulesEvaluated()).isEqualTo(10);
-        assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).doesNotContain("QA-PERF-002");
+        assertThat(report.rulesEvaluated()).isEqualTo(17);
+        assertThat(report.analysisErrors())
+                .extracting(SpringRuleResultDto::id)
+                .doesNotContain("QA-PERF-002", "QA-PERF-004");
     }
 
     @ParameterizedTest
@@ -577,24 +751,44 @@ class QuarkusAppScannerTest {
         snap.runtimeJdk = jdk;
         snap.problems.add(new QuarkusAppEvidenceProblem(
                 "QA-PERF-002", "Application declaration collection reached its safety limit."));
+        snap.problems.add(new QuarkusAppEvidenceProblem(
+                "QA-PERF-004", "Application declaration collection reached its safety limit."));
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-PERF-002")).isNull();
+        assertThat(find(report, "QA-PERF-004")).isNull();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(23);
         assertThat(report.scan().status()).isEqualTo("SCANNED");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002"})
+    @ValueSource(
+            strings = {
+                "QA-CDI-002",
+                "QA-CDI-003",
+                "QA-CDI-004",
+                "QA-CDI-005",
+                "QA-CDI-006",
+                "QA-PERF-002",
+                "QA-PERF-003",
+                "QA-PERF-004"
+            })
     void partialMetadataProblemsPreserveConcreteFindingsAndExcludeIncompleteEvaluation(String id) {
-        Snap snap = id.equals("QA-PERF-002")
-                ? new Snap().methods("Resource#get()")
-                : new Snap()
-                        .fields(new SharedField(
-                                "Bean",
-                                "state",
-                                id.equals("QA-CDI-004") ? "APPLICATION" : "SINGLETON",
-                                id.equals("QA-CDI-002")));
+        Snap snap =
+                switch (id) {
+                    case "QA-PERF-002" -> new Snap().methods("Resource#get()");
+                    case "QA-PERF-003" -> new Snap().reactiveVirtualMethods("Resource#reactiveGet()");
+                    case "QA-PERF-004" -> new Snap().virtualThreadMethods("Resource#get()");
+                    case "QA-CDI-005" -> new Snap().unproxyableBeans("com.example.SealedBean");
+                    case "QA-CDI-006" -> new Snap().defaultPackageBeans("DefaultBean");
+                    default ->
+                        new Snap()
+                                .fields(new SharedField(
+                                        "Bean",
+                                        "state",
+                                        id.equals("QA-CDI-004") ? "APPLICATION" : "SINGLETON",
+                                        id.equals("QA-CDI-002")));
+                };
         snap.metadataProblem(id);
         SpringReport report = scan(snap);
         assertThat(find(report, id)).isNotNull();
@@ -602,7 +796,7 @@ class QuarkusAppScannerTest {
         assertThat(report.analysisErrors()).isEmpty();
         assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.evidence().limitations()).singleElement().asString().startsWith(id + ": ");
-        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.rulesEvaluated()).isEqualTo(22);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.toString()).doesNotContain("password", "must-not-be-rendered");
     }
@@ -613,7 +807,7 @@ class QuarkusAppScannerTest {
         assertThat(snap.metadata.restClientSupported()).isFalse();
         SpringReport report = scan(snap);
         assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-003");
-        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.rulesEvaluated()).isEqualTo(22);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -622,7 +816,7 @@ class QuarkusAppScannerTest {
         Snap snap = new Snap();
         snap.evaluated.clear();
         SpringReport report = scan(snap);
-        assertThat(report.rulesEvaluated()).isEqualTo(4);
+        assertThat(report.rulesEvaluated()).isEqualTo(8);
         assertThat(report.analysisErrors())
                 .extracting(SpringRuleResultDto::id)
                 .containsExactlyInAnyOrderElementsOf(CONFIG_RULES);
@@ -640,7 +834,7 @@ class QuarkusAppScannerTest {
         assertThat(report.analysisErrors()).isEmpty();
         assertThat(report.evidence().limitations()).singleElement().asString().startsWith("QA-PROD-002: ");
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
-        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.rulesEvaluated()).isEqualTo(22);
         assertThat(report.toString()).doesNotContain("jdbc:secret-url", "password=secret");
         assertThat(report.severityCounts()).contains(new SpringSeverityCountDto("CRITICAL", 1));
     }
@@ -662,7 +856,12 @@ class QuarkusAppScannerTest {
                 "A schema action could not be classified safely.|configuration value could not be classified safely",
                 "The logging level could not be classified safely.|configuration value could not be classified safely",
                 "The shutdown duration is invalid.|configuration value could not be classified safely",
-                "A managed REST client timer could not be classified safely.|configuration value could not be classified safely"
+                "A managed REST client timer could not be classified safely.|configuration value could not be classified safely",
+                "An ArC validation setting could not be classified safely.|configuration value could not be classified safely",
+                "A worker thread pool setting could not be classified safely.|configuration value could not be classified safely",
+                "A configuration validation or logging setting could not be classified safely.|configuration value could not be classified safely",
+                "An Agroal pool setting could not be classified safely.|configuration value could not be classified safely",
+                "An HTTP limit setting could not be classified safely.|configuration value could not be classified safely"
             })
     void recognizedProblemMessagesBecomeFixedActionableExplanations(String message, String expected) {
         Snap snap = new Snap();
@@ -789,7 +988,7 @@ class QuarkusAppScannerTest {
                 .contains(
                         "Only loaded production declarations were inspected",
                         "Configuration discovery reached an inspection limit");
-        assertThat(report.rulesEvaluated()).isEqualTo(12);
+        assertThat(report.rulesEvaluated()).isEqualTo(22);
     }
 
     @Test
@@ -799,9 +998,10 @@ class QuarkusAppScannerTest {
         snap.evaluated.clear();
         SpringReport report = scan(snap);
         assertThat(report.rulesEvaluated()).isZero();
-        assertThat(report.analysisErrors()).hasSize(12);
+        assertThat(report.analysisErrors()).hasSize(22);
         assertThat(report.results()).hasSize(1);
-        assertThat(report.evidence().limitations()).hasSize(13);
+        assertThat(report.evidence().limitations()).hasSize(20);
+        assertThat(QuarkusAppChecks.evaluate(snap.build()).limitations()).hasSize(23);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -814,7 +1014,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.rulesEvaluated()).isZero();
-        assertThat(report.analysisErrors()).hasSize(13);
+        assertThat(report.analysisErrors()).hasSize(23);
         assertThat(report.results()).isEmpty();
         assertThat(report.severityCounts()).allMatch(count -> count.count() == 0);
         assertThat(report.toString()).doesNotContain("password=secret");
@@ -847,7 +1047,7 @@ class QuarkusAppScannerTest {
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.rulesEvaluated()).isZero();
         assertThat(report.componentsAnalyzed()).isZero();
-        assertThat(report.analysisErrors()).hasSize(13).allSatisfy(error -> {
+        assertThat(report.analysisErrors()).hasSize(23).allSatisfy(error -> {
             assertThat(error.status()).isEqualTo("ERROR");
             assertThat(error.violationCount()).isZero();
         });
@@ -991,7 +1191,7 @@ class QuarkusAppScannerTest {
         SpringReport scanned = scanner.scan();
         SpringReport dismissed = scanner.applyDismissals(scanned, Set.of("QA-CDI-004"));
         assertThat(dismissed.scan().status()).isEqualTo("PARTIAL");
-        assertThat(dismissed.rulesEvaluated()).isEqualTo(12);
+        assertThat(dismissed.rulesEvaluated()).isEqualTo(22);
         assertThat(dismissed.analysisErrors()).isEqualTo(scanned.analysisErrors());
         assertThat(dismissed.evidence()).isEqualTo(scanned.evidence());
         assertThat(dismissed.evidence().coverageComplete()).isFalse();

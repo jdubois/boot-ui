@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.compatibility.BootUiSecurityCompatibility;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -45,6 +46,7 @@ public class BootUiSpringSecurityAutoConfiguration {
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     @ConditionalOnMissingBean(name = "bootUiSecurityFilterChain")
+    @Conditional(BootUiSecurityCompatibility.Servlet.class)
     public SecurityFilterChain bootUiSecurityFilterChain(HttpSecurity http, BootUiProperties properties)
             throws Exception {
         String[] bootUiPatterns = bootUiSecurityPatterns(properties);

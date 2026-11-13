@@ -1,7 +1,7 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**54 servlet rules** and **26 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
+**50 servlet rules** and **26 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
 analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
 execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
 to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
@@ -20,7 +20,8 @@ security evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](fea
 Actuator exposure checks ignore BootUI's own low-priority local actuator defaults. Those defaults are merged into
 Spring Boot's shared `defaultProperties` source (only for keys the host has not set) so local panels can read Actuator
 data, and host `management.*` settings always win. If the host application explicitly configures actuator exposure
-or health detail properties, the checks continue to evaluate those values.
+or sanitization (`show-values`) properties, the checks continue to evaluate those values; health detail/component
+settings are evaluated by the Spring Advisor's `SPRING-MGMT-003`.
 
 ## Availability and bounds
 
@@ -272,10 +273,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-SESSION-007 - Consider configuring concurrent session control
 
-- **Severity**: INFO
-- **Detects**: Detects an interactive form-login chain that maintains sessions but installs no ConcurrentSessionFilter (no maximumSessions limit).
-- **Recommendation**: Consider `sessionManagement().maximumSessions(n)` if session concurrency limits fit the application. This optional INFO review does not make a maximum mandatory or prove account/session misuse.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions>
+**Retired.** Fires on every stateful `formLogin()` chain that omits `ConcurrentSessionFilter` (`maximumSessions`). Limiting concurrent sessions per user is a domain-specific product choice that breaks normal multi-device logins rather than a baseline Spring Security hardening requirement. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-SESSION-008 - Remember-me signing key should be sufficiently long
 
@@ -349,10 +347,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-HEAD-010 - Cross-origin isolation headers should be considered
 
-- **Severity**: INFO
-- **Detects**: A browser-credential chain's supported header configuration includes neither cross-origin opener nor embedder policy. Cross-origin isolation is capability-specific and optional, not a universal security requirement; arbitrary API chains and externally delivered headers are not inferred.
-- **Recommendation**: Add CrossOriginOpenerPolicyHeaderWriter / CrossOriginEmbedderPolicyHeaderWriter via headers().crossOriginOpenerPolicy(...) / .crossOriginEmbedderPolicy(...) if the application needs cross-origin isolation (e.g. for SharedArrayBuffer) or Spectre-style side-channel hardening.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html>
+**Retired.** Fires on nearly every browser-credential Spring MVC chain because Spring Security intentionally omits `Cross-Origin-Opener-Policy` (`COOP`) and `Cross-Origin-Embedder-Policy` (`COEP`) by default. Enabling `COOP`/`COEP` breaks OAuth2/OIDC popups, third-party CDNs, and cross-origin embeds unless the application specifically requires cross-origin isolation (for example for `SharedArrayBuffer`). Matches the retirement of `SEC-HEAD-005` (`Referrer-Policy`) and `SEC-HEAD-006` (`Permissions-Policy`). The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ## CORS
 
@@ -442,10 +437,7 @@ separate management-context authorization remain unknown. No endpoint discoverer
 
 ### SEC-ACT-004 - Actuator health details/components should not be exposed unconditionally
 
-- **Severity**: LOW
-- **Detects**: A selected, observed health operation has host `show-details=always` or `show-components=always`. This includes details for callers allowed to reach the operation; neither setting bypasses authorization or proves anonymous disclosure. `show-components` can inherit `show-details`; default detail disclosure is `never`.
-- **Recommendation**: Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized' and require authentication for the health endpoint.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details>
+**Retired.** Duplicate of the Spring Advisor's `SPRING-MGMT-003` (`MEDIUM`), which remains always active across Spring MVC and WebFlux (with or without Spring Security) and covers `management.endpoint.health.show-details=always` and `show-components=always` alongside `show-values=always`. `SEC-ACT-004` also fired even when `/actuator/health` required authentication in `SecurityFilterChain`. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-ACT-005 - The actuator shutdown endpoint should not be enabled
 
@@ -528,11 +520,7 @@ separate management-context authorization remain unknown. No endpoint discoverer
 
 ### SEC-CONFIG-005 - Error responses should not leak stack traces or internal messages
 
-- **Severity**: MEDIUM
-- **Detects**: Boot 4 `spring.web.error.include-stacktrace`, `include-message`, or `include-binding-errors` is `always` or caller-enabled `on-param`/`on_param` in application configuration. While a DevTools restart is active, DevTools appends a `devtools` source setting all three to `always` for local development; those defaults are not the application's configuration and are ignored, while an application value still wins and is reported (matching the Spring advisor's WEB-004). The obsolete `server.error.*` namespace is not used. Custom error handlers and actual response bodies are outside the observation.
-- **Configuration evidence**: MVC security checks copy bounded native property-source maps and supported value types without invoking custom sources or value conversion. An opaque higher-priority source blocks lower fallback; unsupported backing maps and placeholder expansion remain unknown. Incomplete configuration does not discard independent known filter/provider findings.
-- **Recommendation**: Use `never` for sensitive error details. `on-param` is caller-controlled, not a confidentiality boundary.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling>
+**Retired.** Duplicate of the Spring Advisor's `SPRING-WEB-004` (`MEDIUM`), which remains always active across Spring MVC and WebFlux (with or without Spring Security) and also covers `spring.web.error.include-exception=true` while ignoring DevTools' development-only defaults. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-CONFIG-006 - Application should enforce HTTPS in production
 
