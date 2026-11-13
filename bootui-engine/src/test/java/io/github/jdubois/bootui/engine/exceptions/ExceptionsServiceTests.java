@@ -242,4 +242,219 @@ class ExceptionsServiceTests {
         assertThatThrownBy(() -> service.updateStatus(null, "unknown-fingerprint", "CLOSED"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void extractsPerOccurrenceBindingDiagnosticsAndRedactsMapKeysAndUnrecognizedPropertiesExceptInFull() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<Throwable> failures = List.of(
+                new IllegalArgumentException(
+                        "Field error in object 'createOrderRequest' on field 'attributes[secretMapKey]': "
+                                + "rejected value [raw-secret-1]; codes [NotBlank]"),
+                new IllegalArgumentException(
+                        "Unrecognized field \"secretUnknownProp\" (class com.example.CreateOrderRequest), "
+                                + "not marked as ignorable (through reference chain: "
+                                + "com.example.CreateOrderRequest[\"secretUnknownProp\"])"));
+
+        store.record(
+                failures.get(0),
+                "http-1",
+                "POST",
+                "/api/orders",
+                "OrderController#create",
+                "web",
+                null,
+                List.of(
+                        new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                "CreateOrderRequest", "items[0].quantity", "Positive"),
+                        new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                "CreateOrderRequest", "attributes['secretMapKey']", "NotBlank")));
+        store.record(
+                failures.get(1),
+                "http-2",
+                "POST",
+                "/api/orders",
+                "OrderController#create",
+                "web",
+                null,
+                List.of(ExceptionStore.diagnostic(
+                        "CreateOrderRequest", "secretUnknownProp", "UnrecognizedProperty", true)));
+
+        String id = store.groups().get(0).fingerprint();
+        ExceptionStore.GroupDetail rawDetail = store.find(id);
+
+        for (ValueExposure mode : List.of(ValueExposure.MASKED, ValueExposure.METADATA_ONLY)) {
+            ExceptionsService service = new ExceptionsService(policy(mode, true));
+            var report = service.report(store);
+            var detail = service.detail(rawDetail);
+
+            assertThat(report.toString())
+                    .as("no leak in report under %s", mode)
+                    .doesNotContain("raw-secret-1", "secretMapKey", "secretUnknownProp");
+            assertThat(detail.toString())
+                    .as("no leak in detail under %s", mode)
+                    .doesNotContain("raw-secret-1", "secretMapKey", "secretUnknownProp");
+
+            // Latest occurrence is index 0 (the unrecognized property failure).
+            assertThat(detail.occurrences().get(0).bindingDiagnostics())
+                    .containsExactly(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                            "CreateOrderRequest", "(unrecognized property)", "UnrecognizedProperty"));
+            // Earlier occurrence is index 1 (the map-key + list-index failure).
+            assertThat(detail.occurrences().get(1).bindingDiagnostics())
+                    .containsExactly(
+                            new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                    "CreateOrderRequest", "items[*].quantity", "Positive"),
+                            new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                    "CreateOrderRequest", "attributes[*]", "NotBlank"));
+        }
+
+        // Under FULL, map keys and unrecognized property names are shown, while numeric list indices stay [*].
+        var fullDetail = new ExceptionsService(policy(ValueExposure.FULL, true)).detail(rawDetail);
+        assertThat(fullDetail.occurrences().get(0).bindingDiagnostics())
+                .containsExactly(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                        "CreateOrderRequest", "secretUnknownProp", "UnrecognizedProperty"));
+        assertThat(fullDetail.occurrences().get(1).bindingDiagnostics())
+                .containsExactly(
+                        new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                "CreateOrderRequest", "items[*].quantity", "Positive"),
+                        new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                "CreateOrderRequest", "attributes['secretMapKey']", "NotBlank"));
+    }
+
+    @Test
+    void capsBindingDiagnosticsPerOccurrenceAtTenAndMarksTruncation() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<io.github.jdubois.bootui.core.dto.BindingDiagnosticDto> twelve = new java.util.ArrayList<>();
+        // Repeated list elements normalize to items[*].quantity and collapse to one diagnostic before capping.
+        twelve.add(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                "CreateOrderRequest", "items[0].quantity", "Positive"));
+        twelve.add(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                "CreateOrderRequest", "items[1].quantity", "Positive"));
+        for (int i = 0; i < 11; i++) {
+            twelve.add(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                    "CreateOrderRequest", "field" + i, "NotBlank"));
+        }
+
+        store.record(
+                new IllegalArgumentException("validation failed"),
+                "http-1",
+                "POST",
+                "/orders",
+                "H#c",
+                "web",
+                null,
+                twelve);
+
+        var detail = new ExceptionsService(policy(ValueExposure.MASKED, true))
+                .detail(store.find(store.groups().get(0).fingerprint()));
+        var occurrence = detail.occurrences().get(0);
+        assertThat(occurrence.bindingDiagnostics()).hasSize(10);
+        assertThat(occurrence.bindingDiagnostics().get(0).fieldPath()).isEqualTo("items[*].quantity");
+        assertThat(occurrence.bindingDiagnostics().get(1).fieldPath()).isEqualTo("field0");
+        assertThat(occurrence.bindingDiagnosticsTruncated()).isTrue();
+    }
+
+    @Test
+    void scrubsBoundaryMapKeysAndAdversarialFrameworkMessagesInMaskedMode() {
+        String longPrefix = "a".repeat(250);
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        Throwable cause = new NumberFormatException("For input string: \"raw-num-secret\"");
+        Throwable wrapper = new IllegalArgumentException(
+                "Invalid product payload for field 'attributes[secretApiKey]': "
+                        + "rejected value [val]with]; codes [NotBlank.req.attributes[secretApiKey],NotBlank]; "
+                        + "nested orders[0].attributes[secretMap2].<map value>: must not be blank; "
+                        + "Failed to convert for value [conv-secret]; "
+                        + "Text '2026-99-99-secret' could not be parsed; "
+                        + "from String \"quote\"inside\nsecret\": bad; "
+                        + "from number 9876543210: overflow; "
+                        + "Unrecognized token 'tok-secret': was expecting "
+                        + "at [Source: (String)\"{\\\"secretPayload\\\":1}\"; line: 1, column: 2]",
+                cause);
+
+        store.record(
+                wrapper,
+                "http-1",
+                "POST",
+                "/orders",
+                "H#c",
+                "web",
+                null,
+                List.of(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                        "CreateOrderRequest", longPrefix + "['boundarySecretKey']", "NotBlank")));
+
+        var service = new ExceptionsService(policy(ValueExposure.MASKED, true));
+        var detail = service.detail(store.find(store.groups().get(0).fingerprint()));
+
+        assertThat(detail.toString())
+                .doesNotContain(
+                        "secretApiKey",
+                        "val]with",
+                        "secretMap2",
+                        "conv-secret",
+                        "2026-99-99-secret",
+                        "quote\"inside",
+                        "9876543210",
+                        "tok-secret",
+                        "secretPayload",
+                        "raw-num-secret",
+                        "boundarySecretKey");
+        assertThat(detail.occurrences().get(0).bindingDiagnostics().get(0).fieldPath())
+                .startsWith("aaaa")
+                .doesNotContain("boundarySecretKey");
+    }
+
+    @Test
+    void extractsJakartaConstraintViolationsWithoutReadingInvalidValues() {
+        jakarta.validation.Path path = org.mockito.Mockito.mock(jakarta.validation.Path.class);
+        jakarta.validation.Path.Node mapNode = org.mockito.Mockito.mock(jakarta.validation.Path.Node.class);
+        org.mockito.Mockito.when(mapNode.getName()).thenReturn("attributes");
+        org.mockito.Mockito.when(mapNode.getKind()).thenReturn(jakarta.validation.ElementKind.PROPERTY);
+        jakarta.validation.Path.Node valueNode = org.mockito.Mockito.mock(jakarta.validation.Path.Node.class);
+        org.mockito.Mockito.when(valueNode.getName()).thenReturn("<map value>");
+        org.mockito.Mockito.when(valueNode.isInIterable()).thenReturn(true);
+        org.mockito.Mockito.when(valueNode.getKey()).thenReturn("secretKey");
+        org.mockito.Mockito.when(valueNode.getKind()).thenReturn(jakarta.validation.ElementKind.CONTAINER_ELEMENT);
+        org.mockito.Mockito.when(path.iterator())
+                .thenAnswer(inv -> List.of(mapNode, valueNode).iterator());
+
+        @SuppressWarnings("unchecked")
+        jakarta.validation.metadata.ConstraintDescriptor<jakarta.validation.constraints.NotBlank> descriptor =
+                org.mockito.Mockito.mock(jakarta.validation.metadata.ConstraintDescriptor.class);
+        jakarta.validation.constraints.NotBlank annotation =
+                org.mockito.Mockito.mock(jakarta.validation.constraints.NotBlank.class);
+        org.mockito.Mockito.doReturn(jakarta.validation.constraints.NotBlank.class)
+                .when(annotation)
+                .annotationType();
+        org.mockito.Mockito.when(descriptor.getAnnotation()).thenReturn(annotation);
+
+        @SuppressWarnings("unchecked")
+        jakarta.validation.ConstraintViolation<Object> violation =
+                org.mockito.Mockito.mock(jakarta.validation.ConstraintViolation.class);
+        org.mockito.Mockito.when(violation.getPropertyPath()).thenReturn(path);
+        org.mockito.Mockito.doReturn(SampleOrderBean.class).when(violation).getRootBeanClass();
+        org.mockito.Mockito.doReturn(descriptor).when(violation).getConstraintDescriptor();
+        org.mockito.Mockito.when(violation.getInvalidValue())
+                .thenThrow(new AssertionError("getInvalidValue() must never be called"));
+        org.mockito.Mockito.when(violation.getExecutableParameters())
+                .thenThrow(new AssertionError("getExecutableParameters() must never be called"));
+
+        jakarta.validation.ConstraintViolationException cve = new jakarta.validation.ConstraintViolationException(
+                "attributes[secretKey]: must not be blank (rejected value [super-secret-value])",
+                java.util.Set.of(violation));
+
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(cve, "http-1", "POST", "/api/orders", "OrderController#create", "web");
+
+        ExceptionsService maskedService = new ExceptionsService(policy(ValueExposure.MASKED, true));
+        var group = maskedService.report(store).groups().get(0);
+        var detail = maskedService.detail(store.find(group.id()));
+
+        assertThat(group.message())
+                .doesNotContain("secretKey", "super-secret-value")
+                .contains("attributes[*]: must not be blank", "rejected value [******]");
+        assertThat(detail.occurrences().get(0).bindingDiagnostics())
+                .containsExactly(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                        "SampleOrderBean", "attributes[*]", "NotBlank"));
+    }
+
+    static final class SampleOrderBean {}
 }

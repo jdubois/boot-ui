@@ -394,11 +394,13 @@ JDBC-only, matched by the begin thread and time window; they do not capture R2DB
 another thread. Zero counts therefore do not prove that a reactive transaction performed no database work.
 
 **Exceptions.** *Known fidelity gap, accepted, documented in code (`ReactiveBootUiExceptionHandler`'s Javadoc):* a
-`@RestController`'s own local `@ExceptionHandler` method consumes an exception *inside* the WebFlux dispatch pipeline,
+`@RestController`'s own local `@ExceptionHandler` method or `@ControllerAdvice` (`ResponseEntityExceptionHandler`)
+consumes an exception (including `WebExchangeBindException`) *inside* the WebFlux dispatch pipeline,
 before any `WebExceptionHandler` sees it. This is narrower capture than the servlet adapter's resolver-chain approach,
 where `BootUiExceptionHandlerResolver` runs at `HIGHEST_PRECEDENCE` in the same chain `@ExceptionHandler` resolution
 uses. An application-level `@ExceptionHandler` will suppress BootUI's capture on WebFlux where it would not on servlet.
-Unhandled exceptions (the common case) are captured identically on both stacks.
+Unhandled exceptions (including `WebExchangeBindException` and `ServerWebInputException` that reach
+`WebExceptionHandler`, with their per-occurrence `bindingDiagnostics`) are captured identically on both stacks.
 
 **REST Client.** Availability is gated on `RestClientTraceRecorder#hasInstrumentedClient()` (a `WebClient.Builder`
 auto-configured with the BootUI customizer must have been built). The `RestClient`/`RestTemplate` interceptors are not

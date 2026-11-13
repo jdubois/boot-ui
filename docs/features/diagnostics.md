@@ -103,9 +103,12 @@ with an occurrence count. Exception groups per route are in [Runtime Insights](r
 
 Each row shows the type, the latest message, first and last seen times, the originating location, and a total count.
 Opening a group shows the representative stack trace with application frames highlighted, the full cause chain, and
-the most recent occurrences with thread, source, and request context. Each occurrence carries the `requestId` of the
-request that threw it, so the profiler can attribute it exactly. The list updates live, and you can filter by text,
-capture source, triage status, or to application-originated exceptions only.
+the most recent occurrences with thread, source, and request context. When an occurrence is a `400` or `422` validation
+or deserialization failure, the drawer also renders a **Binding & validation diagnostics** table with the target type,
+normalized field or parameter path, and constraint or expected type for the latest occurrence (and per-occurrence
+summaries in **Recent occurrences**), without ever retaining rejected user input. Each occurrence carries the
+`requestId` of the request that threw it, so the profiler can attribute it exactly. The list updates live, and you can
+filter by text, capture source, triage status, or to application-originated exceptions only.
 
 Links from Live Activity's request profile and EXCEPTION rows open the exact retained group with `?id=<group id>`,
 not a class-name match. A linked request ID stays visible beside **Back to request profile**. If that group is no
@@ -121,11 +124,20 @@ On Spring MVC, BootUI records from a `HandlerExceptionResolver` that observes ex
 scheduled tasks, async work, or `log.error("…", ex)`. A failure that is both handled and logged is de-duplicated by
 throwable identity: distinct instances count separately, the same instance or its cause twice does not.
 
-**Quarkus** uses a `java.util.logging` handler (excluding BootUI's own loggers) and a Vert.x failure handler, wired in
-dev and test only. **Spring Boot WebFlux** uses a `WebExceptionHandler` at the highest precedence plus the logback
-appender. A `@RestController`'s local `@ExceptionHandler` consumes an exception inside the WebFlux pipeline before any
-`WebExceptionHandler` sees it, so those are not captured on WebFlux; unhandled exceptions are captured identically on
-all stacks.
+**Quarkus** uses a `java.util.logging` handler (excluding BootUI's own loggers), a RESTEasy Reactive pre-mapping
+handler (`PreExceptionMapperHandlerBuildItem`), and a Vert.x failure handler, wired in dev and test only. **Spring Boot
+WebFlux** uses a `WebExceptionHandler` at the highest precedence plus the logback appender. A `@RestController`'s local
+`@ExceptionHandler` or `@ControllerAdvice` consumes an exception inside the WebFlux pipeline before any
+`WebExceptionHandler` sees it, so those are not captured on WebFlux; exceptions that reach `WebExceptionHandler`
+(including unhandled `WebExchangeBindException` and `ServerWebInputException` failures) are captured identically.
+
+For `400`/`422` validation and JSON binding exceptions (`MethodArgumentNotValidException`, `BindException`,
+`HandlerMethodValidationException`, `WebExchangeBindException`, `MethodArgumentTypeMismatchException`,
+`ConstraintViolationException`, and Jackson `MismatchedInputException` / `InvalidFormatException` /
+`UnrecognizedPropertyException`), BootUI extracts up to 10 `bindingDiagnostics` entries per occurrence
+(`targetType`, `fieldPath`, `reason`), setting `bindingDiagnosticsTruncated: true` when more exist. Because all
+validation failures thrown by the same controller method share one group fingerprint, diagnostics are stored per
+occurrence (`ExceptionOccurrenceDto` and `RequestProfileExceptionDto`).
 
 :::
 
@@ -194,9 +206,13 @@ Logback, as Spring Boot does, or every occurrence stays unknown.
 
 Exception messages follow the same exposure policy as the rest of BootUI. Under the default
 `bootui.expose-values=MASKED` they are scrubbed of secret-like assignments and authorization credentials exactly as
-[log messages](#log-message-exposure) are, under `METADATA_ONLY` they are omitted, and only under `FULL` are they shown
-verbatim. Request paths are captured without their query string, and stack frames carry only class, method, file, and
-line.
+[log messages](#log-message-exposure) are, plus framework `rejected value [...]` segments, Jackson `from String "..."`
+/ scalar input literals, `Unrecognized field "..."` / `Unrecognized property "..."` names, and bracketed map keys in
+field paths. Under `METADATA_ONLY` messages are omitted, and only under `FULL` are they shown verbatim. Structured
+`bindingDiagnostics` never read `getRejectedValue()`, `getInvalidValue()`, or parser tokens in any mode; numeric list
+indices are normalized to `[*]`, and map keys (`[*]`) and unknown JSON property names (`(unrecognized property)`) are
+redacted unless `bootui.expose-values=FULL`. Request paths are captured without their query string, and stack frames
+carry only class, method, file, and line.
 
 The in-memory store resets on restart and through the panel's clear action, which honors the read-only setting. It is
 bounded by three properties:
@@ -231,6 +247,11 @@ request and response headers, with secret-like headers and query parameters mask
 
 BootUI's own requests are not recorded while `bootui.monitoring.exclude-self` is on (the default). The buffer retains
 200 exchanges by default; change it with `bootui.http-exchanges.max-exchanges`, effective on the next restart.
+While the panel is enabled and `bootui.http-exchanges.expose-request-id-header` is `true` (the default), loopback and
+trusted-peer application responses include `X-BootUI-Request-Id: <id>` so you can paste that header from browser
+DevTools into the HTTP Exchanges filter or pass it directly to `bootui request-profile <id>` (`get_request_profile`).
+Existing application `X-BootUI-Request-Id` headers are never overwritten; set
+`bootui.http-exchanges.expose-request-id-header=false` to disable the header.
 
 ::: details How exchanges are recorded on each stack
 

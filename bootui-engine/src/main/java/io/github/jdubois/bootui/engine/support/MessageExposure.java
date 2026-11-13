@@ -138,6 +138,38 @@ public final class MessageExposure {
     private static final Pattern BARE_CREDENTIAL = Pattern.compile(
             "(?i)(?<![A-Za-z0-9_-])(bearer|basic|negotiate|ntlm)[ \\t]++(?:\\\\?[\"'])?" + "([A-Za-z0-9._~+/-]++=*+)");
 
+    private static final Pattern REJECTED_VALUE_BEFORE_META =
+            Pattern.compile("(?is)(rejected value \\[).*?(\\];\\s*(?:codes|arguments|default message)\\s*\\[)");
+
+    private static final Pattern REJECTED_OR_FOR_VALUE =
+            Pattern.compile("(?is)(\\b(?:rejected|for) value \\[)(?:[^\\]]*(\\])|.*$)");
+
+    private static final Pattern FOR_INPUT_STRING = Pattern.compile(
+            "(?is)(\\bFor input string:\\s*\")(?:.*?(\"(?=\\s*(?:$|[);,\\r\\n])))|[^\"\\r\\n]*(\")|.*$)");
+
+    private static final Pattern DATE_TIME_TEXT = Pattern.compile("(?is)(\\bText\\s+').*?('\\s+could not be parsed)");
+
+    private static final Pattern JACKSON_FROM_STRING = Pattern.compile(
+            "(?is)(\\bfrom String\\s+\")(?:.*?(\"(?::\\s|\\[truncated|\\s*\\r?\\n|\\s*$))|[^\"\\r\\n]*(\")|.*$)");
+
+    private static final Pattern JACKSON_FROM_SCALAR = Pattern.compile(
+            "(?i)(\\bfrom (?:(?:Number|Integer|Floating-point|Boolean) value\\s*\\(|number\\s+))[^):\\r\\n]+(\\)|(?=:))");
+
+    private static final Pattern JACKSON_UNRECOGNIZED_PROPERTY = Pattern.compile(
+            "(?is)(\\b(?:Unrecognized|Ignored) (?:field|property)\\s+\")(?:.*?(\"(?=\\s*\\(class\\s))|[^\"\\r\\n]*(\")|.*$)");
+
+    private static final Pattern JACKSON_UNRECOGNIZED_TOKEN =
+            Pattern.compile("(?is)(\\bUnrecognized token\\s+').*?('(?::\\s|$))");
+
+    private static final Pattern JACKSON_SOURCE_SNIPPET =
+            Pattern.compile("(?is)(\\[Source:\\s*).*?(;\\s*line:\\s*\\d+)");
+
+    private static final Pattern JACKSON_REFERENCE_CHAIN_TAIL =
+            Pattern.compile("(?s)(through reference chain: [^)\\\\]*)\\[\".*?\"\\](\\s*\\))");
+
+    private static final Pattern IDENTIFIER_ATTACHED_BRACKET =
+            Pattern.compile("(?s)(?<=[A-Za-z0-9_$>\\]])\\[(?!(?:\\*+|\"?\\*{6}\"?|REDACTED)\\])[^\\[\\]]+(?:\\]|$)");
+
     private static final MessageExposure OMIT = new MessageExposure(true, false);
 
     private static final MessageExposure MASK = new MessageExposure(false, true);
@@ -221,6 +253,54 @@ public final class MessageExposure {
             return text;
         }
         return maskBareCredentials(maskAssignments(text));
+    }
+
+    /** Scrubs raw user-input values and bracketed map/property keys in exception messages. */
+    public static String scrubBindingLiterals(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String result = text;
+        result = replaceIfMatched(
+                result, REJECTED_VALUE_BEFORE_META, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        result = replaceIfMatched(result, REJECTED_OR_FOR_VALUE, m -> m.group(1) + SecretMasker.MASKED_VALUE + "]");
+        result = replaceIfMatched(result, FOR_INPUT_STRING, m -> m.group(1) + SecretMasker.MASKED_VALUE + "\"");
+        result = replaceIfMatched(result, DATE_TIME_TEXT, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        result = replaceIfMatched(
+                result,
+                JACKSON_FROM_STRING,
+                m -> m.group(1) + SecretMasker.MASKED_VALUE + (m.group(2) != null ? m.group(2) : "\""));
+        result =
+                replaceIfMatched(result, JACKSON_FROM_SCALAR, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        if (JACKSON_UNRECOGNIZED_PROPERTY.matcher(result).find()) {
+            result = replaceIfMatched(
+                    result, JACKSON_UNRECOGNIZED_PROPERTY, m -> m.group(1) + SecretMasker.MASKED_VALUE + "\"");
+            result = replaceIfMatched(
+                    result,
+                    JACKSON_REFERENCE_CHAIN_TAIL,
+                    m -> m.group(1) + "[\"" + SecretMasker.MASKED_VALUE + "\"]" + m.group(2));
+        }
+        result = replaceIfMatched(
+                result, JACKSON_UNRECOGNIZED_TOKEN, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        result = replaceIfMatched(result, JACKSON_SOURCE_SNIPPET, m -> m.group(1) + "REDACTED" + m.group(2));
+        result = replaceIfMatched(result, IDENTIFIER_ATTACHED_BRACKET, m -> "[*]");
+        return result.equals(text) ? text : result;
+    }
+
+    private static String replaceIfMatched(
+            String text, Pattern pattern, java.util.function.Function<Matcher, String> replacer) {
+        Matcher matcher = pattern.matcher(text);
+        if (!matcher.find()) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.length());
+        int last = 0;
+        do {
+            sb.append(text, last, matcher.start()).append(replacer.apply(matcher));
+            last = matcher.end();
+        } while (matcher.find());
+        sb.append(text, last, text.length());
+        return sb.toString();
     }
 
     private static String maskAssignments(String text) {

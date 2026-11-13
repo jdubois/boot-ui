@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.core.dto;
 
+import java.util.List;
+
 /**
  * One exception correlated to a profiled request.
  *
@@ -16,6 +18,10 @@ package io.github.jdubois.bootui.core.dto;
  * @param exceptionGroupId the id of the Exceptions panel group this occurrence belongs to, which
  *     {@code GET /exceptions/{id}} and the {@code get_exception_detail} tool accept, or {@code null} when
  *     the server did not record it
+ * @param bindingDiagnostics bounded metadata-only validation and binding diagnostics extracted for
+ *     this occurrence
+ * @param bindingDiagnosticsTruncated {@code true} when additional diagnostics existed beyond the
+ *     per-occurrence cap
  */
 public record RequestProfileExceptionDto(
         String exceptionClassName,
@@ -25,7 +31,36 @@ public record RequestProfileExceptionDto(
         String thread,
         String handler,
         String source,
-        String exceptionGroupId) {
+        String exceptionGroupId,
+        List<BindingDiagnosticDto> bindingDiagnostics,
+        boolean bindingDiagnosticsTruncated) {
+
+    public RequestProfileExceptionDto {
+        bindingDiagnostics = DtoCollections.immutableCopy(bindingDiagnostics);
+    }
+
+    /** Without binding diagnostics. */
+    public RequestProfileExceptionDto(
+            String exceptionClassName,
+            String message,
+            String location,
+            long timestamp,
+            String thread,
+            String handler,
+            String source,
+            String exceptionGroupId) {
+        this(
+                exceptionClassName,
+                message,
+                location,
+                timestamp,
+                thread,
+                handler,
+                source,
+                exceptionGroupId,
+                List.of(),
+                false);
+    }
 
     /** The original shape, without the exception group id. */
     public RequestProfileExceptionDto(

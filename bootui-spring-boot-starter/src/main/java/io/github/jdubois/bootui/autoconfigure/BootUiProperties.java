@@ -1183,6 +1183,13 @@ public class BootUiProperties {
          */
         private int reservedSharePercent = 25;
 
+        /**
+         * Emit the {@code X-BootUI-Request-Id} response header on loopback and trusted-peer
+         * application responses while the HTTP Exchanges panel is enabled, so browser DevTools and
+         * automated browser agents can open the request's profile directly by id.
+         */
+        private boolean exposeRequestIdHeader = true;
+
         public int getMaxExchanges() {
             return maxExchanges;
         }
@@ -1197,6 +1204,14 @@ public class BootUiProperties {
 
         public void setReservedSharePercent(int reservedSharePercent) {
             this.reservedSharePercent = reservedSharePercent;
+        }
+
+        public boolean isExposeRequestIdHeader() {
+            return exposeRequestIdHeader;
+        }
+
+        public void setExposeRequestIdHeader(boolean exposeRequestIdHeader) {
+            this.exposeRequestIdHeader = exposeRequestIdHeader;
         }
     }
 

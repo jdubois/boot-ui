@@ -67,6 +67,7 @@ function report(overrides = {}) {
         remoteAddress: '127.0.0.1',
         principal: null,
         sessionId: null,
+        requestId: '505bf7c17a1c95cf',
         traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
         requestHeaders: [
           {name: 'Accept', values: ['application/json'], masked: false},
@@ -121,6 +122,8 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.find('.http-exchanges-detail-toggle').text()).toContain('Hide details')
     expect(wrapper.find('.http-exchanges-detail-toggle').attributes('aria-expanded')).toBe('true')
     expect(wrapper.find('.http-exchanges-detail').exists()).toBe(true)
+    expect(wrapper.find('.http-exchanges-request-id-tip').text()).toContain('X-BootUI-Request-Id')
+    expect(wrapper.text()).toContain('505bf7c17a1c95cf')
     expect(wrapper.text()).toContain('Authorization')
     expect(wrapper.text()).toContain('******')
   })

@@ -677,8 +677,13 @@ public class BootUiReactiveAutoConfiguration {
 
     @Bean
     public ReactiveRequestCorrelationFilter bootUiReactiveRequestCorrelationFilter(
-            BootUiProperties properties, Environment environment, RuntimeJournal journal, RequestPhases phases) {
-        ReactiveRequestCorrelationFilter filter = new ReactiveRequestCorrelationFilter(properties);
+            BootUiProperties properties,
+            Environment environment,
+            RuntimeJournal journal,
+            RequestPhases phases,
+            ReactiveLocalhostOnlyFilter reactiveLocalhostOnlyFilter) {
+        ReactiveRequestCorrelationFilter filter =
+                new ReactiveRequestCorrelationFilter(properties, reactiveLocalhostOnlyFilter);
         filter.setRuntimeEventSink(journal, ExchangeSlowThreshold.resolve(properties, environment), phases);
         return filter;
     }
@@ -1048,6 +1053,9 @@ public class BootUiReactiveAutoConfiguration {
                     config.getMaxOccurrencesPerGroup(),
                     config.getMaxStackFrames(),
                     DisconnectedClientHelper::isClientDisconnectedException);
+            store.setBindingDiagnosticExtractor(
+                    io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport
+                            .bindingDiagnosticExtractor());
             try {
                 if (AutoConfigurationPackages.has(applicationContext)) {
                     store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));

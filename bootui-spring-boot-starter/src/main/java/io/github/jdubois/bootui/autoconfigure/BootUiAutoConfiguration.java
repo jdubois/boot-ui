@@ -493,6 +493,9 @@ public class BootUiAutoConfiguration {
                     config.getMaxOccurrencesPerGroup(),
                     config.getMaxStackFrames(),
                     DisconnectedClientHelper::isClientDisconnectedException);
+            store.setBindingDiagnosticExtractor(
+                    io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport
+                            .bindingDiagnosticExtractor());
             try {
                 if (AutoConfigurationPackages.has(applicationContext)) {
                     store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));
@@ -1061,7 +1064,8 @@ public class BootUiAutoConfiguration {
             BootUiProperties properties,
             Environment environment,
             RequestPhases phases,
-            RuntimeJournal journal) {
+            RuntimeJournal journal,
+            LocalhostOnlyFilter localhostOnlyFilter) {
         RequestCorrelationFilter filter = new RequestCorrelationFilter(
                 registry,
                 traceRegistry,
@@ -1070,6 +1074,10 @@ public class BootUiAutoConfiguration {
                 ExchangeSlowThreshold.resolve(properties, environment),
                 phases);
         filter.setRuntimeEventSink(journal);
+        filter.setRequestIdHeaderExposure(
+                () -> properties.getHttpExchanges().isExposeRequestIdHeader()
+                        && properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES),
+                localhostOnlyFilter::isTrustedSource);
         // A Spring MVC request's scope is its whole handling on its pooled worker: the BootUI agent's thread-locals
         // sensor scans there (docs/PLAN-v2.md §5.16, M5-5f).
         AgentThreadLocals.configure(true);

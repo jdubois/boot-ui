@@ -448,6 +448,33 @@ describe('exceptionMarkdown', () => {
 
     expect(omissions).toContain('Correlated SQL: the latest occurrence is not correlated to a captured HTTP request.')
   })
+
+  it('renders binding and validation diagnostics table and truncation omission in Copy for AI', () => {
+    const withDiagnostics = detail({
+      occurrences: [
+        {
+          ...detail().occurrences[0],
+          bindingDiagnostics: [
+            {targetType: 'CreateOrderRequest', fieldPath: 'customer.email', reason: 'Email'},
+            {targetType: 'CreateOrderRequest', fieldPath: 'items[*].quantity', reason: 'Positive'}
+          ],
+          bindingDiagnosticsTruncated: true
+        }
+      ]
+    })
+
+    const {markdown, omissions} = exceptionMarkdown(withDiagnostics, {
+      correlated: {requestId: 'req-1', profile: profile()}
+    })
+
+    expect(markdown).toContain('## Binding & validation diagnostics')
+    expect(markdown).toContain('| `CreateOrderRequest` | `customer.email` | `Email` |')
+    expect(markdown).toContain('| `CreateOrderRequest` | `items[*].quantity` | `Positive` |')
+    expect(markdown).toContain('diagnostics `customer.email: Email`, `items[*].quantity: Positive` (truncated)')
+    expect(omissions).toContain(
+      'Binding & validation diagnostics of java.lang.IllegalStateException: only the first 2 diagnostics of the occurrence are retained.'
+    )
+  })
 })
 
 describe('loading an export', () => {

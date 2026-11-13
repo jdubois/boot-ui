@@ -116,6 +116,25 @@ describe('HttpProbe', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
+  it('links to the request profile when the probe response carries X-BootUI-Request-Id', async () => {
+    const RouterLinkStub = {
+      props: ['to'],
+      template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
+    }
+    apiFetch.mockResolvedValue(ok(response({headers: {'X-BootUI-Request-Id': '1bfc811d88dbab7d'}})))
+    const wrapper = mount(HttpProbe, {global: {stubs: {RouterLink: RouterLinkStub}}})
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    const link = wrapper.get('.http-probe-profile-link')
+    expect(link.text()).toContain('Open Request Profile')
+    expect(JSON.parse(link.attributes('data-to'))).toEqual({
+      path: '/activity',
+      query: {request: '1bfc811d88dbab7d'}
+    })
+  })
+
   it.each(['GET', 'HEAD'])('sends safe %s probes without confirmation', async (method) => {
     apiFetch.mockResolvedValue(ok(response()))
     const wrapper = mount(HttpProbe)

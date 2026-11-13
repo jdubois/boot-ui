@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.sample.web;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import io.github.jdubois.bootui.sample.catalog.CatalogService;
 import io.github.jdubois.bootui.sample.catalog.ProductSummary;
 import io.github.jdubois.bootui.sample.catalog.SampleSettings;
@@ -77,7 +78,19 @@ public class SampleResource {
     @GET
     @Path("/boom")
     @Produces(MediaType.TEXT_PLAIN)
-    public String boom() {
+    public String boom(@QueryParam("scenario") String scenario) {
+        if ("validation".equals(scenario)) {
+            InvalidFormatException invalid = InvalidFormatException.from(
+                    null,
+                    "Cannot deserialize value of type `java.lang.Integer` from String \"alice-secret@example.com\": not a valid `java.lang.Integer` value",
+                    "alice-secret@example.com",
+                    Integer.class);
+            invalid.prependPath(Map.class, "secretApiKey");
+            invalid.prependPath(ProductSummary.class, "attributes");
+            throw new IllegalArgumentException(
+                    "Invalid product payload for field 'attributes[secretApiKey]': rejected value [alice-secret@example.com]",
+                    invalid);
+        }
         try {
             Integer.parseInt("not-a-number");
             return "unreachable";

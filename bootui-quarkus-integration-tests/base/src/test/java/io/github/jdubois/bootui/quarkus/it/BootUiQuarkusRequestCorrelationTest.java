@@ -75,6 +75,37 @@ class BootUiQuarkusRequestCorrelationTest {
         assertThat(exchangeIds("/it/correlation/worker")).containsAll(observed);
     }
 
+    @Test
+    void exposesLoopbackRequestIdHeaderWhenEnabledAndMatchesTheRequestProfile() {
+        var response = probe().get("/it/correlation/worker");
+        String observedId = response.body().split("\\|")[1];
+        String headerId = response.header("X-BootUI-Request-Id");
+        assertThat(headerId).isEqualTo(observedId).matches("[0-9a-f]{16}");
+        assertThat(probe().get("/bootui/api/overview").header("X-BootUI-Request-Id"))
+                .isNull();
+        assertThat(exchangeIds("/it/correlation/worker")).contains(headerId);
+        assertThat(probe().get("/bootui/api/activity/request/" + headerId + "/journal")
+                        .body())
+                .contains("\"available\":true")
+                .contains("\"requestId\":\"" + headerId + "\"");
+
+        System.setProperty("bootui.panels.http-exchanges.enabled", "false");
+        try {
+            assertThat(probe().get("/it/correlation/worker").header("X-BootUI-Request-Id"))
+                    .isNull();
+        } finally {
+            System.clearProperty("bootui.panels.http-exchanges.enabled");
+        }
+
+        System.setProperty("bootui.http-exchanges.expose-request-id-header", "false");
+        try {
+            assertThat(probe().get("/it/correlation/worker").header("X-BootUI-Request-Id"))
+                    .isNull();
+        } finally {
+            System.clearProperty("bootui.http-exchanges.expose-request-id-header");
+        }
+    }
+
     private List<String> exchangeIds(String path) {
         JsonNode report = probe().get("/bootui/api/http-exchanges?limit=200").json();
         List<String> ids = new ArrayList<>();

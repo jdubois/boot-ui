@@ -432,4 +432,144 @@ class RequestCorrelationFilterTests {
                 .extracting(HttpExchangeTraceRegistry.HttpExchangeTrace::path)
                 .containsExactly("/host/api/orders");
     }
+
+    @Test
+    void doesNotExposeRequestIdHeaderByDefault() throws Exception {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), response, new MockFilterChain());
+
+        assertThat(response.getHeader(io.github.jdubois.bootui.engine.correlation.RequestIds.RESPONSE_HEADER))
+                .isNull();
+    }
+
+    @Test
+    void exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues()
+            throws Exception {
+        io.github.jdubois.bootui.autoconfigure.BootUiProperties properties =
+                new io.github.jdubois.bootui.autoconfigure.BootUiProperties();
+        properties.getHttpExchanges().setExposeRequestIdHeader(true);
+        properties.setTrustedProxies(new String[] {"10.10.0.0/16"});
+        io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter localhostFilter =
+                new io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter(properties);
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(20), new HttpExchangeTraceRegistry(20), "/bootui");
+        filter.setRequestIdHeaderExposure(
+                () -> properties.getHttpExchanges().isExposeRequestIdHeader()
+                        && properties.isPanelEnabled(io.github.jdubois.bootui.engine.panel.BootUiPanels.HTTP_EXCHANGES),
+                localhostFilter::isTrustedSource);
+
+        List<String> seenIds = new ArrayList<>();
+        MockHttpServletResponse loopbackResponse = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), loopbackResponse, (req, res) -> {
+            assertThat(((jakarta.servlet.http.HttpServletResponse) res).containsHeader("X-BootUI-Request-Id"))
+                    .isFalse();
+            seenIds.add(BootUiCorrelation.current().requestId());
+        });
+        assertThat(loopbackResponse.getHeaders("X-BootUI-Request-Id")).containsExactly(seenIds.get(0));
+
+        MockHttpServletRequest trustedProxyRequest = new MockHttpServletRequest("GET", "/api/orders");
+        trustedProxyRequest.setRemoteAddr("10.10.1.5");
+        MockHttpServletResponse trustedProxyResponse = new MockHttpServletResponse();
+        filter.doFilter(
+                trustedProxyRequest,
+                trustedProxyResponse,
+                (req, res) -> seenIds.add(BootUiCorrelation.current().requestId()));
+        assertThat(trustedProxyResponse.getHeaders("X-BootUI-Request-Id")).containsExactly(seenIds.get(1));
+
+        // Even with allow-non-localhost=true, untrusted peers never receive X-BootUI-Request-Id.
+        properties.setAllowNonLocalhost(true);
+        MockHttpServletRequest remoteRequest = new MockHttpServletRequest("GET", "/api/orders");
+        remoteRequest.setRemoteAddr("203.0.113.9");
+        MockHttpServletResponse remoteResponse = new MockHttpServletResponse();
+        filter.doFilter(remoteRequest, remoteResponse, new MockFilterChain());
+        assertThat(remoteResponse.getHeader("X-BootUI-Request-Id")).isNull();
+
+        // A request wrapper (such as ForwardedHeaderFilter) rewriting getRemoteAddr() to loopback cannot bypass peer
+        // trust.
+        jakarta.servlet.http.HttpServletRequest wrappedSpoofedRequest =
+                new jakarta.servlet.http.HttpServletRequestWrapper(remoteRequest) {
+                    @Override
+                    public String getRemoteAddr() {
+                        return "127.0.0.1";
+                    }
+                };
+        MockHttpServletResponse wrappedSpoofedResponse = new MockHttpServletResponse();
+        filter.doFilter(wrappedSpoofedRequest, wrappedSpoofedResponse, new MockFilterChain());
+        assertThat(wrappedSpoofedResponse.getHeader("X-BootUI-Request-Id")).isNull();
+
+        // BootUI's own requests never receive X-BootUI-Request-Id.
+        MockHttpServletResponse bootUiResponse = new MockHttpServletResponse();
+        filter.doFilter(
+                new MockHttpServletRequest("GET", "/bootui/api/overview"), bootUiResponse, new MockFilterChain());
+        assertThat(bootUiResponse.getHeader("X-BootUI-Request-Id")).isNull();
+
+        // Pre-existing header set before the filter is never overwritten.
+        MockHttpServletResponse preExistingResponse = new MockHttpServletResponse();
+        preExistingResponse.setHeader("X-BootUI-Request-Id", "upstream-id");
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), preExistingResponse, new MockFilterChain());
+        assertThat(preExistingResponse.getHeaders("X-BootUI-Request-Id")).containsExactly("upstream-id");
+
+        // Handler setHeader replaces BootUI's header cleanly.
+        MockHttpServletResponse handlerSetResponse = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), handlerSetResponse, (req, res) -> {
+            ((jakarta.servlet.http.HttpServletResponse) res).setHeader("X-BootUI-Request-Id", "handler-set-id");
+            assertThat(((jakarta.servlet.http.HttpServletResponse) res).containsHeader("X-BootUI-Request-Id"))
+                    .isTrue();
+        });
+        assertThat(handlerSetResponse.getHeaders("X-BootUI-Request-Id")).containsExactly("handler-set-id");
+
+        // Handler addHeader (such as ResponseEntity headers) replaces BootUI's default without duplicating.
+        MockHttpServletResponse handlerAddResponse = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), handlerAddResponse, (req, res) -> {
+            jakarta.servlet.http.HttpServletResponse httpRes = (jakarta.servlet.http.HttpServletResponse) res;
+            httpRes.addHeader("X-BootUI-Request-Id", "handler-added-id");
+            httpRes.addHeader("X-BootUI-Request-Id", "handler-added-second");
+        });
+        assertThat(handlerAddResponse.getHeaders("X-BootUI-Request-Id"))
+                .containsExactly("handler-added-id", "handler-added-second");
+
+        // response.reset() restores BootUI's request id.
+        MockHttpServletResponse resetResponse = new MockHttpServletResponse();
+        List<String> resetId = new ArrayList<>();
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), resetResponse, (req, res) -> {
+            jakarta.servlet.http.HttpServletResponse httpRes = (jakarta.servlet.http.HttpServletResponse) res;
+            resetId.add(BootUiCorrelation.current().requestId());
+            httpRes.setHeader("X-BootUI-Request-Id", "discarded");
+            httpRes.reset();
+        });
+        assertThat(resetResponse.getHeaders("X-BootUI-Request-Id")).containsExactly(resetId.get(0));
+
+        // Container ERROR redispatch preserves BootUI's header after container reset, and lets an error handler
+        // replace it via addHeader without producing duplicate values.
+        MockHttpServletRequest errorDispatchRequest = new MockHttpServletRequest("GET", "/api/boom");
+        MockHttpServletResponse errorDispatchResponse = new MockHttpServletResponse();
+        List<String> errorId = new ArrayList<>();
+        assertThatThrownBy(() -> filter.doFilter(errorDispatchRequest, errorDispatchResponse, (req, res) -> {
+                    errorId.add(BootUiCorrelation.current().requestId());
+                    throw new ServletException("boom");
+                }))
+                .isInstanceOf(ServletException.class);
+        errorDispatchResponse.reset();
+        errorDispatchRequest.setDispatcherType(DispatcherType.ERROR);
+        errorDispatchRequest.removeAttribute(filter.getClass().getName() + ".FILTERED");
+        filter.doFilter(errorDispatchRequest, errorDispatchResponse, (req, res) -> {
+            ((jakarta.servlet.http.HttpServletResponse) res).setStatus(500);
+        });
+        assertThat(errorDispatchResponse.getHeaders("X-BootUI-Request-Id")).containsExactly(errorId.get(0));
+
+        errorDispatchRequest.removeAttribute(filter.getClass().getName() + ".FILTERED");
+        filter.doFilter(errorDispatchRequest, errorDispatchResponse, (req, res) -> {
+            ((jakarta.servlet.http.HttpServletResponse) res).addHeader("X-BootUI-Request-Id", "error-handler-id");
+        });
+        assertThat(errorDispatchResponse.getHeaders("X-BootUI-Request-Id")).containsExactly("error-handler-id");
+
+        // Disabling the http-exchanges panel suppresses the header even when expose-request-id-header=true.
+        properties.panel("http-exchanges").setEnabled(false);
+        MockHttpServletResponse disabledPanelResponse = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), disabledPanelResponse, new MockFilterChain());
+        assertThat(disabledPanelResponse.getHeader("X-BootUI-Request-Id")).isNull();
+    }
 }
