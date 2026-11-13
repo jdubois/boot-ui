@@ -670,8 +670,13 @@ public class BootUiReactiveAutoConfiguration {
 
     @Bean
     public ReactiveRequestCorrelationFilter bootUiReactiveRequestCorrelationFilter(
-            BootUiProperties properties, Environment environment, RuntimeJournal journal, RequestPhases phases) {
-        ReactiveRequestCorrelationFilter filter = new ReactiveRequestCorrelationFilter(properties);
+            BootUiProperties properties,
+            Environment environment,
+            RuntimeJournal journal,
+            RequestPhases phases,
+            ReactiveLocalhostOnlyFilter reactiveLocalhostOnlyFilter) {
+        ReactiveRequestCorrelationFilter filter =
+                new ReactiveRequestCorrelationFilter(properties, reactiveLocalhostOnlyFilter);
         filter.setRuntimeEventSink(journal, ExchangeSlowThreshold.resolve(properties, environment), phases);
         return filter;
     }

@@ -979,6 +979,27 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void requestCorrelationFilterExposesRequestIdHeaderOnlyWhenConfigured() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            RequestCorrelationFilter filter = (RequestCorrelationFilter)
+                    context.getBean("bootUiRequestCorrelationFilterRegistration", FilterRegistrationBean.class)
+                            .getFilter();
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), response, (req, res) -> {});
+            assertThat(response.getHeader("X-BootUI-Request-Id")).isNull();
+        });
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.expose-request-id-header=true")
+                .run(context -> {
+                    RequestCorrelationFilter filter = (RequestCorrelationFilter)
+                            context.getBean("bootUiRequestCorrelationFilterRegistration", FilterRegistrationBean.class)
+                                    .getFilter();
+                    MockHttpServletResponse response = new MockHttpServletResponse();
+                    filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), response, (req, res) -> {});
+                    assertThat(response.getHeader("X-BootUI-Request-Id")).matches("[0-9a-f]{16}");
+                });
+    }
+
+    @Test
     void traceRecordersReserveTheDefaultOrConfiguredShareOfTheirBuffers() {
         runner.withPropertyValues("bootui.enabled=ON").run(context -> {
             assertThat(context.getBean(io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.class)

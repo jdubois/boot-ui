@@ -71,6 +71,43 @@ class SpringRuntimeJournalTest {
     @Autowired
     JournalAggregates aggregates;
 
+    @Autowired
+    io.github.jdubois.bootui.autoconfigure.BootUiProperties bootUiProperties;
+
+    @Test
+    void exposesLoopbackRequestIdHeaderWhenEnabledAndMatchesTheRequestProfile() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+        assertThat(probe.get("/api/sample/hello").header("X-BootUI-Request-Id")).isNull();
+
+        bootUiProperties.getHttpExchanges().setExposeRequestIdHeader(true);
+        try {
+            var response = probe.get("/api/sample/hello");
+            assertThat(response.status()).isEqualTo(200);
+            String requestId = response.header("X-BootUI-Request-Id");
+            assertThat(requestId).matches("[0-9a-f]{16}");
+            assertThat(probe.get("/bootui/api/overview").header("X-BootUI-Request-Id"))
+                    .isNull();
+            assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+            assertThat(probe.get("/bootui/api/activity/request/" + requestId + "/journal")
+                            .body())
+                    .contains("\"available\":true")
+                    .contains("\"requestId\":\"" + requestId + "\"");
+            assertThat(probe.get("/bootui/api/http-exchanges?query=" + requestId)
+                            .body())
+                    .contains("\"id\":\"" + requestId + "\"");
+
+            bootUiProperties.panel("http-exchanges").setEnabled(false);
+            try {
+                assertThat(probe.get("/api/sample/hello").header("X-BootUI-Request-Id"))
+                        .isNull();
+            } finally {
+                bootUiProperties.panel("http-exchanges").setEnabled(true);
+            }
+        } finally {
+            bootUiProperties.getHttpExchanges().setExposeRequestIdHeader(false);
+        }
+    }
+
     @Test
     void theRunStartRecordsTheTimeToReadyTheSlowestBeansAndTheComparabilityFacts() throws Exception {
         long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();

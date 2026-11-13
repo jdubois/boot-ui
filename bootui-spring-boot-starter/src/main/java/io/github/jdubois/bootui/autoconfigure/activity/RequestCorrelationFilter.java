@@ -26,9 +26,12 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
@@ -105,6 +108,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     }
 
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
+    private volatile BooleanSupplier exposeRequestIdHeader = () -> false;
+    private volatile Predicate<String> trustedSource = ignored -> false;
 
     /**
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
@@ -112,6 +117,18 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
      */
     public void setRuntimeEventSink(RuntimeEventSink journal) {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
+    /**
+     * Configures opt-in {@link RequestIds#RESPONSE_HEADER} emission on trusted-peer application responses.
+     *
+     * @param exposeRequestIdHeader live check for whether {@code bootui.http-exchanges.expose-request-id-header}
+     *     and the {@code http-exchanges} panel are both enabled
+     * @param trustedSource live check for whether the request's raw peer address is a trusted loopback/local source
+     */
+    public void setRequestIdHeaderExposure(BooleanSupplier exposeRequestIdHeader, Predicate<String> trustedSource) {
+        this.exposeRequestIdHeader = exposeRequestIdHeader == null ? () -> false : exposeRequestIdHeader;
+        this.trustedSource = trustedSource == null ? ignored -> false : trustedSource;
     }
 
     /** The request attribute marking a request whose values the BootUI agent's request value holder holds. */
@@ -150,6 +167,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         }
         CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
         request.setAttribute(CORRELATION_ATTRIBUTE, correlation);
+        HttpServletResponse effectiveResponse =
+                wrapForRequestIdHeaderIfAllowed(request, response, correlation.requestId());
         if (phases != null) {
             phases.begin(correlation.requestId());
         }
@@ -162,7 +181,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             AgentCodePaths.begin();
             AgentCodePaths.phase(RequestPhase.FILTERS);
             try {
-                recordAround(request, response, chain, correlation);
+                recordAround(request, effectiveResponse, chain, correlation);
             } finally {
                 try {
                     markAssemblyOnlyIfAsync(request, correlation);
@@ -171,6 +190,74 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                     AgentCodePaths.end();
                 }
             }
+        }
+    }
+
+    private HttpServletResponse wrapForRequestIdHeaderIfAllowed(
+            HttpServletRequest request, HttpServletResponse response, String requestId) {
+        try {
+            if (!exposeRequestIdHeader.getAsBoolean()
+                    || !trustedSource.test(request.getRemoteAddr())
+                    || response.containsHeader(RequestIds.RESPONSE_HEADER)) {
+                return response;
+            }
+            return new RequestIdHeaderResponse(response, requestId);
+        } catch (RuntimeException ex) {
+            return response;
+        }
+    }
+
+    /**
+     * Installs {@link RequestIds#RESPONSE_HEADER} before the filter chain runs so streaming and committed
+     * responses carry it, while letting any downstream filter or handler replace it via {@code setHeader}
+     * or {@code addHeader} without producing duplicate header values.
+     */
+    private static final class RequestIdHeaderResponse extends HttpServletResponseWrapper {
+
+        private final String requestId;
+        private boolean applicationOwned;
+
+        private RequestIdHeaderResponse(HttpServletResponse response, String requestId) {
+            super(response);
+            this.requestId = requestId;
+            super.setHeader(RequestIds.RESPONSE_HEADER, requestId);
+        }
+
+        @Override
+        public synchronized boolean containsHeader(String name) {
+            if (isRequestIdHeader(name) && !applicationOwned) {
+                return false;
+            }
+            return super.containsHeader(name);
+        }
+
+        @Override
+        public synchronized void setHeader(String name, String value) {
+            if (isRequestIdHeader(name)) {
+                applicationOwned = true;
+            }
+            super.setHeader(name, value);
+        }
+
+        @Override
+        public synchronized void addHeader(String name, String value) {
+            if (isRequestIdHeader(name) && !applicationOwned) {
+                applicationOwned = true;
+                super.setHeader(name, value);
+                return;
+            }
+            super.addHeader(name, value);
+        }
+
+        @Override
+        public synchronized void reset() {
+            super.reset();
+            applicationOwned = false;
+            super.setHeader(RequestIds.RESPONSE_HEADER, requestId);
+        }
+
+        private static boolean isRequestIdHeader(String name) {
+            return RequestIds.RESPONSE_HEADER.equalsIgnoreCase(name);
         }
     }
 

@@ -231,6 +231,10 @@ request and response headers, with secret-like headers and query parameters mask
 
 BootUI's own requests are not recorded while `bootui.monitoring.exclude-self` is on (the default). The buffer retains
 200 exchanges by default; change it with `bootui.http-exchanges.max-exchanges`, effective on the next restart.
+Set `bootui.http-exchanges.expose-request-id-header=true` (default `false`) to include `X-BootUI-Request-Id: <id>` on
+loopback and trusted-peer application responses while the panel is enabled, so browser DevTools and browser-driving
+agents can pass that id directly to `bootui request-profile <id>` (`get_request_profile`). Existing application
+`X-BootUI-Request-Id` headers are never overwritten.
 
 ::: details How exchanges are recorded on each stack
 

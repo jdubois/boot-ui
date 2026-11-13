@@ -12,12 +12,15 @@ import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAccessConfig;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusThreadKinds;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -90,6 +93,8 @@ public class QuarkusHttpExchangeCaptureFilter {
     /** After the safety filter (priority 1000); only ever records, never short-circuits. */
     private static final int PRIORITY = 900;
 
+    static final String EXPOSE_REQUEST_ID_HEADER_KEY = "bootui.http-exchanges.expose-request-id-header";
+
     private static final Logger LOG = Logger.getLogger(QuarkusHttpExchangeCaptureFilter.class);
 
     private final HttpExchangeBuffer buffer;
@@ -97,10 +102,12 @@ public class QuarkusHttpExchangeCaptureFilter {
     private final Config config;
     private final RequestPhases phases;
     private final RuntimeEventSink journal;
+    private final QuarkusPanelAccessConfig panelAccessConfig;
+    private final BootUiQuarkusSafetyFilter safetyFilter;
 
     public QuarkusHttpExchangeCaptureFilter(
             HttpExchangeBuffer buffer, Instance<TraceIdSource> traceIdProvider, Config config) {
-        this(buffer, traceIdProvider, config, null, null);
+        this(buffer, traceIdProvider, config, null, null, null);
     }
 
     /**
@@ -108,18 +115,36 @@ public class QuarkusHttpExchangeCaptureFilter {
      * @param journal the runtime journal, which receives one {@code HTTP} event per request ({@code docs/PLAN-v2.md}
      *     §5.2); {@code null} publishes nothing
      */
-    @Inject
     public QuarkusHttpExchangeCaptureFilter(
             HttpExchangeBuffer buffer,
             Instance<TraceIdSource> traceIdProvider,
             Config config,
             RequestPhases phases,
             RuntimeJournal journal) {
+        this(buffer, traceIdProvider, config, phases, journal, null);
+    }
+
+    /**
+     * @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none
+     * @param journal the runtime journal, which receives one {@code HTTP} event per request ({@code docs/PLAN-v2.md}
+     *     §5.2); {@code null} publishes nothing
+     * @param safetyFilter the shared localhost/trusted-peer guard reused to gate opt-in request-id response headers
+     */
+    @Inject
+    public QuarkusHttpExchangeCaptureFilter(
+            HttpExchangeBuffer buffer,
+            Instance<TraceIdSource> traceIdProvider,
+            Config config,
+            RequestPhases phases,
+            RuntimeJournal journal,
+            BootUiQuarkusSafetyFilter safetyFilter) {
         this.buffer = buffer;
         this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
         this.config = config;
         this.phases = phases;
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+        this.panelAccessConfig = new QuarkusPanelAccessConfig(config);
+        this.safetyFilter = safetyFilter != null ? safetyFilter : new BootUiQuarkusSafetyFilter(config);
     }
 
     public void register(@Observes Filters filters) {
@@ -200,6 +225,7 @@ public class QuarkusHttpExchangeCaptureFilter {
         AtomicReference<Map<String, List<String>>> committedResponseHeaders = new AtomicReference<>();
         rc.addHeadersEndHandler(v -> {
             try {
+                exposeRequestIdHeaderIfAllowed(rc, requestId);
                 committedResponseHeaders.set(headers(rc.response().headers()));
             } catch (RuntimeException failure) {
                 logCaptureFailure(failure);
@@ -243,6 +269,9 @@ public class QuarkusHttpExchangeCaptureFilter {
                                     RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
                 } catch (RuntimeException ex) {
                     // Publishing never disturbs the request it observes.
+                }
+                if (committedResponseHeaders.get() == null) {
+                    exposeRequestIdHeaderIfAllowed(rc, requestId);
                 }
                 buffer.record(new CapturedHttpExchange(
                         started,
@@ -347,6 +376,39 @@ public class QuarkusHttpExchangeCaptureFilter {
         return rc.request().remoteAddress() == null
                 ? null
                 : rc.request().remoteAddress().hostAddress();
+    }
+
+    private void exposeRequestIdHeaderIfAllowed(RoutingContext rc, String requestId) {
+        if (!shouldExposeRequestIdHeader(rc)) {
+            return;
+        }
+        HttpServerResponse response = rc.response();
+        if (response == null || response.headWritten()) {
+            return;
+        }
+        io.vertx.core.MultiMap responseHeaders = response.headers();
+        if (responseHeaders != null && !responseHeaders.contains(RequestIds.RESPONSE_HEADER)) {
+            responseHeaders.set(RequestIds.RESPONSE_HEADER, requestId);
+        }
+    }
+
+    private boolean shouldExposeRequestIdHeader(RoutingContext rc) {
+        return isExposeRequestIdHeaderEnabled()
+                && panelAccessConfig.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES)
+                && safetyFilter.isTrustedSource(remoteAddr(rc));
+    }
+
+    private boolean isExposeRequestIdHeaderEnabled() {
+        if (config == null) {
+            return false;
+        }
+        try {
+            return config.getOptionalValue(EXPOSE_REQUEST_ID_HEADER_KEY, Boolean.class)
+                    .orElse(Boolean.FALSE);
+        } catch (IllegalArgumentException ex) {
+            LOG.warnf("Ignoring invalid BootUI property '%s'; falling back to false.", EXPOSE_REQUEST_ID_HEADER_KEY);
+            return false;
+        }
     }
 
     private static void logCaptureFailure(RuntimeException failure) {

@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in `X-BootUI-Request-Id` response header** links loopback application responses directly to their HTTP Exchanges
+  row and Live Activity request profile when `bootui.http-exchanges.expose-request-id-header=true`
+  ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1674](https://github.com/jdubois/boot-ui/issues/1674)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

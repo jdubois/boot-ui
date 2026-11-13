@@ -78,7 +78,8 @@ does not add a missing integration. These include the safety keys (`bootui.allow
 `bootui.authentication.token`),
 `bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
 `bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
-`bootui.http-exchanges.reserved-share-percent` (default `25`), `bootui.activity.request-slow-threshold-ms` (default
+`bootui.http-exchanges.reserved-share-percent` (default `25`),
+`bootui.http-exchanges.expose-request-id-header` (default `false`), `bootui.activity.request-slow-threshold-ms` (default
 `1000`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
@@ -755,6 +756,7 @@ outside the journal's byte bound.
 | `bootui.panels.http-exchanges.enabled`       | `true`  | Show recent inbound HTTP exchanges and create a bounded in-memory recorder when none exists.    |
 | `bootui.http-exchanges.max-exchanges`        | `200`   | Maximum recent HTTP exchanges retained in memory. Requires restart because it sizes the buffer. |
 | `bootui.http-exchanges.reserved-share-percent` | `25`  | Percentage of `max-exchanges` reserved for the most recent `5xx` and slow exchanges (at or above `bootui.activity.request-slow-threshold-ms`), so routine requests are evicted first. `0` evicts strictly oldest first. Applies only while BootUI owns the recorder. On Spring, slow exchanges are reserved only while `management.httpexchanges.recording.include` records `time-taken`, which it does by default. Requires restart. |
+| `bootui.http-exchanges.expose-request-id-header` | `false` | Emit `X-BootUI-Request-Id: <requestId>` on application responses when `bootui.panels.http-exchanges.enabled=true`, the request does not target BootUI itself, the caller peer is a trusted loopback/local source, and the response does not already carry `X-BootUI-Request-Id`. |
 | `management.httpexchanges.recording.enabled` | `true`  | Spring Boot recorder switch. Set to `false` to disable capture while leaving the panel visible. |
 
 ### HTTP Probe

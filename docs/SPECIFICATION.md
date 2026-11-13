@@ -3552,6 +3552,7 @@ Initial properties:
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.http-exchanges.reserved-share-percent` | `25`                                  | Share of the HTTP exchange buffer reserved for recent `5xx` and slow exchanges; `0` disables it.   |
+| `bootui.http-exchanges.expose-request-id-header` | `false`                             | Opt-in loopback/trusted-peer `X-BootUI-Request-Id` response header on application routes while the HTTP Exchanges panel is enabled. |
 | `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
 | `bootui.email.mask-content`                  | `false`                                 | Mask captured recipients, subject, and bodies unless `bootui.expose-values=FULL`.                  |

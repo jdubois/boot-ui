@@ -497,6 +497,39 @@ class BootUiReactiveAutoConfigurationTests {
     }
 
     @Test
+    void reactiveRequestCorrelationFilterExposesRequestIdHeaderOnlyWhenConfigured() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter filter = context.getBean(
+                    io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter.class);
+            org.springframework.mock.web.server.MockServerWebExchange exchange =
+                    org.springframework.mock.web.server.MockServerWebExchange.from(
+                            org.springframework.mock.http.server.reactive.MockServerHttpRequest.get("/api/orders")
+                                    .remoteAddress(new java.net.InetSocketAddress(
+                                            java.net.InetAddress.getByName("127.0.0.1"), 12345)));
+            filter.filter(exchange, ex -> ex.getResponse().setComplete()).block(java.time.Duration.ofSeconds(5));
+            assertThat(exchange.getResponse().getHeaders().getFirst("X-BootUI-Request-Id"))
+                    .isNull();
+        });
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.expose-request-id-header=true")
+                .run(context -> {
+                    io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter filter =
+                            context.getBean(
+                                    io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter
+                                            .class);
+                    org.springframework.mock.web.server.MockServerWebExchange exchange =
+                            org.springframework.mock.web.server.MockServerWebExchange.from(
+                                    org.springframework.mock.http.server.reactive.MockServerHttpRequest.get(
+                                                    "/api/orders")
+                                            .remoteAddress(new java.net.InetSocketAddress(
+                                                    java.net.InetAddress.getByName("127.0.0.1"), 12345)));
+                    filter.filter(exchange, ex -> ex.getResponse().setComplete())
+                            .block(java.time.Duration.ofSeconds(5));
+                    assertThat(exchange.getResponse().getHeaders().getFirst("X-BootUI-Request-Id"))
+                            .matches("[0-9a-f]{16}");
+                });
+    }
+
+    @Test
     void isolatesBootUiJsonFromHostPolymorphicTyping() {
         webFluxRunnerWithJackson()
                 .withUserConfiguration(PolymorphicReactiveMapperConfiguration.class)

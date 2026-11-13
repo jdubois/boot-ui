@@ -401,7 +401,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
 
 1. List recent activity with `bootui activity --limit 50 --json` (`get_live_activity`) and pick the `REQUEST` entry
    for the request in question. Only an entry with `profileable: true` has a profile; `sqlNPlusOneSuspected` and the
-   `ERROR` or `SLOW` severities point at the requests worth opening.
+   `ERROR` or `SLOW` severities point at the requests worth opening. When `bootui.http-exchanges.expose-request-id-header=true`
+   is enabled, loopback/trusted-peer application responses also carry `X-BootUI-Request-Id: <id>`, which you can read from
+   browser DevTools or Playwright response headers and pass directly to `bootui request-profile <id>` (`get_request_profile`).
 2. Fetch its profile with `bootui request-profile <id> --json` (`get_request_profile`), passing that entry's `id`. It
    returns `source: journal` with a recorded timeline, resources and touched metadata when retained. When that is
    unavailable, `source: buffers` returns the older HTTP-exchange profile; when both are retained, it accompanies

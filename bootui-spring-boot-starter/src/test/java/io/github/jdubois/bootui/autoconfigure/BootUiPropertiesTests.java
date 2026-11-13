@@ -268,6 +268,7 @@ class BootUiPropertiesTests {
     void defaultHttpExchangesMaxExchangesIs200() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(200);
+        assertThat(props.getHttpExchanges().isExposeRequestIdHeader()).isFalse();
     }
 
     @Test
@@ -406,10 +407,12 @@ class BootUiPropertiesTests {
     void bindsHttpExchangesMaxExchanges() {
         MockEnvironment env = new MockEnvironment();
         env.setProperty("bootui.http-exchanges.max-exchanges", "25");
+        env.setProperty("bootui.http-exchanges.expose-request-id-header", "true");
 
         BootUiProperties props = bind(env);
 
         assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(25);
+        assertThat(props.getHttpExchanges().isExposeRequestIdHeader()).isTrue();
     }
 
     @Test

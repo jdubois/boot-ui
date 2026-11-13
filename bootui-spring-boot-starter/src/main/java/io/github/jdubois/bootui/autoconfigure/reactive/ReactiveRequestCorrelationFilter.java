@@ -12,16 +12,20 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
 import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.HttpHandlerDecoratorFactory;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.server.ServerWebExchange;
@@ -55,12 +59,20 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
     public static final String CORRELATION_ATTRIBUTE =
             ReactiveRequestCorrelationFilter.class.getName() + ".correlation";
 
+    private final ReactiveLocalhostOnlyFilter localhostOnlyFilter;
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private volatile long requestSlowThresholdMs = RequestSlowThreshold.DEFAULT_MILLIS;
     private volatile RequestPhases phases;
 
     public ReactiveRequestCorrelationFilter(BootUiProperties properties) {
+        this(properties, new ReactiveLocalhostOnlyFilter(properties));
+    }
+
+    public ReactiveRequestCorrelationFilter(
+            BootUiProperties properties, ReactiveLocalhostOnlyFilter localhostOnlyFilter) {
         super(properties);
+        this.localhostOnlyFilter =
+                localhostOnlyFilter == null ? new ReactiveLocalhostOnlyFilter(properties) : localhostOnlyFilter;
     }
 
     /**
@@ -93,7 +105,10 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 return correlated(CorrelationContext.BOOTUI, () -> handler.handle(request, response));
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
-            return correlated(correlation, () -> assembled(correlation, () -> handler.handle(request, response)));
+            registerRequestIdHeaderCommit(request, response, correlation.requestId());
+            return correlated(correlation, () -> assembled(correlation, () -> handler.handle(request, response)))
+                    .doFinally(
+                            signal -> writeRequestIdHeaderWhenUncommitted(request, response, correlation.requestId()));
         };
     }
 
@@ -116,6 +131,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
             exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
+            registerRequestIdHeaderCommit(exchange.getRequest(), exchange.getResponse(), correlation.requestId());
             return correlated(correlation, () -> assembled(correlation, () -> tracked(exchange, correlation, chain)));
         });
     }
@@ -126,10 +142,12 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
      * runs it through {@link #published}.
      */
     private Mono<Void> tracked(ServerWebExchange exchange, CorrelationContext correlation, WebFilterChain chain) {
-        if (!AgentRequestValues.active()) {
-            return trackedChain(exchange, correlation, chain);
-        }
         String requestId = correlation.requestId();
+        if (!AgentRequestValues.active()) {
+            return trackedChain(exchange, correlation, chain)
+                    .doFinally(signal -> writeRequestIdHeaderWhenUncommitted(
+                            exchange.getRequest(), exchange.getResponse(), requestId));
+        }
         pushRequestValues(exchange, requestId);
         Mono<Void> tracked;
         try {
@@ -138,7 +156,53 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             AgentRequestValues.end(requestId);
             throw ex;
         }
-        return tracked.doFinally(signal -> AgentRequestValues.end(requestId));
+        return tracked.doFinally(signal -> {
+            AgentRequestValues.end(requestId);
+            writeRequestIdHeaderWhenUncommitted(exchange.getRequest(), exchange.getResponse(), requestId);
+        });
+    }
+
+    private void registerRequestIdHeaderCommit(
+            ServerHttpRequest request, ServerHttpResponse response, String requestId) {
+        response.beforeCommit(() -> {
+            writeRequestIdHeaderIfAllowed(request, response, requestId);
+            return Mono.empty();
+        });
+    }
+
+    private void writeRequestIdHeaderWhenUncommitted(
+            ServerHttpRequest request, ServerHttpResponse response, String requestId) {
+        if (!response.isCommitted()) {
+            writeRequestIdHeaderIfAllowed(request, response, requestId);
+        }
+    }
+
+    private void writeRequestIdHeaderIfAllowed(
+            ServerHttpRequest request, ServerHttpResponse response, String requestId) {
+        try {
+            if (!shouldExposeRequestIdHeader(request)
+                    || response.getHeaders().containsHeader(RequestIds.RESPONSE_HEADER)) {
+                return;
+            }
+            response.getHeaders().set(RequestIds.RESPONSE_HEADER, requestId);
+        } catch (RuntimeException ex) {
+            // Diagnostics header emission never disturbs the response.
+        }
+    }
+
+    private boolean shouldExposeRequestIdHeader(ServerHttpRequest request) {
+        return properties.getHttpExchanges().isExposeRequestIdHeader()
+                && properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES)
+                && localhostOnlyFilter.isTrustedSource(remoteAddress(request));
+    }
+
+    private static String remoteAddress(ServerHttpRequest request) {
+        InetSocketAddress remote = request.getRemoteAddress();
+        if (remote == null) {
+            return null;
+        }
+        InetAddress address = remote.getAddress();
+        return address != null ? address.getHostAddress() : null;
     }
 
     /**
