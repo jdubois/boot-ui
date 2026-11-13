@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.compatibility.BootUiSecurityCompatibility;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSpringSecurityController;
 import io.github.jdubois.bootui.autoconfigure.security.SpringReactiveSecurityObservationCollector;
@@ -92,6 +93,7 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     @ConditionalOnMissingBean(name = "bootUiReactiveSecurityWebFilterChain")
+    @Conditional(BootUiSecurityCompatibility.Reactive.class)
     public SecurityWebFilterChain bootUiReactiveSecurityWebFilterChain(
             ServerHttpSecurity http, BootUiProperties properties) {
         String[] bootUiPatterns = bootUiSecurityPatterns(properties);

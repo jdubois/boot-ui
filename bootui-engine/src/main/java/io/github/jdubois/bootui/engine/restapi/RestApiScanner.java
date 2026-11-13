@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
@@ -225,7 +226,8 @@ public final class RestApiScanner {
         } catch (RuntimeException | LinkageError ex) {
             return report(
                     "PARTIAL",
-                    "Application classes could not be imported. REST API analysis is incomplete.",
+                    ArchUnitClassImports.failureMessage(
+                            "Application classes could not be imported. REST API analysis is incomplete.", ex),
                     clock.millis(),
                     basePackages,
                     0,

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.CracScanStatusDto;
 import io.github.jdubois.bootui.core.dto.CracSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -112,8 +113,10 @@ public final class CracReadinessScanner {
                 }
             } catch (RuntimeException | LinkageError ex) {
                 importFailed = true;
-                warnings.add("Application classes could not be imported for analysis ("
-                        + ex.getClass().getSimpleName() + "); bytecode-backed checks were skipped.");
+                warnings.add(ArchUnitClassImports.failureMessage(
+                        "Application classes could not be imported for analysis ("
+                                + ex.getClass().getSimpleName() + "); bytecode-backed checks were skipped.",
+                        ex));
             }
         }
 
