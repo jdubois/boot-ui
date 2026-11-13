@@ -11,7 +11,7 @@ import java.util.function.Function;
  * host application's classes for ArchUnit analysis, bounded by the caller to the application's own base
  * packages.
  *
- * <p>It centralises one concern: while the import runs, ArchUnit's {@link ArchConfiguration} is pointed at
+ * <p>While the import runs, ArchUnit's {@link ArchConfiguration} is pointed at
  * {@link OpenableLocationClassResolver} so classpath resolution never trips over a resource URL it cannot
  * open (see that class for the {@code quarkus:} motivation). Configuring an explicit {@code classResolver}
  * overrides {@code resolveMissingDependenciesFromClassPath} (ArchUnit only consults that flag when no
@@ -22,17 +22,34 @@ import java.util.function.Function;
  * if the import throws). That keeps the change invisible to anything else sharing the JVM — notably the
  * engine's own build-time ArchUnit boundary tests, which must always observe the default resolver — without
  * mutating global state, and lets concurrent scans run independently.
+ *
+ * <p>Application class-file headers are checked through the importer's own per-class locations, without a
+ * second classpath traversal. Unsupported, invalid, truncated or unreadable headers reject the import even
+ * if ArchUnit returns a non-empty partial result. This checks headers, not semantic import completeness or
+ * the completeness of classpath discovery; dependency resolution keeps its existing best-effort behavior.
  */
 public final class ArchUnitClassImports {
 
     private ArchUnitClassImports() {}
 
+    /** Adds only BootUI's value-free header diagnostic, never an arbitrary importer exception message. */
+    public static String failureMessage(String summary, Throwable error) {
+        return error instanceof IncompleteClassImportException ? summary + " " + error.getMessage() : summary;
+    }
+
     /**
      * Imports the supplied base packages with the {@link OpenableLocationClassResolver} active for the
-     * duration of the import.
+     * duration of the import. Throws when an encountered application class-file header cannot be read or
+     * supported, rather than returning a success-shaped partial result.
      */
     public static JavaClasses importPackages(List<String> basePackages) {
-        return importPackages(basePackages, packages -> new ClassFileImporter().importPackages(packages));
+        return importPackages(basePackages, packages -> {
+            ClassFileImportCheck check = new ClassFileImportCheck();
+            JavaClasses classes =
+                    new ClassFileImporter().withImportOption(check).importPackages(packages);
+            check.verify();
+            return classes;
+        });
     }
 
     // Visible for testing: the seam lets a test observe the ArchConfiguration that is active during the

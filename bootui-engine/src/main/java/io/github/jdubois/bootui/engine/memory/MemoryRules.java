@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
-import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryPoolSnapshot;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ThreadData;
@@ -9,7 +8,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
+final class MemoryRules {
+
+    static final Set<String> RETIRED_RULE_IDS = MemoryRuleRegistry.RETIRED_RULE_IDS;
+
+    private MemoryRules() {}
+}
+
+/**
+ * Static Memory Advisor rules. Each rule reads only from {@link MemoryContext} and returns a
+ * health finding with a severity; rules never collect data or mutate runtime state.
+ */
 abstract class AbstractMemoryRule implements MemoryRule {
 
     private final MemoryRuleDefinition definition;
@@ -92,6 +103,9 @@ abstract class AbstractMemoryRule implements MemoryRule {
     }
 }
 
+/**
+ * Shared formatting and threshold helpers for Memory Advisor rules.
+ */
 final class MemoryFormat {
 
     static final long KILOBYTE = 1024L;
@@ -129,6 +143,7 @@ final class MemoryFormat {
                 .intValue();
     }
 
+    /** Unknown or overflowing estimates stay unknown, rather than wrapping into healthy values. */
     static long sum(long... values) {
         long total = 0;
         for (long value : values) {
@@ -147,6 +162,10 @@ final class MemoryFormat {
         return left * right;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Heap pressure
+// ---------------------------------------------------------------------------
 
 final class HighHeapUtilizationRule extends AbstractMemoryRule {
 
@@ -307,6 +326,8 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
     MemoryEvaluation evaluateRule(MemoryContext context) {
         MemoryData memory = context.memory();
         if (memory.heapMax() <= 0) {
+            // HotSpot effectively always reports a bounded max heap; skip rather than fire a
+            // spurious violation when getMax() returns -1 on unusual JVMs or startup edge-cases.
             return skipped("Maximum heap size is not reported by this JVM.");
         }
         Long containerLimit = memory.containerMemoryLimitBytes();
@@ -314,6 +335,7 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
             return pass();
         }
         boolean smallHeap = MemoryFormat.percentOf(memory.heapMax(), containerLimit) < SMALL_HEAP_PERCENT;
+        // Prefer the more recent snapshot without claiming it proves collection or retention.
         int usedPercent;
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
         if (postGc.heapAvailable() && postGc.heapUsed() >= 0) {
@@ -336,6 +358,10 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
         return pass();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Memory pools
+// ---------------------------------------------------------------------------
 
 final class MetaspaceSaturationRule extends AbstractMemoryRule {
 
@@ -452,6 +478,7 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
         return violation(context, details);
     }
 
+    /** Segmented HotSpot code heaps: {@code CodeHeap 'profiled nmethods'} and {@code 'non-profiled nmethods'}. */
     static boolean isNmethodSegment(String name) {
         String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
         return lower.contains("nmethods") && !lower.contains("non-nmethods");
@@ -508,6 +535,10 @@ final class DirectBufferGrowthRule extends AbstractMemoryRule {
         return pass();
     }
 }
+
+// ---------------------------------------------------------------------------
+// GC configuration
+// ---------------------------------------------------------------------------
 
 final class MissingHeapSizingInContainerRule extends AbstractMemoryRule {
 
@@ -582,6 +613,10 @@ final class ContainerSupportDisabledRule extends AbstractMemoryRule {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Threads
+// ---------------------------------------------------------------------------
+
 final class DeadlockDetectedRule extends AbstractMemoryRule {
 
     DeadlockDetectedRule() {
@@ -616,6 +651,11 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
     private static final int MIN_BLOCKED = 5;
     private static final double RATIO_THRESHOLD = 0.25;
     private static final int ABSOLUTE_BLOCKED = 20;
+    /**
+     * Minimum ratio required when the absolute threshold triggers. Without this floor an app with
+     * hundreds of threads could fire on 20 blocked threads that represent only a tiny fraction of
+     * total threads — a false positive in large thread pools.
+     */
     private static final double MIN_RATIO_FOR_ABSOLUTE = 0.10;
 
     HighBlockedThreadRatioRule() {
@@ -658,68 +698,9 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
     }
 }
 
-final class RunawayCpuThreadRule extends AbstractMemoryRule {
-
-    private static final long CPU_THRESHOLD_MILLIS = 60_000L;
-    private static final double UPTIME_FRACTION = 0.5;
-    private static final int MAX_REPORTED = 5;
-
-    RunawayCpuThreadRule() {
-        super(
-                new MemoryRuleDefinition(
-                        "MEM-THREAD-004",
-                        "Runnable threads with very high lifetime CPU usage",
-                        MemoryCategory.THREADS,
-                        "INFO",
-                        "Highlights RUNNABLE platform threads whose accumulated CPU time is a large fraction of the"
-                                + " JVM's uptime, i.e. they have kept a core busy for much of the process's life. CPU time"
-                                + " is cumulative since the thread started, so this is a hot-loop candidate to"
-                                + " investigate, not a confirmed problem. The rule skips when its bounded platform-thread"
-                                + " detail page is incomplete.",
-                        "Correlate with two consecutive thread snapshots; if CPU keeps climbing for the same thread,"
-                                + " profile its stack for a hot or spinning loop.",
-                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        ThreadData threads = context.threads();
-        if (!threads.cpuTimeSupported()) {
-            return skipped("Per-thread CPU timing is not supported or not enabled on this JVM.");
-        }
-        if (threads.detailsTruncated()) {
-            return skipped(
-                    "Per-thread details are capped at 1,000 platform threads; CPU-hot-thread analysis is incomplete.");
-        }
-        long uptimeMillis = context.runtime().uptimeMillis();
-        if (uptimeMillis <= 0) {
-            return skipped("JVM uptime is not available to normalize thread CPU time.");
-        }
-        long minCpuMillis = Math.max(CPU_THRESHOLD_MILLIS, (long) (uptimeMillis * UPTIME_FRACTION));
-        List<ThreadInfoDto> hot = new ArrayList<>();
-        boolean missingCpu = threads.threads().isEmpty();
-        for (ThreadInfoDto thread : threads.threads()) {
-            if (thread.cpuTimeMillis() == null || thread.cpuTimeMillis() < 0) missingCpu = true;
-            if ("RUNNABLE".equalsIgnoreCase(thread.state())
-                    && thread.cpuTimeMillis() != null
-                    && thread.cpuTimeMillis() >= minCpuMillis) {
-                hot.add(thread);
-            }
-        }
-        if (hot.isEmpty()) {
-            return missingCpu ? missingPass() : pass();
-        }
-        hot.sort((left, right) -> Long.compare(right.cpuTimeMillis(), left.cpuTimeMillis()));
-        List<String> details = new ArrayList<>();
-        for (ThreadInfoDto thread : hot.subList(0, Math.min(MAX_REPORTED, hot.size()))) {
-            int percent = MemoryFormat.percentOf(thread.cpuTimeMillis(), uptimeMillis);
-            details.add("Thread '" + thread.name() + "' (id " + thread.id() + ") has used "
-                    + (thread.cpuTimeMillis() / 1000) + "s of accumulated CPU (" + percent
-                    + "% of JVM uptime) and is currently RUNNABLE; the snapshot does not establish its past states.");
-        }
-        return missingCpu ? violation(context, details).withMissingEvidence() : violation(context, details);
-    }
-}
+// ---------------------------------------------------------------------------
+// Heap content
+// ---------------------------------------------------------------------------
 
 final class BigObjectsRule extends AbstractMemoryRule {
 
@@ -914,10 +895,19 @@ final class DominantClassRule extends AbstractMemoryRule {
                 .orElseGet(this::pass);
     }
 
+    /**
+     * Returns {@code true} for any array class. After histogram normalisation every array type has
+     * a name ending in {@code []} (e.g. {@code byte[]}, {@code Object[]}, {@code com.example.Foo[]}).
+     * Internal JVM descriptor forms starting with {@code [} are also matched as a safety net.
+     */
     static boolean isArrayClass(String className) {
         return className != null && (className.endsWith("[]") || className.startsWith("["));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Class loading
+// ---------------------------------------------------------------------------
 
 final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
 
@@ -953,6 +943,10 @@ final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
         return pass();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Native memory
+// ---------------------------------------------------------------------------
 
 final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule {
 
@@ -1045,6 +1039,10 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
     }
 }
 
+// ---------------------------------------------------------------------------
+// GC configuration (lifetime overhead and sizing)
+// ---------------------------------------------------------------------------
+
 final class HighGcOverheadRule extends AbstractMemoryRule {
 
     private static final long MIN_UPTIME_MILLIS = 600_000L;
@@ -1135,6 +1133,10 @@ final class UnequalInitialAndMaxHeapRule extends AbstractMemoryRule {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Heap pressure (sizing thresholds)
+// ---------------------------------------------------------------------------
+
 final class CompressedOopsCliffRule extends AbstractMemoryRule {
 
     private static final long DEFAULT_ALIGNMENT_BYTES = 8L;
@@ -1162,6 +1164,7 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
     MemoryEvaluation evaluateRule(MemoryContext context) {
         MemoryData memory = context.memory();
         MemoryContext.RuntimeData runtime = context.runtime();
+        // MemoryMXBean's maximum can exclude a survivor space on Serial/Parallel; prefer the option.
         long heapMax = runtime.maxHeapSizeOptionBytes() > 0 ? runtime.maxHeapSizeOptionBytes() : memory.heapMax();
         if (heapMax <= 0) {
             return missingPass();
@@ -1187,12 +1190,15 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
         }
         boolean inWindow;
         if (Boolean.FALSE.equals(useCompressedOops)) {
+            // UseCompressedOops defaults to false and is only set ergonomically when the heap fits, so a
+            // false live value without an explicit disable means this heap is past the effective limit.
             if (heapMax <= lowerBound) {
                 return inapplicable("Compressed object pointers are off at a heap well below their limit;"
                         + " the cause is not a heap-size cliff.");
             }
             inWindow = heapMax <= upperBound;
         } else {
+            // The effective limit is below the encoding range, so a heap at the range is already past it.
             inWindow = heapMax >= encodingLimit && heapMax <= upperBound;
         }
         if (!inWindow) {
@@ -1210,6 +1216,7 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
                         + ". A heap capped just below the limit may hold more objects for the same memory.");
     }
 
+    /** Uses the last {@code -XX:ObjectAlignmentInBytes} argument, as HotSpot does. */
     private static long parseObjectAlignmentBytes(List<String> inputArguments) {
         String prefix = "-XX:ObjectAlignmentInBytes=";
         long alignment = DEFAULT_ALIGNMENT_BYTES;
@@ -1221,6 +1228,7 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
                         alignment = parsed;
                     }
                 } catch (NumberFormatException ignored) {
+                    // keep the previous alignment
                 }
             }
         }
@@ -1260,6 +1268,10 @@ final class PendingFinalizationBacklogRule extends AbstractMemoryRule {
         return pass();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Memory pools (Metaspace ceiling)
+// ---------------------------------------------------------------------------
 
 final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
 
@@ -1302,50 +1314,9 @@ final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
     }
 }
 
-final class ClassLoadingChurnRule extends AbstractMemoryRule {
-
-    private static final long UNLOAD_THRESHOLD = 50_000L;
-    private static final long MIN_UPTIME_MILLIS = 1_800_000L;
-    private static final long UNLOAD_RATE_PER_MIN = 1_000L;
-
-    ClassLoadingChurnRule() {
-        super(new MemoryRuleDefinition(
-                "MEM-CLASS-002",
-                "High class-loading churn",
-                MemoryCategory.CLASS_LOADING,
-                "INFO",
-                "Reports a large lifetime class-unload count or lifetime-average rate. These counters can reflect a"
-                        + " past burst or redeployment and do not establish sustained recent churn.",
-                "Compare recent class-loading observations under representative load before changing dynamic"
-                        + " generation, caches, or classloader lifecycles.",
-                "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshoot-class-loading.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        long unloaded = context.classLoading().unloadedClasses();
-        if (unloaded < 0) return missingPass();
-        if (unloaded >= UNLOAD_THRESHOLD) {
-            return violation(
-                    context,
-                    unloaded
-                            + " classes have been unloaded since start; this historical total does not establish"
-                            + " current churn.");
-        }
-        long uptimeMillis = context.runtime().uptimeMillis();
-        if (uptimeMillis >= MIN_UPTIME_MILLIS) {
-            long minutes = uptimeMillis / 60_000L;
-            long ratePerMin = minutes > 0 ? unloaded / minutes : 0;
-            if (ratePerMin >= UNLOAD_RATE_PER_MIN) {
-                return violation(
-                        context,
-                        "Lifetime-average class unloading is about " + ratePerMin + "/min (" + unloaded + " over "
-                                + minutes + " min); this does not establish a sustained recent rate.");
-            }
-        }
-        return context.classLoading().loadedClasses() <= 0 ? missingPass() : pass();
-    }
-}
+// ---------------------------------------------------------------------------
+// Native memory (thread stacks)
+// ---------------------------------------------------------------------------
 
 final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
 
@@ -1408,6 +1379,10 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
     }
 }
 
+// ---------------------------------------------------------------------------
+// GC configuration (recent overhead)
+// ---------------------------------------------------------------------------
+
 final class RecentGcOverheadRule extends AbstractMemoryRule {
 
     private static final long MIN_WINDOW_MILLIS = 10_000L;
@@ -1455,6 +1430,10 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
         return violation(context, severity, detail);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Memory pools (Compressed Class Space)
+// ---------------------------------------------------------------------------
 
 final class CompressedClassSpaceRule extends AbstractMemoryRule {
 
@@ -1508,6 +1487,10 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Native memory (container current usage)
+// ---------------------------------------------------------------------------
+
 final class ContainerMemoryPressureRule extends AbstractMemoryRule {
 
     private static final int THRESHOLD_PERCENT = 90;
@@ -1559,8 +1542,16 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
     }
 }
 
+// ---------------------------------------------------------------------------
+// GC configuration (Serial GC on multi-core)
+// ---------------------------------------------------------------------------
+
 final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
 
+    /**
+     * JDK 17, 21, and 25 select G1 ergonomically on a server-class machine (2+ CPUs and roughly 2 GiB
+     * of memory); below that threshold Serial GC remains an expected default.
+     */
     private static final long SERVER_CLASS_MEMORY_THRESHOLD_BYTES = 2 * MemoryFormat.GIGABYTE;
 
     SerialGcOnMultiCoreRule() {
@@ -1603,6 +1594,10 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
                         + "-CPU system; review collector tradeoffs against measured workload goals, not CPU count alone.");
     }
 
+    /**
+     * Prefers the container memory limit (what actually bounds this JVM); falls back to total
+     * physical memory when no container limit is detected. Returns -1 when neither is known.
+     */
     private static long effectiveMemoryBytes(MemoryData memory, MemoryContext.RuntimeData runtime) {
         Long containerLimit = memory.containerMemoryLimitBytes();
         if (containerLimit != null && containerLimit > 0) {
@@ -1612,6 +1607,10 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
         return totalPhysical > 0 ? totalPhysical : -1;
     }
 }
+
+// ---------------------------------------------------------------------------
+// GC configuration (G1 Full GC frequency)
+// ---------------------------------------------------------------------------
 
 final class G1FullGcFrequencyRule extends AbstractMemoryRule {
 
@@ -1655,6 +1654,10 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
                         + " tuning.");
     }
 }
+
+// ---------------------------------------------------------------------------
+// GC configuration (latest-event duration)
+// ---------------------------------------------------------------------------
 
 final class GcEventDurationOutlierRule extends AbstractMemoryRule {
 
@@ -1701,6 +1704,10 @@ final class GcEventDurationOutlierRule extends AbstractMemoryRule {
     }
 }
 
+// ---------------------------------------------------------------------------
+// GC configuration (non-generational ZGC)
+// ---------------------------------------------------------------------------
+
 final class NonGenerationalZgcRule extends AbstractMemoryRule {
 
     NonGenerationalZgcRule() {
@@ -1745,107 +1752,5 @@ final class NonGenerationalZgcRule extends AbstractMemoryRule {
                         + " JDK 24, so re-validate without it."
                 : "this is the JDK 21-22 default; evaluate -XX:+ZGenerational under representative load.";
         return violation(context, "ZGC is running in non-generational mode; " + action);
-    }
-}
-
-final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
-
-    private static final int GROWTH_STREAK_THRESHOLD = 3;
-
-    BufferPoolGrowthWithoutReleaseRule() {
-        super(
-                new MemoryRuleDefinition(
-                        "MEM-POOL-007",
-                        "Direct buffer usage has increased across comparable scans",
-                        MemoryCategory.MEMORY_POOLS,
-                        "LOW",
-                        "Reports three increases in estimated direct-buffer used bytes across four comparable"
-                                + " snapshots. Missing or unknown readings break the streak. Net growth does not establish"
-                                + " that no releases occurred between samples or that a leak exists; cache warmup and"
-                                + " changing load can produce the same observations. Mapped buffers are excluded. Severity"
-                                + " is MEDIUM only when capacity is also near a known effective direct-memory cap.",
-                        "Compare representative steady-state load and supported buffer-pool lifecycle metrics before"
-                                + " investigating retention. Use library release/close APIs where required, not manual"
-                                + " Cleaner calls.",
-                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/BufferPoolMXBean.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        MemoryContext.BufferPoolTrend trend = context.bufferPoolTrend();
-        Optional<MemoryContext.BufferPoolSnapshot> direct = context.memory().bufferPools().stream()
-                .filter(pool -> "direct".equalsIgnoreCase(pool.name()))
-                .findFirst();
-        if (direct.isEmpty()
-                || direct.get().used() < 0
-                || !trend.available()
-                || !trend.consecutiveIncreaseStreaks().containsKey(direct.get().name())) {
-            return skipped("No comparable direct-buffer usage baseline is available.");
-        }
-        List<MemoryContext.BufferPoolSnapshot> pools = context.memory().bufferPools();
-        List<String> details = new ArrayList<>();
-        boolean escalateToHigh = false;
-        boolean directPoolAtStaticThreshold = MemoryRuleSupport.VIOLATION.equals(new DirectBufferGrowthRule()
-                .evaluate(context.withViolationCollector(null))
-                .status());
-        for (MemoryContext.BufferPoolSnapshot pool : pools) {
-            if (!"direct".equalsIgnoreCase(pool.name())) {
-                continue;
-            }
-            int streak = trend.streakFor(pool.name());
-            if (streak < GROWTH_STREAK_THRESHOLD) {
-                continue;
-            }
-            if (directPoolAtStaticThreshold) {
-                escalateToHigh = true;
-            }
-            details.add("'" + pool.name() + "' buffer pool usage increased on " + streak
-                    + " consecutive scan intervals (now " + MemoryFormat.bytes(pool.used())
-                    + "); net growth does not prove missing releases or a leak. Confirm comparable workload"
-                    + " conditions.");
-        }
-        if (details.isEmpty()) {
-            return pass();
-        }
-        return violation(context, escalateToHigh ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
-    }
-}
-
-final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
-
-    private static final int GROWTH_STREAK_THRESHOLD = 3;
-
-    OldGenerationTrendingUpwardRule() {
-        super(new MemoryRuleDefinition(
-                "MEM-HEAP-008",
-                "Old-generation occupancy is increasing across comparable scans",
-                MemoryCategory.HEAP_PRESSURE,
-                "LOW",
-                "Reports three increases in old-generation occupancy across four comparable post-histogram snapshots."
-                        + " Missing observations break the streak. A histogram request does not verify full collection;"
-                        + " occupancy is not retained size, and normal warmup or changing load can produce the same"
-                        + " trend.",
-                "Compare observations under stable load and confirmed collector-specific reclamation before"
-                        + " investigating a leak. Use an explicitly requested heap/JFR investigation only when evidence"
-                        + " warrants its cost.",
-                "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html"));
-    }
-
-    @Override
-    MemoryEvaluation evaluateRule(MemoryContext context) {
-        MemoryContext.OldGenTrend trend = context.oldGenTrend();
-        if (!trend.available()) {
-            return skipped("No previous scan to compare; re-run the scan several times to measure the"
-                    + " old-generation trend.");
-        }
-        if (trend.consecutiveIncreaseStreak() < GROWTH_STREAK_THRESHOLD) {
-            return pass();
-        }
-        return violation(
-                context,
-                "Post-histogram old-generation occupancy has increased on " + trend.consecutiveIncreaseStreak()
-                        + " consecutive scan intervals (now " + MemoryFormat.bytes(trend.lastUsedBytes())
-                        + "); this does not establish retained-size growth or a leak. Confirm stable workload and"
-                        + " collection evidence.");
     }
 }

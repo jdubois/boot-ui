@@ -17,6 +17,14 @@ import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Base class for curated REST API Advisor rules.
+ *
+ * <p>Subclasses inspect the derived handler model and return a result; any failure to evaluate is
+ * captured and reported as an {@code ERROR} outcome (catching {@link RuntimeException} and
+ * {@link LinkageError}, but never {@link VirtualMachineError}) so one broken rule never aborts the
+ * scan.</p>
+ */
 abstract class AbstractRestApiRule implements RestApiRule {
 
     private final RestApiRuleDefinition definition;
@@ -45,6 +53,7 @@ abstract class AbstractRestApiRule implements RestApiRule {
 
     abstract RestApiRuleResultDto doEvaluate(RestApiContext context);
 
+    /** Collects one violation detail per handler that matches the predicate. */
     RestApiRuleResultDto handlersMatching(
             RestApiContext context, Predicate<HandlerMethodModel> predicate, String suffix) {
         return handlersMatching(context, handler -> true, predicate, suffix);
@@ -71,6 +80,7 @@ abstract class AbstractRestApiRule implements RestApiRule {
     }
 }
 
+/** Shared static helpers for the REST API Advisor rules. */
 final class RestApiRuleHelp {
 
     private static final String SPRING_MVC_REFERENCE =
@@ -132,11 +142,18 @@ final class RestApiRuleHelp {
             "get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify", "post", "put",
             "patch", "read");
 
+    /**
+     * Verbs that are unambiguously HTTP-method-like when standing alone as a path segment.
+     * HTTP-method words (post, put, patch) and generic-English words (read) are excluded from the
+     * standalone exact-match check to avoid false positives like /blog/post/{id}, but remain in
+     * {@link #VERBS} so camelCase prefix detection (postMessage, putData, readAll) still works.
+     */
     private static final Set<String> VERB_STANDALONE =
             Set.of("get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify");
 
     private static final Set<String> CREATION_PREFIXES = Set.of("create", "add", "save", "insert", "register", "new");
 
+    /** Spring {@code HttpStatus} enum constant names in the 5xx (server error) range. */
     static final Set<String> SERVER_ERROR_STATUS_NAMES = Set.of(
             "INTERNAL_SERVER_ERROR",
             "NOT_IMPLEMENTED",
@@ -151,9 +168,20 @@ final class RestApiRuleHelp {
             "NOT_EXTENDED",
             "NETWORK_AUTHENTICATION_REQUIRED");
 
+    /**
+     * Exact mapping param/header names (case-insensitive) that signal header/param API versioning. Package-
+     * private so {@link RestApiHandlerModelBuilder} can reuse it when detecting JAX-RS
+     * {@code @HeaderParam}/{@code @QueryParam} (and Quarkus {@code @RestHeader}/{@code @RestQuery}) version
+     * bindings, the JAX-RS analogue of Spring's {@code @RequestHeader}/{@code @RequestParam}.
+     */
     static final Set<String> VERSION_PARAM_NAMES =
             Set.of("version", "api-version", "x-api-version", "accept-version", "api_version");
 
+    /**
+     * Leading static path segments that denote operational, documentation, or auth endpoints which
+     * are conventionally left unversioned; they should not make an otherwise versioned API look
+     * "mixed".
+     */
     private static final Set<String> NON_API_SEGMENTS = Set.of(
             "actuator",
             "health",
@@ -227,9 +255,11 @@ final class RestApiRuleHelp {
 
     static boolean isVerbSegment(String segment) {
         String lower = segment.toLowerCase(Locale.ROOT);
+        // Standalone exact match: only clear, HTTP-method-unambiguous verbs.
         if (VERB_STANDALONE.contains(lower)) {
             return true;
         }
+        // camelCase prefix check: all verbs including post/put/patch/read to catch postMessage etc.
         for (String verb : VERBS) {
             if (lower.startsWith(verb)
                     && segment.length() > verb.length()
@@ -259,6 +289,7 @@ final class RestApiRuleHelp {
         return false;
     }
 
+    /** True when {@code name} begins with {@code prefix} at a camelCase word boundary (or equals it). */
     static boolean startsWithWord(String name, String prefix) {
         String lower = name.toLowerCase(Locale.ROOT);
         if (lower.equals(prefix)) {
@@ -304,6 +335,7 @@ final class RestApiRuleHelp {
         return strategies;
     }
 
+    /** True when a mapping {@code params}/{@code headers} entry keys on a known API-version name. */
     private static boolean hasVersionParam(List<String> conditions) {
         for (String condition : conditions) {
             if (condition.trim().startsWith("!") || condition.contains("!=")) {
@@ -317,6 +349,7 @@ final class RestApiRuleHelp {
         return false;
     }
 
+    /** Extracts the lower-cased key of a Spring mapping condition such as {@code "X-API-Version=1"}. */
     private static String conditionKey(String condition) {
         String key = condition;
         if (key.startsWith("!")) {
@@ -332,6 +365,11 @@ final class RestApiRuleHelp {
         return key.substring(0, cut).trim().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * True when the handler's first static path segment is an operational/doc/auth endpoint, or when any static
+     * segment names generated API documentation (springdoc's {@code /v3/api-docs}). A leading {@code /v3} alone
+     * is an ordinary version segment, not documentation.
+     */
     static boolean isNonApiEndpoint(HandlerMethodModel handler) {
         for (String path : handler.effectivePaths()) {
             List<String> statics = staticSegments(path);
@@ -347,6 +385,7 @@ final class RestApiRuleHelp {
         return false;
     }
 
+    /** Normalizes a media type for comparison: lower-cased, parameters ({@code ;charset=...}) stripped. */
     static String normalizeMediaType(String mediaType) {
         String value = mediaType.trim().toLowerCase(Locale.ROOT);
         int semicolon = value.indexOf(';');
@@ -382,6 +421,7 @@ final class RestApiRuleHelp {
         return false;
     }
 
+    /** Extracts declared path-variable token names ({@code {id}}, {@code {id:regex}}, {@code {*path}}). */
     static Set<String> pathVariableTokens(String path) {
         return new LinkedHashSet<>(pathVariableTokenOccurrences(path));
     }
@@ -428,6 +468,12 @@ final class RestApiRuleHelp {
                 || body.equals("tools.jackson.databind.JsonNode");
     }
 
+    /**
+     * True when any path declares a JAX-RS regex path-variable template whose regex matches everything
+     * (e.g. {@code {path:.*}}, {@code {path:.+}}) — the JAX-RS analogue of Spring's {@code /**}/{@code
+     * {*path}} catch-all. This does not establish shadowing or the response status. Constrained templates
+     * like {@code {id:[0-9]+}} are not flagged.
+     */
     static boolean hasCatchAllRegexPathVariable(HandlerMethodModel handler) {
         for (String path : handler.effectivePaths()) {
             Matcher matcher = PATH_VARIABLE_REGEX_TOKEN.matcher(path);
@@ -448,6 +494,10 @@ final class RestApiRuleHelp {
         return normalized.equals(".*") || normalized.equals(".+");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Routing & HTTP method mapping — RAPI-MAP
+// ---------------------------------------------------------------------------------------------
 
 final class UseHttpMethodSpecificMappingsRule extends AbstractRestApiRule {
     UseHttpMethodSpecificMappingsRule() {
@@ -522,6 +572,12 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
 
     private record RouteKey(RestApiModel.Framework framework, String method, String path, String conditions) {}
 
+    /**
+     * Normalizes unconstrained path-variable names ({@code {id}} and {@code {userId}}) to {@code {*}} so
+     * structurally identical route templates collide regardless of variable naming, while preserving regex
+     * constraints ({@code {*:regex}}), catch-all tokens ({@code {**}}), and unresolved property/SpEL
+     * placeholders ({@code ${...}}, {@code #{...}}).
+     */
     private static String normalizeRoutePath(String path) {
         StringBuilder normalized = new StringBuilder(path.length());
         int depth = 0;
@@ -570,6 +626,11 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         return normalized.toString();
     }
 
+    /**
+     * Spring rejects identical mappings ("Ambiguous mapping") while the context starts, so a running application can
+     * only contain them when at least one controller is not registered, such as profile- or condition-specific
+     * alternatives. Only mappings that differ in their method or path alternatives register and fail at request time.
+     */
     private static boolean startupRejected(List<HandlerMethodModel> sharing) {
         if (sharing.stream().anyMatch(HandlerMethodModel::jaxRs)) {
             return false;
@@ -582,6 +643,10 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         return mappings.size() == 1;
     }
 
+    /**
+     * Distinguishes routes that share a verb and path but differ by content negotiation (consumes/produces),
+     * required params/headers, or API version, so legitimate conditional mappings are not reported as duplicates.
+     */
     private static String conditionKey(HandlerMethodModel handler) {
         List<String> parts = new ArrayList<>();
         addMediaConditionParts(parts, "consumes:", handler.effectiveConsumes());
@@ -604,6 +669,11 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         }
     }
 
+    /**
+     * Normalizes a media-type expression for dispatch comparison: lower-cases the type/subtype and drops
+     * non-dispatch parameters ({@code charset}, {@code q}), while preserving dispatch-significant parameters
+     * such as {@code version=1} or {@code v=2}.
+     */
     private static String normalizeDispatchMediaType(String mediaType) {
         String trimmed = mediaType.trim();
         int semicolon = trimmed.indexOf(';');
@@ -748,6 +818,10 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
         return trailing || doubled;
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Naming & resource design — RAPI-NAME
+// ---------------------------------------------------------------------------------------------
 
 final class PathVariablesAreBoundRule extends AbstractRestApiRule {
     PathVariablesAreBoundRule() {
@@ -919,6 +993,10 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Status codes & responses — RAPI-RESP
+// ---------------------------------------------------------------------------------------------
+
 final class CreationReturns201Rule extends AbstractRestApiRule {
     CreationReturns201Rule() {
         super(new RestApiRuleDefinition(
@@ -1029,6 +1107,10 @@ final class ReadEndpointsReturnRepresentationRule extends AbstractRestApiRule {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Input validation & binding — RAPI-VALID
+// ---------------------------------------------------------------------------------------------
+
 final class VoidReadEndpointsReturnContentRule extends AbstractRestApiRule {
     VoidReadEndpointsReturnContentRule() {
         super(new RestApiRuleDefinition(
@@ -1115,6 +1197,7 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
                 "method-level @ResponseStatus and status-bearing ResponseEntity both declared; review precedence");
     }
 
+    /** On Spring MVC a reason discards the ResponseEntity outright; RAPI-RESP-010 reports that case. */
     private static boolean reportedAsDiscardedBody(RestApiContext context, HandlerMethodModel handler) {
         return context.evidence().springWebStack() == RestApiScanner.SpringWebStack.SERVLET
                 && !handler.responseStatusReason().isEmpty()
@@ -1195,6 +1278,10 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// DTO & payload contracts — RAPI-DTO
+// ---------------------------------------------------------------------------------------------
+
 final class NoEntitiesInResponsesRule extends AbstractRestApiRule {
     NoEntitiesInResponsesRule() {
         super(new RestApiRuleDefinition(
@@ -1264,6 +1351,10 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
                 "Retired heuristic: response DTO setters do not affect the HTTP contract; mutability is code style.");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Pagination & collections — RAPI-PAGE
+// ---------------------------------------------------------------------------------------------
 
 final class CollectionReadsArePaginatedRule extends AbstractRestApiRule {
     CollectionReadsArePaginatedRule() {
@@ -1373,6 +1464,10 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Versioning & content negotiation — RAPI-VER
+// ---------------------------------------------------------------------------------------------
+
 final class ApiIsVersionedRule extends AbstractRestApiRule {
     ApiIsVersionedRule() {
         super(new RestApiRuleDefinition(
@@ -1471,6 +1566,10 @@ final class NoWildcardMediaTypesRule extends AbstractRestApiRule {
         return handlersMatching(context, RestApiRuleHelp::containsWildcardMediaType, "declares a wildcard media type");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Error handling & documentation — RAPI-ERR / RAPI-DOC
+// ---------------------------------------------------------------------------------------------
 
 final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
     PatchUsesPatchMediaTypeRule() {
@@ -1729,6 +1828,10 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Phase 2 additions
+// ---------------------------------------------------------------------------------------------
+
 final class MutatingItemMethodsTargetResourceRule extends AbstractRestApiRule {
     MutatingItemMethodsTargetResourceRule() {
         super(new RestApiRuleDefinition(
@@ -1796,6 +1899,10 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
                         + " redundant produces attributes on sibling handlers.");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Phase 3 additions — new routing rules
+// ---------------------------------------------------------------------------------------------
 
 final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
     DuplicatePathVariableTokenRule() {
@@ -2250,5 +2357,253 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
     private static String simpleName(String fullName) {
         int lastDot = fullName.lastIndexOf('.');
         return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
+    }
+}
+
+final class UnannotatedPathVariableParameterRule extends AbstractRestApiRule {
+    UnannotatedPathVariableParameterRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-MAP-012",
+                "Unannotated Spring scalar parameters do not bind path variables",
+                RestApiCategory.ROUTING,
+                "HIGH",
+                "A Spring handler path template declares {token} while the method declares a same-named unannotated"
+                        + " simple parameter. Unlike Quarkus REST, Spring MVC and WebFlux bind unannotated simple"
+                        + " parameters as @RequestParam rather than @PathVariable, ignoring the path segment and"
+                        + " looking for a query parameter.",
+                "Annotate the parameter with @PathVariable (or @RequestParam if a query parameter with the same name"
+                        + " is intentional and the path token is bound elsewhere).",
+                RestApiRuleHelp.PATH_VARIABLE_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) {
+            return RestApiRuleSupport.springPathBinding(definition());
+        }
+        AdvisorFindings violations = new AdvisorFindings();
+        for (HandlerMethodModel handler :
+                context.targets(context.handlers(), UnannotatedPathVariableParameterRule::hasSpringPathTokens)) {
+            Set<String> tokens = pathTokens(handler);
+            List<String> matched = handler.unannotatedSimpleParamNames().stream()
+                    .filter(tokens::contains)
+                    .toList();
+            if (!matched.isEmpty()) {
+                violations.add(
+                        handler.describe() + " — unannotated parameter(s) " + matched
+                                + " match path template token(s) but Spring binds them as @RequestParam instead of"
+                                + " @PathVariable",
+                        context.location(handler));
+            }
+        }
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+    }
+
+    private static boolean hasSpringPathTokens(HandlerMethodModel handler) {
+        return !handler.jaxRs() && !pathTokens(handler).isEmpty();
+    }
+
+    private static Set<String> pathTokens(HandlerMethodModel handler) {
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String path : handler.effectivePaths()) {
+            if (!path.contains("${") && !path.contains("#{")) {
+                tokens.addAll(RestApiRuleHelp.pathVariableTokens(path));
+            }
+        }
+        return tokens;
+    }
+}
+
+final class ConflictingClassAndMethodHttpMethodsRule extends AbstractRestApiRule {
+    ConflictingClassAndMethodHttpMethodsRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-MAP-013",
+                "Do not combine class-level and method-level HTTP method mappings",
+                RestApiCategory.ROUTING,
+                "HIGH",
+                "A Spring controller declares @RequestMapping(method = ...) at the class level and a different HTTP"
+                        + " method mapping at the method level. Spring's RequestMethodsRequestCondition.combine()"
+                        + " takes the set union of class-level and method-level HTTP methods rather than overriding,"
+                        + " exposing the handler to unintended HTTP verbs.",
+                "Remove the method attribute from the class-level @RequestMapping and declare HTTP methods only on"
+                        + " handler methods.",
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) {
+            return RestApiRuleSupport.skipped(
+                    definition(),
+                    "Not applicable on JAX-RS: Jakarta REST @Path annotations do not declare HTTP methods at the"
+                            + " class level.");
+        }
+        AdvisorFindings violations = new AdvisorFindings();
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), candidate -> !candidate.jaxRs() && candidate.explicitHttpMethod())) {
+            List<String> extra = extraClassHttpMethods(handler);
+            if (!extra.isEmpty()) {
+                violations.add(
+                        handler.describe() + " — class-level @RequestMapping(method = "
+                                + handler.typeLevelHttpMethods() + ") combines by union with method-level "
+                                + handler.methodLevelHttpMethods() + ", also exposing " + extra,
+                        context.location(handler));
+            }
+        }
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+    }
+
+    private static List<String> extraClassHttpMethods(HandlerMethodModel handler) {
+        if (handler.jaxRs()
+                || handler.typeLevelHttpMethods().isEmpty()
+                || handler.methodLevelHttpMethods().isEmpty()) {
+            return List.of();
+        }
+        Set<String> covered = new LinkedHashSet<>(handler.methodLevelHttpMethods());
+        if (covered.contains("GET")) {
+            covered.add("HEAD");
+        }
+        return handler.typeLevelHttpMethods().stream()
+                .filter(method -> !covered.contains(method))
+                .toList();
+    }
+}
+
+final class NestedDtoValidationCascadeRule extends AbstractRestApiRule {
+    NestedDtoValidationCascadeRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-VALID-007",
+                "Cascade @Valid into constrained nested DTO fields",
+                RestApiCategory.VALIDATION,
+                "HIGH",
+                "A request body parameter carries @Valid or @Validated, but a nested DTO field (or"
+                        + " collection/map/array element type) in the application's base packages declares Jakarta"
+                        + " Bean Validation constraints while the parent field omits @Valid. Bean Validation silently"
+                        + " skips constraints on nested objects unless @Valid cascades into them.",
+                "Annotate the parent DTO field (or collection/map type argument, e.g. List<@Valid ItemDto>) with"
+                        + " @Valid so nested constraints are evaluated.",
+                RestApiRuleHelp.VALIDATION_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        AdvisorFindings violations = new AdvisorFindings();
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), candidate -> candidate.hasRequestBody() && candidate.requestBodyValidated())) {
+            List<String> missing = handler.missingNestedValidFields().stream()
+                    .filter(field -> inBasePackages(field.parentTypeName(), context.basePackages())
+                            && inBasePackages(field.childTypeName(), context.basePackages()))
+                    .map(RestApiModel.MissingNestedValidField::fieldPath)
+                    .distinct()
+                    .toList();
+            if (!missing.isEmpty()) {
+                violations.add(
+                        handler.describe()
+                                + " — omits @Valid on constrained nested DTO field(s): "
+                                + String.join(", ", missing),
+                        context.location(handler));
+            }
+        }
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+    }
+
+    private static boolean inBasePackages(String className, List<String> basePackages) {
+        if (basePackages.isEmpty()) {
+            return true;
+        }
+        for (String basePackage : basePackages) {
+            if (className.equals(basePackage) || className.startsWith(basePackage + ".")) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+final class MultipartAndFormConsumesCompatibilityRule extends AbstractRestApiRule {
+    MultipartAndFormConsumesCompatibilityRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-VER-008",
+                "Multipart and form handlers must allow multipart or form media types",
+                RestApiCategory.VERSIONING,
+                "HIGH",
+                "A handler binds multipart or form parameters (@RequestPart, MultipartFile, FilePart, @RestForm,"
+                        + " @FormParam, or FileUpload) while its effective consumes condition excludes multipart/*"
+                        + " and application/x-www-form-urlencoded. Multipart/form uploads are rejected with 415"
+                        + " Unsupported Media Type, while JSON requests fail multipart resolution.",
+                "Set consumes to MediaType.MULTIPART_FORM_DATA_VALUE (or MediaType.APPLICATION_FORM_URLENCODED_VALUE)"
+                        + " on the handler method, or remove the restrictive class-level consumes declaration.",
+                RestApiRuleHelp.CONSUMES_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        AdvisorFindings violations = new AdvisorFindings();
+        for (HandlerMethodModel handler :
+                context.targets(context.handlers(), HandlerMethodModel::hasMultipartOrFormParam)) {
+            if (hasIncompatibleMultipartConsumes(handler.effectiveConsumes())) {
+                violations.add(
+                        handler.describe() + " — binds multipart/form parameter(s) but effective consumes "
+                                + handler.effectiveConsumes()
+                                + " excludes multipart/* and application/x-www-form-urlencoded",
+                        context.location(handler));
+            }
+        }
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+    }
+
+    private static boolean hasIncompatibleMultipartConsumes(List<String> consumes) {
+        if (consumes.isEmpty() || consumes.stream().anyMatch(media -> media.contains("${") || media.contains("#{"))) {
+            return false;
+        }
+        return consumes.stream().noneMatch(MultipartAndFormConsumesCompatibilityRule::allowsMultipartOrForm);
+    }
+
+    private static boolean allowsMultipartOrForm(String expression) {
+        String trimmed = expression.trim();
+        boolean negated = trimmed.startsWith("!");
+        String media = RestApiRuleHelp.normalizeMediaType(negated ? trimmed.substring(1) : trimmed);
+        if (negated) {
+            return !(media.equals("*") || media.equals("*/*") || media.startsWith("multipart/"));
+        }
+        return media.equals("*")
+                || media.equals("*/*")
+                || media.startsWith("multipart/")
+                || media.equals("application/x-www-form-urlencoded");
+    }
+}
+
+final class AvoidDirectSpringDataPageSerializationRule extends AbstractRestApiRule {
+    AvoidDirectSpringDataPageSerializationRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-PAGE-004",
+                "Avoid direct Spring Data Page serialization without VIA_DTO",
+                RestApiCategory.PAGINATION,
+                "LOW",
+                "A Spring handler returns org.springframework.data.domain.Page directly without"
+                        + " @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO) (or"
+                        + " spring.data.web.pageable.serialization-mode=via_dto). Direct PageImpl serialization"
+                        + " exposes unstable internal structure and logs a runtime warning in Spring Data.",
+                "Return org.springframework.data.web.PagedModel<T>, or configure"
+                        + " @EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO) /"
+                        + " spring.data.web.pageable.serialization-mode=via_dto.",
+                RestApiRuleHelp.PAGINATION_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.jaxRs()) {
+            return RestApiRuleSupport.springDataPagination(definition());
+        }
+        return handlersMatching(
+                context,
+                handler -> !handler.jaxRs() && handler.serializesBody() && handler.returnsSpringDataPage(),
+                handler -> !handler.jaxRs()
+                        && handler.serializesBody()
+                        && handler.returnsSpringDataPage()
+                        && !handler.springDataPageViaDtoConfigured()
+                        && !context.evidence().springDataPageViaDtoConfigured(),
+                "returns org.springframework.data.domain.Page directly without"
+                        + " @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO) or PagedModel");
     }
 }

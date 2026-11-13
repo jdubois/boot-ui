@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/** The fire / no-fire / skip matrix of DB-POOL-001..004: a pool compared with the limits of its server. */
+/** The fire / no-fire / skip matrix of DB-POOL-001..003: a pool compared with the limits of its server. */
 class DatabaseAdvisorPoolRulesTests {
 
     private static final long MINUTE = 60_000L;
@@ -21,7 +21,6 @@ class DatabaseAdvisorPoolRulesTests {
     private final DatabaseAdvisorRule idle = new PoolIdleLimitRule();
     private final DatabaseAdvisorRule exceeds = new PoolExceedsServerConnectionsRule();
     private final DatabaseAdvisorRule lifetime = new PoolUnlimitedLifetimeRule();
-    private final DatabaseAdvisorRule share = new PoolServerShareRule();
 
     /** A MySQL server whose sessions are closed after ten minutes idle. */
     private static SchemaSnapshot mysql(String waitTimeout, String maxConnections) {
@@ -134,7 +133,7 @@ class DatabaseAdvisorPoolRulesTests {
         DatabaseAdvisorContext context =
                 contextWithPools(List.of(first, other), Map.of("ordersDb", hikari(10, 10, 0, 45_000, 30_000)));
 
-        for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime, share)) {
+        for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime)) {
             // Nothing was found, but the result is not a clean PASS: the missing pool leaves the coverage incomplete.
             DatabaseAdvisorRuleResultDto result = rule.evaluate(context);
             assertThat(result.status()).as(rule.definition().id()).isEqualTo("SKIPPED");
@@ -240,7 +239,7 @@ class DatabaseAdvisorPoolRulesTests {
     @Test
     void poolRulesIgnoreDialectsTheyDoNotJudge() {
         SchemaSnapshot h2 = DatabaseAdvisorFixtures.schema("ordersDb", Dialect.GENERIC, List.of());
-        for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime, share)) {
+        for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime)) {
             DatabaseAdvisorRuleResultDto result = rule.evaluate(with(h2, hikari(10, 10, 0, 0, 0)));
             assertThat(result.status()).isEqualTo("SKIPPED");
             assertThat(reason(result)).startsWith("Not applicable");
@@ -257,10 +256,10 @@ class DatabaseAdvisorPoolRulesTests {
                 .isEqualTo(DatabaseIdentities.of("ordersDb", "pool=idle-limit"));
     }
 
-    // --- DB-POOL-002 / DB-POOL-004 ---------------------------------------------------------------------------------
+    // --- DB-POOL-002 -----------------------------------------------------------------------------------------------
 
     @Test
-    void aPoolLargerThanTheUsableConnectionsFiresTheCapacityRuleAndNotTheShareRule() {
+    void aPoolLargerThanTheUsableConnectionsFiresTheCapacityRule() {
         DatabaseAdvisorContext context = with(mysql("600", "50"), hikari(60, 10, 0, 0, 0));
 
         DatabaseAdvisorRuleResultDto result = exceeds.evaluate(context);
@@ -270,46 +269,18 @@ class DatabaseAdvisorPoolRulesTests {
         assertThat(reason(result))
                 .contains("maximumPoolSize 60", "50 usable connections", "max_connections 50", "cannot fill")
                 .contains("unless a proxy multiplexes");
-        assertThat(share.evaluate(context).status()).isEqualTo("PASS");
     }
 
     @Test
-    void aPoolOverHalfTheUsableConnectionsFiresTheShareHeuristicAtLowSeverity() {
-        DatabaseAdvisorContext context = with(mysql("600", "100"), hikari(51, 10, 0, 0, 0));
-
-        DatabaseAdvisorRuleResultDto result = share.evaluate(context);
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.id()).isEqualTo("DB-POOL-004");
-        assertThat(result.severity()).isEqualTo("LOW");
-        assertThat(reason(result)).contains("over 50%", "Heuristic", "second instance");
-        assertThat(exceeds.evaluate(context).status()).isEqualTo("PASS");
-    }
-
-    @Test
-    void thePoolShareBoundariesUseExactIntegerArithmetic() {
-        // equal to the usable connections: fits, but is heavy
+    void theCapacityBoundaryUsesExactComparison() {
+        // equal to the usable connections: fits
         assertThat(exceeds.evaluate(with(mysql("600", "100"), hikari(100, 10, 0, 0, 0)))
                         .status())
                 .isEqualTo("PASS");
-        assertThat(share.evaluate(with(mysql("600", "100"), hikari(100, 10, 0, 0, 0)))
-                        .status())
-                .isEqualTo("VIOLATION");
         // one over exceeds
         assertThat(exceeds.evaluate(with(mysql("600", "100"), hikari(101, 10, 0, 0, 0)))
                         .status())
                 .isEqualTo("VIOLATION");
-        // exactly 50 % is not above 50 %
-        assertThat(share.evaluate(with(mysql("600", "100"), hikari(50, 10, 0, 0, 0)))
-                        .status())
-                .isEqualTo("PASS");
-        // an odd usable count: 49 of 97 is 50.5 %
-        SchemaSnapshot odd = postgres(
-                16,
-                setting("max_connections", "100"),
-                setting("superuser_reserved_connections", "3"),
-                setting("reserved_connections", "0"));
-        assertThat(share.evaluate(with(odd, hikari(49, 10, 0, 0, 0))).status()).isEqualTo("VIOLATION");
-        assertThat(share.evaluate(with(odd, hikari(48, 10, 0, 0, 0))).status()).isEqualTo("PASS");
     }
 
     @Test
@@ -354,7 +325,7 @@ class DatabaseAdvisorPoolRulesTests {
                 .contains("maximum size could not be read");
         assertThat(reason(exceeds.evaluate(with(mysql("600", "many"), hikari(10, 10, 0, 0, 0)))))
                 .contains("`max_connections`");
-        assertThat(reason(share.evaluate(with(mysql("600", "100"), null)))).contains("no HikariCP or Agroal");
+        assertThat(reason(exceeds.evaluate(with(mysql("600", "100"), null)))).contains("no HikariCP or Agroal");
         SchemaSnapshot truncated = serverSchema(
                 "ordersDb",
                 Dialect.MYSQL,
@@ -366,17 +337,10 @@ class DatabaseAdvisorPoolRulesTests {
     }
 
     @Test
-    void theCapacityRulesWorkForAgroalToo() {
+    void theCapacityRuleWorksForAgroalToo() {
         assertThat(exceeds.evaluate(with(mysql("600", "40"), agroal(50, 0, 0, 0)))
                         .status())
                 .isEqualTo("VIOLATION");
-        // Agroal's default maximum size of 50 against a stock PostgreSQL's 97 usable connections
-        SchemaSnapshot stock = postgres(
-                16,
-                setting("max_connections", "100"),
-                setting("superuser_reserved_connections", "3"),
-                setting("reserved_connections", "0"));
-        assertThat(share.evaluate(with(stock, agroal(50, 0, 0, 0))).status()).isEqualTo("VIOLATION");
     }
 
     // --- DB-POOL-003 -----------------------------------------------------------------------------------------------
@@ -477,12 +441,10 @@ class DatabaseAdvisorPoolRulesTests {
                 setting("reserved_connections", "0"));
         DatabaseAdvisorContext idleCase = with(v16, hikari(10, 0, 10 * MINUTE, 30 * MINUTE, 0));
         DatabaseAdvisorContext sizeCase = with(v16, hikari(120, 10, 0, 45_000, 30_000));
-        DatabaseAdvisorContext shareCase = with(v16, hikari(49, 10, 0, 45_000, 30_000));
         DatabaseAdvisorContext lifetimeCase = with(v16, agroal(10, 0, 0, 0));
         for (var checked : List.of(
                 java.util.Map.entry(idle, idleCase),
                 java.util.Map.entry(exceeds, sizeCase),
-                java.util.Map.entry(share, shareCase),
                 java.util.Map.entry(lifetime, lifetimeCase))) {
             DatabaseAdvisorRuleResultDto result = checked.getKey().evaluate(checked.getValue());
             assertThat(result.status()).as(checked.getKey().definition().id()).isEqualTo("VIOLATION");
@@ -504,7 +466,7 @@ class DatabaseAdvisorPoolRulesTests {
                         setting("reserved_connections", "0")),
                 defaults);
         for (DatabaseAdvisorContext context : List.of(mysqlStock, postgresStock)) {
-            for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime, share)) {
+            for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime)) {
                 assertThat(rule.evaluate(context).status())
                         .as(rule.definition().id())
                         .isEqualTo("PASS");

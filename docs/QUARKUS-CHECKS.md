@@ -1,13 +1,15 @@
 # Quarkus security checks
 
-The Security panel, on Quarkus, runs a fixed, on-demand **45-rule** ruleset against the host application's
+The Security panel, on Quarkus, runs a fixed, on-demand **44-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
 `quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`, `quarkus.http.proxy.*`,
 `quarkus.security.users.embedded.*`, `quarkus.rest-csrf.*` (the CSRF extension), `quarkus.grpc.server.*`,
 `quarkus.smallrye-graphql.*`, `quarkus-elytron-security-jdbc` principal-query settings, and Kafka/SmallRye
 Reactive Messaging channel security settings, plus build-time counts of the standard authorization
-annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed`, and
-`@AuthorizationPolicy`) discovered in the application's own classes. It never intercepts live traffic,
+annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed` including repeatable
+`@PermissionsAllowed$List`, `@AuthorizationPolicy`, and Quarkus 3.x HTTP authentication mechanism annotations
+`@BasicAuthentication`, `@FormAuthentication`, `@MTLSAuthentication`, `@BearerTokenAuthentication`,
+`@AuthorizationCodeFlow`, and `@HttpAuthenticationMechanism`) discovered in the application's own classes. It never intercepts live traffic,
 exposes credentials or secrets, or modifies the
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
@@ -256,8 +258,11 @@ Dismissed rules remove all of their findings from the score.
   restrictions: a more-specific permit in one phase cannot override denial in the other.
   A matched path with no matching method mapping **denies** that method; a GET-only mapping does not
   establish that POST is public. Method annotations override class annotations, and explicit `@PermitAll` declarations
-  are not counted as accidentally unannotated. Custom policies, unresolved route templates, inherited/transformed
-  metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
+  are not counted as accidentally unannotated. Parameterized `{param}` routes are evaluated against prefix permissions
+  when no deeper permission path overlaps the template segment, benign interfaces/superclasses without JAX-RS or
+  security metadata do not mark endpoint capture incomplete, and proven uncovered endpoints are retained even when
+  another endpoint's authorization is unknown. Custom policies, overlapping route templates, inherited/transformed
+  security metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
   treated as public.
 - **Recommendation**: Set `deny-unannotated-endpoints=true` (or default roles) and mark public endpoints `@PermitAll`.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>
@@ -276,15 +281,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### QS-TLS-002 - No TLS configured for the main HTTP listener
 
-- **Severity**: INFO
-- **Detects**: No supported main-listener TLS material is declared. Recognized forms include a legacy keystore,
-  paired certificate/key lists, TLS-registry JKS/P12 paths, and paired PEM certificate/key entries. A named registry
-  bucket only counts when selected by `quarkus.http.tls-configuration-name`; an unrelated client bucket does not.
-  Partial material and programmatic providers remain incomplete, and a declaration is not proof of usable HTTPS.
-  Password, alias, ordering, and other option defaults are not certificate material and do not, by themselves, make
-  TLS observation incomplete.
-- **Recommendation**: Acceptable behind a verified terminating proxy.
-- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#ssl>
+**Retired.** Duplicate of `QS-TLS-001` (`LOW`, `quarkus.http.insecure-requests=enabled`) in the default `insecure-requests` posture when listener SSL is absent, and fires on every local Quarkus dev/test run. Listener TLS material detection (legacy keystore, paired certificate/key lists, and TLS-registry JKS/P12 or paired PEM entries selected by `quarkus.http.tls-configuration-name`) continues to gate `QS-HDR-003`. The ID remains reserved in `QuarkusSecurityChecks.RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### QS-TLS-003 - TLS certificate validation disabled
 

@@ -49,14 +49,28 @@ public final class SpringMappingProvider implements MappingProvider {
 
     private final BootUiSelfDataFilter selfDataFilter;
 
+    private final Supplier<String> basePath;
+
     public SpringMappingProvider(Supplier<MappingsEndpoint> endpoint, BootUiSelfDataFilter selfDataFilter) {
+        this(endpoint, selfDataFilter, () -> "");
+    }
+
+    public SpringMappingProvider(
+            Supplier<MappingsEndpoint> endpoint, BootUiSelfDataFilter selfDataFilter, Supplier<String> basePath) {
         this.endpoint = endpoint;
         this.selfDataFilter = selfDataFilter;
+        this.basePath = basePath == null ? () -> "" : basePath;
     }
 
     @Override
     public boolean available() {
         return endpoint.get() != null;
+    }
+
+    @Override
+    public String basePath() {
+        String resolved = basePath.get();
+        return resolved == null ? "" : resolved;
     }
 
     @Override

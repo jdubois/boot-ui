@@ -46,7 +46,7 @@ class SpringRulesTests {
     static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
-    void registryPinsAllThirtyNineRulesAndSevenRetirements() {
+    void registryPinsAllFortyFourRulesAndSevenRetirements() {
         var ids = SpringRuleRegistry.activeRules().stream()
                 .map(rule -> rule.definition().id())
                 .toList();
@@ -62,13 +62,18 @@ class SpringRulesTests {
                         "SPRING-REACTIVE-002",
                         "SPRING-CONFIG-001");
         assertThat(ids)
-                .hasSize(39)
+                .hasSize(44)
                 .doesNotHaveDuplicates()
                 .contains(
+                        "SPRING-WIRING-010",
+                        "SPRING-WIRING-011",
                         "SPRING-REACTIVE-003",
                         "SPRING-CONFIG-007",
                         "SPRING-CONFIG-008",
                         "SPRING-PERF-007",
+                        "SPRING-PERF-008",
+                        "SPRING-PERF-009",
+                        "SPRING-PERF-011",
                         "SPRING-WEB-008")
                 .doesNotContainAnyElementsOf(SpringRuleRegistry.RETIRED_RULE_IDS);
         assertThat(SpringRuleRegistry.activeRules().stream()
@@ -931,6 +936,14 @@ class SpringRulesTests {
         var config = env("management.endpoints.web.exposure.include", "")
                 .withProperty("management.endpoint.health.show-details", "always");
         assertThat(evaluate(show, config, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        var componentsOnly = env("management.endpoints.web.exposure.include", "")
+                .withProperty("management.endpoint.health.show-details", "never")
+                .withProperty("management.endpoint.health.show-components", "always");
+        assertThat(evaluate(show, componentsOnly, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        assertThat(evaluate(show, componentsOnly, ENDPOINT_EVIDENCE).sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("management.endpoint.health.show-components=always");
         config.withProperty("management.endpoints.web.exposure.exclude", "*");
         assertThat(evaluate(show, config, ENDPOINT_EVIDENCE).status()).isEqualTo("PASS");
         assertThat(evaluate(show, env("management.endpoint.health.show-details", "always"), Map.of(ENDPOINTS, Set.of()))
@@ -1053,5 +1066,207 @@ class SpringRulesTests {
                                 ENDPOINT_EVIDENCE)
                         .status())
                 .isEqualTo("ERROR");
+    }
+
+    @Test
+    void dormantResilienceAndInfrastructureRulesReportFindingsAndRespectIncompleteInventory() {
+        var resilience = new DormantResilienceAnnotationsRule();
+        var infra = new DormantInfrastructureAnnotationsRule();
+        assertThat(resilience.definition().severity()).isEqualTo("HIGH");
+        assertThat(infra.definition().severity()).isEqualTo("HIGH");
+
+        var clean = SpringContext.builder(new MockEnvironment())
+                .beanDefinitionCount(10)
+                .observations(facts(Map.of()))
+                .build();
+        assertThat(resilience.evaluate(clean).status()).isEqualTo("PASS");
+        assertThat(infra.evaluate(clean).status()).isEqualTo("PASS");
+
+        var incomplete = SpringContext.builder(new MockEnvironment())
+                .beanDefinitionCount(10)
+                .observations(new SpringObservations(Map.of(), List.of("incomplete")))
+                .build();
+        assertThat(resilience.evaluate(incomplete).status()).isEqualTo("SKIPPED");
+        assertThat(infra.evaluate(incomplete).status()).isEqualTo("SKIPPED");
+
+        var beanIndexIncomplete = SpringContext.builder(new MockEnvironment())
+                .beanDefinitionCount(4097)
+                .dormantResilienceBeans(List.of("resilientBean: dormant"))
+                .dormantInfrastructureBeans(List.of("infraBean: dormant"))
+                .observations(new SpringObservations(Map.of(BEAN_INDEX_INCOMPLETE, true), List.of("incomplete")))
+                .build();
+        assertThat(resilience.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
+        assertThat(infra.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
+
+        var violated = SpringContext.builder(new MockEnvironment())
+                .dormantResilienceBeans(
+                        List.of(
+                                "orderService (app.OrderService#placeOrder): @Retryable (Spring Framework 7) is present without RetryAnnotationBeanPostProcessor; add @EnableResilientMethods."))
+                .dormantInfrastructureBeans(
+                        List.of(
+                                "mailWorker (app.MailWorker#send): @Async is present without AsyncAnnotationBeanPostProcessor or AsyncExecutionAspectSupport; add @EnableAsync."))
+                .observations(facts(Map.of()))
+                .build();
+        var resilienceResult = resilience.evaluate(violated);
+        assertThat(resilienceResult.status()).isEqualTo("VIOLATION");
+        assertThat(resilienceResult.violationCount()).isEqualTo(1);
+        assertThat(resilienceResult.sampleViolations().get(0)).contains("@EnableResilientMethods");
+
+        var infraResult = infra.evaluate(violated);
+        assertThat(infraResult.status()).isEqualTo("VIOLATION");
+        assertThat(infraResult.violationCount()).isEqualTo(1);
+        assertThat(infraResult.sampleViolations().get(0)).contains("@EnableAsync");
+    }
+
+    @Test
+    void virtualThreadsExecutorBackoffRuleDetectsBackedOffApplicationTaskExecutor() {
+        var rule = new VirtualThreadsExecutorBackoffRule();
+        assertThat(rule.definition().severity()).isEqualTo("MEDIUM");
+
+        MockEnvironment vtEnabled = env("spring.threads.virtual.enabled", "true");
+        assertThat(rule.evaluate(context(vtEnabled, Map.of())
+                                .virtualThreadsSupported(false)
+                                .taskExecutionPropertiesPresent(true)
+                                .executors(List.of(new BeanRef("customExecutor", false)))
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(context(vtEnabled, Map.of())
+                                .virtualThreadsSupported(true)
+                                .executors(List.of(new BeanRef("customExecutor", false)))
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+
+        var backedOff = rule.evaluate(context(vtEnabled, Map.of(TASK_EXECUTION_PROPERTIES, true))
+                .virtualThreadsSupported(true)
+                .executors(List.of(new BeanRef("customExecutor", false)))
+                .build());
+        assertThat(backedOff.status()).isEqualTo("VIOLATION");
+        assertThat(backedOff.sampleViolations().get(0)).contains("customExecutor", "spring.task.execution.mode=force");
+
+        MockEnvironment forced =
+                env("spring.threads.virtual.enabled", "true").withProperty("spring.task.execution.mode", "FORCE");
+        assertThat(rule.evaluate(context(forced, Map.of(TASK_EXECUTION_PROPERTIES, true))
+                                .virtualThreadsSupported(true)
+                                .executors(List.of(new BeanRef("customExecutor", false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+
+        assertThat(rule.evaluate(context(vtEnabled, Map.of(TASK_EXECUTION_PROPERTIES, true))
+                                .virtualThreadsSupported(true)
+                                .bootApplicationTaskExecutorPresent(true)
+                                .executors(List.of(
+                                        new BeanRef("applicationTaskExecutor", false),
+                                        new BeanRef("customExecutor", false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+
+        MockEnvironment invalidMode =
+                env("spring.threads.virtual.enabled", "true").withProperty("spring.task.execution.mode", "invalid");
+        assertThat(rule.evaluate(context(invalidMode, Map.of(TASK_EXECUTION_PROPERTIES, true))
+                                .virtualThreadsSupported(true)
+                                .build())
+                        .status())
+                .isEqualTo("ERROR");
+
+        assertThat(rule.evaluate(
+                                context(vtEnabled, Map.of(TASK_EXECUTION_PROPERTIES, true, BEAN_INDEX_INCOMPLETE, true))
+                                        .virtualThreadsSupported(true)
+                                        .executors(List.of(new BeanRef("customExecutor", false)))
+                                        .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void ignoredVirtualThreadPoolPropertiesRuleFlagsPoolSettingsUnderSimpleAsyncExecutors() {
+        var rule = new IgnoredVirtualThreadPoolPropertiesRule();
+        assertThat(rule.definition().severity()).isEqualTo("LOW");
+
+        MockEnvironment configured = env("spring.threads.virtual.enabled", "true")
+                .withProperty("spring.task.execution.pool.max-size", "32")
+                .withProperty("spring.task.execution.pool.queue-capacity", "100")
+                .withProperty("spring.task.execution.pool.shutdown.accept-tasks-after-context-close", "true")
+                .withProperty("spring.task.scheduling.pool.size", "4");
+
+        assertThat(rule.evaluate(context(configured, Map.of())
+                                .virtualThreadsSupported(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+
+        var result = rule.evaluate(
+                context(configured, Map.of(BOOT_VIRTUAL_TASK_EXECUTOR, true, BOOT_VIRTUAL_TASK_SCHEDULER, true))
+                        .virtualThreadsSupported(true)
+                        .build());
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.violationCount()).isEqualTo(4);
+        assertThat(result.sampleViolations())
+                .anySatisfy(d -> assertThat(d).contains("spring.task.execution.pool.max-size"))
+                .anySatisfy(d ->
+                        assertThat(d).contains("spring.task.execution.pool.shutdown.accept-tasks-after-context-close"))
+                .anySatisfy(d -> assertThat(d).contains("spring.task.scheduling.pool.size"));
+
+        assertThat(rule.evaluate(context(configured, Map.of(BOOT_VIRTUAL_TASK_EXECUTOR, true))
+                                .virtualThreadsSupported(true)
+                                .pooledTaskExecutors(
+                                        List.of(new PooledExecutorRef("appPool", "app.Config", TPTE, false)))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+
+        assertThat(rule.evaluate(context(
+                                        env("spring.threads.virtual.enabled", "true"),
+                                        Map.of(BOOT_VIRTUAL_TASK_EXECUTOR, true))
+                                .virtualThreadsSupported(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void incompleteTaskShutdownTerminationRuleDetectsMissingPeriodOrDisabledAwaitOnVirtualThreads() {
+        var rule = new IncompleteTaskShutdownTerminationRule();
+        assertThat(rule.definition().severity()).isEqualTo("MEDIUM");
+
+        SpringContext empty = SpringContext.builder(new MockEnvironment()).build();
+        assertThat(rule.evaluate(empty).status()).isEqualTo("PASS");
+        assertThat(SpringScanner.evidence(empty).usable()).isFalse();
+
+        for (String period : List.of("0", "0s", "PT0S", "-5s")) {
+            MockEnvironment zeroPeriod = env("spring.task.execution.shutdown.await-termination", "true")
+                    .withProperty("spring.task.execution.shutdown.await-termination-period", period);
+            assertThat(evaluate(rule, zeroPeriod, Map.of()).status()).as(period).isEqualTo("VIOLATION");
+        }
+        assertThat(evaluate(rule, env("spring.task.execution.shutdown.await-termination-period", "-5s"), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
+
+        MockEnvironment missingPeriod = env("spring.task.execution.shutdown.await-termination", "true")
+                .withProperty("spring.task.scheduling.shutdown.await-termination", "true");
+        var missingResult = evaluate(rule, missingPeriod, Map.of());
+        assertThat(missingResult.status()).isEqualTo("VIOLATION");
+        assertThat(missingResult.violationCount()).isEqualTo(2);
+
+        MockEnvironment complete = env("spring.task.execution.shutdown.await-termination", "true")
+                .withProperty("spring.task.execution.shutdown.await-termination-period", "30s")
+                .withProperty("spring.task.scheduling.shutdown.await-termination", "true")
+                .withProperty("spring.task.scheduling.shutdown.await-termination-period", "15s");
+        assertThat(evaluate(rule, complete, Map.of()).status()).isEqualTo("PASS");
+
+        MockEnvironment vtPeriodWithoutAwait = env("spring.threads.virtual.enabled", "true")
+                .withProperty("spring.task.execution.shutdown.await-termination-period", "20s");
+        assertThat(rule.evaluate(context(vtPeriodWithoutAwait, Map.of())
+                                .virtualThreadsSupported(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+
+        MockEnvironment invalidDuration =
+                env("spring.task.execution.shutdown.await-termination-period", "not-a-duration");
+        assertThat(evaluate(rule, invalidDuration, Map.of()).status()).isEqualTo("ERROR");
     }
 }

@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.restapi.fixtures.good;
 import java.net.URI;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.config.EnableSpringDataWebSupport;
+import org.springframework.data.web.config.EnableSpringDataWebSupport.PageSerializationMode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** A clean, well-designed controller that should trip no REST API Advisor rules. */
 @RestController
 @Validated
+@EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO)
 @RequestMapping("/api/v1/users")
 public class GoodUserController {
 

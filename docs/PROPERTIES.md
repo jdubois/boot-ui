@@ -376,8 +376,7 @@ remain gated. Retrieval completeness does not affect evidence coverage or scores
 application configuration or reset existing counters, and it does not require confirmation. The action is blocked when
 either `bootui.read-only=true` or `bootui.panels.hibernate-statistics.read-only=true`. To enable collection persistently
 from startup, set `spring.jpa.properties.hibernate.generate_statistics=true` on Spring or
-`quarkus.hibernate-orm.statistics=true` on Quarkus, as recommended by
-[HIB-CONFIG-007](HIBERNATE-CHECKS.md#hib-config-007-hibernate-statistics-should-be-enabled-when-tuning).
+`quarkus.hibernate-orm.statistics=true` on Quarkus.
 
 ### Database
 

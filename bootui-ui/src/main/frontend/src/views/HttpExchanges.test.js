@@ -17,8 +17,17 @@ const RouterLinkStub = {
 
 const mounted = []
 
-function mountExchanges() {
-  const wrapper = mount(HttpExchanges, {global: {stubs: {RouterLink: RouterLinkStub}}})
+function mountExchanges(options = {}) {
+  const wrapper = mount(HttpExchanges, {
+    ...options,
+    global: {
+      ...options.global,
+      stubs: {
+        RouterLink: RouterLinkStub,
+        ...(options.global?.stubs || {})
+      }
+    }
+  })
   mounted.push(wrapper)
   return wrapper
 }
@@ -153,6 +162,19 @@ describe('HTTP Exchanges', () => {
     expect(copyButton.attributes('aria-disabled')).toBeUndefined()
     expect(copyButton.text()).toContain('Copy as cURL')
 
+    const probeLink = wrapper.find('.http-exchanges-probe-link')
+    expect(probeLink.exists()).toBe(true)
+    expect(probeLink.text()).toContain('Open in HTTP Probe')
+    expect(JSON.parse(probeLink.attributes('data-to'))).toEqual({
+      path: '/http-probe',
+      query: {
+        method: 'POST',
+        path: '/api/orders?token=VALUE&page=VALUE',
+        accept: 'application/json',
+        source: 'http-exchanges'
+      }
+    })
+
     await copyButton.trigger('click')
     await flushPromises()
 
@@ -187,6 +209,24 @@ describe('HTTP Exchanges', () => {
     expect(notes).toContain('1 request header was omitted')
     expect(notes).toContain('add your own --data')
     expect(wrapper.find('.http-exchanges-curl-unavailable').exists()).toBe(false)
+  })
+
+  it('hides Open in HTTP Probe when the http-probe panel is read-only', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report())))
+    const wrapper = mountExchanges({
+      global: {
+        provide: {
+          panels: {
+            value: {
+              panels: [{id: 'http-probe', enabled: true, available: true, readOnly: true}]
+            }
+          }
+        }
+      }
+    })
+    await flushPromises()
+    await wrapper.find('.http-exchanges-detail-toggle').trigger('click')
+    expect(wrapper.find('.http-exchanges-probe-link').exists()).toBe(false)
   })
 
   it('surfaces a clipboard denial instead of pretending the copy worked', async () => {

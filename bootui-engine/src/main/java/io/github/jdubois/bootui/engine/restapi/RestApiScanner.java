@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
@@ -73,6 +74,7 @@ public final class RestApiScanner {
             sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private volatile Supplier<SpringWebStack> springWebStack = () -> SpringWebStack.UNKNOWN;
+    private volatile BooleanSupplier springDataPageViaDtoConfigured = () -> false;
     private final AdvisorScanState<RestApiReport> state =
             new AdvisorScanState<>(RestApiReport::withViolationDetails, this::ruleCatalog);
 
@@ -199,6 +201,11 @@ public final class RestApiScanner {
         this.springWebStack = stack == null ? () -> SpringWebStack.UNKNOWN : stack;
     }
 
+    /** Supplies whether Spring Data web page serialization is configured for {@code VIA_DTO}. */
+    public void setSpringDataPageViaDtoConfigured(BooleanSupplier configured) {
+        this.springDataPageViaDtoConfigured = configured == null ? () -> false : configured;
+    }
+
     private RestApiReport doScan(AdvisorViolationCollector collector) {
         Set<String> failures = new LinkedHashSet<>();
         List<String> basePackages = basePackages(failures);
@@ -225,7 +232,8 @@ public final class RestApiScanner {
         } catch (RuntimeException | LinkageError ex) {
             return report(
                     "PARTIAL",
-                    "Application classes could not be imported. REST API analysis is incomplete.",
+                    ArchUnitClassImports.failureMessage(
+                            "Application classes could not be imported. REST API analysis is incomplete.", ex),
                     clock.millis(),
                     basePackages,
                     0,
@@ -288,6 +296,7 @@ public final class RestApiScanner {
                 model.locations());
         context.evidence().observations(!model.incomplete(), openApi != null, versioning != null);
         context.evidence().springWebStack(readSpringWebStack());
+        context.evidence().springDataPageViaDtoConfigured(readSpringDataPageViaDtoConfigured());
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
         boolean usable = false;
@@ -334,6 +343,14 @@ public final class RestApiScanner {
             return stack == null ? SpringWebStack.UNKNOWN : stack;
         } catch (RuntimeException | LinkageError ex) {
             return SpringWebStack.UNKNOWN;
+        }
+    }
+
+    private boolean readSpringDataPageViaDtoConfigured() {
+        try {
+            return springDataPageViaDtoConfigured.getAsBoolean();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
         }
     }
 

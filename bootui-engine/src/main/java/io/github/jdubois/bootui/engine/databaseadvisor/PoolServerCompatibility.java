@@ -24,9 +24,6 @@ final class PoolServerCompatibility {
      */
     static final long IDLE_RETIREMENT_HEADROOM_MS = 30_000L;
 
-    /** A pool taking more than this share of the server's usable connections leaves no room for a second instance. */
-    static final int POOL_SHARE_PERCENT = 50;
-
     static final String MYSQL_IDLE_SETTING = "wait_timeout";
     static final String POSTGRES_IDLE_SETTING = "idle_session_timeout";
 
@@ -251,7 +248,6 @@ final class PoolServerCompatibility {
     /** How the pool's maximum size stands against {@code capacity}. */
     enum Share {
         EXCEEDS,
-        HEAVY,
         FITS
     }
 
@@ -282,10 +278,7 @@ final class PoolServerCompatibility {
     }
 
     static Share share(int maximumPoolSize, long usable) {
-        if (maximumPoolSize > usable) {
-            return Share.EXCEEDS;
-        }
-        return (long) maximumPoolSize * 100L > usable * POOL_SHARE_PERCENT ? Share.HEAVY : Share.FITS;
+        return maximumPoolSize > usable ? Share.EXCEEDS : Share.FITS;
     }
 
     // --- plumbing --------------------------------------------------------------------------------------------------

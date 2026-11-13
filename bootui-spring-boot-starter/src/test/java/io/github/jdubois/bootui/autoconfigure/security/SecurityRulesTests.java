@@ -481,64 +481,6 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
-    // --- SEC-ACT-004: health show-details/show-components should not be unconditional ------
-
-    @Test
-    void healthDetailsExposureFiresForShowDetailsAlways() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("management.endpoint.health.show-details", "always");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("show-details"));
-    }
-
-    @Test
-    void healthDetailsExposureFiresForShowComponentsAlways() {
-        // Spring Boot's show-components=always leaks the same infrastructure/component names as
-        // show-details=always, so it must be caught independently.
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("management.endpoint.health.show-components", "always");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("show-components"));
-    }
-
-    @Test
-    void healthDetailsExposureReportsBothWhenShowDetailsAndShowComponentsAreBothAlways() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("management.endpoint.health.show-details", "always")
-                .withProperty("management.endpoint.health.show-components", "always");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.violationCount()).isEqualTo(2);
-    }
-
-    @Test
-    void healthDetailsExposurePassesWhenNeitherPropertyIsSet() {
-        // Spring Boot's actual default for both properties is 'never' (not 'when-authorized', which
-        // was the pre-3.0 default) -- confirm the rule does not flag the unconfigured/default case.
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(new MockEnvironment()));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    @Test
-    void healthDetailsExposurePassesWhenAuthorizedOnly() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("management.endpoint.health.show-details", "when-authorized")
-                .withProperty("management.endpoint.health.show-components", "when-authorized");
-
-        SecurityRuleResultDto result = new HealthDetailsExposureRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
     // --- SEC-OAUTH-002: custom decoder is advisory ------------------------------------------
 
     @Test
@@ -663,6 +605,17 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new BroadCorsOriginPatternRule().evaluate(cors(cors));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void broadCorsOriginPatternFlagsSingleLabelTopLevelDomainWildcards() {
+        CorsConfigModel cors = new CorsConfigModel(
+                "/**", List.of(), List.of("https://*.com"), List.of("GET"), List.of(), Boolean.FALSE);
+
+        SecurityRuleResultDto result = new BroadCorsOriginPatternRule().evaluate(cors(cors));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -855,6 +808,100 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void authorizationRuleShadowedEscalatesToHighWhenPermitAllShadowsRestrictedNonAnonymousMapping() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("AuthorizationFilter"),
+                Boolean.TRUE,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE,
+                null,
+                null,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        true,
+                        true,
+                        true,
+                        true,
+                        new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                        List.of(
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/**", List.of()),
+                                        SecurityModel.GrantState.PERMIT_ALL),
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/admin/**", List.of()),
+                                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS)),
+                        null,
+                        false,
+                        true,
+                        false));
+
+        SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("an unconditional grant")
+                .doesNotContain("an unconditional denial");
+    }
+
+    @Test
+    void authorizationRuleShadowedRendersRestrictedNonAnonymousWithoutCallingItUnconditionalDenial() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("AuthorizationFilter"),
+                Boolean.FALSE,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE,
+                null,
+                null,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        true,
+                        true,
+                        true,
+                        true,
+                        new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                        List.of(
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/**", List.of()),
+                                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS),
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/admin/**", List.of()),
+                                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS)),
+                        null,
+                        false,
+                        true,
+                        false));
+
+        SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("INFO");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("an authenticated or authority restriction")
+                .doesNotContain("an unconditional denial");
     }
 
     @Test
@@ -1441,41 +1488,40 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
-    // --- SEC-CONFIG-005: DevTools development defaults ---------------------------------------
+    // --- DevTools development defaults provenance --------------------------------------------
 
     @Test
-    void errorDisclosureIgnoresDevToolsDefaultsButNotApplicationConfiguration() {
+    void applicationPropertyIgnoresDevToolsDefaultsButNotApplicationConfiguration() {
         Map<String, Object> devToolsDefaults = Map.of(
                 "spring.web.error.include-stacktrace", "always",
                 "spring.web.error.include-message", "always",
                 "spring.web.error.include-binding-errors", "always");
         FilterChainModel chain = chain("any request", List.of("AuthorizationFilter"));
-        ErrorResponseDisclosureRule rule = new ErrorResponseDisclosureRule();
 
         MockEnvironment devtools = new MockEnvironment();
         devtools.getPropertySources()
                 .addLast(new org.springframework.core.env.MapPropertySource("devtools", devToolsDefaults));
-        assertThat(rule.evaluate(context(List.of(chain), devtools)).status()).isEqualTo(SecurityRuleSupport.PASS);
-        assertThat(rule.evaluate(context(List.of(chain), SecurityEnvironmentSnapshot.capture(devtools)))
-                        .status())
+        assertThat(context(List.of(chain), devtools).applicationProperty("spring.web.error.include-stacktrace"))
+                .isNull();
+        assertThat(context(List.of(chain), SecurityEnvironmentSnapshot.capture(devtools))
+                        .applicationProperty("spring.web.error.include-stacktrace"))
                 .as("captured snapshot keeps DevTools provenance")
-                .isEqualTo(SecurityRuleSupport.PASS);
+                .isNull();
 
         devtools.setProperty("spring.web.error.include-stacktrace", "on-param");
-        SecurityRuleResultDto overridden = rule.evaluate(context(List.of(chain), devtools));
-        assertThat(overridden.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(overridden.sampleViolations()).singleElement().asString().contains("include-stacktrace");
+        assertThat(context(List.of(chain), devtools).applicationProperty("spring.web.error.include-stacktrace"))
+                .isEqualTo("on-param");
 
         Properties properties = new Properties();
         properties.putAll(devToolsDefaults);
         MockEnvironment appNamedDevtools = new MockEnvironment();
         appNamedDevtools.getPropertySources().addFirst(new PropertiesPropertySource("devtools", properties));
-        assertThat(rule.evaluate(context(List.of(chain), appNamedDevtools)).violationCount())
+        assertThat(context(List.of(chain), appNamedDevtools).applicationProperty("spring.web.error.include-stacktrace"))
                 .as("only DevTools' own map source is ignored")
-                .isEqualTo(3);
-        assertThat(rule.evaluate(context(List.of(chain), SecurityEnvironmentSnapshot.capture(appNamedDevtools)))
-                        .violationCount())
-                .isEqualTo(3);
+                .isEqualTo("always");
+        assertThat(context(List.of(chain), SecurityEnvironmentSnapshot.capture(appNamedDevtools))
+                        .applicationProperty("spring.web.error.include-stacktrace"))
+                .isEqualTo("always");
     }
 
     // --- SEC-OAUTH-005: opaque-token introspection transport ---------------------------------
@@ -1746,48 +1792,6 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
-    // --- SEC-HEAD-010: cross-origin isolation headers ---------------------------------------
-
-    @Test
-    void crossOriginIsolationHeadersFiresWhenNeitherCoopNorCoepIsEmitted() {
-        FilterChainModel chain = new FilterChainModel(
-                0,
-                "any request",
-                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
-                null,
-                null,
-                List.of("XContentTypeOptionsHeaderWriter"));
-
-        SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("INFO");
-    }
-
-    @Test
-    void crossOriginIsolationRequiresBothCoopAndCoep() {
-        FilterChainModel chain = new FilterChainModel(
-                0,
-                "any request",
-                List.of("HeaderWriterFilter", "UsernamePasswordAuthenticationFilter"),
-                null,
-                null,
-                List.of("CrossOriginOpenerPolicyHeaderWriter"));
-
-        SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-    }
-
-    @Test
-    void crossOriginIsolationHeadersPassesWhenNoHeaderWriterFilterIsPresent() {
-        FilterChainModel chain = chain("any request", List.of("SecurityContextHolderFilter"));
-
-        SecurityRuleResultDto result = new CrossOriginIsolationHeadersRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
     // --- SEC-CONFIG-007: hardcoded secret in configuration ----------------------------------
 
     @Test
@@ -1872,6 +1876,118 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void hardcodedSecretPropertyIgnoresNonSecretBarriersHyphenatedEnvShadowsAndNonCredentialLiterals() {
+        MockEnvironment environment = packagedProperties(Map.of(
+                "oauth2.client-secret",
+                "shadowed-by-env",
+                "app.feature.token",
+                "true",
+                "app.limit.secret",
+                "42",
+                "app.endpoint.token",
+                "https://idp.example.com/token",
+                "app.signing.secret-key",
+                "real-hardcoded-secret"));
+        environment
+                .getPropertySources()
+                .addFirst(new org.springframework.core.env.MapPropertySource(
+                        StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                        Map.of("OAUTH2_CLIENT_SECRET", "from-env")));
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("app.signing.secret-key")
+                .doesNotContain("oauth2.client-secret", "real-hardcoded-secret");
+    }
+
+    @Test
+    void customFilterOnSupportedChainDoesNotOverwritePositivelyObservedPassesToSkipped() {
+        FilterChainModel chainWithCustomFilter = new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "CsrfFilter",
+                        "UsernamePasswordAuthenticationFilter",
+                        "AuthorizationFilter",
+                        "Unknown"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Boolean.FALSE,
+                null,
+                Boolean.FALSE,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        true,
+                        false,
+                        true,
+                        true,
+                        new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                        List.of(new SecurityModel.AuthorizationMapping(
+                                new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                                SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS)),
+                        null,
+                        false,
+                        true,
+                        false));
+        SecurityContext ctx = singleChain(chainWithCustomFilter);
+
+        assertThat(new MissingAuthorizationFilterRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new PermitAllCatchAllRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new EffectivelyDisabledSecurityRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new AuthorizationRuleShadowedRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new CsrfDisabledStatefulRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new SessionFixationRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new SessionCookieHttpOnlyRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new SessionCookieSameSiteRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+
+        FilterChainModel unsupported = new FilterChainModel(
+                0,
+                "(unsupported chain)",
+                List.of(),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        false,
+                        false,
+                        false,
+                        false,
+                        new SecurityModel.MatcherFacts("unknown", null, null, List.of()),
+                        List.of(),
+                        null,
+                        false,
+                        false,
+                        false));
+        SecurityContext unsupportedTwoChains =
+                context(List.of(unsupported, chainWithCustomFilter), new MockEnvironment());
+        assertThat(new CatchAllChainOrderingRule()
+                        .evaluate(unsupportedTwoChains)
+                        .status())
+                .isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test

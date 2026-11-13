@@ -1979,7 +1979,7 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 72,
+  rulesEvaluated: 69,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1991,11 +1991,11 @@ const hibernate = {
     analyzer: 'BootUI Hibernate Advisor',
     status: 'PARTIAL',
     message:
-      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 72 distinct rules ' +
-      '(72 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
+      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 69 distinct rules ' +
+      '(69 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
       'See diagnostics for 3 entries naming each affected rule and unit.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 72,
+    rulesEvaluated: 69,
     entitiesAnalyzed: 6,
     violationsFound: 4
   },
@@ -2053,7 +2053,7 @@ const hibernate = {
   ],
   diagnostics: [
     {
-      source: 'HIB-QUERY-006',
+      source: 'HIB-QUERY-005',
       unit: 'default',
       level: 'WARNING',
       message:
@@ -2089,7 +2089,7 @@ const security = {
     'any request'
   ],
   filterChainsAnalyzed: 2,
-  rulesEvaluated: 54,
+  rulesEvaluated: 50,
   violationsFound: 5,
   severityCounts: [
     {severity: 'HIGH', count: 2},
@@ -2102,7 +2102,7 @@ const security = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 2 application filter chains.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 54,
+    rulesEvaluated: 50,
     filterChainsAnalyzed: 2,
     violationsFound: 5
   },
@@ -2343,7 +2343,7 @@ const quarkusSecurity = {
     '@RolesAllowed → SecureResource#secured [USER]'
   ],
   filterChainsAnalyzed: 3,
-  rulesEvaluated: 45,
+  rulesEvaluated: 44,
   violationsFound: 5,
   severityCounts: [
     {severity: 'CRITICAL', count: 1},
@@ -2356,7 +2356,7 @@ const quarkusSecurity = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 3 permission policies.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 45,
+    rulesEvaluated: 44,
     filterChainsAnalyzed: 3,
     violationsFound: 5
   },
@@ -2419,7 +2419,7 @@ const memoryAdvisor = {
   disclaimer:
     'Heuristic JVM memory, GC, and thread rules run against the live management beans only. ' +
     'Findings are review prompts; validate against the application workload and a profiler before acting.',
-  rulesEvaluated: 32,
+  rulesEvaluated: 28,
   violationsFound: 3,
   summary: {
     heapUsedPercent: 82,
@@ -2441,9 +2441,9 @@ const memoryAdvisor = {
   scan: {
     analyzer: 'BootUI Memory Advisor',
     status: 'SCANNED',
-    message: 'Memory Advisor evaluated 32 rules against the live management beans.',
+    message: 'Memory Advisor evaluated 28 rules against the live management beans.',
     scannedAt: nowMillis - 24_000,
-    rulesEvaluated: 32,
+    rulesEvaluated: 28,
     violationsFound: 3
   },
   results: [

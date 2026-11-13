@@ -315,6 +315,132 @@ class RestApiContractDefectRulesTests {
                         "CustomWebApplicationException");
     }
 
+    // --- RAPI-MAP-012 --------------------------------------------------------------------------------------------
+
+    @Test
+    void unannotatedSpringScalarParametersMatchingPathTokensAreReported() {
+        RestApiRuleResultDto result =
+                new UnannotatedPathVariableParameterRule().evaluate(context(UnannotatedPathVarController.class));
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .hasSize(4)
+                .anyMatch(detail -> detail.contains("#getOrder") && detail.contains("[id]"))
+                .anyMatch(detail -> detail.contains("#getByUuid") && detail.contains("[orderId]"))
+                .anyMatch(detail -> detail.contains("#getOptionalId") && detail.contains("[id]"))
+                .anyMatch(detail -> detail.contains("#getOpenApiDocumentedId") && detail.contains("[id]"))
+                .noneMatch(detail -> detail.contains("#boundOrder")
+                        || detail.contains("#explicitQuery")
+                        || detail.contains("#modelAttributeComplex")
+                        || detail.contains("#zoneIdContext")
+                        || detail.contains("#clockContext"));
+    }
+
+    @Test
+    void unannotatedScalarPathParameterRuleIsSkippedOnJaxRs() {
+        assertThat(new UnannotatedPathVariableParameterRule()
+                        .evaluate(context(QuarkusStatusResource.class))
+                        .status())
+                .isEqualTo(RestApiRuleSupport.SKIPPED);
+    }
+
+    // --- RAPI-MAP-013 --------------------------------------------------------------------------------------------
+
+    @Test
+    void classLevelRequestMappingMethodCombiningWithDifferentMethodVerbIsReported() {
+        RestApiRuleResultDto result = new ConflictingClassAndMethodHttpMethodsRule()
+                .evaluate(
+                        context(ConflictingClassMethodMappingController.class, HeadClassMethodMappingController.class));
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .hasSize(1)
+                .singleElement()
+                .asString()
+                .contains("ConflictingClassMethodMappingController#createOrder")
+                .contains("[GET]")
+                .doesNotContain("#getOrder", "#inheritedVerb", "HeadClassMethodMappingController");
+    }
+
+    // --- RAPI-VALID-007 ------------------------------------------------------------------------------------------
+
+    @Test
+    void missingValidCascadeOnConstrainedNestedDtoFieldsIsReported() {
+        RestApiContext context = context(
+                NestedValidationController.class,
+                BrokenOrderRequest.class,
+                ValidOrderRequest.class,
+                ConstrainedAddressDto.class,
+                ConstrainedLineItemDto.class,
+                UnconstrainedMetadataDto.class,
+                IntermediateCustomerDto.class,
+                CyclicNodeDto.class);
+        RestApiRuleResultDto result = new NestedDtoValidationCascadeRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .hasSize(1)
+                .singleElement()
+                .asString()
+                .contains("#createBroken")
+                .contains("BrokenOrderRequest.shippingAddress")
+                .contains("BrokenOrderRequest.items")
+                .contains("BrokenOrderRequest.keyOnlyMap")
+                .contains("BrokenOrderRequest.customer")
+                .doesNotContain("metadata", "cycle", "#createValid");
+    }
+
+    // --- RAPI-VER-008 --------------------------------------------------------------------------------------------
+
+    @Test
+    void multipartAndFormHandlersRestrictingConsumesToJsonAreReported() {
+        RestApiRuleResultDto result = new MultipartAndFormConsumesCompatibilityRule()
+                .evaluate(context(MultipartConsumesController.class, JaxRsFormConsumesResource.class));
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .hasSize(4)
+                .anyMatch(detail -> detail.contains("MultipartConsumesController#uploadPart"))
+                .anyMatch(detail -> detail.contains("MultipartConsumesController#uploadFile"))
+                .anyMatch(detail -> detail.contains("MultipartConsumesController#uploadFileMapWithApplicationStar"))
+                .anyMatch(detail -> detail.contains("JaxRsFormConsumesResource#submitForm"))
+                .noneMatch(detail -> detail.contains("#uploadMultipartAllowed")
+                        || detail.contains("#jsonOnlyEndpoint")
+                        || detail.contains("#submitFormUrlEncoded"));
+    }
+
+    // --- RAPI-PAGE-004 -------------------------------------------------------------------------------------------
+
+    @Test
+    void directSpringDataPageReturnIsReportedUnlessViaDtoIsConfigured() {
+        RestApiRuleResultDto withoutViaDto =
+                new AvoidDirectSpringDataPageSerializationRule().evaluate(context(DirectPageController.class));
+
+        assertThat(withoutViaDto.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(withoutViaDto.severity()).isEqualTo("LOW");
+        assertThat(withoutViaDto.sampleViolations())
+                .hasSize(1)
+                .singleElement()
+                .asString()
+                .contains("#listPage")
+                .doesNotContain("#listPagedModel", "#listSlice");
+
+        RestApiRuleResultDto withViaDto = new AvoidDirectSpringDataPageSerializationRule()
+                .evaluate(context(DirectPageController.class, ViaDtoWebConfig.class));
+        assertThat(withViaDto.status()).isEqualTo(RestApiRuleSupport.PASS);
+
+        RestApiContext withEnvViaDto = context(DirectPageController.class);
+        withEnvViaDto.evidence().springDataPageViaDtoConfigured(true);
+        assertThat(new AvoidDirectSpringDataPageSerializationRule()
+                        .evaluate(withEnvViaDto)
+                        .status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+    }
+
     private static RestApiContext context(Class<?>... types) {
         return context(SpringWebStack.UNKNOWN, types);
     }
@@ -732,4 +858,199 @@ class RestApiContractDefectRulesTests {
             return new Payload("ok");
         }
     }
+
+    record ComplexFilter(String id, String status) {}
+
+    @RestController
+    static class UnannotatedPathVarController {
+        @GetMapping("/orders/{id}")
+        Payload getOrder(Long id) {
+            return new Payload(String.valueOf(id));
+        }
+
+        @GetMapping("/orders/uuid/{orderId}")
+        Payload getByUuid(java.util.UUID orderId) {
+            return new Payload(orderId.toString());
+        }
+
+        @GetMapping("/orders/bound/{id}")
+        Payload boundOrder(@org.springframework.web.bind.annotation.PathVariable Long id) {
+            return new Payload(String.valueOf(id));
+        }
+
+        @GetMapping("/orders/query/{id}")
+        Payload explicitQuery(
+                @org.springframework.web.bind.annotation.PathVariable("id") Long pathId,
+                @org.springframework.web.bind.annotation.RequestParam Long id) {
+            return new Payload(pathId + ":" + id);
+        }
+
+        @GetMapping("/orders/model/{filter}")
+        Payload modelAttributeComplex(ComplexFilter filter) {
+            return new Payload(filter.id());
+        }
+
+        @GetMapping("/orders/zone/{zoneId}")
+        Payload zoneIdContext(java.time.ZoneId zoneId) {
+            return new Payload(zoneId.getId());
+        }
+
+        @GetMapping("/orders/clock/{clock}")
+        Payload clockContext(java.time.Clock clock) {
+            return new Payload(clock.toString());
+        }
+
+        @GetMapping("/orders/opt/{id}")
+        Payload getOptionalId(Optional<Long> id) {
+            return new Payload(id.map(String::valueOf).orElse(""));
+        }
+
+        @GetMapping("/orders/openapi/{id}")
+        Payload getOpenApiDocumentedId(@io.swagger.v3.oas.annotations.Parameter(description = "Order id") Long id) {
+            return new Payload(String.valueOf(id));
+        }
+    }
+
+    @RestController
+    @RequestMapping(path = "/orders", method = org.springframework.web.bind.annotation.RequestMethod.GET)
+    static class ConflictingClassMethodMappingController {
+        @GetMapping("/{id}")
+        Payload getOrder(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return new Payload(id);
+        }
+
+        @PostMapping
+        Payload createOrder(@RequestBody Payload payload) {
+            return payload;
+        }
+
+        @RequestMapping("/inherited")
+        Payload inheritedVerb() {
+            return new Payload("ok");
+        }
+    }
+
+    @RestController
+    @RequestMapping(path = "/orders-head", method = org.springframework.web.bind.annotation.RequestMethod.HEAD)
+    static class HeadClassMethodMappingController {
+        @GetMapping
+        Payload getCoversImplicitHead() {
+            return new Payload("ok");
+        }
+    }
+
+    record ConstrainedAddressDto(
+            @jakarta.validation.constraints.NotBlank String street) {}
+
+    record ConstrainedLineItemDto(
+            @jakarta.validation.constraints.NotNull String sku) {}
+
+    record UnconstrainedMetadataDto(String source) {}
+
+    record IntermediateCustomerDto(ConstrainedAddressDto address) {}
+
+    record CyclicNodeDto(String name, CyclicNodeDto parent) {}
+
+    record BrokenOrderRequest(
+            @jakarta.validation.constraints.NotBlank String customerId,
+            ConstrainedAddressDto shippingAddress,
+            List<ConstrainedLineItemDto> items,
+            Map<@jakarta.validation.Valid ConstrainedAddressDto, ConstrainedLineItemDto> keyOnlyMap,
+            IntermediateCustomerDto customer,
+            UnconstrainedMetadataDto metadata,
+            CyclicNodeDto cycle) {}
+
+    record ValidOrderRequest(
+            @jakarta.validation.constraints.NotBlank String customerId,
+            @jakarta.validation.Valid ConstrainedAddressDto shippingAddress,
+            List<@jakarta.validation.Valid ConstrainedLineItemDto> items,
+            Map<@jakarta.validation.Valid ConstrainedAddressDto, @jakarta.validation.Valid ConstrainedLineItemDto>
+                    bothValidMap,
+            UnconstrainedMetadataDto metadata,
+            CyclicNodeDto cycle) {}
+
+    @RestController
+    static class NestedValidationController {
+        @PostMapping("/orders/broken")
+        Payload createBroken(@jakarta.validation.Valid @RequestBody BrokenOrderRequest request) {
+            return new Payload(request.customerId());
+        }
+
+        @PostMapping("/orders/valid")
+        Payload createValid(@jakarta.validation.Valid @RequestBody ValidOrderRequest request) {
+            return new Payload(request.customerId());
+        }
+    }
+
+    @RestController
+    @RequestMapping(path = "/uploads", consumes = "application/json")
+    static class MultipartConsumesController {
+        @PostMapping("/part")
+        Payload uploadPart(@org.springframework.web.bind.annotation.RequestPart("file") byte[] file) {
+            return new Payload(String.valueOf(file.length));
+        }
+
+        @PostMapping("/file")
+        Payload uploadFile(org.springframework.web.multipart.MultipartFile file) {
+            return new Payload(file.getName());
+        }
+
+        @PostMapping(path = "/file-map", consumes = "application/*")
+        Payload uploadFileMapWithApplicationStar(
+                @org.springframework.web.bind.annotation.RequestParam
+                        Map<String, org.springframework.web.multipart.MultipartFile> files) {
+            return new Payload(String.valueOf(files.size()));
+        }
+
+        @PostMapping(path = "/multipart-ok", consumes = "multipart/form-data")
+        Payload uploadMultipartAllowed(@org.springframework.web.bind.annotation.RequestPart("file") byte[] file) {
+            return new Payload(String.valueOf(file.length));
+        }
+
+        @PostMapping("/json-only")
+        Payload jsonOnlyEndpoint(@RequestBody Payload payload) {
+            return payload;
+        }
+    }
+
+    @jakarta.ws.rs.Path("/forms")
+    @jakarta.ws.rs.Consumes("application/json")
+    static class JaxRsFormConsumesResource {
+        @jakarta.ws.rs.POST
+        @jakarta.ws.rs.Path("/broken")
+        public String submitForm(@jakarta.ws.rs.FormParam("name") String name) {
+            return name;
+        }
+
+        @jakarta.ws.rs.POST
+        @jakarta.ws.rs.Path("/valid")
+        @jakarta.ws.rs.Consumes("application/x-www-form-urlencoded")
+        public String submitFormUrlEncoded(@jakarta.ws.rs.FormParam("name") String name) {
+            return name;
+        }
+    }
+
+    @RestController
+    static class DirectPageController {
+        @GetMapping("/page")
+        org.springframework.data.domain.Page<Payload> listPage(org.springframework.data.domain.Pageable pageable) {
+            return org.springframework.data.domain.Page.empty(pageable);
+        }
+
+        @GetMapping("/paged-model")
+        org.springframework.data.web.PagedModel<Payload> listPagedModel(
+                org.springframework.data.domain.Pageable pageable) {
+            return null;
+        }
+
+        @GetMapping("/slice")
+        org.springframework.data.domain.Slice<Payload> listSlice(org.springframework.data.domain.Pageable pageable) {
+            return org.springframework.data.domain.Page.empty(pageable);
+        }
+    }
+
+    @org.springframework.data.web.config.EnableSpringDataWebSupport(
+            pageSerializationMode =
+                    org.springframework.data.web.config.EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
+    static class ViaDtoWebConfig {}
 }

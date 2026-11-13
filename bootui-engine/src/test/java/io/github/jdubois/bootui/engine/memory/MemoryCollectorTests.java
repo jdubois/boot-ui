@@ -52,7 +52,8 @@ class MemoryCollectorTests {
         assertThat(context.threads().populationComplete()).isFalse();
         assertThat(context.threads().detailsTruncated()).isTrue();
         assertThat(new HighBlockedThreadRatioRule().evaluate(context).status()).isEqualTo("SKIPPED");
-        assertThat(new RunawayCpuThreadRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(new PlatformThreadStackReservationRule().evaluate(context).status())
+                .isEqualTo("SKIPPED");
     }
 
     @Test

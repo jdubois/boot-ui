@@ -41,5 +41,8 @@ test.describe('Security Advisor view', () => {
 
     // The rule-results section renders once the scan completes.
     await expect(page.getByText('Rule results')).toBeVisible()
+    for (const retiredId of ['SEC-HEAD-010', 'SEC-SESSION-007', 'SEC-CONFIG-005', 'SEC-ACT-004']) {
+      await expect(page.locator('.list-group-item', {hasText: retiredId})).toHaveCount(0)
+    }
   })
 })

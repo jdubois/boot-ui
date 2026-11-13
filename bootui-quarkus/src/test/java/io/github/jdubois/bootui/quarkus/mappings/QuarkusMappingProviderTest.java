@@ -51,4 +51,20 @@ class QuarkusMappingProviderTest {
     void emptyInputYieldsEmptyList() {
         assertThat(QuarkusMappingProvider.toDtos(List.of())).isEmpty();
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void exposesConfiguredBasePathOnlyWhenMappingsAreSatisfied() {
+        jakarta.enterprise.inject.Instance<QuarkusMappings> unsatisfied =
+                org.mockito.Mockito.mock(jakarta.enterprise.inject.Instance.class);
+        org.mockito.Mockito.when(unsatisfied.isUnsatisfied()).thenReturn(true);
+        assertThat(new QuarkusMappingProvider(unsatisfied, () -> "/host/rest").basePath())
+                .isEmpty();
+
+        jakarta.enterprise.inject.Instance<QuarkusMappings> satisfied =
+                org.mockito.Mockito.mock(jakarta.enterprise.inject.Instance.class);
+        org.mockito.Mockito.when(satisfied.isUnsatisfied()).thenReturn(false);
+        assertThat(new QuarkusMappingProvider(satisfied, () -> "/host/rest").basePath())
+                .isEqualTo("/host/rest");
+    }
 }

@@ -871,8 +871,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Search request routes and handlers and return a bounded result.",
-      "description": "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler name as the query when locating an endpoint.",
+      "summary": "Search request routes and handlers and return a bounded result, including the application's effective `basePath` prefix when configured.",
+      "description": "Search request routes and handlers and return a bounded result, including the application's effective `basePath` prefix when configured. Use a path, HTTP concept, or handler name as the query when locating an endpoint.",
       "example": "bootui mappings --query /api"
     },
     {

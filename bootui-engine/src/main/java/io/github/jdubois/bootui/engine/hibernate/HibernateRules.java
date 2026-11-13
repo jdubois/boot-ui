@@ -95,6 +95,8 @@ final class HibernateRuleModelSupport {
     private static final Pattern DISTINCT_PREFIX = Pattern.compile("(?i)^distinct\\s+");
     private static final Pattern OBJECT_WRAPPER = Pattern.compile("(?i)^object\\(\\s*([A-Za-z_]\\w*)\\s*\\)$");
 
+    // Panache base-class names are compared by string so bootui-engine never imports io.quarkus.* directly
+    // (EngineBoundaryArchitectureTests bans it); presence is probed reflectively instead.
     private static final String PANACHE_ORM_ENTITY_BASE = "io.quarkus.hibernate.orm.panache.PanacheEntityBase";
     private static final String PANACHE_REACTIVE_ENTITY_BASE =
             "io.quarkus.hibernate.reactive.panache.PanacheEntityBase";
@@ -104,6 +106,7 @@ final class HibernateRuleModelSupport {
 
     private HibernateRuleModelSupport() {}
 
+    /** The declared {@code targetEntity} of a {@code @OneToOne}, falling back to the attribute's Java type. */
     static Class<?> oneToOneTargetType(HibernateAttributeModel attribute, Annotation oneToOne) {
         try {
             Object declared =
@@ -112,10 +115,15 @@ final class HibernateRuleModelSupport {
                 return type;
             }
         } catch (ReflectiveOperationException | RuntimeException ex) {
+            // Fall back to the declared attribute type.
         }
         return attribute.rawType();
     }
 
+    /**
+     * Whether the owning side of an inverse {@code @OneToOne(mappedBy=...)} shares its primary key with this entity,
+     * through {@code @MapsId} or {@code @PrimaryKeyJoinColumn}. Only a simple {@code mappedBy} name is resolved.
+     */
     static boolean owningSideSharesPrimaryKey(HibernateAttributeModel inverse, Annotation oneToOne, String mappedBy) {
         Class<?> owner = oneToOneTargetType(inverse, oneToOne);
         if (owner == null || mappedBy.contains(".")) {
@@ -127,6 +135,10 @@ final class HibernateRuleModelSupport {
                         || candidate.annotation("jakarta.persistence.PrimaryKeyJoinColumn") != null);
     }
 
+    /**
+     * The concrete entity each attribute was read from, by identity: an attribute inherited from a mapped
+     * superclass is a separate object per entity, and its finding is keyed on that entity.
+     */
     static Map<HibernateAttributeModel, HibernateEntityModel> attributeOwners(List<HibernateEntityModel> entities) {
         Map<HibernateAttributeModel, HibernateEntityModel> owners = new java.util.IdentityHashMap<>();
         for (HibernateEntityModel entity : entities) {
@@ -135,15 +147,28 @@ final class HibernateRuleModelSupport {
         return owners;
     }
 
+    /**
+     * True when a Quarkus Panache extension (ORM or Reactive) is present on the classpath. Panache rewrites public
+     * field access application-wide on every JPA-managed class, not only on classes that extend
+     * {@code PanacheEntityBase}/{@code PanacheEntity} (see {@code PanacheHibernateCommonResourceProcessor} and
+     * {@code MetamodelInfo} in the Quarkus Panache deployment sources), so once either extension is present, a
+     * public persistent field is safe from bypassing Hibernate's instrumentation and no longer a real risk.
+     */
     static boolean isPanacheFieldAccessRewriteActive() {
         return isClassPresent(PANACHE_ORM_ENTITY_BASE) || isClassPresent(PANACHE_REACTIVE_ENTITY_BASE);
     }
 
+    /**
+     * True when the attribute is the {@code id} field declared by Panache's own {@code PanacheEntity} (ORM or
+     * Reactive) base class ({@code @Id @GeneratedValue public Long id;}), which the application inherits as-is and
+     * cannot annotate or edit.
+     */
     static boolean isFrameworkDeclaredPanacheIdentifier(HibernateAttributeModel attribute) {
         return PANACHE_ORM_ENTITY.equals(attribute.entityName())
                 || PANACHE_REACTIVE_ENTITY.equals(attribute.entityName());
     }
 
+    /** True when Spring Data Commons' {@code Persistable} marker interface is present on the classpath. */
     static boolean isSpringDataPersistableAvailable() {
         return isClassPresent(SPRING_DATA_PERSISTABLE);
     }
@@ -201,6 +226,11 @@ final class HibernateRuleModelSupport {
         return remainder.indexOf('.') == -1 ? remainder : null;
     }
 
+    /**
+     * Returns one detail per Spring Data repository method that pages (Pageable parameter) a JPQL query whose
+     * {@code JOIN FETCH} targets a collection association declared directly on the query root, as HIB-FETCH-003
+     * findings.
+     */
     static AdvisorFindings paginatedCollectionFetchFindings(HibernateContext context) {
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -247,6 +277,11 @@ final class HibernateRuleModelSupport {
         return names;
     }
 
+    /**
+     * Returns true when the JPQL query hydrates the whole root entity (e.g. {@code select o from Entity o},
+     * {@code select distinct o ...}, {@code select object(o) ...}, or an implicit {@code from Entity o}) rather than a
+     * constructor expression, scalar value, aggregate, or multi-select projection.
+     */
     static boolean selectsWholeRootEntity(String query) {
         query = HibernateQueryShape.lexical(query);
         if (query == null || query.isBlank()) {
@@ -880,6 +915,11 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
         return violation(context, HibernateRuleSupport.LOW, plainDetails);
     }
 
+    /**
+     * A shared primary key is impossible when the association targets the owning entity or another entity of its
+     * inheritance hierarchy: both rows live in one identifier space. Two entities that merely share a
+     * {@code @MappedSuperclass} are independent hierarchies and stay reportable.
+     */
     private boolean targetsOwnHierarchy(
             HibernateEntityModel entity, HibernateAttributeModel attribute, Annotation oneToOne) {
         Class<?> ownerRoot = entityRoot(entity.javaType());
@@ -887,6 +927,10 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
         return ownerRoot != null && ownerRoot == targetRoot;
     }
 
+    /**
+     * The topmost {@code @Entity} class in the superclass chain. An entity declared only in {@code orm.xml} carries no
+     * annotation, so the type itself stands for its own hierarchy.
+     */
     private Class<?> entityRoot(Class<?> type) {
         Class<?> root = type;
         boolean annotated = false;
@@ -1344,31 +1388,11 @@ final class SlowQueryLogRule extends AbstractHibernateRule {
     }
 }
 
-final class HibernateStatisticsRule extends AbstractHibernateRule {
-
-    HibernateStatisticsRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-CONFIG-007",
-                "Hibernate statistics should be enabled when tuning",
-                HibernateCategory.CONFIGURATION,
-                "INFO",
-                "Detects hibernate.generate_statistics not being enabled for the current environment.",
-                "Enable statistics in development or performance-test profiles when investigating query"
-                        + " counts, cache efficiency, and fetch plans.",
-                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#statistics"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.isPropertyTrue(
-                "spring.jpa.properties.hibernate.generate_statistics", "hibernate.generate_statistics")) {
-            return pass();
-        }
-        return settingViolation(
-                context, "hibernate.generate_statistics", "hibernate.generate_statistics is not enabled.");
-    }
-}
-
+/**
+ * What an observed, resource-local persistence unit says about auto-commit: Hibernate's effective belief that its
+ * connection provider disables it, and the auto-commit default of the pool the unit was attributed to. Anything
+ * that cannot be proven yields a controlled skip reason instead of values, so an unknown never becomes a pass.
+ */
 record PoolAutoCommitEvidence(
         String skipReason, boolean providerDisablesAutoCommit, HibernatePoolObservation pool, boolean poolAutoCommit) {
 
@@ -1635,61 +1659,6 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
     }
 }
 
-final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
-
-    CacheableWithoutCacheStrategyRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-CONFIG-011",
-                "Review effective cache concurrency strategy",
-                HibernateCategory.CONFIGURATION,
-                "MEDIUM",
-                "Provider defaults can supply a valid access strategy without @Cache. This check skips when"
-                        + " effective eligibility/access strategy is unavailable and never requires an annotation"
-                        + " solely for explicitness.",
-                "Review provider-selected entity eligibility, access strategy and data mutability before"
-                        + " adding annotations or changing cache use.",
-                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.entities().stream()
-                .noneMatch(entity -> entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation())) return pass();
-        if (context.observed()) {
-            if (!context.required(context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
-                return skipped("Unit cache is disabled.");
-            context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY_BY_DESIGN);
-            return skipped(
-                    "Provider-selected access strategy and entity eligibility are not observed; explicit @Cache is not"
-                            + " required.");
-        }
-        String regionFactory = context.firstProperty(
-                "spring.jpa.properties.hibernate.cache.region.factory_class", "hibernate.cache.region.factory_class");
-        if (regionFactory == null
-                && !context.isPropertyTrue(
-                        "spring.jpa.properties.hibernate.cache.use_second_level_cache",
-                        "hibernate.cache.use_second_level_cache")) {
-            return skipped("Second-level caching is not configured.");
-        }
-        if (hasDefaultCacheStrategy(context)) return pass();
-        context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY);
-        return skipped("Provider-selected cache strategy is unknown.");
-    }
-
-    private boolean hasDefaultCacheStrategy(HibernateContext context) {
-        String value = context.firstProperty(
-                "spring.jpa.properties.hibernate.cache.default_cache_concurrency_strategy",
-                "hibernate.cache.default_cache_concurrency_strategy");
-        if (value == null) {
-            return false;
-        }
-        return switch (value.trim().toUpperCase(Locale.ROOT).replace('-', '_')) {
-            case "READ_ONLY", "NONSTRICT_READ_WRITE", "READ_WRITE", "TRANSACTIONAL" -> true;
-            default -> false;
-        };
-    }
-}
-
 final class RiskyDdlAutoRule extends AbstractHibernateRule {
 
     RiskyDdlAutoRule() {
@@ -1727,6 +1696,7 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
         String[] profiles = context.activeProfiles().toArray(new String[0]);
         boolean creates = action == HibernateFactorySettings.SchemaAction.DROP
                 || action == HibernateFactorySettings.SchemaAction.DROP_AND_CREATE;
+        // Highest-risk profile wins: a production-like profile is dangerous even if a test/dev profile is also active.
         if (context.isProductionProfileActive()) {
             String severity = creates ? HibernateRuleSupport.CRITICAL : HibernateRuleSupport.HIGH;
             return settingViolation(
@@ -1842,6 +1812,7 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.isLob() && !isLocator(candidate))) {
+                // On PostgreSQL, HIB-MAP-024 recommends removing @Lob from the same attribute instead.
                 if (postgresql && PostgresLobRule.reports(attribute)) continue;
                 if (attribute.isLob()
                         && !isLocator(attribute)
@@ -1858,6 +1829,7 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
         return violation(context, details);
     }
 
+    /** JDBC LOB locators are not materialized when the owning row is hydrated, so lazy loading adds little. */
     private static boolean isLocator(HibernateAttributeModel attribute) {
         Class<?> type = attribute.rawType();
         return type != null
@@ -2012,9 +1984,14 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                 if (generated == null) {
                     continue;
                 }
+                // Panache's own PanacheEntity declares "@Id @GeneratedValue public Long id" with no explicit
+                // strategy; the application inherits it as-is and cannot annotate it, so it is not a real finding.
                 if (HibernateRuleModelSupport.isFrameworkDeclaredPanacheIdentifier(attribute)) {
                     continue;
                 }
+                // AUTO on a UUID-typed identifier resolves to Hibernate's UuidGenerator, not a sequence; that
+                // case - and its own remediation - belongs exclusively to HIB-ID-005, so double-reporting the
+                // same attribute here (with a rationale that is factually wrong for UUID ids) is avoided.
                 if (attribute.isUuidType()) {
                     continue;
                 }
@@ -2366,6 +2343,9 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(), candidate -> candidate.fieldMember() && !candidate.isTransient())) {
+                // fieldMember (not the "()"-suffixed name heuristic) is what actually distinguishes field
+                // access from property (getter) access; property-access entities resolve their attributes
+                // from a public getter Method, which is fully JPA/Hibernate-instrumented and not a finding.
                 if (attribute.publicMember()
                         && attribute.fieldMember()
                         && !attribute.isTransient()
@@ -2380,12 +2360,25 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
         return violation(context, details);
     }
 
+    /**
+     * Whether this attribute is the backing field of a Kotlin property, which the compiler must leave
+     * public even though the author declared no public field.
+     *
+     * <p>A {@code lateinit var} is reached through its generated accessors from every language that
+     * consumes it, so Hibernate's instrumentation is intact and there is nothing here to encapsulate.
+     * A field the author did expose, written {@code @JvmField var}, has no accessors and stays reported.
+     */
     private static boolean isKotlinPropertyBackingField(
             HibernateEntityModel entity, HibernateAttributeModel attribute) {
         String memberName = attribute.javaMemberName() != null ? attribute.javaMemberName() : attribute.name();
         return KotlinReflection.isAccessorBackedProperty(declaringClass(entity, attribute), memberName);
     }
 
+    /**
+     * The class that declares this attribute, found by walking the entity hierarchy or loading the declaring
+     * embeddable class from the entity's class loader. Null when the model carries no Java type, as hand-built
+     * models in tests do.
+     */
     private static Class<?> declaringClass(HibernateEntityModel entity, HibernateAttributeModel attribute) {
         if (entity.javaType() == null) {
             return null;
@@ -2724,6 +2717,10 @@ final class JdbcTimeZoneRule extends AbstractHibernateRule {
         return pass();
     }
 
+    /**
+     * Types whose default JDBC binding uses the JVM zone unless hibernate.jdbc.time_zone supplies a Calendar.
+     * Instant binds as UTC, and LocalDate and zoned or offset date-times do not use that Calendar.
+     */
     private static boolean isZoneSensitive(Class<?> type) {
         if (type == null) return false;
         if (type == java.time.LocalDateTime.class
@@ -3172,6 +3169,7 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                 if (mappedBy != null
                         && !mappedBy.isBlank()
                         && "LAZY".equals(attribute.annotationValueName(oneToOne, "fetch"))) {
+                    // A mandatory inverse side whose owner shares the primary key can be proxied without enhancement.
                     if (Boolean.FALSE.equals(attribute.annotationBooleanValue(oneToOne, "optional"))
                             && HibernateRuleModelSupport.owningSideSharesPrimaryKey(attribute, oneToOne, mappedBy)) {
                         continue;
@@ -3206,6 +3204,8 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                         "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-identifier"));
     }
 
+    // Optional Jakarta Persistence type: compare by class name instead of hard-referencing a class that may be
+    // absent at runtime.
     @SuppressWarnings("java:S1872")
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
@@ -3257,6 +3257,9 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        // The concern is specific to Spring Data JPA's generic save(): it inspects the id/version to guess whether
+        // an entity is new. Quarkus/Panache calls entityManager.persist() directly and has no such ambiguity, so
+        // without Spring Data Commons on the classpath there is nothing to recommend implementing Persistable for.
         if (!HibernateRuleModelSupport.isSpringDataPersistableAvailable()
                 || context.repositories().isEmpty()) {
             return skipped("No Spring Data repository metadata was detected; this check only applies to Spring Data JPA"
@@ -3399,57 +3402,6 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
     }
 }
 
-final class EntityProjectionQueryRule extends AbstractHibernateRule {
-
-    EntityProjectionQueryRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-QUERY-006",
-                "Paged or streamed reads should prefer DTO projections over whole entities",
-                HibernateCategory.QUERY,
-                "INFO",
-                "Detects paged or streamed Spring Data JPQL @Query methods (Pageable parameter, or Page/Slice/Stream"
-                        + " return) that select whole entities instead of a constructor expression or interface/DTO"
-                        + " projection.",
-                "Consider an explicit DTO or closed projection when only part of an entity is needed, and verify the"
-                        + " selected columns. Whole-entity reads remain valid when the use case needs managed state; not"
-                        + " every projection avoids entity loading.",
-                "https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.repositories().isEmpty()) {
-            return skipped("No repository metadata was detected.");
-        }
-        AdvisorFindings details = new AdvisorFindings();
-        for (HibernateRepositoryModel repository : context.repositories()) {
-            for (HibernateRepositoryMethodModel method : repository.methods()) {
-                if (method.nativeQuery() || !method.hasQuery()) {
-                    continue;
-                }
-                boolean pagedOrStreamed = method.hasPageableParameter()
-                        || method.returnsPage()
-                        || method.returnsSlice()
-                        || method.returnsStream();
-                if (!pagedOrStreamed) {
-                    continue;
-                }
-                context.evidence().markApplicable(true);
-                if (HibernateRuleModelSupport.selectsWholeRootEntity(method.query())
-                        && HibernateQueryShape.entityRoot(context, method) != null) {
-                    details.add(
-                            method.description()
-                                    + " returns whole entities from a paged/streamed @Query; consider a DTO/interface"
-                                    + " projection.",
-                            HibernateLocations.of(method),
-                            HibernateIdentities.of(context, repository, method));
-                }
-            }
-        }
-        return violation(context, details);
-    }
-}
-
 final class MissingVersionRule extends AbstractHibernateRule {
 
     MissingVersionRule() {
@@ -3561,6 +3513,7 @@ final class NaturalIdCandidateRule extends AbstractHibernateRule {
         return violation(context, details);
     }
 
+    // Optional JPA type: compare by class name instead of hard-referencing a class that may be absent at runtime.
     @SuppressWarnings("java:S1872")
     private Set<String> tableUniqueConstraintColumns(Class<?> javaType) {
         Set<String> columns = new LinkedHashSet<>();
@@ -3712,6 +3665,8 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
             problems.add("no hashCode() override");
         }
         if (!problems.isEmpty()) {
+            // Simple name only: the entity description already gives full package context, and this keeps
+            // the (truncation-bounded) detail message well within HibernateRuleSupport.detail()'s budget.
             details.add(
                     description + ": id class " + idClass.getSimpleName() + " is " + String.join(", ", problems) + ".",
                     null,
@@ -4100,6 +4055,7 @@ final class PostgresLobRule extends AbstractHibernateRule {
         return violation(context, details);
     }
 
+    /** Whether HIB-MAP-024 can report this attribute in a PostgreSQL unit, so other LOB advice defers to it. */
     static boolean reports(HibernateAttributeModel attribute) {
         return isMaterializedLob(attribute) && Boolean.TRUE.equals(bindsAsLob(attribute));
     }
@@ -4114,6 +4070,7 @@ final class PostgresLobRule extends AbstractHibernateRule {
                         || type == Byte[].class);
     }
 
+    /** True for default LOB binding, false for an explicit non-LOB JDBC type code, null for unresolved overrides. */
     private static Boolean bindsAsLob(HibernateAttributeModel attribute) {
         Annotation typeCode = attribute.annotation("org.hibernate.annotations.JdbcTypeCode");
         if (typeCode != null) {

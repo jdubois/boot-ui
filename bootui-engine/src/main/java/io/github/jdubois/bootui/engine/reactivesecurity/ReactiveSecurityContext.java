@@ -36,8 +36,19 @@ record ReactiveSecurityContext(
         return evaluation.required(known);
     }
 
-    private static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS =
-            List.of("env", "beans", "configprops", "heapdump", "threaddump", "shutdown", "loggers", "mappings");
+    private static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS = List.of(
+            "env",
+            "beans",
+            "configprops",
+            "heapdump",
+            "threaddump",
+            "shutdown",
+            "loggers",
+            "mappings",
+            "httpexchanges",
+            "startup",
+            "logfile",
+            "sessions");
 
     ReactiveSecurityContext {
         chains = List.copyOf(chains);

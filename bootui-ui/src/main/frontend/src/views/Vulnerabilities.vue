@@ -663,8 +663,11 @@ onMounted(loadDependencies)
                           {{ vulnerability.id }}
                         </a>
                         <span v-else class="fw-semibold">{{ vulnerability.id }}</span>
+                        <span v-if="vulnerability.id?.startsWith('MAL-')" class="badge text-bg-danger">
+                          Malicious package — remove dependency; do not upgrade
+                        </span>
                         <span
-                          v-if="vulnerability.fixedVersions.length && vulnerability.fixAvailable"
+                          v-else-if="vulnerability.fixedVersions.length && vulnerability.fixAvailable"
                           class="small text-muted"
                         >
                           fixed in {{ vulnerability.fixedVersions.join(', ') }}
