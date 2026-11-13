@@ -167,6 +167,7 @@ public final class JfrProfiler {
             JfrSegments.activate(false);
             closeQuietly();
             deleteQuietly(destination);
+            virtualThreadPinningSupported = false;
             state = State.FAILED;
             reason = "JDK Flight Recorder could not start: " + ex.getMessage();
             log.log(Level.FINE, "BootUI could not start a Profile resources session", ex);
@@ -258,11 +259,6 @@ public final class JfrProfiler {
         return Jfr.analyze(recording, framework);
     }
 
-    /** Whether {@code name} is among {@code types}; package-private for capability tests. */
-    static boolean hasEventType(Iterable<jdk.jfr.EventType> types, String name) {
-        return Jfr.hasEventType(types, name);
-    }
-
     /** Where a session stands. */
     public enum State {
         /** No session ran since the application started. */
@@ -350,7 +346,7 @@ public final class JfrProfiler {
     }
 
     /** The only class that names {@code jdk.jfr}, loaded on the first use. */
-    private static final class Jfr {
+    static final class Jfr {
 
         private static final Method IS_VIRTUAL = isVirtual();
 
@@ -645,8 +641,8 @@ public final class JfrProfiler {
                 high = middle - 1;
             }
         }
-        for (int i = found; i >= 0; i--) {
-            Segment segment = segments.get(i);
+        if (found >= 0) {
+            Segment segment = segments.get(found);
             if (end >= segment.start() && eventStart <= segment.end()) {
                 return segment.requestId();
             }

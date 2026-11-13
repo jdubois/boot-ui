@@ -214,19 +214,42 @@ public final class ResourceProfileService {
         requests.forEach((requestId, samples) -> byRoute.computeIfAbsent(
                         routeOf.getOrDefault(requestId, NOT_RETAINED), Route::new)
                 .add(samples));
-        List<RuntimeResourceProfileRouteDto> sorted = byRoute.values().stream()
-                .sorted(Comparator.comparingLong((Route route) -> route.cpuSamples)
-                        .reversed()
-                        .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedDurationMicros)
-                                .reversed())
-                        .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedEvents)
-                                .reversed())
-                        .thenComparing(Comparator.comparingLong((Route route) -> route.allocatedBytes)
-                                .reversed())
-                        .thenComparing(route -> route.name))
-                .map(Route::dto)
-                .toList();
-        mappedRoutes = sorted.subList(0, Math.min(sorted.size(), RuntimeResourceProfileDto.MAX_ROUTES));
+        Comparator<Route> byCpuThenPinning = Comparator.comparingLong((Route route) -> route.cpuSamples)
+                .reversed()
+                .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedDurationMicros)
+                        .reversed())
+                .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedEvents)
+                        .reversed())
+                .thenComparing(Comparator.comparingLong((Route route) -> route.allocatedBytes)
+                        .reversed())
+                .thenComparing(route -> route.name);
+        List<Route> sorted = byRoute.values().stream().sorted(byCpuThenPinning).toList();
+        List<Route> selected;
+        if (sorted.size() <= RuntimeResourceProfileDto.MAX_ROUTES) {
+            selected = sorted;
+        } else {
+            selected = new ArrayList<>(sorted.subList(0, RuntimeResourceProfileDto.MAX_ROUTES));
+            List<Route> overflowPinned = sorted.subList(RuntimeResourceProfileDto.MAX_ROUTES, sorted.size()).stream()
+                    .filter(route -> route.pinnedEvents > 0)
+                    .sorted(Comparator.comparingLong((Route route) -> route.pinnedDurationMicros)
+                            .reversed()
+                            .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedEvents)
+                                    .reversed())
+                            .thenComparing(byCpuThenPinning))
+                    .toList();
+            int replaceIdx = selected.size() - 1;
+            for (Route pinnedRoute : overflowPinned) {
+                while (replaceIdx >= 0 && selected.get(replaceIdx).pinnedEvents > 0) {
+                    replaceIdx--;
+                }
+                if (replaceIdx < 0) {
+                    break;
+                }
+                selected.set(replaceIdx--, pinnedRoute);
+            }
+            selected.sort(byCpuThenPinning);
+        }
+        mappedRoutes = selected.stream().map(Route::dto).toList();
         mappedOmitted = sorted.size() - mappedRoutes.size();
     }
 

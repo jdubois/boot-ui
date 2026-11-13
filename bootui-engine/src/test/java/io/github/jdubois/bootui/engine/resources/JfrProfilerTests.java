@@ -218,12 +218,12 @@ class JfrProfilerTests {
         assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
         List<jdk.jfr.EventType> registered =
                 jdk.jfr.FlightRecorder.getFlightRecorder().getEventTypes();
-        assertThat(JfrProfiler.hasEventType(registered, JfrProfiler.EXECUTION_SAMPLER))
+        assertThat(JfrProfiler.Jfr.hasEventType(registered, JfrProfiler.EXECUTION_SAMPLER))
                 .isTrue();
         List<jdk.jfr.EventType> withoutPinning = registered.stream()
                 .filter(type -> !JfrProfiler.VIRTUAL_THREAD_PINNED_EVENT.equals(type.getName()))
                 .toList();
-        assertThat(JfrProfiler.hasEventType(withoutPinning, JfrProfiler.VIRTUAL_THREAD_PINNED_EVENT))
+        assertThat(JfrProfiler.Jfr.hasEventType(withoutPinning, JfrProfiler.VIRTUAL_THREAD_PINNED_EVENT))
                 .isFalse();
     }
 
