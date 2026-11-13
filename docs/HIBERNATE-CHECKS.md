@@ -65,18 +65,17 @@ exception messages. A failed evaluation is counted as failed, not also as unavai
 excludes both. The array holds at most 200 entries: when more are produced, the last entry has source `diagnostics`
 and states how many were omitted, every rule and every distinct discovery reason keeps at least one entry (an `ERROR`
 when it has one), remaining slots go to further `ERROR`s and then round-robin by rule, and `scan.message` states
-"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and
-HIB-CONFIG-021 gaps for a unit whose connection pool cannot be attributed are reported at `INFO` level because they are advisor limits; they still make the scan `PARTIAL` (see
-below). A rule that
-reports findings but could not evaluate every unit or query carries a `coverageNote` on its `results` entry (for
-example `Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed.
-Platform inapplicability is distinct from a failed applicable check, and
+"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and HIB-CONFIG-021 gaps for a unit
+whose connection pool cannot be attributed are reported at `INFO` level because they are advisor limits; they still make
+the scan `PARTIAL` (see below). A rule that reports findings but could not evaluate every unit or query carries a
+`coverageNote` on its `results` entry (for example `Incomplete in [default]: …`) naming up to ten affected units and
+why, including units where the rule failed. Platform inapplicability is distinct from a failed applicable check, and
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
-The pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021) is only partly observable: it is read
-only when a persistence unit can be attributed to a HikariCP or Agroal pool. Where it applies, it and unsupported query-plan evidence can make an ordinary scan `PARTIAL` even
-when entity discovery succeeded. That is coverage disclosure, not a claim that the application is
-broken.
+The pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021) is only partly observable: it is read only when a
+persistence unit can be attributed to a HikariCP or Agroal pool. Where it applies, it and unsupported query-plan
+evidence can make an ordinary scan `PARTIAL` even when entity discovery succeeded. That is coverage disclosure, not a
+claim that the application is broken.
 
 The declaration-based mapping checks are not a complete runtime mapping interpreter. XML overrides, auto-apply
 converters, custom generators, physical naming, runtime query changes, and some collection classifications cannot be
