@@ -342,13 +342,17 @@ final class QuarkusAppMetadataCollector {
             return resources; // Quarkus REST produces neither build item when there are no resources.
         }
         if (entries.isEmpty() || endpoints.isEmpty()) {
-            state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.UNRESOLVED);
+            state.problem(
+                    List.of("QA-CDI-002", "QA-PERF-002", "QA-PERF-003", "QA-PERF-004"),
+                    QuarkusAppMetadataStore.UNRESOLVED);
             return resources;
         }
         if (entries.get().getEntries().size() > MAX_MEMBERS
                 || endpoints.get().getResourceClasses().size() > MAX_CLASSES
                 || endpoints.get().getSubResourceClasses().size() > MAX_CLASSES) {
-            state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+            state.problem(
+                    List.of("QA-CDI-002", "QA-PERF-002", "QA-PERF-003", "QA-PERF-004"),
+                    QuarkusAppMetadataStore.INCOMPLETE);
             return resources;
         }
         Set<String> rootClasses = new HashSet<>();
@@ -378,7 +382,9 @@ final class QuarkusAppMetadataCollector {
             try {
                 state.members.take();
             } catch (LimitReached exception) {
-                state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+                state.problem(
+                        List.of("QA-CDI-002", "QA-PERF-002", "QA-PERF-003", "QA-PERF-004"),
+                        QuarkusAppMetadataStore.INCOMPLETE);
                 break;
             }
             if (entry.getActualClassInfo() == null || entry.getResourceMethod().getHttpMethod() == null) {
@@ -456,15 +462,14 @@ final class QuarkusAppMetadataCollector {
                             continue;
                         }
                         boolean nonRestEntry = isNonRestVirtualThreadEntryMethod(method, classVirtualThread);
-                        boolean directVirtualThread = method.hasDeclaredAnnotation(RUN_ON_VIRTUAL_THREAD);
-                        if ((nonRestEntry || directVirtualThread) && isReactiveReturnType(method.returnType())) {
-                            addBoundedMethod(state.reactiveVirtualMethods, methodId(owner, method));
-                        }
                         if (!nonRestEntry) {
                             continue;
                         }
                         String methodId = methodId(owner, method);
                         addBoundedMethod(state.allVirtualMethods, methodId);
+                        if (isReactiveReturnType(method.returnType())) {
+                            addBoundedMethod(state.reactiveVirtualMethods, methodId);
+                        }
                         if (!Modifier.isSynchronized(method.flags())) {
                             continue;
                         }

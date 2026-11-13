@@ -237,7 +237,7 @@ A nonblank application configuration declaration uses a deprecated Quarkus 3.x p
 `SPRING-CONFIG-003`), including:
 
 - `quarkus.vertx.worker-pool-size` (migrate to `quarkus.thread-pool.max-threads`)
-- `quarkus.hibernate-orm.[<unit>.]{batch-fetch-size,max-fetch-depth,validation.enabled,database.globally-quoted-identifiers,log.bind-param}` and `quarkus.hibernate-orm.blocking` (migrate to `fetch.batch-size`, `fetch.max-depth`, `validation.mode`, `quote-identifiers.strategy`, and `log.bind-parameters`)
+- `quarkus.hibernate-orm.[<unit>.]{batch-fetch-size,max-fetch-depth,validation.enabled,database.globally-quoted-identifiers,log.bind-param}` (migrate to `fetch.batch-size`, `fetch.max-depth`, `validation.mode`, `quote-identifiers.strategy`, and `log.bind-parameters`)
 - `quarkus.log.{console,file,syslog,socket}.{enable,async,async.enable}` and `quarkus.log.handler.{console,file,syslog,socket}."<name>".{enable,async,async.enable}` (migrate to `.enabled` and `.async.enabled`)
 - `quarkus.smallrye-health.ui.enable`, `quarkus.smallrye-openapi.enable`, and `quarkus.swagger-ui.enable` (migrate to `.enabled`)
 - `quarkus.oidc.[<tenant>.]proxy.{host,port,username,password}` and `quarkus.rest-client.[<client>.]{proxy-address,proxy-user,proxy-password,proxy-connect-timeout,non-proxy-hosts}` (migrate to named `quarkus.proxy.*` configurations)

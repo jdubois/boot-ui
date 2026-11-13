@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot.Setting;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshotProvider;
 import io.quarkus.runtime.configuration.MemorySize;
+import io.quarkus.runtime.configuration.MemorySizeConverter;
 import io.smallrye.config.Expressions;
 import io.smallrye.config.NameIterator;
 import io.smallrye.config.PropertiesConfigSource;
@@ -687,7 +688,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     }
                 }
                 String poolingKey = datasource + "jdbc.pooling-enabled";
-                if (declarationOnly ? hasProductionDeclaration(poolingKey) : isExplicitlyConfigured(poolingKey)) {
+                if (declarationOnly ? hasExplicitProdProfileKey(poolingKey) : isExplicitlyConfigured(poolingKey)) {
                     String poolingRaw = raw(source, poolingKey, declarationOnly);
                     if (poolingRaw != null) {
                         String classified = classifyBoolean(
@@ -702,7 +703,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     }
                 }
                 String bgKey = datasource + "jdbc.background-validation-interval";
-                if (declarationOnly ? hasProductionDeclaration(bgKey) : isExplicitlyConfigured(bgKey)) {
+                if (declarationOnly ? hasExplicitProdProfileKey(bgKey) : isExplicitlyConfigured(bgKey)) {
                     String bgRaw = raw(source, bgKey, declarationOnly);
                     if (bgRaw != null) {
                         Duration bg = parseDuration(
@@ -760,7 +761,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 if (isExplicitlyEmpty(bodySizeKey, declarationOnly)) {
                     add("QA-WEB-005", bodySizeKey, "unlimited-body-size", provenance);
                 } else if (declarationOnly
-                        ? hasProductionDeclaration(bodySizeKey)
+                        ? hasExplicitProdProfileKey(bodySizeKey)
                         : isExplicitlyConfigured(bodySizeKey)) {
                     String rawVal = raw(source, bodySizeKey, declarationOnly);
                     if (rawVal != null) {
@@ -770,7 +771,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                             add(
                                     "QA-WEB-005",
                                     bodySizeKey,
-                                    size.isNegative() ? "unlimited-body-size" : "bounded",
+                                    size.asLongValue() < 0L ? "unlimited-body-size" : "bounded",
                                     provenance);
                         }
                     }
@@ -778,7 +779,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             });
             String formBytesKey = "quarkus.http.limits.max-form-buffered-bytes";
             inspect(Set.of("QA-WEB-005"), () -> {
-                if (declarationOnly ? hasProductionDeclaration(formBytesKey) : isExplicitlyConfigured(formBytesKey)) {
+                if (declarationOnly ? hasExplicitProdProfileKey(formBytesKey) : isExplicitlyConfigured(formBytesKey)) {
                     String rawVal = raw(source, formBytesKey, declarationOnly);
                     if (rawVal != null) {
                         if (rawVal.trim().equals("-1")) {
@@ -790,7 +791,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                                 add(
                                         "QA-WEB-005",
                                         formBytesKey,
-                                        size.isNegative() ? "unlimited-form-buffered-bytes" : "bounded",
+                                        size.asLongValue() < 0L ? "unlimited-form-buffered-bytes" : "bounded",
                                         provenance);
                             }
                         }
@@ -799,7 +800,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             });
             String formFieldsKey = "quarkus.http.limits.max-form-fields";
             inspect(Set.of("QA-WEB-005"), () -> {
-                if (declarationOnly ? hasProductionDeclaration(formFieldsKey) : isExplicitlyConfigured(formFieldsKey)) {
+                if (declarationOnly
+                        ? hasExplicitProdProfileKey(formFieldsKey)
+                        : isExplicitlyConfigured(formFieldsKey)) {
                     String rawVal = raw(source, formFieldsKey, declarationOnly);
                     if (rawVal != null) {
                         Integer fields =
@@ -817,7 +820,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             String deleteUploadsKey = "quarkus.http.body.delete-uploaded-files-on-end";
             inspect(Set.of("QA-WEB-005"), () -> {
                 if (declarationOnly
-                        ? hasProductionDeclaration(deleteUploadsKey)
+                        ? hasExplicitProdProfileKey(deleteUploadsKey)
                         : isExplicitlyConfigured(deleteUploadsKey)) {
                     String rawVal = raw(source, deleteUploadsKey, declarationOnly);
                     if (rawVal != null) {
@@ -858,8 +861,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             String coreKey = "quarkus.thread-pool.core-threads";
             String maxKey = "quarkus.thread-pool.max-threads";
             inspect(Set.of("QA-PERF-005"), () -> {
-                boolean hasCore = declarationOnly ? hasProductionDeclaration(coreKey) : isExplicitlyConfigured(coreKey);
-                boolean hasMax = declarationOnly ? hasProductionDeclaration(maxKey) : isExplicitlyConfigured(maxKey);
+                boolean hasCore =
+                        declarationOnly ? hasExplicitProdProfileKey(coreKey) : isExplicitlyConfigured(coreKey);
+                boolean hasMax = declarationOnly ? hasExplicitProdProfileKey(maxKey) : isExplicitlyConfigured(maxKey);
                 if (!hasCore && !hasMax) {
                     return;
                 }
@@ -892,16 +896,18 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                         add("QA-PERF-005", maxKey, "valid", provenance);
                     }
                 } else if (core != null) {
-                    add("QA-PERF-005", coreKey, "valid", provenance);
+                    int defaultMax = Math.max(8 * Runtime.getRuntime().availableProcessors(), 200);
+                    add("QA-PERF-005", coreKey, core > defaultMax ? "core-exceeds-max" : "valid", provenance);
                 }
             });
             String interruptKey = "quarkus.thread-pool.shutdown-interrupt";
             String timeoutKey = "quarkus.thread-pool.shutdown-timeout";
             inspect(Set.of("QA-PERF-005"), () -> {
-                boolean hasInterrupt =
-                        declarationOnly ? hasProductionDeclaration(interruptKey) : isExplicitlyConfigured(interruptKey);
+                boolean hasInterrupt = declarationOnly
+                        ? hasExplicitProdProfileKey(interruptKey)
+                        : isExplicitlyConfigured(interruptKey);
                 boolean hasTimeout =
-                        declarationOnly ? hasProductionDeclaration(timeoutKey) : isExplicitlyConfigured(timeoutKey);
+                        declarationOnly ? hasExplicitProdProfileKey(timeoutKey) : isExplicitlyConfigured(timeoutKey);
                 if (!hasInterrupt && !hasTimeout) {
                     return;
                 }
@@ -959,27 +965,40 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             return false;
         }
 
+        private boolean hasExplicitProdProfileKey(String key) {
+            for (ConfigSource source : sources) {
+                for (String name : names) {
+                    if (unprofiled(name).equals(key) && isProductionKey(name)) {
+                        String val = source.getValue(name);
+                        if (val != null && !val.isBlank()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
         private boolean isExplicitlyEmpty(String key, boolean declarationOnly) {
             if (!declarationOnly) {
                 ConfigValue value = Expressions.withoutExpansion(() -> config.getConfigValue(key));
                 if (value.getRawValue() != null
-                        && value.getRawValue().isBlank()
                         && value.getSourceOrdinal() > Integer.MIN_VALUE
                         && !isDefaultConfigSourceName(value.getSourceName())) {
-                    return true;
+                    return value.getRawValue().isBlank();
                 }
                 for (ConfigSource source : sources) {
-                    String direct = source.getValue(key);
-                    if (direct != null && direct.isBlank() && names.contains(key)) {
-                        return true;
-                    }
                     for (String name : names) {
                         if (unprofiled(name).equals(key) && isActiveProfileKey(name, profiles)) {
                             String profiled = source.getValue(name);
-                            if (profiled != null && profiled.isBlank()) {
-                                return true;
+                            if (profiled != null) {
+                                return profiled.isBlank();
                             }
                         }
+                    }
+                    String direct = source.getValue(key);
+                    if (direct != null && names.contains(key)) {
+                        return direct.isBlank();
                     }
                 }
                 return false;
@@ -988,8 +1007,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 for (String name : names) {
                     if (unprofiled(name).equals(key) && isProductionKey(name)) {
                         String val = source.getValue(name);
-                        if (val != null && val.isBlank()) {
-                            return true;
+                        if (val != null) {
+                            return val.isBlank();
                         }
                     }
                 }
@@ -1017,7 +1036,11 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
 
         private MemorySize parseMemorySize(String ruleId, String value, String errorMessage) {
             try {
-                MemorySize size = MemorySize.of(value.trim());
+                MemorySize size = new MemorySizeConverter().convert(value.trim());
+                if (size == null) {
+                    unavailable(Set.of(ruleId), errorMessage);
+                    return null;
+                }
                 size.asLongValue();
                 return size;
             } catch (IllegalArgumentException | ArithmeticException ex) {
@@ -1217,9 +1240,6 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     }
 
     private static boolean isDeprecatedHibernateProperty(List<String> rest) {
-        if (rest.equals(List.of("blocking"))) {
-            return true;
-        }
         for (int unit = 0; unit <= 1 && unit < rest.size(); unit++) {
             if (unit == 1 && RESERVED_SUBGROUPS.contains(rest.get(0))) {
                 continue;
@@ -1322,6 +1342,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             List.of("jdbc", "background-validation-interval"),
             List.of("jdbc", "foreground-validation-interval"),
             List.of("jdbc", "validate-on-borrow"),
+            List.of("jdbc"),
             List.of("db-kind"));
     private static final Set<String> RESERVED_SUBGROUPS = Set.of(
             "database",
