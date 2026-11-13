@@ -4068,6 +4068,7 @@ const runtimeInsightsReport = {
   ],
   checks: [
     insightCheck('route-time-breakdown', 'Route time breakdown', 1220, 9),
+    insightCheck('route-latency-outliers', 'Slow route outliers vs. baseline', 1220, 1),
     insightCheck('exception-hotspots', 'Exception hotspots', 1240, 2),
     insightCheck('errors-behind-2xx', 'Errors behind 2xx responses', 1108, 1),
     insightCheck('repeated-selects', 'Repeated SELECTs', 1240, 1),
@@ -4192,6 +4193,26 @@ const runtimeInsightsReport = {
       ],
       exemplarRequestIds: ['7a19c3e0f5b2d846'],
       evidenceRows: 20,
+      limitations: []
+    },
+    {
+      id: 'route-latency-outliers:1d8e4b90c2',
+      kind: 'route-latency-outliers',
+      listed: true,
+      unlistedReason: null,
+      subject: 'GET /api/sample/products',
+      status: 'OBSERVED',
+      sentence:
+        'On `GET /api/sample/products`, slowest request `req-outlier-01` took 1,240 ms against 98.0 ms in warm baseline `req-warm-04` (warm median 101 ms across 63 warm 2xx requests): +5 SQL executions (+42.0 ms), +1 cache miss, +1 REST client call (+410 ms), +2 auto-flushes.',
+      eligible: 63,
+      affected: 1,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: [
+        'Open the outlier request in Live Activity to inspect its timeline and the Compared with baseline request card.',
+        'Compare the distinguishing SQL shapes, cache misses, and outbound calls between the outlier and the baseline request.'
+      ],
+      exemplarRequestIds: ['req-outlier-01', 'req-warm-04'],
+      evidenceRows: 7,
       limitations: []
     }
   ],
@@ -4345,6 +4366,23 @@ const runtimeResourceProfile = {
   ]
 }
 
+const runtimeOutlierInsightDetail = {
+  available: true,
+  unavailableReason: null,
+  observation: runtimeInsightsReport.observations[runtimeInsightsReport.observations.length - 1],
+  columns: ['Dimension', 'Outlier', 'Baseline', 'Delta'],
+  rows: [
+    {cells: ['Request', 'req-outlier-01 (200)', 'req-warm-04 (200)', '+1,142 ms']},
+    {cells: ['Duration (ms)', '1,240', '98.0 (warm p50 101)', '+1,142']},
+    {cells: ['SQL executions', '6 (48.0 ms)', '1 (6.0 ms)', '+5 (+42.0 ms)']},
+    {cells: ['Distinguishing SQL', 'select * from product_reviews where product_id = ?', '0 execution(s)', '+5']},
+    {cells: ['Connection wait (ms)', '1.1', '0.2', '+0.9']},
+    {cells: ['Cache (misses / hits)', '1 / 0', '0 / 1', '+1 misses, -1 hits']},
+    {cells: ['REST client calls', '1 (410 ms)', '0 (0.0 ms)', '+1 (+410 ms)']},
+    {cells: ['Hibernate (flushes / auto-flushes)', '1 / 2', '0 / 0', '+1 flushes, +2 auto-flushes']}
+  ],
+  truncated: 0
+}
 const runtimeInsightDetail = {
   available: true,
   unavailableReason: null,
@@ -7052,6 +7090,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'activity/service-map') return fulfillJson(route, activityServiceMap)
   if (endpoint === 'activity') return fulfillJson(route, activityReport)
   if (endpoint === 'runtime-insights') return fulfillJson(route, runtimeInsightsReport)
+  if (endpoint.startsWith('runtime-insights/insights/route-latency-outliers'))
+    return fulfillJson(route, runtimeOutlierInsightDetail)
   if (endpoint.startsWith('runtime-insights/insights/')) return fulfillJson(route, runtimeInsightDetail)
   if (endpoint === 'runtime-insights/comparison') return fulfillJson(route, runtimeRunComparison)
   if (endpoint === 'runtime-insights/resource-profile') return fulfillJson(route, runtimeResourceProfile)

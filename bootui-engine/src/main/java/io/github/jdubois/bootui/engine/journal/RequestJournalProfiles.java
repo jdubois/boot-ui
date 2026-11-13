@@ -644,17 +644,17 @@ public final class RequestJournalProfiles {
     }
 
     private static List<String> distinguishingSqlShapes(RequestMetrics targetMetrics, RequestMetrics baselineMetrics) {
-        record ShapeDiff(String shape, boolean onlyInTarget, int countDelta, long targetMicros, int order) {}
+        record ShapeDiff(String fingerprint, boolean onlyInTarget, int countDelta, long targetMicros, int order) {}
         List<ShapeDiff> diffs = new ArrayList<>();
         int index = 0;
-        for (Map.Entry<String, int[]> entry : targetMetrics.sqlShapes.entrySet()) {
-            String shape = entry.getKey();
+        for (Map.Entry<String, int[]> entry : targetMetrics.sqlFingerprints.entrySet()) {
+            String fp = entry.getKey();
             int targetCount = entry.getValue()[0];
-            int baselineCount = baselineMetrics.sqlShapes.getOrDefault(shape, new int[1])[0];
+            int baselineCount = baselineMetrics.sqlFingerprints.getOrDefault(fp, new int[1])[0];
             int delta = targetCount - baselineCount;
             if (delta > 0) {
-                long targetMicros = targetMetrics.sqlShapeMicros.getOrDefault(shape, 0L);
-                diffs.add(new ShapeDiff(shape, baselineCount == 0, delta, targetMicros, index));
+                long targetMicros = targetMetrics.sqlFingerprintMicros.getOrDefault(fp, 0L);
+                diffs.add(new ShapeDiff(fp, baselineCount == 0, delta, targetMicros, index));
             }
             index++;
         }
@@ -672,10 +672,18 @@ public final class RequestJournalProfiles {
             }
             return Integer.compare(left.order(), right.order());
         });
-        return diffs.stream()
-                .limit(MAX_DISTINGUISHING_SQL_SHAPES)
-                .map(ShapeDiff::shape)
-                .toList();
+        Set<String> shapes = new LinkedHashSet<>();
+        for (ShapeDiff diff : diffs) {
+            if (shapes.size() >= MAX_DISTINGUISHING_SQL_SHAPES) {
+                break;
+            }
+            String rawSql = targetMetrics.rawSqlByFingerprint.getOrDefault(diff.fingerprint(), diff.fingerprint());
+            String displayShape = JournalTextExposure.displayShape(rawSql);
+            if (!displayShape.isBlank()) {
+                shapes.add(displayShape);
+            }
+        }
+        return List.copyOf(shapes);
     }
 
     private boolean isPartiallyEvicted(RuntimeEvent http, JournalStatus status, boolean evictionsOccurred) {
@@ -718,8 +726,9 @@ public final class RequestJournalProfiles {
         int sqlExecutions;
         long sqlDurationMicros;
         boolean hasUnverifiedSql;
-        final Map<String, int[]> sqlShapes = new LinkedHashMap<>();
-        final Map<String, Long> sqlShapeMicros = new HashMap<>();
+        final Map<String, int[]> sqlFingerprints = new LinkedHashMap<>();
+        final Map<String, Long> sqlFingerprintMicros = new HashMap<>();
+        final Map<String, String> rawSqlByFingerprint = new HashMap<>();
         boolean hasConnection;
         long connectionWaitMicros;
         boolean hasCache;
@@ -738,10 +747,11 @@ public final class RequestJournalProfiles {
                         metrics.sqlExecutions++;
                         long micros = Math.max(0, event.durationNanos()) / 1_000L;
                         metrics.sqlDurationMicros += micros;
-                        String shape = JournalTextExposure.displayShape(sql.sql());
-                        if (!shape.isBlank()) {
-                            metrics.sqlShapes.computeIfAbsent(shape, key -> new int[1])[0]++;
-                            metrics.sqlShapeMicros.merge(shape, micros, Long::sum);
+                        String fingerprint = SqlShapes.fingerprint(sql.sql());
+                        if (fingerprint != null && !fingerprint.isBlank()) {
+                            metrics.sqlFingerprints.computeIfAbsent(fingerprint, key -> new int[1])[0]++;
+                            metrics.sqlFingerprintMicros.merge(fingerprint, micros, Long::sum);
+                            metrics.rawSqlByFingerprint.putIfAbsent(fingerprint, sql.sql());
                         }
                     } else {
                         metrics.hasUnverifiedSql = true;

@@ -9,7 +9,7 @@ export const THEMES = [
   {
     id: 'time',
     label: 'Time',
-    kinds: ['route-time-breakdown', 'event-loop-blocking', 'work-after-response']
+    kinds: ['route-time-breakdown', 'route-latency-outliers', 'event-loop-blocking', 'work-after-response']
   },
   // Garbage collection and heap rows are reached from the Memory panel, which links here (docs/PLAN-v2.md M4-19).
   {id: 'memory', label: 'Memory', kinds: MEMORY_KINDS},
@@ -76,6 +76,7 @@ const GROUP_SUMMARIES = {
   'framework-warnings-by-route': 'Framework warnings and errors recorded during this run.',
   'anonymous-data-reach': 'Database write activity reached by anonymous callers; this may be intended.',
   'ai-usage-by-route': 'Recorded model calls and token usage by route, job, or listener.',
+  'route-latency-outliers': 'Slow requests compared with a retained warm 2xx baseline on the same route.',
   'route-time-breakdown': 'Per-route measurements and phase evidence, not a defect verdict.'
 }
 const GROUP_ORDER = new Map(Object.keys(GROUP_SUMMARIES).map((kind, index) => [kind, index]))

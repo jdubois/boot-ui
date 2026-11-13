@@ -101,6 +101,7 @@ final class ObservationFixtures {
     static List<Fixture> all() {
         List<Fixture> fixtures = new ArrayList<>();
         routeTimeBreakdown(fixtures);
+        routeLatencyOutliers(fixtures);
         exceptionHotspots(fixtures);
         errorsBehind2xx(fixtures);
         repeatedSelects(fixtures);
@@ -145,6 +146,75 @@ final class ObservationFixtures {
                     for (int i = 0; i < 4; i++) {
                         warmOrder(recording);
                     }
+                }));
+    }
+
+    private static void routeLatencyOutliers(List<Fixture> fixtures) {
+        fixtures.add(positive(
+                        RouteLatencyOutliers.KIND,
+                        "a cold request, five fast warm 2xx requests, and a slow outlier with extra SQL and cache miss")
+                .seed(recording -> {
+                    recording.get("/api/catalog/{id}").duration(300 * MS);
+                    for (int i = 0; i < 5; i++) {
+                        recording
+                                .get("/api/catalog/{id}")
+                                .duration(15 * MS)
+                                .children(
+                                        sql("select * from catalog where id = 1")
+                                                .took(2 * MS),
+                                        new Ev(JournalSource.CACHE, -1, new CachePayload("catalog", "HIT")));
+                    }
+                    recording
+                            .get("/api/catalog/{id}")
+                            .duration(250 * MS)
+                            .children(
+                                    sql("select * from catalog where id = 99").took(5 * MS),
+                                    sql("select * from catalog_reviews where catalog_id = 99")
+                                            .took(40 * MS),
+                                    sql("select * from catalog_inventory where catalog_id = 99")
+                                            .took(35 * MS),
+                                    new Ev(JournalSource.CACHE, -1, new CachePayload("catalog", "MISS")));
+                }));
+        fixtures.add(counterexample(
+                        RouteLatencyOutliers.KIND,
+                        "only the route's cold first request is slow and all warm requests are uniform")
+                .seed(recording -> {
+                    recording
+                            .get("/api/catalog/{id}")
+                            .duration(400 * MS)
+                            .children(
+                                    sql("select * from catalog where id = 1").took(50 * MS),
+                                    new Ev(JournalSource.CACHE, -1, new CachePayload("catalog", "MISS")));
+                    for (int i = 0; i < 5; i++) {
+                        recording
+                                .get("/api/catalog/{id}")
+                                .duration(15 * MS)
+                                .children(
+                                        sql("select * from catalog where id = 1")
+                                                .took(2 * MS),
+                                        new Ev(JournalSource.CACHE, -1, new CachePayload("catalog", "HIT")));
+                    }
+                }));
+        fixtures.add(counterexample(
+                        RouteLatencyOutliers.KIND,
+                        "a slow outlier with fewer than five warm 2xx baseline requests is insufficient")
+                .toleratingInsufficient()
+                .seed(recording -> {
+                    recording.get("/api/catalog/{id}").duration(300 * MS);
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/catalog/{id}")
+                                .duration(15 * MS)
+                                .children(sql("select * from catalog where id = 1")
+                                        .took(2 * MS));
+                    }
+                    recording
+                            .get("/api/catalog/{id}")
+                            .duration(250 * MS)
+                            .children(
+                                    sql("select * from catalog where id = 99").took(5 * MS),
+                                    sql("select * from catalog_reviews where catalog_id = 99")
+                                            .took(40 * MS));
                 }));
     }
 

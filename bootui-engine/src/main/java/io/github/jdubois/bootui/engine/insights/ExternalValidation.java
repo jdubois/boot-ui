@@ -79,6 +79,7 @@ public final class ExternalValidation {
                 RouteTimeBreakdown.KIND,
                 Outcome.FAILED,
                 "A request's Why this route is slow, in Live Activity, shows its route's breakdown.");
+        put(kinds, RouteLatencyOutliers.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, RepeatedSelects.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
         put(kinds, LazySqlAfterHandler.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
         put(
