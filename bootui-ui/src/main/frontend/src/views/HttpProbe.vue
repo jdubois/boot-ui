@@ -56,6 +56,18 @@ const statusBadgeClass = computed(() => {
   return 'bg-secondary'
 })
 
+const probeRequestId = computed(() => {
+  const headers = response.value?.headers
+  if (!headers || typeof headers !== 'object') return null
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === 'x-bootui-request-id') {
+      const id = Array.isArray(value) ? value[0] : value
+      return typeof id === 'string' && id.trim() ? id.trim() : null
+    }
+  }
+  return null
+})
+
 async function sendProbe() {
   if (readOnly.value || loading.value || confirming.value) {
     if (!readOnly.value) return
@@ -221,7 +233,16 @@ function clearForm() {
             {{ response.status || 0 }} {{ response.statusText || 'Error' }}
           </span>
         </div>
-        <small class="text-muted">{{ response.durationMs ?? 0 }} ms</small>
+        <div class="d-flex align-items-center gap-2">
+          <router-link
+            v-if="probeRequestId"
+            :to="{path: '/activity', query: {request: probeRequestId}}"
+            class="btn btn-outline-secondary btn-sm rounded-pill http-probe-profile-link"
+          >
+            <i aria-hidden="true" class="bi bi-diagram-3 me-1"></i>Open Request Profile
+          </router-link>
+          <small class="text-muted">{{ response.durationMs ?? 0 }} ms</small>
+        </div>
       </div>
       <div class="card-body">
         <div v-if="response.error" class="alert alert-danger mb-3">

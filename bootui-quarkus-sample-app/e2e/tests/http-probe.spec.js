@@ -17,6 +17,7 @@ test.describe('HTTP Probe (Quarkus)', () => {
     const responseCard = page.locator('.card', {hasText: 'Response'})
     await expect(responseCard.locator('.badge')).toContainText('200', {timeout: 10_000})
     await expect(page.locator('pre code')).toContainText('Hello, BootUI!')
+    await expect(responseCard.locator('.http-probe-profile-link')).toBeVisible()
   })
 
   test('clears the form and the response', async ({openView, page}) => {

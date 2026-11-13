@@ -277,7 +277,8 @@ public class HttpProbeService {
             String normalized = name.toLowerCase(Locale.ROOT);
             if (!"content-type".equals(normalized)
                     && !"content-length".equals(normalized)
-                    && !"location".equals(normalized)) {
+                    && !"location".equals(normalized)
+                    && !"x-bootui-request-id".equals(normalized)) {
                 return;
             }
             filtered.put(normalized, String.join(", ", values));

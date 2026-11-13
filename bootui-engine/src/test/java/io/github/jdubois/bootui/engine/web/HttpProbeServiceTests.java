@@ -102,6 +102,7 @@ class HttpProbeServiceTests {
     void onlyAllowedResponseHeadersPassedThrough() {
         server.createContext("/headers", exchange -> {
             exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.getResponseHeaders().add("X-BootUI-Request-Id", "1bfc811d88dbab7d");
             exchange.getResponseHeaders().add("X-Custom-Header", "should-be-absent");
             exchange.getResponseHeaders().add("Authorization", "******");
             exchange.getResponseHeaders().add("Set-Cookie", "session=abc");
@@ -113,7 +114,9 @@ class HttpProbeServiceTests {
 
         HttpProbeResponse response = service.probe(new HttpProbeRequest("GET", "/headers", null, null));
 
-        assertThat(response.headers()).containsKey("content-type");
+        assertThat(response.headers())
+                .containsKey("content-type")
+                .containsEntry("x-bootui-request-id", "1bfc811d88dbab7d");
         assertThat(response.headers())
                 .doesNotContainKey("x-custom-header")
                 .doesNotContainKey("authorization")
