@@ -1,7 +1,8 @@
 /**
- * Helpers for Runtime Insights' Profile resources session (docs/PLAN-v2.md §5.11): an opt-in JFR recording whose CPU
- * and allocation samples are joined to the requests that ran during it.
+ * Helpers for Runtime Insights' Profile resources session (docs/PLAN-v2.md §5.11): an opt-in JFR recording whose CPU,
+ * allocation, and virtual-thread pinning events are joined to the requests that ran during it.
  */
+import {formatDuration, formatNumber} from './format.js'
 
 /** Whether a response is a resource profile rather than an error body. */
 export function isResourceProfile(value) {
@@ -20,6 +21,20 @@ export function requestShare(profile) {
   const total = profile?.cpuSamples ?? 0
   if (total <= 0) return null
   return Math.round((100 * Math.max(0, total - (profile.outsideSamples ?? 0))) / total)
+}
+
+/**
+ * Summarizes the session's virtual-thread carrier-pinning events (`jdk.VirtualThreadPinned`) when supported by the
+ * runtime, or returns null on runtimes without virtual-thread pinning support (such as JDK 17).
+ */
+export function pinningSummary(profile) {
+  if (!profile?.virtualThreadPinningSupported) return null
+  const events = profile.pinnedEvents ?? 0
+  if (events <= 0) return '0 virtual-thread pinned events (≥ 1 ms threshold).'
+  const outside = profile.outsidePinnedEvents ?? 0
+  const duration = formatDuration((profile.pinnedDurationMicros ?? 0) * 1000)
+  const noun = events === 1 ? 'virtual-thread pinned event' : 'virtual-thread pinned events'
+  return `${formatNumber(events)} ${noun} (${duration} total, ${formatNumber(outside)} outside requests).`
 }
 
 /**

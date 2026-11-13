@@ -42,8 +42,14 @@ public final class JfrProfiler {
     /** The CPU-time sampler of JDK 25 and later, on Linux. */
     public static final String CPU_TIME_SAMPLER = "jdk.CPUTimeSample";
 
+    /** The virtual-thread carrier-pinning event of JDK 21 and later. */
+    public static final String VIRTUAL_THREAD_PINNED_EVENT = "jdk.VirtualThreadPinned";
+
     /** How often JFR samples running threads, or each thread's CPU time. */
     static final Duration SAMPLE_PERIOD = Duration.ofMillis(10);
+
+    /** The shortest virtual-thread pin recorded during a session (JFR's default is 20 ms). */
+    static final Duration PINNED_THRESHOLD = Duration.ofMillis(1);
 
     /** The most requests one session attributes samples to. */
     static final int MAX_REQUESTS = 10_000;
@@ -62,6 +68,7 @@ public final class JfrProfiler {
     private State state = State.IDLE;
     private String reason;
     private String sampler;
+    private boolean virtualThreadPinningSupported;
     private Instant startedAt;
     private Instant endsAt;
     private Instant finishedAt;
@@ -90,18 +97,31 @@ public final class JfrProfiler {
         }
     }
 
+    /** Whether this runtime supports {@link #VIRTUAL_THREAD_PINNED_EVENT} in JFR. */
+    public static boolean virtualThreadPinningSupported() {
+        try {
+            return Jfr.virtualThreadPinningSupported();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
     /** The session's state, and the last session's results once it completed. */
     public synchronized Snapshot snapshot() {
         if (state == State.IDLE || state == State.UNAVAILABLE) {
             String unavailable = unavailableReason();
             if (unavailable != null) {
-                return new Snapshot(State.UNAVAILABLE, unavailable, null, null, null, null, Analysis.EMPTY, false);
+                return new Snapshot(
+                        State.UNAVAILABLE, unavailable, null, false, null, null, null, Analysis.EMPTY, false);
             }
         }
+        boolean pinningSupported =
+                state == State.IDLE ? virtualThreadPinningSupported() : virtualThreadPinningSupported;
         return new Snapshot(
                 state,
                 reason,
                 sampler,
+                pinningSupported,
                 startedAt,
                 endsAt,
                 finishedAt,
@@ -125,10 +145,12 @@ public final class JfrProfiler {
         try {
             destination = Files.createTempFile("bootui-profile-", ".jfr");
             boolean cpuTime = Jfr.cpuTimeSampler();
-            recording = Jfr.start(destination, cpuTime);
+            boolean pinning = Jfr.virtualThreadPinningEventRegistered();
+            recording = Jfr.start(destination, cpuTime, pinning);
             JfrSegments.activate(true);
             file = destination;
             sampler = cpuTime ? CPU_TIME_SAMPLER : EXECUTION_SAMPLER;
+            virtualThreadPinningSupported = pinning;
             otherRecording = Jfr.otherRecordings(recording);
             startedAt = Instant.now();
             endsAt = startedAt.plus(duration);
@@ -236,6 +258,11 @@ public final class JfrProfiler {
         return Jfr.analyze(recording, framework);
     }
 
+    /** Whether {@code name} is among {@code types}; package-private for capability tests. */
+    static boolean hasEventType(Iterable<jdk.jfr.EventType> types, String name) {
+        return Jfr.hasEventType(types, name);
+    }
+
     /** Where a session stands. */
     public enum State {
         /** No session ran since the application started. */
@@ -254,12 +281,14 @@ public final class JfrProfiler {
      * A session's state and the last results.
      *
      * @param sampler the CPU sampler that ran, {@link #CPU_TIME_SAMPLER} or {@link #EXECUTION_SAMPLER}
+     * @param virtualThreadPinningSupported whether {@link #VIRTUAL_THREAD_PINNED_EVENT} is supported in this runtime
      * @param otherRecording whether another JFR recording ran at the start, which may have raised the sampling rate
      */
     public record Snapshot(
             State state,
             String reason,
             String sampler,
+            boolean virtualThreadPinningSupported,
             Instant startedAt,
             Instant endsAt,
             Instant finishedAt,
@@ -271,13 +300,22 @@ public final class JfrProfiler {
      *
      * @param cpuSamples every CPU sample of the session
      * @param outsideSamples CPU samples taken while no request segment was open on their thread
+     * @param pinnedEvents every {@link #VIRTUAL_THREAD_PINNED_EVENT} recorded during the session
+     * @param outsidePinnedEvents pinning events whose virtual thread had no overlapping request segment
+     * @param pinnedDurationMicros total duration, in microseconds, of all recorded pinning events
      * @param requests each request's samples, by request id
      * @param requestsTruncated whether requests beyond {@link #MAX_REQUESTS} were left out
      */
     public record Analysis(
-            long cpuSamples, long outsideSamples, Map<String, RequestSamples> requests, boolean requestsTruncated) {
+            long cpuSamples,
+            long outsideSamples,
+            long pinnedEvents,
+            long outsidePinnedEvents,
+            long pinnedDurationMicros,
+            Map<String, RequestSamples> requests,
+            boolean requestsTruncated) {
 
-        static final Analysis EMPTY = new Analysis(0, 0, Map.of(), false);
+        static final Analysis EMPTY = new Analysis(0, 0, 0, 0, 0, Map.of(), false);
 
         public Analysis {
             requests = Collections.unmodifiableMap(new LinkedHashMap<>(requests));
@@ -291,12 +329,23 @@ public final class JfrProfiler {
      * @param allocatedBytes the allocation samples' weights, JFR's estimate of the bytes it allocated
      * @param virtualThread whether any sample was taken on a virtual thread
      * @param frames each sample's first application frame, or its top frame when it has none, with its count
+     * @param pinnedEvents {@link #VIRTUAL_THREAD_PINNED_EVENT} events overlapping one of the request's segments
+     * @param pinnedDurationMicros total duration, in microseconds, of the request's pinned events
+     * @param pinnedFrames each pinned event's first application frame, or its top frame when it has none, with its
+     *     count
      */
     public record RequestSamples(
-            long cpuSamples, long allocatedBytes, boolean virtualThread, Map<String, Long> frames) {
+            long cpuSamples,
+            long allocatedBytes,
+            boolean virtualThread,
+            Map<String, Long> frames,
+            long pinnedEvents,
+            long pinnedDurationMicros,
+            Map<String, Long> pinnedFrames) {
 
         public RequestSamples {
             frames = Collections.unmodifiableMap(new LinkedHashMap<>(frames));
+            pinnedFrames = Collections.unmodifiableMap(new LinkedHashMap<>(pinnedFrames));
         }
     }
 
@@ -313,16 +362,34 @@ public final class JfrProfiler {
             if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux")) {
                 return false;
             }
-            for (jdk.jfr.EventType type :
-                    jdk.jfr.FlightRecorder.getFlightRecorder().getEventTypes()) {
-                if (CPU_TIME_SAMPLER.equals(type.getName())) {
+            return hasEventType(jdk.jfr.FlightRecorder.getFlightRecorder().getEventTypes(), CPU_TIME_SAMPLER);
+        }
+
+        static boolean virtualThreadPinningSupported() {
+            if (!jdk.jfr.FlightRecorder.isAvailable()) {
+                return false;
+            }
+            if (!jdk.jfr.FlightRecorder.isInitialized()) {
+                return Runtime.version().feature() >= 21;
+            }
+            return virtualThreadPinningEventRegistered();
+        }
+
+        static boolean virtualThreadPinningEventRegistered() {
+            return hasEventType(
+                    jdk.jfr.FlightRecorder.getFlightRecorder().getEventTypes(), VIRTUAL_THREAD_PINNED_EVENT);
+        }
+
+        static boolean hasEventType(Iterable<jdk.jfr.EventType> types, String name) {
+            for (jdk.jfr.EventType type : types) {
+                if (name.equals(type.getName())) {
                     return true;
                 }
             }
             return false;
         }
 
-        static Object start(Path destination, boolean cpuTime) throws IOException {
+        static Object start(Path destination, boolean cpuTime, boolean virtualThreadPinning) throws IOException {
             jdk.jfr.FlightRecorder.register(ExecutionSegmentEvent.class);
             jdk.jfr.Recording recording = new jdk.jfr.Recording();
             recording.setName("BootUI Profile resources");
@@ -333,6 +400,12 @@ public final class JfrProfiler {
                 recording.enable(EXECUTION_SAMPLER).withPeriod(SAMPLE_PERIOD);
             }
             recording.enable("jdk.ObjectAllocationSample").with("throttle", "150/s");
+            if (virtualThreadPinning) {
+                recording
+                        .enable(VIRTUAL_THREAD_PINNED_EVENT)
+                        .withThreshold(PINNED_THRESHOLD)
+                        .withStackTrace();
+            }
             recording.setToDisk(true);
             recording.setDestination(destination);
             recording.start();
@@ -386,6 +459,9 @@ public final class JfrProfiler {
             segments.values().forEach(list -> list.sort(Comparator.comparingLong(Segment::start)));
             long cpuSamples = 0;
             long outside = 0;
+            long pinnedEvents = 0;
+            long outsidePinned = 0;
+            long pinnedDurationMicros = 0;
             boolean truncated = false;
             Map<String, Samples> requests = new LinkedHashMap<>();
             try (jdk.jfr.consumer.RecordingFile in = new jdk.jfr.consumer.RecordingFile(file)) {
@@ -393,24 +469,37 @@ public final class JfrProfiler {
                     jdk.jfr.consumer.RecordedEvent event = in.readEvent();
                     String name = event.getEventType().getName();
                     boolean cpu = EXECUTION_SAMPLER.equals(name) || CPU_TIME_SAMPLER.equals(name);
-                    if (!cpu && !"jdk.ObjectAllocationSample".equals(name)) {
+                    boolean allocation = "jdk.ObjectAllocationSample".equals(name);
+                    boolean pinned = VIRTUAL_THREAD_PINNED_EVENT.equals(name);
+                    if (!cpu && !allocation && !pinned) {
                         continue;
                     }
                     if (cpu && event.hasField("failed") && event.getBoolean("failed")) {
                         continue;
                     }
-                    jdk.jfr.consumer.RecordedThread thread =
-                            event.hasField("sampledThread") ? event.getThread("sampledThread") : event.getThread();
+                    jdk.jfr.consumer.RecordedThread thread = !pinned && event.hasField("sampledThread")
+                            ? event.getThread("sampledThread")
+                            : event.getThread();
                     if (thread == null) {
                         continue;
                     }
+                    long startNanos = nanos(event.getStartTime());
+                    long endNanos = pinned ? Math.max(startNanos, nanos(event.getEndTime())) : startNanos;
+                    long eventPinnedMicros = pinned ? Math.max(0L, (endNanos - startNanos) / 1_000L) : 0L;
                     if (cpu) {
                         cpuSamples++;
+                    } else if (pinned) {
+                        pinnedEvents++;
+                        pinnedDurationMicros += eventPinnedMicros;
                     }
-                    String owner = owner(segments.get(thread.getJavaThreadId()), nanos(event.getStartTime()));
+                    String owner = pinned
+                            ? ownerOverlapping(segments.get(thread.getJavaThreadId()), startNanos, endNanos)
+                            : owner(segments.get(thread.getJavaThreadId()), startNanos);
                     if (owner == null) {
                         if (cpu) {
                             outside++;
+                        } else if (pinned) {
+                            outsidePinned++;
                         }
                         continue;
                     }
@@ -423,7 +512,7 @@ public final class JfrProfiler {
                         samples = new Samples();
                         requests.put(owner, samples);
                     }
-                    samples.virtualThread |= virtual(thread);
+                    samples.virtualThread |= pinned || virtual(thread);
                     if (cpu) {
                         samples.cpuSamples++;
                         String frame = frame(event.getStackTrace(), framework);
@@ -431,6 +520,15 @@ public final class JfrProfiler {
                                 && (samples.frames.containsKey(frame)
                                         || samples.frames.size() < MAX_FRAMES_PER_REQUEST)) {
                             samples.frames.merge(frame, 1L, Long::sum);
+                        }
+                    } else if (pinned) {
+                        samples.pinnedEvents++;
+                        samples.pinnedDurationMicros += eventPinnedMicros;
+                        String frame = frame(event.getStackTrace(), framework);
+                        if (frame != null
+                                && (samples.pinnedFrames.containsKey(frame)
+                                        || samples.pinnedFrames.size() < MAX_FRAMES_PER_REQUEST)) {
+                            samples.pinnedFrames.merge(frame, 1L, Long::sum);
                         }
                     } else {
                         samples.allocatedBytes += Math.max(0, event.getLong("weight"));
@@ -441,8 +539,15 @@ public final class JfrProfiler {
             requests.forEach((id, samples) -> joined.put(
                     id,
                     new RequestSamples(
-                            samples.cpuSamples, samples.allocatedBytes, samples.virtualThread, samples.frames)));
-            return new Analysis(cpuSamples, outside, joined, truncated);
+                            samples.cpuSamples,
+                            samples.allocatedBytes,
+                            samples.virtualThread,
+                            samples.frames,
+                            samples.pinnedEvents,
+                            samples.pinnedDurationMicros,
+                            samples.pinnedFrames)));
+            return new Analysis(
+                    cpuSamples, outside, pinnedEvents, outsidePinned, pinnedDurationMicros, joined, truncated);
         }
 
         /** The request whose segment was open on the thread at {@code time}, or {@code null}. */
@@ -465,6 +570,14 @@ public final class JfrProfiler {
             return found >= 0 && segments.get(found).end() >= time
                     ? segments.get(found).requestId()
                     : null;
+        }
+
+        /**
+         * The request whose segment overlapped {@code [eventStart, eventEnd]} on the thread
+         * ({@code eventEnd >= segment.start && eventStart <= segment.end}), or {@code null}.
+         */
+        private static String ownerOverlapping(List<Segment> segments, long eventStart, long eventEnd) {
+            return JfrProfiler.ownerOverlapping(segments, eventStart, eventEnd);
         }
 
         private static String frame(jdk.jfr.consumer.RecordedStackTrace stack, Predicate<String> framework) {
@@ -511,7 +624,46 @@ public final class JfrProfiler {
         }
     }
 
-    private record Segment(long start, long end, String requestId) {}
+    /**
+     * The request whose segment overlapped {@code [eventStart, eventEnd]} on the thread
+     * ({@code eventEnd >= segment.start && eventStart <= segment.end}), or {@code null}.
+     */
+    static String ownerOverlapping(List<Segment> segments, long eventStart, long eventEnd) {
+        if (segments == null || segments.isEmpty()) {
+            return null;
+        }
+        long end = Math.max(eventStart, eventEnd);
+        int low = 0;
+        int high = segments.size() - 1;
+        int found = -1;
+        while (low <= high) {
+            int middle = (low + high) >>> 1;
+            if (segments.get(middle).start() <= eventStart) {
+                found = middle;
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        for (int i = found; i >= 0; i--) {
+            Segment segment = segments.get(i);
+            if (end >= segment.start() && eventStart <= segment.end()) {
+                return segment.requestId();
+            }
+        }
+        for (int i = found + 1; i < segments.size(); i++) {
+            Segment segment = segments.get(i);
+            if (segment.start() > end) {
+                break;
+            }
+            if (end >= segment.start() && eventStart <= segment.end()) {
+                return segment.requestId();
+            }
+        }
+        return null;
+    }
+
+    record Segment(long start, long end, String requestId) {}
 
     private static final class Samples {
 
@@ -519,5 +671,8 @@ public final class JfrProfiler {
         private long allocatedBytes;
         private boolean virtualThread;
         private final Map<String, Long> frames = new LinkedHashMap<>();
+        private long pinnedEvents;
+        private long pinnedDurationMicros;
+        private final Map<String, Long> pinnedFrames = new LinkedHashMap<>();
     }
 }

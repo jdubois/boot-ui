@@ -127,5 +127,11 @@ test.describe('Runtime Insights view', () => {
 
     await expect(profile.locator('.insight-profile-summary')).toContainText('CPU samples', {timeout: 30_000})
     await expect(profile.locator('.insight-profile-table')).toContainText('/api/sample/product-search')
+    const profileJson = await (await page.request.get('/bootui/api/runtime-insights/resource-profile')).json()
+    expect(typeof profileJson.virtualThreadPinningSupported).toBe('boolean')
+    if (profileJson.virtualThreadPinningSupported) {
+      await expect(profile.locator('.insight-profile-pinning')).toContainText('virtual-thread pinned')
+      await expect(profile.locator('.insight-profile-table th', {hasText: 'Virtual-thread pinning'})).toBeVisible()
+    }
   })
 })

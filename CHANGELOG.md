@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
+  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

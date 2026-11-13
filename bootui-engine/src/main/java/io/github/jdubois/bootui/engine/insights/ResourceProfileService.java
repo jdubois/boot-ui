@@ -47,11 +47,16 @@ public final class ResourceProfileService {
     static final String ROUTES_HIDDEN = "The http-exchanges panel is disabled, so the samples are not listed by"
             + " route; the session's totals still count every sampled request.";
 
+    /** Why {@code 0} virtual-thread pins on JDK 24+ does not mean {@code synchronized} blocks were absent. */
+    static final String JEP_491_NOTE = "On JDK 24 and later (JEP 491), synchronized blocks no longer pin virtual"
+            + " threads; jdk.VirtualThreadPinned records only native frames and class initializers.";
+
     private final RuntimeJournal journal;
     private final Supplier<RouteTemplateResolver> routes;
     private final Duration maxDuration;
     private final JfrProfiler profiler;
     private final Predicate<String> panelEnabled;
+    private final int featureVersion;
 
     private Instant mappedFor;
     private List<RuntimeResourceProfileRouteDto> mappedRoutes = List.of();
@@ -65,7 +70,13 @@ public final class ResourceProfileService {
             Supplier<RouteTemplateResolver> routes,
             Duration maxDuration,
             Predicate<String> panelEnabled) {
-        this(journal, routes, maxDuration, panelEnabled, JfrProfiler.shared());
+        this(
+                journal,
+                routes,
+                maxDuration,
+                panelEnabled,
+                JfrProfiler.shared(),
+                Runtime.version().feature());
     }
 
     ResourceProfileService(
@@ -74,11 +85,28 @@ public final class ResourceProfileService {
             Duration maxDuration,
             Predicate<String> panelEnabled,
             JfrProfiler profiler) {
+        this(
+                journal,
+                routes,
+                maxDuration,
+                panelEnabled,
+                profiler,
+                Runtime.version().feature());
+    }
+
+    ResourceProfileService(
+            RuntimeJournal journal,
+            Supplier<RouteTemplateResolver> routes,
+            Duration maxDuration,
+            Predicate<String> panelEnabled,
+            JfrProfiler profiler,
+            int featureVersion) {
         this.journal = journal;
         this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
         this.routes = routes == null ? RouteTemplateResolver::empty : routes;
         this.maxDuration = Objects.requireNonNull(maxDuration, "maxDuration");
         this.profiler = profiler;
+        this.featureVersion = featureVersion;
     }
 
     /** The session's state and the last session's results; starts nothing. */
@@ -119,6 +147,10 @@ public final class ResourceProfileService {
                 0,
                 0,
                 0,
+                false,
+                0,
+                0,
+                0,
                 List.of(),
                 0,
                 List.of());
@@ -137,7 +169,7 @@ public final class ResourceProfileService {
         boolean completed = snapshot.state() == State.COMPLETED;
         // Evaluated on every read, so disabling the panel after the session completed withholds its cached rows too.
         boolean routesShown = completed && routesVisible();
-        List<String> limitations = completed ? limitations(snapshot) : List.of();
+        List<String> limitations = completed ? limitations(snapshot, featureVersion) : List.of();
         if (completed && !routesShown) {
             limitations = new ArrayList<>(limitations);
             limitations.add(ROUTES_HIDDEN);
@@ -153,6 +185,10 @@ public final class ResourceProfileService {
                 analysis.cpuSamples(),
                 analysis.outsideSamples(),
                 analysis.requests().size(),
+                snapshot.virtualThreadPinningSupported(),
+                analysis.pinnedEvents(),
+                analysis.outsidePinnedEvents(),
+                analysis.pinnedDurationMicros(),
                 routesShown ? mappedRoutes : List.of(),
                 routesShown ? mappedOmitted : 0,
                 limitations);
@@ -181,6 +217,10 @@ public final class ResourceProfileService {
         List<RuntimeResourceProfileRouteDto> sorted = byRoute.values().stream()
                 .sorted(Comparator.comparingLong((Route route) -> route.cpuSamples)
                         .reversed()
+                        .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedDurationMicros)
+                                .reversed())
+                        .thenComparing(Comparator.comparingLong((Route route) -> route.pinnedEvents)
+                                .reversed())
                         .thenComparing(Comparator.comparingLong((Route route) -> route.allocatedBytes)
                                 .reversed())
                         .thenComparing(route -> route.name))
@@ -218,7 +258,7 @@ public final class ResourceProfileService {
         return routeOf;
     }
 
-    private static List<String> limitations(Snapshot snapshot) {
+    private static List<String> limitations(Snapshot snapshot, int featureVersion) {
         List<String> limitations = new ArrayList<>();
         limitations.add(
                 JfrProfiler.CPU_TIME_SAMPLER.equals(snapshot.sampler())
@@ -229,6 +269,9 @@ public final class ResourceProfileService {
         limitations.add("Allocated bytes are JFR's estimate from its allocation samples.");
         limitations.add("Work a request ran on a thread no BootUI scope covers, such as a raw executor, counts as"
                 + " outside requests.");
+        if (snapshot.virtualThreadPinningSupported() && featureVersion >= 24) {
+            limitations.add(JEP_491_NOTE);
+        }
         if (snapshot.otherRecording()) {
             limitations.add("Another JFR recording ran at the same time; JFR applies the most detailed settings of"
                     + " both, so either may have sampled more often.");
@@ -251,6 +294,9 @@ public final class ResourceProfileService {
         private long allocatedBytes;
         private boolean virtualThreads;
         private final Map<String, Long> frames = new HashMap<>();
+        private long pinnedEvents;
+        private long pinnedDurationMicros;
+        private final Map<String, Long> pinnedFrames = new HashMap<>();
 
         Route(String name) {
             this.name = name;
@@ -262,17 +308,32 @@ public final class ResourceProfileService {
             allocatedBytes += samples.allocatedBytes();
             virtualThreads |= samples.virtualThread();
             samples.frames().forEach((frame, count) -> frames.merge(frame, count, Long::sum));
+            pinnedEvents += samples.pinnedEvents();
+            pinnedDurationMicros += samples.pinnedDurationMicros();
+            samples.pinnedFrames().forEach((frame, count) -> pinnedFrames.merge(frame, count, Long::sum));
         }
 
         RuntimeResourceProfileRouteDto dto() {
-            List<RuntimeResourceProfileFrameDto> hot = frames.entrySet().stream()
+            return new RuntimeResourceProfileRouteDto(
+                    name,
+                    requests,
+                    cpuSamples,
+                    allocatedBytes,
+                    virtualThreads,
+                    topFrames(frames),
+                    pinnedEvents,
+                    pinnedDurationMicros,
+                    topFrames(pinnedFrames));
+        }
+
+        private static List<RuntimeResourceProfileFrameDto> topFrames(Map<String, Long> counts) {
+            return counts.entrySet().stream()
                     .sorted(Map.Entry.<String, Long>comparingByValue()
                             .reversed()
                             .thenComparing(Map.Entry.comparingByKey()))
                     .limit(RuntimeResourceProfileRouteDto.MAX_FRAMES)
                     .map(entry -> new RuntimeResourceProfileFrameDto(entry.getKey(), entry.getValue()))
                     .toList();
-            return new RuntimeResourceProfileRouteDto(name, requests, cpuSamples, allocatedBytes, virtualThreads, hot);
         }
     }
 }
