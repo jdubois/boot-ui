@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from
+  Mappings and HTTP Exchanges without auto-sending ([HTTP Probe](docs/features/diagnostics.md#http-probe); [#1668](https://github.com/jdubois/boot-ui/issues/1668)).
 - **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
   and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
 

@@ -130,6 +130,7 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
         Response response = probe().get("/host/internal/bootui-api/mappings/flat?offset=0&limit=1");
 
         assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().path("basePath").asText()).isEqualTo("/host");
         assertThat(response.json().path("page").path("limit").asInt()).isEqualTo(1);
         assertThat(response.json().path("mappings").size()).isLessThanOrEqualTo(1);
     }
