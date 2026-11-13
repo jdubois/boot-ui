@@ -394,6 +394,32 @@ class SpringInventoryTests {
                     .isEqualTo("SKIPPED");
             assertThat(SpringScanner.evidence(snapshot).coverageComplete()).isTrue();
         });
+        tasks.withBean(ApplicationFixtures.DefaultNamedQualifiedAsync.class).run(context -> {
+            SpringContext snapshot =
+                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY)).isFalse();
+            assertThat(snapshot.observations().get(ASYNC_SELECTION, AsyncSelection.class))
+                    .isEqualTo(AsyncSelection.SELECTED);
+            assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                    .isEqualTo("VIOLATION");
+        });
+        tasks.withBean(
+                        "jdkProxiedAsync",
+                        ApplicationFixtures.AsyncService.class,
+                        ApplicationFixtures.JdkProxiedQualifiedAsyncService::new)
+                .run(context -> {
+                    assertThat(java.lang.reflect.Proxy.isProxyClass(
+                                    context.getBean("jdkProxiedAsync").getClass()))
+                            .isTrue();
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY))
+                            .isTrue();
+                    assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isTrue();
+                });
     }
 
     @Test
@@ -921,6 +947,36 @@ class SpringInventoryTests {
                     assertThat(SpringScanner.evidence(snapshot).coverageComplete())
                             .isTrue();
                 });
+        AtomicInteger lazyTargetCreated = new AtomicInteger();
+        DefaultListableBeanFactory lazyFactory = new DefaultListableBeanFactory();
+        RootBeanDefinition lazyTargetDef =
+                new RootBeanDefinition(org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy.class, () -> {
+                    lazyTargetCreated.incrementAndGet();
+                    HikariDataSource ds = new HikariDataSource();
+                    ds.setJdbcUrl("jdbc:h2:mem:lazy");
+                    return new org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy(ds);
+                });
+        lazyTargetDef.setLazyInit(true);
+        lazyFactory.registerBeanDefinition("lazyDelegatingTarget", lazyTargetDef);
+        org.springframework.aop.target.LazyInitTargetSource targetSource =
+                new org.springframework.aop.target.LazyInitTargetSource();
+        targetSource.setTargetBeanName("lazyDelegatingTarget");
+        targetSource.setTargetClass(org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy.class);
+        targetSource.setBeanFactory(lazyFactory);
+        org.springframework.aop.framework.ProxyFactory proxyFactory =
+                new org.springframework.aop.framework.ProxyFactory();
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.setTargetSource(targetSource);
+        lazyFactory.registerSingleton("cglibLazyDelegatingDataSource", proxyFactory.getProxy());
+        MockEnvironment prodEnv = new MockEnvironment();
+        prodEnv.setDefaultProfiles("prod");
+        assertThat(lazyTargetCreated).hasValue(0);
+        assertThat(lazyFactory.containsSingleton("lazyDelegatingTarget")).isFalse();
+        SpringContext snapshot = SpringInventory.discover(lazyFactory, prodEnv, false);
+        assertThat(lazyTargetCreated).hasValue(0);
+        assertThat(lazyFactory.containsSingleton("lazyDelegatingTarget")).isFalse();
+        assertThat(new InMemoryDatasourceInProductionRule().evaluate(snapshot).status())
+                .isEqualTo("SKIPPED");
     }
 
     @Test

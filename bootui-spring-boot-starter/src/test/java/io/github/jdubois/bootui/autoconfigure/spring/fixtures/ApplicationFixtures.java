@@ -68,6 +68,21 @@ public final class ApplicationFixtures {
         public void unqualified() {}
     }
 
+    public static class DefaultNamedQualifiedAsync {
+        @Async("applicationTaskExecutor")
+        public void run() {}
+    }
+
+    public interface AsyncService {
+        void run();
+    }
+
+    public static class JdkProxiedQualifiedAsyncService implements AsyncService {
+        @Async("special")
+        @Override
+        public void run() {}
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableAsync
     public static class AsyncConfiguration {}

@@ -504,58 +504,115 @@ final class SpringInventory {
     }
 
     private boolean asyncDefaultExecutorApplicable() {
-        boolean hasUnqualifiedAsync = false;
-        boolean hasQualifiedAsync = false;
+        boolean[] flags = new boolean[2]; // [0] = hasUnqualifiedAsync, [1] = hasQualifiedAsync
         for (Entry entry : entries) {
             if (members >= MAX_TOTAL_MEMBERS) {
                 partial();
                 return false;
             }
             if (!entry.application()) continue;
-            try {
-                Async typeAsync = AnnotatedElementUtils.findMergedAnnotation(entry.type(), Async.class);
-                if (typeAsync != null) {
-                    if (typeAsync.value().isEmpty()) hasUnqualifiedAsync = true;
-                    else hasQualifiedAsync = true;
+            if (!inspectAsyncType(entry.type(), flags)) return false;
+            if (java.lang.reflect.Proxy.isProxyClass(entry.type())) {
+                Class<?> targetType = resolveProxyTargetType(entry.name());
+                if (targetType != null
+                        && targetType != entry.type()
+                        && !java.lang.reflect.Proxy.isProxyClass(targetType)) {
+                    if (!inspectAsyncType(targetType, flags)) return false;
                 }
-                Method[] methods = entry.type().getMethods();
-                if (!budget(methods.length)) return false;
-                for (Method method : methods) {
-                    Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
-                    if (annotation != null) {
-                        if (annotation.value().isEmpty()) hasUnqualifiedAsync = true;
-                        else hasQualifiedAsync = true;
-                    }
-                }
-                Class<?> owner = entry.type();
-                int depth = 0;
-                while (owner != null && owner != Object.class) {
-                    if (++depth > 16) {
-                        partial();
-                        return false;
-                    }
-                    Method[] declared = owner.getDeclaredMethods();
-                    if (!budget(declared.length)) return false;
-                    for (Method method : declared) {
-                        if (Modifier.isPublic(method.getModifiers())) continue;
-                        Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
-                        if (annotation != null) {
-                            if (annotation.value().isEmpty()) hasUnqualifiedAsync = true;
-                            else hasQualifiedAsync = true;
-                        }
-                    }
-                    owner = owner.getSuperclass();
-                }
-            } catch (RuntimeException | LinkageError ex) {
-                partial();
-                return false;
             }
         }
-        if (hasQualifiedAsync && !hasUnqualifiedAsync) {
+        if (flags[1] && !flags[0]) {
             facts.put(ASYNC_QUALIFIED_ONLY, true);
             return false;
         }
         return true;
+    }
+
+    private boolean inspectAsyncType(Class<?> type, boolean[] flags) {
+        try {
+            Async typeAsync = AnnotatedElementUtils.findMergedAnnotation(type, Async.class);
+            if (typeAsync != null) recordAsyncQualifier(typeAsync.value(), flags);
+            Method[] methods = type.getMethods();
+            if (!budget(methods.length)) return false;
+            for (Method method : methods) {
+                Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
+                if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+            }
+            Class<?> owner = type;
+            int depth = 0;
+            while (owner != null && owner != Object.class) {
+                if (++depth > 16) {
+                    partial();
+                    return false;
+                }
+                Method[] declared = owner.getDeclaredMethods();
+                if (!budget(declared.length)) return false;
+                for (Method method : declared) {
+                    if (Modifier.isPublic(method.getModifiers())) continue;
+                    Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
+                    if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+                }
+                owner = owner.getSuperclass();
+            }
+            return true;
+        } catch (RuntimeException | LinkageError ex) {
+            partial();
+            return false;
+        }
+    }
+
+    private static void recordAsyncQualifier(String qualifier, boolean[] flags) {
+        if (qualifier.isEmpty() || "applicationTaskExecutor".equals(qualifier) || "taskExecutor".equals(qualifier)) {
+            flags[0] = true;
+        } else {
+            flags[1] = true;
+        }
+    }
+
+    private Class<?> resolveProxyTargetType(String name) {
+        try {
+            if (factory.containsBeanDefinition(name)) {
+                BeanDefinition definition = factory.getMergedBeanDefinition(name);
+                if (definition.getFactoryMethodName() == null) {
+                    if (definition instanceof AbstractBeanDefinition abd && abd.hasBeanClass()) {
+                        Class<?> beanClass = ClassUtils.getUserClass(abd.getBeanClass());
+                        if (!beanClass.isInterface() && !java.lang.reflect.Proxy.isProxyClass(beanClass)) {
+                            return beanClass;
+                        }
+                    }
+                    if (definition.getBeanClassName() != null) {
+                        Class<?> resolved = ClassUtils.getUserClass(ClassUtils.resolveClassName(
+                                definition.getBeanClassName(), factory.getBeanClassLoader()));
+                        if (!resolved.isInterface() && !java.lang.reflect.Proxy.isProxyClass(resolved)) {
+                            return resolved;
+                        }
+                    }
+                }
+                if (definition instanceof RootBeanDefinition root && root.getTargetType() != null) {
+                    Class<?> targetType = ClassUtils.getUserClass(root.getTargetType());
+                    if (!targetType.isInterface() && !java.lang.reflect.Proxy.isProxyClass(targetType)) {
+                        return targetType;
+                    }
+                }
+            }
+            Object singleton = factory.getSingleton(name);
+            Class<?> advised = present("org.springframework.aop.framework.Advised");
+            Class<?> targetSourceType = present("org.springframework.aop.TargetSource");
+            if (singleton != null && advised != null && targetSourceType != null && advised.isInstance(singleton)) {
+                Object targetSource = advised.getMethod("getTargetSource").invoke(singleton);
+                if (targetSource != null
+                        && Boolean.TRUE.equals(
+                                targetSourceType.getMethod("isStatic").invoke(targetSource))) {
+                    Object target = targetSourceType.getMethod("getTarget").invoke(targetSource);
+                    if (target != null && target != singleton) {
+                        return ClassUtils.getUserClass(target.getClass());
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+            /* best-effort non-eager target resolution */
+        }
+        return null;
     }
 
     private boolean customAsyncConfigurer() {
@@ -901,12 +958,15 @@ final class SpringInventory {
     }
 
     private static javax.sql.DataSource wrappedDataSource(javax.sql.DataSource dataSource) {
+        if (SpringAopDataSources.isProxy(dataSource)) {
+            return SpringAopDataSources.staticTarget(dataSource);
+        }
         if (DelegatingDataSources.isSingleTarget(dataSource.getClass())) {
             return DelegatingDataSources.hasDistinctReadOnlyTarget(dataSource)
                     ? null
                     : DelegatingDataSources.target(dataSource);
         }
-        return SpringAopDataSources.isProxy(dataSource) ? SpringAopDataSources.staticTarget(dataSource) : null;
+        return null;
     }
 
     private void observeOsiv(boolean reactive) {
