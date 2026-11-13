@@ -75,6 +75,7 @@ const routeBasePath = computed(() => normalizeBasePath(routeReport.value?.basePa
 const routeOptions = computed(() => {
   const mappings = routeReport.value?.mappings
   if (!Array.isArray(mappings)) return []
+  const query = routeQuery.value.trim().toLowerCase()
   return mappings
     .filter((item) => typeof item?.pattern === 'string' && item.pattern.trim().startsWith('/'))
     .map((item, idx) => {
@@ -93,7 +94,21 @@ const routeOptions = computed(() => {
         mediaSummary: [...new Set(mediaParts)].join(' · ')
       }
     })
+    .filter((option) => matchesRouteQuery(option, query))
 })
+
+function matchesRouteQuery(option, query) {
+  if (!query) return true
+  const raw = option.raw
+  return (
+    option.method.toLowerCase().includes(query) ||
+    (raw.pattern || '').toLowerCase().includes(query) ||
+    option.composedPath.toLowerCase().includes(query) ||
+    (raw.handler || '').toLowerCase().includes(query) ||
+    (raw.produces || '').toLowerCase().includes(query) ||
+    (raw.consumes || '').toLowerCase().includes(query)
+  )
+}
 
 const routePopupVisible = computed(
   () => routePickerOpen.value && Boolean(routeLoading.value || routeError.value || routeReport.value)
@@ -218,6 +233,8 @@ function onRoutePickerFocus() {
 
 function onRoutePickerInput() {
   clearTimeout(routeSuggestTimer)
+  routeSuggestSequence++
+  activeRouteIndex.value = -1
   const q = routeQuery.value.trim()
   routeSuggestTimer = setTimeout(() => fetchRoutes(q), ROUTE_SUGGEST_DELAY_MS)
 }

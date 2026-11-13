@@ -86,8 +86,9 @@ test.describe('HTTP Probe view', () => {
     await expect(picker).toBeVisible()
     await picker.fill('/api/sample/hello')
 
-    const option = page.locator('.http-probe-route-option', {hasText: '/api/sample/hello'}).first()
-    await expect(option).toBeVisible()
+    const options = page.locator('.http-probe-route-option')
+    await expect(options).toHaveCount(1)
+    await expect(options.first()).toContainText('/api/sample/hello')
     await picker.press('ArrowDown')
     await picker.press('Enter')
 
