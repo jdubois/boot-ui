@@ -1569,7 +1569,7 @@ const securityEndpoints = {
 
 const pentesting = {
   localOnly: true,
-  checksRun: 64,
+  checksRun: 70,
   findingsFound: 4,
   disclaimer:
     'Heuristic local checks only against the host application; BootUI /bootui paths are excluded. ' +
@@ -1581,7 +1581,7 @@ const pentesting = {
     message:
       'Local OWASP hygiene checks completed against bounded host-application metadata and two direct loopback requests outside BootUI.',
     scannedAt: nowMillis - 45_000,
-    checksRun: 64,
+    checksRun: 70,
     findingsFound: 4
   },
   severityCounts: [
