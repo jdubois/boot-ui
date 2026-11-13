@@ -257,6 +257,32 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(drawer).toHaveCount(0)
   })
 
+  test('compares a slow reactive request with a retained warm baseline on the same route', async ({
+    page,
+    request,
+    baseURL
+  }) => {
+    for (let i = 0; i < 4; i++) {
+      const fast = await request.get(`${baseURL}/api/sample/slow?ms=1`)
+      expect(fast.ok()).toBeTruthy()
+    }
+    const slow = await request.get(`${baseURL}/api/sample/slow?ms=180`)
+    expect(slow.ok()).toBeTruthy()
+
+    const activity = await request.get(`${baseURL}/bootui/api/activity?source=journal&type=REQUEST&limit=50`)
+    const slowEntry = (await activity.json()).entries.find(
+      (entry) => entry.type === 'REQUEST' && entry.path === '/api/sample/slow' && entry.durationMs >= 100
+    )
+    expect(slowEntry?.id).toBeTruthy()
+
+    await page.goto(`/bootui/#/activity?request=${encodeURIComponent(slowEntry.id)}`)
+    const drawer = page.locator('.activity-drawer')
+    const baseline = drawer.locator('.request-journal__baseline')
+    await expect(baseline).toBeVisible({timeout: 15_000})
+    await expect(baseline).toContainText('Compared with baseline request')
+    await expect(baseline.locator('.request-journal__baseline-select')).toBeVisible()
+  })
+
   test('opens the reactive journal profile when its HTTP exchange has left the buffer', async ({
     page,
     request,

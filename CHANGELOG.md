@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Intra-route baseline comparison in Request Profile and Runtime Insights** compares slow or failed HTTP requests
+  against a retained warm `2xx` baseline on the same route (`route-latency-outliers`, drawer, MCP/CLI, and exports; [#1670](https://github.com/jdubois/boot-ui/issues/1670)).
 - **Six OWASP Top 10:2025 Pentesting Advisor checks** detect `__Host-`/`__Secure-` cookie prefix violations (`PT-A02-007`),
   publicly cacheable `Set-Cookie` responses (`PT-A02-008`), exposed CORS authentication/token headers (`PT-A05-073`),
   plaintext HTTP Basic/Digest challenges (`PT-A07-008`), unsafe Jackson 2/3 polymorphic default typing or unrejected

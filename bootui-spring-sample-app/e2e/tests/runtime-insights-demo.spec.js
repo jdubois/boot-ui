@@ -73,7 +73,8 @@ test.describe('Runtime Insights demo', () => {
       ['Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page'],
       ['Exception hotspots', 'GET /api/sample/boom'],
       ['Anonymous writes', '/api/insights/debug/reset-totals'],
-      ['SQL after the handler returned', '/api/insights/orders/report']
+      ['SQL after the handler returned', '/api/insights/orders/report'],
+      ['Slow route outliers vs. baseline', '/api/insights/orders/{id}/invoice']
     ]
     await expect(page.locator('.insight-show-all')).toHaveCount(0)
     for (const [title, subject] of additional) {

@@ -2079,22 +2079,32 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(unknown.json().path("available").asBoolean(true)).isFalse();
 
         probe.get(routeProbePath());
+        probe.get(routeProbePath());
         String requestId = null;
-        for (int attempt = 0; attempt < 20 && requestId == null; attempt++) {
+        String baselineId = null;
+        for (int attempt = 0; attempt < 20 && (requestId == null || baselineId == null); attempt++) {
             for (JsonNode entry : probe.get(api("/activity?source=journal&type=REQUEST&limit=50"))
                     .json()
                     .path("entries")) {
                 if (entry.path("path").asText("").contains("conformance-route-probe")) {
-                    requestId = entry.path("id").asText();
-                    break;
+                    String id = entry.path("id").asText();
+                    if (requestId == null) {
+                        requestId = id;
+                    } else if (!id.equals(requestId)) {
+                        baselineId = id;
+                        break;
+                    }
                 }
             }
-            if (requestId == null) {
+            if (requestId == null || baselineId == null) {
                 Thread.sleep(100);
             }
         }
         assertThat(requestId)
                 .as("the journal's feed lists the route probe request")
+                .isNotNull();
+        assertThat(baselineId)
+                .as("the journal's feed lists a second route probe request for baseline comparison")
                 .isNotNull();
         Response recorded = probe.get(api("/activity/request/" + requestId + "/journal"));
         assertThat(recorded.status()).isEqualTo(200);
@@ -2103,6 +2113,16 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(recorded.json().path("available").asBoolean(false)).isTrue();
         assertThat(recorded.json().path("requestId").asText()).isEqualTo(requestId);
         assertThat(recorded.json().path("route").asText()).isNotBlank();
+
+        Response compared = probe.get(api("/activity/request/" + requestId + "/journal?compareWith=" + baselineId));
+        assertThat(compared.status()).isEqualTo(200);
+        assertJsonContract("request journal profile, compared", contract, compared.json(), failures);
+        assertThat(failures).as("request journal profile compared contract").isEmpty();
+        assertThat(compared.json()
+                        .path("baselineComparison")
+                        .path("baselineRequestId")
+                        .asText())
+                .isEqualTo(baselineId);
     }
 
     @Test
@@ -2303,7 +2323,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         JsonNode report = probe.get(api("/runtime-insights")).json();
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
-                .isEqualTo(28);
+                .isEqualTo(29);
         // Each kind's external validation (docs/PLAN-v2.md M4-20) decides its default listing on every stack, but
         // stays internal: no check carries it, and no row's reason mentions it.
         for (JsonNode check : report.path("checks")) {

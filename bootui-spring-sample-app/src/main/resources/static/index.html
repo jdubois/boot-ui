@@ -1239,6 +1239,18 @@
       expect: [['route-time-breakdown', 'Route time breakdown', 'GET /api/secure/products']]
     },
     {
+      key: 'route-latency-outliers',
+      label: 'Slow route outlier',
+      text: 'Reads an order invoice six times fast, then once for order 6 with extra SQL and a slow remote quote; then the uniform receipt route.',
+      steps: [
+        ['GET', '/api/insights/orders/1/invoice', 6],
+        ['GET', '/api/insights/orders/6/invoice', 1],
+        ['GET', '/api/insights/orders/1/receipt', 6],
+        ['GET', '/api/insights/orders/6/receipt', 1]
+      ],
+      expect: [['route-latency-outliers', 'Slow route outliers vs. baseline', 'GET /api/insights/orders/{id}/invoice']]
+    },
+    {
       key: 'ai-usage-by-route',
       label: 'AI usage by route',
       gate: 'chat-model',

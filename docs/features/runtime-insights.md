@@ -72,12 +72,13 @@ offers only the JFR action.
 
 ### The observations
 
-Twenty-eight observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
+Twenty-nine observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
 changed-method evidence. The table says what each counts; the drawers below hold the qualifications.
 
 | Observation                             | What it counts                                                                            |
 | --------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `route-time-breakdown`                  | Where a route's warm requests spend their time, by phase                                  |
+| `route-latency-outliers`                | Slow requests compared against a retained warm `2xx` baseline on the same route           |
 | `exception-hotspots`                    | Exception groups per route                                                                |
 | `errors-behind-2xx`                     | 2xx responses that hid a rollback, exception, failed task, `ERROR` log, or downstream 5xx |
 | `repeated-selects`                      | The same SELECT run repeatedly in one request (N+1)                                       |
@@ -114,6 +115,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
   - On Spring MVC and Quarkus, a request that reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with 401 or 403, is never split as handler work: it is left out of its route's phases, and a route whose requests mostly did is reported insufficient with its recorded calls.
   - On WebFlux, which marks no handler or response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is insufficient, since its breakdown would be one unattributed span.
   - With the [BootUI agent](java-agent.md)'s `code-paths` sensor, a route whose tree is not assembly only has its other handler work split into its top five application methods by own time (their self time minus the recorded calls stamped to them), named `Handler: Class.method`, with the rest as **Other handler time**. The parts never exceed the handler's work, and a recorded call without a stamp, as one recorded on another thread, stays in its method's own time, which the observation says. The handler is not split when none of its calls carried a stamp, or when calls without one take 10 % of its handler phase or more ([Code Paths](java-agent.md#code-paths)).
+- `route-latency-outliers`: compares a route's slowest request against its retained warm `2xx` baseline request closest to the warm median (once the route has at least five warm `2xx` requests after its first retained request), when the slowest request is at least four times the warm median and at least 100 ms slower and differs in recorded child work (verified JDBC executions or distinguishing literal-free SQL shapes, connection wait, cache hits and misses, outbound REST client calls, or Hibernate flushes and peak entities). Its exemplars name the outlier request first and the baseline request second, opening the Request Profile drawer directly on the comparison.
 - `exception-hotspots`: exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them. Specific checks follow captured exception subclasses and causes, preferring the deepest cause over a serialization wrapper.
 - `errors-behind-2xx`: 2xx responses whose own request rolled back its transaction, recorded an exception, had one of its own tasks fail, wrote an `ERROR` log, or received a downstream 5xx. Matching exceptions a retry or fallback recovered are listed apart, without hiding other errors in the same request.
   - A task is work the request handed to an executor BootUI decorates or the BootUI agent follows. Its exception, `ERROR` log, `WARN` log carrying an exception (as JHipster's `@Async` mail sender logs a failed send), or a task the agent saw fail after the response started counts as the task's failure, never the request thread's. A failed task the request joined is not counted from the agent's outcome alone.

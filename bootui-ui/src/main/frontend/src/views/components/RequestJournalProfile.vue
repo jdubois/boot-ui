@@ -15,6 +15,8 @@ const props = defineProps({
   status: {type: Number, default: null}
 })
 
+const emit = defineEmits(['open-request', 'compare-with'])
+
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
 const panels = inject('panels', ref(null))
 
@@ -98,6 +100,88 @@ const comparison = computed(() => {
   }
 })
 
+const baselineComparison = computed(() => {
+  const b = props.profile.baselineComparison
+  if (!b || !b.baselineRequestId) return null
+  const deltas = []
+  if (b.durationDeltaMicros != null) {
+    deltas.push({
+      label: 'Duration',
+      value: formatSignedDurationMicros(b.durationDeltaMicros),
+      slow: b.durationDeltaMicros > 0
+    })
+  }
+  if (b.sqlExecutionsDelta != null) {
+    const duration =
+      b.sqlDurationMicrosDelta != null ? ` (${formatSignedDurationMicros(b.sqlDurationMicrosDelta)})` : ''
+    deltas.push({
+      label: 'SQL',
+      value: `${formatSignedCount(b.sqlExecutionsDelta, 'execution', 'executions')}${duration}`,
+      slow: b.sqlExecutionsDelta > 0
+    })
+  }
+  if (b.connectionWaitMicrosDelta != null) {
+    deltas.push({
+      label: 'Connection wait',
+      value: formatSignedDurationMicros(b.connectionWaitMicrosDelta),
+      slow: b.connectionWaitMicrosDelta > 0
+    })
+  }
+  if (b.cacheHitsDelta != null || b.cacheMissesDelta != null) {
+    const parts = []
+    if (b.cacheMissesDelta != null) parts.push(formatSignedCount(b.cacheMissesDelta, 'miss', 'misses'))
+    if (b.cacheHitsDelta != null) parts.push(formatSignedCount(b.cacheHitsDelta, 'hit', 'hits'))
+    deltas.push({
+      label: 'Cache',
+      value: parts.join(', '),
+      slow: (b.cacheMissesDelta ?? 0) > 0
+    })
+  }
+  if (b.restClientCallsDelta != null) {
+    const duration =
+      b.restClientDurationMicrosDelta != null ? ` (${formatSignedDurationMicros(b.restClientDurationMicrosDelta)})` : ''
+    deltas.push({
+      label: 'REST client',
+      value: `${formatSignedCount(b.restClientCallsDelta, 'call', 'calls')}${duration}`,
+      slow: b.restClientCallsDelta > 0
+    })
+  }
+  if (b.ormFlushesDelta != null || b.ormAutoFlushesDelta != null || b.ormMaxEntitiesDelta != null) {
+    const parts = []
+    if (b.ormFlushesDelta != null) parts.push(formatSignedCount(b.ormFlushesDelta, 'flush', 'flushes'))
+    if (b.ormAutoFlushesDelta != null) {
+      parts.push(formatSignedCount(b.ormAutoFlushesDelta, 'auto-flush', 'auto-flushes'))
+    }
+    if (b.ormMaxEntitiesDelta != null) {
+      parts.push(`${formatSignedNumber(b.ormMaxEntitiesDelta)} peak entities in context`)
+    }
+    deltas.push({
+      label: 'Hibernate',
+      value: parts.join(', '),
+      slow: (b.ormAutoFlushesDelta ?? 0) > 0
+    })
+  }
+  if (b.gcPausesTarget != null && b.gcPausesBaseline != null) {
+    deltas.push({
+      label: 'JVM-wide GC pauses',
+      value: `${formatNumber(b.gcPausesTarget)} vs ${formatNumber(b.gcPausesBaseline)} completed during the request`,
+      slow: b.gcPausesTarget > b.gcPausesBaseline
+    })
+  }
+  const candidates = (b.candidates ?? []).map((candidate) => ({
+    requestId: candidate.requestId,
+    label: `${candidate.requestId} · ${formatDuration(micros(candidate.durationMicros))} (${candidate.status})`
+  }))
+  return {
+    baselineRequestId: b.baselineRequestId,
+    baselineDuration: formatDuration(micros(b.baselineDurationMicros)),
+    routeP50: b.routeP50Micros != null ? formatDuration(micros(b.routeP50Micros)) : null,
+    deltas,
+    distinctSqlShapes: b.distinctSqlShapesOnlyInTarget ?? [],
+    candidates
+  }
+})
+
 // The request's Hibernate sessions (docs/PLAN-v2.md §5.18, M4-9): statements, flushes, and the persistence context.
 const ormSummary = computed(() => {
   const o = props.profile.orm
@@ -129,6 +213,25 @@ const touched = computed(() =>
 
 function micros(value) {
   return value == null ? null : value * 1000
+}
+
+function formatSignedNumber(value) {
+  if (value == null) return ''
+  const n = Number(value)
+  if (!Number.isFinite(n)) return ''
+  return n > 0 ? `+${formatNumber(n)}` : formatNumber(n)
+}
+
+function formatSignedCount(count, singular, pluralForm) {
+  const abs = Math.abs(Number(count))
+  return `${formatSignedNumber(count)} ${abs === 1 ? singular : pluralForm}`
+}
+
+function formatSignedDurationMicros(valueMicros) {
+  if (valueMicros == null) return ''
+  if (valueMicros === 0) return '0.0 µs'
+  const sign = valueMicros > 0 ? '+' : '-'
+  return `${sign}${formatDuration(Math.abs(valueMicros) * 1000)}`
 }
 
 // Position on the request's own axis, clamped so work that ends after the response still shows.
@@ -186,6 +289,10 @@ function itemTitle(item) {
   const when = `at ${formatNumber(item.offsetMillis)} ms`
   return item.durationMicros == null ? when : `${when} for ${formatDuration(micros(item.durationMicros))}`
 }
+
+function onBaselineChange(event) {
+  emit('compare-with', event.target.value)
+}
 </script>
 
 <template>
@@ -221,6 +328,62 @@ function itemTitle(item) {
         v-if="profile.route && !profile.route.startsWith('Scheduled:') && !profile.route.startsWith('Message:')"
         :route="profile.route"
       />
+
+      <div v-if="baselineComparison" class="request-journal__baseline mb-2">
+        <div class="request-journal__baseline-header mb-1">
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <h4 class="h6 small text-muted mb-0">Compared with baseline request</h4>
+            <button
+              type="button"
+              class="btn btn-outline-secondary btn-sm request-journal__baseline-link"
+              :title="`Open baseline request ${baselineComparison.baselineRequestId}`"
+              @click="emit('open-request', baselineComparison.baselineRequestId)"
+            >
+              <code>{{ baselineComparison.baselineRequestId }}</code>
+            </button>
+            <span class="text-muted small">
+              {{ baselineComparison.baselineDuration
+              }}<template v-if="baselineComparison.routeP50"> · route p50 {{ baselineComparison.routeP50 }}</template>
+            </span>
+          </div>
+          <div v-if="baselineComparison.candidates.length" class="request-journal__baseline-picker">
+            <label class="visually-hidden" :for="`baseline-select-${profile.requestId}`">
+              Compare with baseline request
+            </label>
+            <select
+              :id="`baseline-select-${profile.requestId}`"
+              class="form-select form-select-sm request-journal__baseline-select"
+              aria-label="Compare with baseline request"
+              :value="baselineComparison.baselineRequestId"
+              @change="onBaselineChange"
+            >
+              <option
+                v-for="candidate in baselineComparison.candidates"
+                :key="candidate.requestId"
+                :value="candidate.requestId"
+              >
+                {{ candidate.label }}
+              </option>
+            </select>
+          </div>
+        </div>
+        <dl v-if="baselineComparison.deltas.length" class="row small mb-1 request-journal__baseline-deltas">
+          <template v-for="delta in baselineComparison.deltas" :key="delta.label">
+            <dt class="col-4">{{ delta.label }}</dt>
+            <dd class="col-8 mb-1">
+              <span :class="{'request-journal__slow': delta.slow}">{{ delta.value }}</span>
+            </dd>
+          </template>
+        </dl>
+        <div v-if="baselineComparison.distinctSqlShapes.length" class="small mt-1">
+          <div class="text-muted mb-1">Distinguishing SQL shapes in this request</div>
+          <ul class="list-unstyled mb-0 request-journal__baseline-shapes">
+            <li v-for="(shape, index) in baselineComparison.distinctSqlShapes" :key="index">
+              <code>{{ shape }}</code>
+            </li>
+          </ul>
+        </div>
+      </div>
 
       <template v-if="authorizations.length">
         <h4 class="h6 small text-muted mb-1">Authorization decisions</h4>
@@ -514,5 +677,31 @@ function itemTitle(item) {
 .request-journal__value {
   display: inline-block;
   margin-inline-end: 0.5rem;
+}
+
+.request-journal__baseline {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-sm);
+  background: var(--bootui-surface-alt);
+}
+
+.request-journal__baseline-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.request-journal__baseline-link {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+}
+
+.request-journal__baseline-select {
+  min-width: 11rem;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.75rem;
 }
 </style>

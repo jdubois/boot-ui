@@ -49,6 +49,10 @@ const STEPS = {
     ['GET', '/api/insights/reports/summary', 1],
     ['GET', '/api/insights/orders/after-response', 1],
     ['GET', '/api/insights/orders/after-response/waits', 1],
+    ['GET', '/api/insights/orders/1/invoice', 6],
+    ['GET', '/api/insights/orders/6/invoice', 1],
+    ['GET', '/api/insights/orders/1/receipt', 6],
+    ['GET', '/api/insights/orders/6/receipt', 1],
     ['GET', '/api/sample/boom', 3]
   ],
   webflux: [

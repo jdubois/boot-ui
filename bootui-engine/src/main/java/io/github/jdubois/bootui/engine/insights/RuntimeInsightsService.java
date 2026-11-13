@@ -439,6 +439,7 @@ public final class RuntimeInsightsService {
     public static List<Observation> defaultObservations(long aiTokenThreshold) {
         return List.of(
                 new RouteTimeBreakdown(),
+                new RouteLatencyOutliers(),
                 new ExceptionHotspots(),
                 new ErrorsBehind2xx(),
                 new RepeatedSelects(),

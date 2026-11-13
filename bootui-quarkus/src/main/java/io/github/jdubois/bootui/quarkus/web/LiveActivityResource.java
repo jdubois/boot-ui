@@ -618,12 +618,13 @@ public class LiveActivityResource {
      */
     /**
      * One request as the runtime journal recorded it ({@code docs/PLAN-v2.md} §5.3, §5.11): its timeline, GC pauses,
-     * measured resources, route comparison, and touched resources.
+     * measured resources, route comparison, baseline comparison, and touched resources.
      */
     @GET
     @Path("/request/{id}/journal")
     @Produces(MediaType.APPLICATION_JSON)
-    public RequestJournalProfileDto requestJournal(@PathParam("id") String id) {
+    public RequestJournalProfileDto requestJournal(
+            @PathParam("id") String id, @QueryParam("compareWith") String compareWith) {
         return new RequestJournalProfiles(
                         journal != null && journal.isResolvable() ? journal.get() : null,
                         journalAggregates != null && journalAggregates.isResolvable() ? journalAggregates.get() : null,
@@ -632,7 +633,11 @@ public class LiveActivityResource {
                         panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel),
                         exposure)
                 .maxHandoff(maxHandoff)
-                .profile(id);
+                .profile(id, compareWith);
+    }
+
+    public RequestJournalProfileDto requestJournal(String id) {
+        return requestJournal(id, null);
     }
 
     public RequestProfileSelectionDto agentProfile(String id) {

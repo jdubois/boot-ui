@@ -30,6 +30,9 @@ import java.util.List;
  *     which are only counted and, with their work, not drawn, or {@code null} when none
  * @param authorizations the authorization decisions recorded for this request, in start order, empty when none was
  *     recorded or the {@code security-logs} panel is disabled
+ * @param baselineComparison how a slow or failed HTTP request (or a request with an explicit {@code compareWith}
+ *     selection) differs from a retained, complete warm baseline request on the same route, or {@code null} when none
+ *     applies
  */
 public record RequestJournalProfileDto(
         boolean available,
@@ -48,7 +51,8 @@ public record RequestJournalProfileDto(
         RequestOrmDto orm,
         List<RequestHandoffDto> handoffs,
         Integer lateHandoffs,
-        List<RequestAuthorizationDto> authorizations) {
+        List<RequestAuthorizationDto> authorizations,
+        RequestBaselineDiffDto baselineComparison) {
 
     public RequestJournalProfileDto {
         timeline = DtoCollections.immutableCopy(timeline);
@@ -77,6 +81,7 @@ public record RequestJournalProfileDto(
                 null,
                 List.of(),
                 null,
-                List.of());
+                List.of(),
+                null);
     }
 }

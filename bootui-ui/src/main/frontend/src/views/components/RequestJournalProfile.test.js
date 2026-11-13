@@ -271,6 +271,58 @@ describe('RequestJournalProfile', () => {
     )
   })
 
+  it('renders the baseline comparison card, emits compare-with on selector change, and emits open-request on link click', async () => {
+    const wrapper = mount(RequestJournalProfile, {
+      props: {
+        profile: journalProfile({
+          baselineComparison: {
+            baselineRequestId: 'req-warm-1',
+            baselineDurationMicros: 12000,
+            routeP50Micros: 11000,
+            durationDeltaMicros: 28000,
+            sqlExecutionsDelta: 5,
+            sqlDurationMicrosDelta: 18000,
+            connectionWaitMicrosDelta: 500,
+            cacheHitsDelta: -1,
+            cacheMissesDelta: 1,
+            restClientCallsDelta: 1,
+            restClientDurationMicrosDelta: 8000,
+            ormFlushesDelta: 1,
+            ormAutoFlushesDelta: 2,
+            ormMaxEntitiesDelta: 24,
+            gcPausesTarget: 1,
+            gcPausesBaseline: 0,
+            distinctSqlShapesOnlyInTarget: ['select * from order_lines where order_id = ?'],
+            candidates: [
+              {requestId: 'req-warm-1', startedAt: 1700000000000, durationMicros: 12000, status: 200},
+              {requestId: 'req-warm-2', startedAt: 1700000001000, durationMicros: 15000, status: 200}
+            ]
+          }
+        })
+      }
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('Compared with baseline request')
+    expect(text).toContain('req-warm-1')
+    expect(text).toContain('12.0 ms · route p50 11.0 ms')
+    expect(text).toContain('+28.0 ms')
+    expect(text).toContain('+5 executions (+18.0 ms)')
+    expect(text).toContain('+500.0 µs')
+    expect(text).toContain('+1 miss, -1 hit')
+    expect(text).toContain('+1 call (+8.0 ms)')
+    expect(text).toContain('+1 flush, +2 auto-flushes, +24 peak entities in context')
+    expect(text).toContain('1 vs 0 completed during the request')
+    expect(text).toContain('select * from order_lines where order_id = ?')
+
+    await wrapper.get('.request-journal__baseline-link').trigger('click')
+    expect(wrapper.emitted('open-request')).toEqual([['req-warm-1']])
+
+    const select = wrapper.get('.request-journal__baseline-select')
+    await select.setValue('req-warm-2')
+    expect(wrapper.emitted('compare-with')).toEqual([['req-warm-2']])
+  })
+
   it('renders authorization decisions and offers the Spring Security explain link on 401 and 403 requests', () => {
     const RouterLinkStub = {
       props: ['to'],

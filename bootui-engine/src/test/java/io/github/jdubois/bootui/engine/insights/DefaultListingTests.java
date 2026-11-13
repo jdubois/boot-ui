@@ -17,6 +17,7 @@ class DefaultListingTests {
     /** The outcomes of the per-kind gates, as docs/V2-VALIDATION-REPORT.md "Per-kind gates" records them. */
     private static final Map<String, ExternalValidation.Outcome> REPORTED = Map.ofEntries(
             Map.entry(RouteTimeBreakdown.KIND, ExternalValidation.Outcome.FAILED),
+            Map.entry(RouteLatencyOutliers.KIND, ExternalValidation.Outcome.NOT_VALIDATED),
             Map.entry(RepeatedSelects.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
             Map.entry(LazySqlAfterHandler.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
             Map.entry(ExceptionHotspots.KIND, ExternalValidation.Outcome.FAILED),

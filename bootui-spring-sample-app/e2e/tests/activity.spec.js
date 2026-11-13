@@ -360,6 +360,50 @@ test.describe('Live Activity view', () => {
     await expect(drawer.getByRole('button', {name: 'Copy for AI'})).toBeVisible()
   })
 
+  test('compares a slow request against a retained warm baseline on the same route and switches baselines', async ({
+    openView,
+    page
+  }) => {
+    for (let i = 0; i < 4; i++) {
+      const fast = await page.request.get('/api/sample/slow?ms=1')
+      expect(fast.ok()).toBeTruthy()
+    }
+    const slow = await page.request.get('/api/sample/slow?ms=180')
+    expect(slow.ok()).toBeTruthy()
+
+    const activity = await page.request.get('/bootui/api/activity?source=journal&type=REQUEST&limit=50')
+    expect(activity.ok()).toBeTruthy()
+    const slowEntry = (await activity.json()).entries.find(
+      (entry) => entry.type === 'REQUEST' && entry.path === '/api/sample/slow' && entry.durationMs >= 100
+    )
+    expect(slowEntry?.id).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+    await page.goto(`/bootui/#/activity?request=${encodeURIComponent(slowEntry.id)}`)
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    const baseline = drawer.locator('.request-journal__baseline')
+    await expect(baseline).toBeVisible()
+    await expect(baseline).toContainText('Compared with baseline request')
+    await expect(baseline).toContainText('route p50')
+    await expect(baseline).toContainText('Duration')
+
+    const selector = baseline.locator('.request-journal__baseline-select')
+    await expect(selector).toBeVisible()
+    const options = selector.locator('option')
+    expect(await options.count()).toBeGreaterThanOrEqual(2)
+    const secondValue = await options.nth(1).getAttribute('value')
+    expect(secondValue).toBeTruthy()
+    await selector.selectOption(secondValue)
+    await expect(baseline.locator('.request-journal__baseline-link')).toHaveText(secondValue)
+
+    await drawer.getByRole('button', {name: 'Copy for AI'}).click()
+    const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
+    await expect(preview).toHaveValue(/## Compared with baseline request/)
+    await expect(preview).toHaveValue(new RegExp(`\`${secondValue}\``))
+  })
+
   test('links KPI cards to their dedicated panels', async ({openView, page}) => {
     await page.request.get('/api/sample/products')
 

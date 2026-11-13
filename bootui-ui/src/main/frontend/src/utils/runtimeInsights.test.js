@@ -250,6 +250,7 @@ describe('theme coverage', () => {
   it('gathers every observation kind the engine produces under a theme chip', () => {
     const engineKinds = [
       'route-time-breakdown',
+      'route-latency-outliers',
       'event-loop-blocking',
       'gc-inflated-latency',
       'work-after-response',

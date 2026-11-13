@@ -647,6 +647,9 @@ async function openProfile(
   )
 }
 
+let journalLoadToken = 0
+let journalPendingPromise = null
+
 async function loadProfile(id, opener, execution = false, entry = null) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
@@ -655,7 +658,9 @@ async function loadProfile(id, opener, execution = false, entry = null) {
   profileRequestId.value = id
   profileEntry.value = entry
   const token = ++profileLoadToken
+  const jToken = ++journalLoadToken
   const isCurrent = () => token === profileLoadToken
+  const isCurrentJournal = () => token === profileLoadToken && jToken === journalLoadToken
   profileLoading.value = true
   profileError.value = null
   profile.value = null
@@ -672,10 +677,10 @@ async function loadProfile(id, opener, execution = false, entry = null) {
       if (!isCurrent()) return
       profile.value = loaded
     }
-    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrent)
+    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrentJournal)
   } catch (err) {
     if (!isCurrent()) return
-    await loadJournalProfile(id, isCurrent)
+    await loadJournalProfile(id, isCurrentJournal)
     if (isCurrent() && !journalProfile.value?.available) {
       profileError.value = err.message || 'Could not load request profile'
     }
@@ -696,24 +701,55 @@ const resolvedProfileEntry = computed(
     null
 )
 
-async function loadJournalProfile(requestId, isCurrent) {
+async function loadJournalProfile(requestId, isCurrent, compareWith = null) {
+  const run = async () => {
+    try {
+      const query = compareWith ? `?compareWith=${encodeURIComponent(compareWith)}` : ''
+      const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal${query}`)
+      if (!isCurrent()) return
+      if (!response.ok) throw new Error(`status ${response.status}`)
+      const loaded = await response.json()
+      if (isCurrent()) journalProfile.value = loaded
+    } catch (err) {
+      if (!isCurrent()) return
+      if (compareWith && journalProfile.value?.available) {
+        return
+      }
+      journalProfile.value = {
+        available: false,
+        unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
+      }
+    }
+  }
+  const pending = run()
+  journalPendingPromise = pending
   try {
-    const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal`)
-    if (!isCurrent()) return
-    if (!response.ok) throw new Error(`status ${response.status}`)
-    const loaded = await response.json()
-    if (isCurrent()) journalProfile.value = loaded
-  } catch (err) {
-    if (!isCurrent()) return
-    journalProfile.value = {
-      available: false,
-      unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
+    await pending
+  } finally {
+    if (journalPendingPromise === pending) {
+      journalPendingPromise = null
     }
   }
 }
 
+async function compareJournalBaseline(compareWithId) {
+  const requestId = journalProfile.value?.requestId || profile.value?.request?.requestId || profileRequestId.value
+  if (!requestId || !compareWithId) return
+  const token = profileLoadToken
+  const jToken = ++journalLoadToken
+  const isCurrent = () => token === profileLoadToken && jToken === journalLoadToken
+  await loadJournalProfile(requestId, isCurrent, compareWithId)
+}
+
+function openBaselineRequest(baselineRequestId) {
+  if (!baselineRequestId) return
+  void loadProfile(baselineRequestId, profileOpenerEl.value)
+}
+
 function closeProfile() {
   profileLoadToken++
+  journalLoadToken++
+  journalPendingPromise = null
   profileLoading.value = false
   const opener = profileOpenerEl.value
   profileRequestId.value = null
@@ -763,7 +799,10 @@ function trapFocus(event) {
   }
 }
 
-function copyProfile() {
+async function copyProfile() {
+  if (journalPendingPromise) {
+    await journalPendingPromise
+  }
   if (!profile.value?.available) return
   copyToClipboard(profileMarkdown(profile.value, {journalProfile: journalProfile.value}).markdown, 'profile')
 }
@@ -772,16 +811,18 @@ function copyProfile() {
 // occurrences, loaded through the existing Exceptions read endpoint. Copying the preview sends nothing.
 async function openAiExport() {
   const current = profile.value
-  const currentJournal = journalProfile.value
   if (!current?.available) return
   aiExport.value = {loading: true, error: null, markdown: '', omissions: []}
   try {
+    if (journalPendingPromise) {
+      await journalPendingPromise
+    }
     const {exceptionDetails, omissions} = await loadProfileExceptionDetails(current, getJson)
     if (profile.value !== current) return
     aiExport.value = {
       loading: false,
       error: null,
-      ...profileMarkdown(current, {exceptionDetails, omissions, journalProfile: currentJournal})
+      ...profileMarkdown(current, {exceptionDetails, omissions, journalProfile: journalProfile.value})
     }
   } catch (err) {
     if (profile.value !== current) return
@@ -1608,6 +1649,8 @@ function toggleFlow() {
               :method="profile?.request?.method || resolvedProfileEntry?.method"
               :path="profile?.request?.path || resolvedProfileEntry?.path"
               :status="profile?.request?.status ?? resolvedProfileEntry?.status"
+              @compare-with="compareJournalBaseline"
+              @open-request="openBaselineRequest"
             />
             <RequestCodePath
               :request-id="journalProfile?.requestId || profileRequestId"
@@ -1657,6 +1700,8 @@ function toggleFlow() {
               :method="profile.request?.method || resolvedProfileEntry?.method"
               :path="profile.request?.path || resolvedProfileEntry?.path"
               :status="profile.request?.status ?? resolvedProfileEntry?.status"
+              @compare-with="compareJournalBaseline"
+              @open-request="openBaselineRequest"
             />
             <RequestCodePath
               :request-id="journalProfile?.requestId || profileRequestId"

@@ -136,6 +136,34 @@ function plural(count, singular, pluralForm = `${singular}s`) {
   return `${count} ${count === 1 ? singular : pluralForm}`
 }
 
+function formatSignedNumber(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return ''
+  return n > 0 ? `+${formatNumber(n)}` : formatNumber(n)
+}
+
+function formatSignedCount(count, singular, pluralForm = `${singular}s`) {
+  const abs = Math.abs(Number(count))
+  return `${formatSignedNumber(count)} ${abs === 1 ? singular : pluralForm}`
+}
+
+function formatMicros(micros) {
+  if (micros == null || micros === '') return ''
+  const n = Number(micros)
+  if (!Number.isFinite(n)) return ''
+  if (Math.abs(n) < 1000) return `${formatNumber(n)} µs`
+  return formatDuration(n / 1000)
+}
+
+function formatSignedMicros(micros) {
+  if (micros == null || micros === '') return ''
+  const n = Number(micros)
+  if (!Number.isFinite(n)) return ''
+  if (n === 0) return '0 µs'
+  const sign = n > 0 ? '+' : '-'
+  return `${sign}${formatMicros(Math.abs(n))}`
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Document assembly
 // ---------------------------------------------------------------------------------------------------
@@ -240,6 +268,67 @@ function requestSection(doc, profile, level) {
     lines.push(bullet('Correlation', 'approximate; some signals were matched by time window only'))
   }
   push(doc, heading(level, 'Request'), lines.join('\n'))
+}
+
+function baselineComparisonSection(doc, profile, journalProfile, level) {
+  const b = journalProfile?.baselineComparison ?? profile?.baselineComparison ?? null
+  if (!b || !b.baselineRequestId) return
+  const lines = []
+  const routeP50 = b.routeP50Micros != null ? `, route p50 ${formatMicros(b.routeP50Micros)}` : ''
+  lines.push(
+    bullet(
+      'Baseline request',
+      `${inlineCode(b.baselineRequestId)} (${formatMicros(b.baselineDurationMicros)}${routeP50})`
+    )
+  )
+  if (b.durationDeltaMicros != null) {
+    lines.push(bullet('Duration delta', formatSignedMicros(b.durationDeltaMicros)))
+  }
+  if (b.sqlExecutionsDelta != null) {
+    const duration = b.sqlDurationMicrosDelta != null ? ` (${formatSignedMicros(b.sqlDurationMicrosDelta)})` : ''
+    lines.push(bullet('SQL delta', `${formatSignedCount(b.sqlExecutionsDelta, 'execution')}${duration}`))
+  }
+  if (b.connectionWaitMicrosDelta != null) {
+    lines.push(bullet('Connection wait delta', formatSignedMicros(b.connectionWaitMicrosDelta)))
+  }
+  if (b.cacheHitsDelta != null || b.cacheMissesDelta != null) {
+    const parts = []
+    if (b.cacheMissesDelta != null) parts.push(formatSignedCount(b.cacheMissesDelta, 'miss', 'misses'))
+    if (b.cacheHitsDelta != null) parts.push(formatSignedCount(b.cacheHitsDelta, 'hit'))
+    lines.push(bullet('Cache delta', parts.join(', ')))
+  }
+  if (b.restClientCallsDelta != null) {
+    const duration =
+      b.restClientDurationMicrosDelta != null ? ` (${formatSignedMicros(b.restClientDurationMicrosDelta)})` : ''
+    lines.push(bullet('REST client delta', `${formatSignedCount(b.restClientCallsDelta, 'call')}${duration}`))
+  }
+  if (b.ormFlushesDelta != null || b.ormAutoFlushesDelta != null || b.ormMaxEntitiesDelta != null) {
+    const parts = []
+    if (b.ormFlushesDelta != null) parts.push(formatSignedCount(b.ormFlushesDelta, 'flush', 'flushes'))
+    if (b.ormAutoFlushesDelta != null) {
+      parts.push(formatSignedCount(b.ormAutoFlushesDelta, 'auto-flush', 'auto-flushes'))
+    }
+    if (b.ormMaxEntitiesDelta != null) {
+      parts.push(`${formatSignedNumber(b.ormMaxEntitiesDelta)} peak entities in context`)
+    }
+    lines.push(bullet('Hibernate delta', parts.join(', ')))
+  }
+  if (b.gcPausesTarget != null && b.gcPausesBaseline != null) {
+    lines.push(
+      bullet(
+        'JVM-wide GC pauses completed during request',
+        `${formatNumber(b.gcPausesTarget)} in target vs ${formatNumber(b.gcPausesBaseline)} in baseline`
+      )
+    )
+  }
+  push(doc, heading(level, 'Compared with baseline request'), lines.join('\n'))
+  if (b.distinctSqlShapesOnlyInTarget?.length) {
+    push(
+      doc,
+      heading(level + 1, 'Distinguishing SQL shapes in target request'),
+      b.distinctSqlShapesOnlyInTarget.map((shape) => `- ${inlineCode(shape)}`).join('\n')
+    )
+  }
 }
 
 function sqlSection(doc, profile, sections, level) {
@@ -552,6 +641,7 @@ function notesSection(doc, profile, level) {
 function profileBody(doc, profile, exceptionDetails, journalProfile, level) {
   const sections = profileSections(profile)
   requestSection(doc, profile, level)
+  baselineComparisonSection(doc, profile, journalProfile, level)
   sqlSection(doc, profile, sections, level)
   exceptionsSection(doc, profile, sections, exceptionDetails, level)
   securitySection(doc, profile, sections, level)

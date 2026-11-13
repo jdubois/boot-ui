@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
 public class InsightOrderService {
 
     private static final int REMOTE_PRICE_LATENCY_MILLIS = 40;
+    private static final int OUTLIER_QUOTE_LATENCY_MILLIS = 150;
 
     private final JdbcTemplate jdbc;
     private final InsightAuditWriter audit;
@@ -158,14 +159,39 @@ public class InsightOrderService {
         return report;
     }
 
+    /**
+     * {@code route-latency-outliers}: reads an order's invoice fast by default, while order 6 also loads its lines and
+     * waits on a slow remote carrier quote on the same route template.
+     */
+    public Map<String, Object> invoice(long id) {
+        Map<String, Object> order =
+                jdbc.queryForMap("select id, customer, total_cents from insight_orders where id = ?", id);
+        if (id == 6) {
+            List<Map<String, Object>> lines =
+                    jdbc.queryForList("select sku, quantity from insight_order_lines where order_id = ?", id);
+            return Map.of("order", order, "lines", lines.size(), "quote", remoteSlowCall(OUTLIER_QUOTE_LATENCY_MILLIS));
+        }
+        return Map.of("order", order);
+    }
+
+    /** The counterexample: every order receipt executes the same fast read with no outlier spike or extra work. */
+    public Map<String, Object> receipt(long id) {
+        return Map.of(
+                "order", jdbc.queryForMap("select id, customer, total_cents from insight_orders where id = ?", id));
+    }
+
     private String remotePrice() {
+        return remoteSlowCall(REMOTE_PRICE_LATENCY_MILLIS);
+    }
+
+    private String remoteSlowCall(int latencyMillis) {
         String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
         // A deliberately slow remote service: the check only reports a call of at least 20 ms, and a plain
         // local call can be faster than that (as with the Redis-backed cache of the docker profile).
         return restClients
                 .build()
                 .get()
-                .uri("http://localhost:" + port + "/api/sample/slow?ms=" + REMOTE_PRICE_LATENCY_MILLIS)
+                .uri("http://localhost:" + port + "/api/sample/slow?ms=" + latencyMillis)
                 .retrieve()
                 .body(String.class);
     }
