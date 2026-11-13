@@ -673,6 +673,13 @@
             <id>release</id>
             <build>
                 <plugins>
+                    <!--
+                        Every published JAR ships a companion -sources.jar in Maven Central for IDE step-debugging,
+                        and default-compile keeps SourceFile, LineNumberTable, and MethodParameters (-parameters) for
+                        full stack traces and reflection. Omitting redundant LocalVariableTable/LocalVariableTypeTable
+                        entries from release main classes keeps the signed Maven Central bundle well under the 20 MB
+                        ceiling enforced by check-central-bundle.py without affecting test compilation or bootui-agent-bridge.
+                    -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
