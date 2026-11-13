@@ -598,7 +598,7 @@ With verified Panache transformation, the public-persistent-field finding does n
 
 ![BootUI Memory panel](../images/bootui-memory.webp)
 
-The Memory panel runs an explicit, read-only scan of 28 active rules over the live JVM management beans: heap and
+The Memory panel runs an explicit, read-only scan of 31 active rules over the live JVM management beans: heap and
 memory pools, garbage collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked
 findings such as heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead,
 thread deadlocks, and collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they

@@ -220,10 +220,13 @@ public final class MemoryScanner {
                     BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, histogramOnlyCount);
         }
 
-        MemoryContext evaluated = context.withRuntime(adjustedRuntime)
-                .withGcTrend(trend)
-                .withLatestGcEvent(latestGcEvent)
-                .withViolationCollector(collector);
+        MemoryContext withEvent =
+                context.withRuntime(adjustedRuntime).withGcTrend(trend).withLatestGcEvent(latestGcEvent);
+        MemoryContext withExplicitGc = withEvent.explicitGc().count() == 0
+                        && postDiagnostic.explicitGc().count() > 0
+                ? withEvent.withExplicitGc(postDiagnostic.explicitGc())
+                : withEvent;
+        MemoryContext evaluated = withExplicitGc.withViolationCollector(collector);
 
         List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluateWithEvidence(evaluated))

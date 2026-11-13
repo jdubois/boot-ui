@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 
 class MemoryScannerTests {
 
-    private static final int RULE_COUNT = 28;
+    private static final int RULE_COUNT = 31;
     private static final long MB = 1024L * 1024;
     private static final long GB = 1024L * 1024 * 1024;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);
@@ -649,23 +649,27 @@ class MemoryScannerTests {
         lowFootprint.enable();
 
         // Scan 2 must ignore both Scan 1's 20s histogram GC and Low-Footprint/Offload's 55s Full GC
+        // (even if GcEventSource delivered an asynchronous "System.gc()" notification for that offload GC).
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 675_000L, 55_000L);
         MemoryReport secondReport = scanner.scan();
         assertThat(secondReport.results())
                 .extracting(MemoryRuleResultDto::id)
-                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006");
+                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006", "MEM-GC-009");
 
         // Positive control: a genuine application Full GC (8,000 ms over 20,000 ms window) after Scan 2
-        // still triggers MEM-GC-003, MEM-GC-005, and MEM-GC-006.
+        // still triggers MEM-GC-003, MEM-GC-005, and MEM-GC-006, and an external System.gc() triggers MEM-GC-009.
         uptime.addAndGet(20_000L);
         gcTime.addAndGet(8_000L);
         long appGcId = gcCount.incrementAndGet();
-        oldGenCount.incrementAndGet();
+        long appOldGenId = oldGenCount.incrementAndGet();
         latestEvent.set(new MemoryContext.GcEvent(appGcId, uptime.get(), 8_000L, "G1 Old Generation"));
+        tracker.recordGcNotification(
+                "G1 Old Generation", appOldGenId, "end of major GC", "System.gc()", uptime.get(), 8_000L);
 
         MemoryReport thirdReport = scanner.scan();
         assertThat(thirdReport.results())
                 .extracting(MemoryRuleResultDto::id)
-                .contains("MEM-GC-003", "MEM-GC-005", "MEM-GC-006")
+                .contains("MEM-GC-003", "MEM-GC-005", "MEM-GC-006", "MEM-GC-009")
                 .doesNotContain("MEM-GC-002");
     }
 

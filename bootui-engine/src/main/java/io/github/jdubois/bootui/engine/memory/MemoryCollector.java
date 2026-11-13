@@ -200,6 +200,8 @@ final class MemoryCollector {
         Long containerCurrent = containerCurrentValue.isPresent() ? containerCurrentValue.getAsLong() : null;
         OptionalLong containerWorkingSetValue = containerMemory.workingSet();
         Long containerWorkingSet = containerWorkingSetValue.isPresent() ? containerWorkingSetValue.getAsLong() : null;
+        OptionalLong containerHighValue = containerMemory.high();
+        Long containerHigh = containerHighValue.isPresent() ? containerHighValue.getAsLong() : null;
 
         return new MemoryData(
                 heap.getUsed(),
@@ -218,7 +220,9 @@ final class MemoryCollector {
                 containerLimit,
                 containerCurrent,
                 containerWorkingSet,
-                bufferPools);
+                bufferPools,
+                containerHigh,
+                containerMemory.events());
     }
 
     private ThreadData collectThreads() {
@@ -274,8 +278,8 @@ final class MemoryCollector {
         if (entries.isEmpty()) {
             return HeapContentData.failed();
         }
-        // Totals cover every histogram row so percentage-of-heap rules are not skewed by the
-        // top-N truncation applied to the entries surfaced for display.
+        // Totals and ClassLoader/proxy summaries cover every histogram row so rules are not skewed
+        // by the top-N truncation applied to the entries surfaced for display.
         long totalInstances = 0;
         long totalBytes = 0;
         for (HeapClassHistogramEntryDto entry : entries) {
@@ -285,7 +289,18 @@ final class MemoryCollector {
                 return HeapContentData.failed();
             }
         }
-        return new HeapContentData(true, topEntries(entries), totalInstances, totalBytes);
+        MemoryContext.HistogramClassSummary summary = MemoryContext.HistogramClassSummary.from(entries);
+        return new HeapContentData(
+                true,
+                topEntries(entries),
+                totalInstances,
+                totalBytes,
+                null,
+                summary.classLoaderEntries(),
+                summary.dynamicClassLoaderInstances(),
+                summary.generatedProxyClassCount(),
+                summary.generatedProxyInstances(),
+                summary.generatedProxyBytes());
     }
 
     private ClassLoadingData collectClassLoading() {

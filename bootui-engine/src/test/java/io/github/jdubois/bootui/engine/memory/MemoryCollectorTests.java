@@ -292,4 +292,56 @@ class MemoryCollectorTests {
                 .thenThrow(new UnsupportedOperationException("collection usage not supported"));
         assertThat(MemoryCollector.safeCollectionUsage(unsupported)).isNull();
     }
+
+    @Test
+    void readsCgroupV2MemoryHighAndMemoryEventsEvenWhenMemoryMaxIsUnlimited() throws Exception {
+        Path mountPoint = tempDir.resolve("cgroup2");
+        Path processCgroup = mountPoint.resolve("kubepods/pod-qos");
+        Files.createDirectories(processCgroup);
+        Files.writeString(processCgroup.resolve("memory.max"), "max\n");
+        Files.writeString(processCgroup.resolve("memory.high"), "805306368\n");
+        Files.writeString(processCgroup.resolve("memory.current"), "751619276\n");
+        Files.writeString(
+                processCgroup.resolve("memory.events"), "low 0\nhigh 14\nmax 2\noom 1\noom_kill 1\noom_group_kill 0\n");
+        Path selfCgroup = tempDir.resolve("self.cgroup");
+        Path mountInfo = tempDir.resolve("mountinfo");
+        Files.writeString(selfCgroup, "0::/kubepods/pod-qos\n");
+        Files.writeString(mountInfo, "29 23 0:26 / " + mountPoint + " rw - cgroup2 cgroup rw\n");
+
+        ContainerMemoryLimitDetector detector = ContainerMemoryLimitDetector.fromProcFiles(selfCgroup, mountInfo);
+        ContainerMemoryLimitDetector.CgroupMemorySample sample = detector.detect();
+
+        assertThat(sample.limit()).isEmpty();
+        assertThat(sample.high()).isEqualTo(OptionalLong.of(805_306_368L));
+        assertThat(sample.current()).isEqualTo(OptionalLong.of(751_619_276L));
+        assertThat(sample.events()).isEqualTo(new MemoryContext.CgroupMemoryEvents(14, 2, 1, 1));
+    }
+
+    @Test
+    void aggregatesDynamicClassLoadersAndGeneratedProxiesBeforeTop200Truncation() {
+        StringBuilder raw = new StringBuilder("""
+                 num     #instances         #bytes  class name (module)
+                -------------------------------------------------------
+                """);
+        int row = 1;
+        // 210 large application classes so the top-200 display list truncates everything after rank 200
+        for (int i = 1; i <= 210; i++) {
+            raw.append(String.format(" %4d: %12d %14d  com.example.Payload%03d%n", row++, 10, (300 - i) * 100_000L, i));
+        }
+        // Dynamic ClassLoader and 5,005 generated proxy rows in the long tail beyond rank 200
+        raw.append(String.format(" %4d: %12d %14d  java.net.URLClassLoader%n", row++, 65, 5_200L));
+        raw.append(String.format(" %4d: %12d %14d  jdk.internal.loader.ClassLoaders$AppClassLoader%n", row++, 1, 120L));
+        for (int i = 0; i < 5_005; i++) {
+            raw.append(String.format(" %4d: %12d %14d  com.example.Service$$SpringCGLIB$$%d%n", row++, 1, 32L, i));
+        }
+
+        MemoryContext context =
+                new MemoryCollector(() -> null, raw::toString, ContainerMemoryLimitDetector.disabled()).collect();
+
+        assertThat(context.heapContent().histogram()).hasSize(200);
+        assertThat(context.heapContent().dynamicClassLoaderInstances()).isEqualTo(65L);
+        assertThat(context.heapContent().generatedProxyClassCount()).isEqualTo(5_005);
+        assertThat(new ClassLoaderAndProxyBloatRule().evaluate(context).status())
+                .isEqualTo("VIOLATION");
+    }
 }
