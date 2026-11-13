@@ -32,6 +32,7 @@ final class HibernateRuleRegistry {
             new LazyBasicWithoutEnhancementRule(),
             new CollectionFetchJoinAnnotationRule(),
             new SubselectCollectionFetchRule(),
+            new MultipleLazyLobSameGroupRule(),
             // Identifiers
             new IdentityIdentifierRule(),
             new TableIdentifierRule(),
@@ -61,6 +62,8 @@ final class HibernateRuleRegistry {
             new UnidirectionalOneToManyJoinColumnRule(),
             new EmbeddableSetEqualityRule(),
             new PostgresLobRule(),
+            new MismatchedAccessPlacementRule(),
+            new DeprecatedGenericGeneratorRule(),
 
             // Entity design
             new EqualsHashCodePairRule(),
@@ -70,6 +73,8 @@ final class HibernateRuleRegistry {
             new MissingVersionRule(),
             new NaturalIdCandidateRule(),
             new TemporalVersionRule(),
+            new KotlinDataClassEntityRule(),
+            new PanacheEntityIdShadowingRule(),
 
             // Query
             new ModifyingClearAutomaticallyRule(),
@@ -79,6 +84,7 @@ final class HibernateRuleRegistry {
             new EagerToOneFetchJoinRule(),
             new MultipleCollectionJoinFetchRule(),
             new BulkUpdateVersionRule(),
+            new OpenProjectionValueRule(),
             // Configuration
             new LazyLoadNoTransRule(),
             new JdbcBatchSizeRule(),
@@ -102,7 +108,8 @@ final class HibernateRuleRegistry {
             // Caching
             new CacheAssociationCoverageRule(),
             new ReadOnlyCacheOnWritableEntityRule(),
-            new ImmutableEntityCacheStrategyRule());
+            new ImmutableEntityCacheStrategyRule(),
+            new NaturalIdCacheWithoutEntityCacheRule());
 
     private HibernateRuleRegistry() {}
 

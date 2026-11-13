@@ -30,7 +30,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 69 rules. Twelve retired identifiers stay documented below so old links and persisted
+The active catalog contains 76 rules. Twelve retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -249,6 +249,18 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
   not necessarily every owner in the persistence context. A large owner group can fetch more data than the caller needs.
 - **Recommendation**: keep `SUBSELECT` only for bounded owner sets. Prefer an explicit entity query or DTO projection when
   owner or collection cardinality can be large.
+
+### HIB-FETCH-009 - Multiple lazy @Lob attributes should use distinct @LazyGroup names
+
+- **Severity**: LOW
+- **Inspects**: `@Lob @Basic(fetch = FetchType.LAZY)` attributes and their `@org.hibernate.annotations.LazyGroup`
+  declarations on bytecode-enhanced entities.
+- **Fires when**: a bytecode-enhanced entity declares two or more lazy `@Lob` attributes in the same `@LazyGroup`
+  (including the default `"DEFAULT"` group when `@LazyGroup` is omitted).
+- **Why it matters**: Hibernate initializes all attributes in the same bytecode-enhancement lazy group together, so
+  reading one lazy `@Lob` loads the others in the same group in a single `SELECT`.
+- **Recommendation**: assign distinct `@LazyGroup` names to independent lazy `@Lob` attributes so accessing one large
+  payload does not materialize the others.
 
 ## Identifiers
 
@@ -620,6 +632,34 @@ upgrade.
   deliberate large-object storage, with the `lo_manage` trigger or `vacuumlo` cleanup. On PostgreSQL units, HIB-FETCH-005
   does not also report the attributes this rule covers.
 
+### HIB-MAP-025 - JPA mapping annotations should match the class access type
+
+- **Severity**: HIGH
+- **Inspects**: `@Entity`, `@MappedSuperclass`, and `@Embeddable` classes, their default or explicit `@Access`
+  (`AccessType.FIELD` vs `AccessType.PROPERTY`) placement, and an explicit allowlist of attribute-mapping annotations
+  (`@Column`, `@Formula`, `@Enumerated`, `@Lob`, `@Temporal`, `@Transient`, `@Convert`, `@Converts`, `@JdbcTypeCode`,
+  `@JoinColumn`, `@JoinColumns`, `@JoinTable`, `@OneToOne`, `@ManyToOne`, `@OneToMany`, `@ManyToMany`,
+  `@ElementCollection`, `@Embedded`, `@Version`, `@NaturalId`).
+- **Fires when**: an allowlisted mapping annotation is placed on a getter method while the class uses `AccessType.FIELD`
+  (without `@Access(AccessType.PROPERTY)` on the member), or on a backing field while the class uses
+  `AccessType.PROPERTY` (for example `@get:Id` in Kotlin without `@Access(AccessType.FIELD)` on the field). Lifecycle
+  callback methods (`@PrePersist`, `@PostLoad`, etc.) are never flagged.
+- **Why it matters**: Hibernate silently ignores attribute-mapping annotations placed on the wrong member kind unless
+  explicit `@Access` overrides the access type for that attribute.
+- **Recommendation**: move the mapping annotations to match the class's access type (field vs getter), or annotate the
+  member with `@Access(AccessType.FIELD)` / `@Access(AccessType.PROPERTY)` when mixed access is intentional.
+
+### HIB-MAP-027 - Deprecated @GenericGenerator should be replaced
+
+- **Severity**: LOW
+- **Inspects**: class-level and attribute-level `@org.hibernate.annotations.GenericGenerator` and `@GenericGenerators`
+  declarations.
+- **Fires when**: an entity or mapped attribute declares `@GenericGenerator` or `@GenericGenerators`.
+- **Why it matters**: `@GenericGenerator` and `@GenericGenerators` were deprecated in Hibernate ORM 6.5 and 7.0 in favor
+  of type-safe generator annotations.
+- **Recommendation**: replace `@GenericGenerator` with a meta-annotated `@IdGeneratorType` annotation, `@UuidGenerator`,
+  or standard JPA `@SequenceGenerator` / `@TableGenerator`.
+
 ## Entity design
 
 ### HIB-ENTITY-001 - Entities should override equals and hashCode consistently
@@ -747,6 +787,30 @@ proves lazy loading here; safe ID-only implementations must not receive this fin
 - **Recommendation**: prefer an `Integer` or `Long` version and keep a separate audit timestamp when the modification
   time is needed. Keep a timestamp version when its precision and clock source are deliberate.
 
+### HIB-ENTITY-011 - Kotlin entities should not be declared as data class
+
+- **Severity**: HIGH
+- **Inspects**: Kotlin `@Entity` classes (`@kotlin.Metadata`) for compiler-generated `data class` methods
+  (`copy$default` and `component1`).
+- **Fires when**: a mapped Kotlin entity is declared as a `data class`.
+- **Why it matters**: Kotlin `data class` generates `equals`, `hashCode`, `toString`, and `copy` across primary
+  constructor properties (often including a generated `@Id`, mutable fields, or lazy associations), which breaks `Set`
+  contracts across `persist()` and can trigger unintended lazy initialization or `LazyInitializationException`.
+- **Recommendation**: declare the `@Entity` as a regular `class` (or `open class`) and implement `equals`, `hashCode`,
+  and `toString` explicitly over stable identifier state without traversing lazy associations.
+
+### HIB-ENTITY-012 - PanacheEntity subclasses should not shadow id or declare custom identifiers
+
+- **Severity**: HIGH
+- **Inspects**: Quarkus `PanacheEntity` (ORM, Reactive, and Kotlin) subclasses and their declared identifier fields and
+  getters.
+- **Fires when**: a class extending `PanacheEntity` declares its own `id` field or a custom `@Id` / `@EmbeddedId`
+  attribute.
+- **Why it matters**: `PanacheEntity` already provides `@Id @GeneratedValue public Long id;`. Redeclaring `id` or adding
+  another `@Id` on a `PanacheEntity` subclass shadows the base field or creates conflicting identifier metadata.
+- **Recommendation**: extend `PanacheEntityBase` instead of `PanacheEntity` when declaring a custom identifier, or
+  remove the duplicate `id` field to use `PanacheEntity`'s inherited `Long id`.
+
 ## Query
 
 All HIB-QUERY rules inspect verified Spring Data JPA repository metadata. Quarkus/Panache does not expose equivalent
@@ -860,6 +924,18 @@ legitimate domain reads that need managed entity state.
   increment, a type-compatible current timestamp, or a fresh version parameter (e.g., `set e.lastModified = :now`).
   Recognition is a query-shape heuristic, not proof of runtime advancement: the check does not evaluate parameter
   values, validate expression type compatibility, or guarantee that timestamp precision yields a different value.
+
+### HIB-QUERY-009 - Spring Data interface projections should avoid @Value SpEL
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring Data JPA repository query methods returning interface projections and the methods declared on
+  those projection interfaces.
+- **Fires when**: a projection interface getter is annotated with `@org.springframework.beans.factory.annotation.Value`.
+- **Why it matters**: `@Value` SpEL expressions turn an interface projection into an *open projection*. Spring Data JPA
+  cannot derive a narrow SQL `SELECT` list for open projections and must load the entire root entity to evaluate the
+  SpEL expression in memory.
+- **Recommendation**: replace `@Value` SpEL getters with closed projection property accessors and compute derived values
+  in Java `default` interface methods.
 
 ## Configuration
 
@@ -1168,6 +1244,18 @@ mode this rule could never emit a finding and only forced scans of applications 
   entities; mutable strategies add coordination overhead for updates the mapping forbids.
 - **Recommendation**: consider `@Cache(usage = READ_ONLY)` for genuinely immutable cached state; do not remove
   `@Immutable` merely to silence a cache-efficiency prompt. Disabled caching makes this check inapplicable.
+
+### HIB-CACHE-004 - @NaturalIdCache entities should also enable entity second-level caching
+
+- **Severity**: MEDIUM
+- **Inspects**: entities annotated with `@org.hibernate.annotations.NaturalIdCache` in persistence units where the
+  second-level cache is enabled.
+- **Fires when**: an entity declares `@NaturalIdCache` without entity second-level caching (`@jakarta.persistence.Cacheable`
+  or `@org.hibernate.annotations.Cache` with a non-`NONE` strategy).
+- **Why it matters**: `@NaturalIdCache` only caches the natural-ID-to-primary-key mapping; without entity second-level
+  caching, resolving an entity by natural ID still hits the database to load the entity state by primary key.
+- **Recommendation**: add `@Cacheable` or `@org.hibernate.annotations.Cache` alongside `@NaturalIdCache`, or remove
+  `@NaturalIdCache` if second-level caching of the entity is not desired.
 
 ## Primary research references
 
