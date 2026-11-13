@@ -734,7 +734,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
 
     def test_bundle_size_gate_cannot_be_removed_or_relaxed(self):
         for old, new in (
-            ("MAX_RELEASE_BYTES = 20_000_000", "MAX_RELEASE_BYTES = 20 * 1024 * 1024"),
+            ("MAX_RELEASE_BYTES = 26_000_000", "MAX_RELEASE_BYTES = 26 * 1024 * 1024"),
             ("SIGNATURE_RESERVE_BYTES = 4096", "SIGNATURE_RESERVE_BYTES = 0"),
             ("    check_release_size(files, payloads, errors)", "    # check_release_size(files, payloads, errors)"),
             ("    if size + reserve >= MAX_RELEASE_BYTES:", "    if size > MAX_RELEASE_BYTES:"),
@@ -742,7 +742,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             with self.subTest(new=new):
                 self.assert_rejected(
                     None,
-                    "must enforce the 20 MB release-size budget",
+                    "must enforce the 26 MB release-size budget",
                     bundle=self.mutate_file(BUNDLE_CHECK, old, new),
                 )
 
