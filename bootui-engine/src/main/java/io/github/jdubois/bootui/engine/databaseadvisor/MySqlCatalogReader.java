@@ -36,8 +36,11 @@ final class MySqlCatalogReader {
     private static final String COLUMN_CHARSETS_SQL = """
             select c.table_schema, c.table_name, c.column_name, c.character_set_name, c.collation_name
             from information_schema.columns c
+            join information_schema.tables t
+              on t.table_schema = c.table_schema and t.table_name = c.table_name
             where c.table_schema = database()
-              and c.character_set_name is not null
+              and t.table_type = 'BASE TABLE'
+              and lower(c.character_set_name) in ('utf8', 'utf8mb3')
             order by c.table_name, c.ordinal_position
             limit ?
             """;

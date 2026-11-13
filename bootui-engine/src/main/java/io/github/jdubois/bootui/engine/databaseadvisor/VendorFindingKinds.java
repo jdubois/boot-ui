@@ -16,10 +16,10 @@ final class VendorFindingKinds {
             new VendorFindingKind<>("postgresql.sequences", "PostgreSQL sequence usage", PostgresSequenceUsage.class);
 
     static final VendorFindingKind<PostgresPartitionInfo> POSTGRES_PARTITIONS = new VendorFindingKind<>(
-            "postgresql.partitions", "PostgreSQL partitioned tables", PostgresPartitionInfo.class);
+            "postgresql.partitions", "PostgreSQL partitioned tables", PostgresPartitionInfo.class, true);
 
     static final VendorFindingKind<PostgresExtensionTable> POSTGRES_EXTENSION_TABLES = new VendorFindingKind<>(
-            "postgresql.extension-tables", "PostgreSQL extension-owned tables", PostgresExtensionTable.class);
+            "postgresql.extension-tables", "PostgreSQL extension-owned tables", PostgresExtensionTable.class, true);
 
     static final VendorFindingKind<PostgresUnvalidatedConstraint> POSTGRES_UNVALIDATED_CONSTRAINTS =
             new VendorFindingKind<>(
@@ -31,7 +31,7 @@ final class VendorFindingKinds {
             "postgresql.unlogged-tables", "PostgreSQL unlogged tables", PostgresUnloggedTable.class);
 
     static final VendorFindingKind<PostgresIndexDetail> POSTGRES_INDEX_DETAILS = new VendorFindingKind<>(
-            "postgresql.index-details", "PostgreSQL index semantics", PostgresIndexDetail.class);
+            "postgresql.index-details", "PostgreSQL index semantics", PostgresIndexDetail.class, true);
 
     static final VendorFindingKind<PostgresReplicaIdentityCandidate> POSTGRES_REPLICA_IDENTITY_CANDIDATES =
             new VendorFindingKind<>(
@@ -52,7 +52,7 @@ final class VendorFindingKinds {
             new VendorFindingKind<>("mysql.server-settings", "MySQL/MariaDB server settings", ServerSetting.class);
 
     static final VendorFindingKind<MySqlTableInfo> MYSQL_TABLES =
-            new VendorFindingKind<>("mysql.tables", "MySQL/MariaDB table metadata", MySqlTableInfo.class);
+            new VendorFindingKind<>("mysql.tables", "MySQL/MariaDB table metadata", MySqlTableInfo.class, true);
 
     static final VendorFindingKind<MySqlColumnCharset> MYSQL_COLUMN_CHARSETS = new VendorFindingKind<>(
             "mysql.column-charsets", "MySQL/MariaDB column character sets", MySqlColumnCharset.class);
@@ -60,19 +60,19 @@ final class VendorFindingKinds {
     static final VendorFindingKind<MySqlAutoIncrementColumn> MYSQL_AUTO_INCREMENT_COLUMNS = new VendorFindingKind<>(
             "mysql.auto-increment-columns", "MySQL/MariaDB AUTO_INCREMENT columns", MySqlAutoIncrementColumn.class);
 
-    static final VendorFindingKind<MySqlIndexDetail> MYSQL_INDEX_DETAILS =
-            new VendorFindingKind<>("mysql.index-details", "MySQL/MariaDB index semantics", MySqlIndexDetail.class);
+    static final VendorFindingKind<MySqlIndexDetail> MYSQL_INDEX_DETAILS = new VendorFindingKind<>(
+            "mysql.index-details", "MySQL/MariaDB index semantics", MySqlIndexDetail.class, true);
 
-    static final VendorFindingKind<OracleIndexDetail> ORACLE_INDEX_DETAILS =
-            new VendorFindingKind<>("oracle.index-details", "Oracle index status/visibility", OracleIndexDetail.class);
+    static final VendorFindingKind<OracleIndexDetail> ORACLE_INDEX_DETAILS = new VendorFindingKind<>(
+            "oracle.index-details", "Oracle index status/visibility", OracleIndexDetail.class, true);
 
     static final VendorFindingKind<OracleIndexPartitionStatus> ORACLE_INDEX_PARTITION_STATUS = new VendorFindingKind<>(
             "oracle.index-partition-status",
             "Oracle index partition/subpartition status",
             OracleIndexPartitionStatus.class);
 
-    static final VendorFindingKind<OracleConstraintDetail> ORACLE_CONSTRAINTS =
-            new VendorFindingKind<>("oracle.constraints", "Oracle constraint status", OracleConstraintDetail.class);
+    static final VendorFindingKind<OracleConstraintDetail> ORACLE_CONSTRAINTS = new VendorFindingKind<>(
+            "oracle.constraints", "Oracle constraint status", OracleConstraintDetail.class, true);
 
     static final VendorFindingKind<OracleSequenceUsage> ORACLE_SEQUENCES =
             new VendorFindingKind<>("oracle.sequences", "Oracle sequence usage", OracleSequenceUsage.class);

@@ -6,12 +6,20 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAttributeModel;
+import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
 import io.github.jdubois.bootui.spi.NamedDataSource;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
@@ -62,7 +70,7 @@ class OracleDatabaseAdvisorLiveTests {
             statement.execute("alter index ix_orders_customer unusable");
 
             // A foreign key constraint disabled after creation: enforces nothing until re-enabled.
-            statement.execute("create table customers (id number(19) primary key)");
+            statement.execute("create table customers (id number(19) primary key, email varchar2(100))");
             statement.execute("alter table orders add constraint fk_orders_customer "
                     + "foreign key (customer_id) references customers(id)");
             statement.execute("alter table orders disable constraint fk_orders_customer");
@@ -152,6 +160,47 @@ class OracleDatabaseAdvisorLiveTests {
                         value -> assertThat(value).isEmpty(),
                         value -> assertThat(value.get().sampleViolations())
                                 .noneMatch(detail -> detail.contains("ORDER_LINES")));
+    }
+
+    @Entity
+    @Table(name = "customers")
+    static class Customer {
+        @Id
+        @Column(name = "id", unique = true)
+        Long id;
+
+        @Column(name = "email", unique = true, length = 100)
+        String email;
+    }
+
+    @Test
+    void declaredUniquenessConcludesAgainstTheLiveOracleCatalog() {
+        List<HibernateAttributeModel> attributes = new java.util.ArrayList<>();
+        for (Field field : Customer.class.getDeclaredFields()) {
+            attributes.add(new HibernateAttributeModel(
+                    "Customer",
+                    field.getName(),
+                    field.getType(),
+                    field.getGenericType(),
+                    "BASIC",
+                    false,
+                    true,
+                    Arrays.asList(field.getAnnotations())));
+        }
+        EntityDiscovery entities = new EntityDiscovery(
+                List.of(new HibernateEntityModel("Customer", Customer.class, attributes)), List.of(), List.of());
+        DatabaseAdvisorReport report = DatabaseAdvisorScanner.using(
+                        () -> List.of(new NamedDataSource("primary", dataSource)), () -> entities, Clock.systemUTC())
+                .scan();
+
+        assertThat(finding(report, "DB-HIB-005")).hasValueSatisfying(result -> {
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations())
+                    .singleElement()
+                    .asString()
+                    .contains("Customer#email", "no enforcing key");
+        });
+        assertThat(report.diagnostics()).noneMatch(diagnostic -> "DB-HIB-005".equals(diagnostic.source()));
     }
 
     @Test

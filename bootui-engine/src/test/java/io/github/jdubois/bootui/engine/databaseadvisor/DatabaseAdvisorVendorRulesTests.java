@@ -229,7 +229,7 @@ class DatabaseAdvisorVendorRulesTests {
     // --- DB-PG-003: NOT VALID constraints ---
 
     @Test
-    void postgresUnvalidatedConstraintRuleReportsForeignKeyAndCheckConstraints() {
+    void postgresUnvalidatedConstraintRuleReportsForeignKeyCheckAndNotNullConstraints() {
         SchemaSnapshot postgres = vendorSchema(
                 "ds",
                 Dialect.POSTGRESQL,
@@ -239,13 +239,21 @@ class DatabaseAdvisorVendorRulesTests {
                                 new PostgresUnvalidatedConstraint(
                                         "public", "orders", "fk_orders_customer", "f", "FOREIGN KEY ..."),
                                 new PostgresUnvalidatedConstraint(
-                                        "public", "orders", "ck_total_positive", "c", "CHECK ...")),
+                                        "public", "orders", "ck_total_positive", "c", "CHECK ..."),
+                                new PostgresUnvalidatedConstraint(
+                                        "public",
+                                        "orders",
+                                        "orders_customer_id_not_null",
+                                        "n",
+                                        "NOT NULL customer_id",
+                                        true)),
                         false));
         DatabaseAdvisorRuleResultDto result = new PostgresUnvalidatedConstraintRule().evaluate(context(postgres));
         assertThat(result.status()).isEqualTo(VIOLATION);
-        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.violationCount()).isEqualTo(3);
         assertThat(result.sampleViolations().get(0)).contains("foreign key constraint fk_orders_customer");
         assertThat(result.sampleViolations().get(1)).contains("check constraint ck_total_positive");
+        assertThat(result.sampleViolations().get(2)).contains("not-null constraint orders_customer_id_not_null");
     }
 
     @Test

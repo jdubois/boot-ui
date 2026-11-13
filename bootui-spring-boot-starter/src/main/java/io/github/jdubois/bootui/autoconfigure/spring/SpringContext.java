@@ -42,6 +42,7 @@ record SpringContext(
         int reactiveHandlerMethodCount,
         List<String> defaultPackageBeans,
         List<String> mutableSingletonFields,
+        boolean applicationSecurityChainPresent,
         SpringObservations observations,
         AdvisorViolationCollector violationCollector,
         SpringProperties properties) {
@@ -103,6 +104,7 @@ record SpringContext(
                 reactiveHandlerMethodCount,
                 defaultPackageBeans,
                 mutableSingletonFields,
+                observations != null && observations.yes(SpringObservations.Fact.APPLICATION_SECURITY_CHAIN),
                 observations,
                 null,
                 new SpringProperties(environment));
@@ -137,6 +139,7 @@ record SpringContext(
                 reactiveHandlerMethodCount,
                 defaultPackageBeans,
                 mutableSingletonFields,
+                applicationSecurityChainPresent,
                 observations,
                 collector,
                 properties);
@@ -153,6 +156,8 @@ record SpringContext(
         cacheManagers = List.copyOf(cacheManagers);
         defaultPackageBeans = List.copyOf(defaultPackageBeans);
         mutableSingletonFields = List.copyOf(mutableSingletonFields);
+        applicationSecurityChainPresent = applicationSecurityChainPresent
+                || (observations != null && observations.yes(SpringObservations.Fact.APPLICATION_SECURITY_CHAIN));
         if (properties == null) {
             properties = new SpringProperties(environment);
         }
@@ -328,6 +333,7 @@ record SpringContext(
         private int reactiveHandlerMethodCount;
         private List<String> defaultPackageBeans = List.of();
         private List<String> mutableSingletonFields = List.of();
+        private boolean applicationSecurityChainPresent;
         private SpringObservations observations = SpringObservations.unknown();
 
         private Builder(Environment environment) {
@@ -474,6 +480,11 @@ record SpringContext(
             return this;
         }
 
+        Builder applicationSecurityChainPresent(boolean value) {
+            this.applicationSecurityChainPresent = value;
+            return this;
+        }
+
         SpringContext build() {
             return new SpringContext(
                     environment,
@@ -503,7 +514,10 @@ record SpringContext(
                     reactiveHandlerMethodCount,
                     defaultPackageBeans,
                     mutableSingletonFields,
-                    observations);
+                    applicationSecurityChainPresent,
+                    observations,
+                    null,
+                    new SpringProperties(environment));
         }
     }
 }

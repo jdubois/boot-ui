@@ -30,7 +30,8 @@ If a vendor query fails mid-stream, that query's rows are discarded and its fail
 JDBC metadata and independent catalog families remain available. A normal row/deadline bound instead retains
 the observed prefix with incomplete coverage.
 
-The limits are 300 tables, 300 columns and 100 indexes per table, 500 rows per vendor query, a **cooperative**
+The limits are 300 tables, 300 columns and 100 indexes per table, 500 rows per vendor finding query, 5,000 rows per
+vendor schema-enrichment query, a **cooperative**
 20-second scan budget, and a 5-second catalog statement timeout clamped to the remaining budget. Bounded reads
 detect truncation rather than treating the retained prefix as a complete inventory. Metadata row processing
 also has finite bounds. JDBC timeouts have second-level granularity.
@@ -82,7 +83,7 @@ percent-encoded parts joined with `|`, derived from the physical object and neve
 | A pair (duplicate index or key)   | the table parts, then both names in sorted order, so the pair has one identity                   |
 | A sequence                        | `ds=<datasource>`, `schema=`, `sequence=`                                                        |
 | A Hibernate mapping mismatch      | the resolved table parts, then `attribute=` and `column=` (or `columns=`, `unique=`)             |
-| A mapped entity with no table     | `entity=<entity>`, then `relation=` or `secondary=`                                              |
+| A mapped entity with no table     | `ds=<datasource>`, then `entity=<entity>`, then `relation=` or `secondary=`      |
 | A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
 | A JDBC driver setting (DB-DRIVER-001..009) | `ds=<datasource>`, then `setting=<setting name>` (`setting=cachePrepStmts` for DB-DRIVER-004); never a value |
 | A connection-pool setting (DB-POOL-001..004) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
@@ -261,10 +262,10 @@ See [CREATE SEQUENCE](https://www.postgresql.org/docs/17/sql-createsequence.html
 
 ### DB-PG-003 - PostgreSQL NOT VALID constraint never validated
 
-**MEDIUM.** The retained ID reports a constraint **currently not validated**; the historical heading is
+**MEDIUM.** The retained ID reports a foreign-key, check or PostgreSQL 18+ `NOT NULL` constraint (`pg_constraint.contype in ('f', 'c', 'n')`) **currently not validated**; the historical heading is
 retained for existing links, not as a claim that it was never validated or that a migration was forgotten.
 NOT VALID normally checks new/updated rows while leaving existing rows unverified. PostgreSQL 18 also
-distinguishes enforcement state. Review the intended migration stage and version-supported validation;
+distinguishes enforcement state and represents `NOT NULL` constraints in `pg_constraint`. Review the intended migration stage and version-supported validation;
 the snapshot does not prove bad rows or how long the state has existed.
 See [ALTER TABLE](https://www.postgresql.org/docs/17/sql-altertable.html) and
 [PostgreSQL 18 pg_constraint](https://www.postgresql.org/docs/18/catalog-pg-constraint.html).
@@ -375,7 +376,7 @@ both use Persistence 3.2.0. The matching
 [7.4](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/boot/model/naming/PhysicalNamingStrategy.html)
 contract explicitly distinguishes logical names from names used in generated DML/DDL.
 
-No persistence-unit-to-datasource or effective optimizer contract is guessed. Failed or ambiguous source
+No persistence-unit-to-datasource or effective optimizer contract is guessed: in multi-datasource applications, entities are evaluated against a datasource only when their persistence unit is unambiguously attributed to that datasource's connection pool. Failed or ambiguous source
 inventories, unresolved inheritance/overrides, incomplete columns and unsupported association placement
 cannot prove missing schema objects. Relation-name resolution must not confuse a mapped view with a
 missing base table. Ordinary reflection also cannot distinguish an omitted annotation default from that
@@ -491,10 +492,10 @@ and [MySQL 8.4 fixed-point types](https://dev.mysql.com/doc/refman/8.4/en/fixed-
 **LOW.** Describes distinct retained SQL texts sharing a normalized shape that contains predicate literals,
 within a bounded SQL Trace observation window. It issues no new query and reports bounded counts and an
 opaque shape identifier, not captured literal values or allegedly guaranteed literal-free SQL text. Executions
-that differ only in the number of bound `IN (?, ?)` placeholders count as one text. Pass the shape id as the
+that differ only in SQL comments, unquoted whitespace, or the number of bound `IN (?, ?)` placeholders count as one text. Pass the shape id as the
 `get_sql_traces` `query` to list its statements.
 
-Changed comments, whitespace, projection constants or legitimate framework discriminator literals can
+Changed projection constants or legitimate framework discriminator literals can
 produce variation. This does **not** establish that predicate values changed, that code concatenated input,
 that a plan cache is inefficient or that an injection vulnerability exists. A larger variant count is not
 “high confidence” in any of those claims. Inspect the existing SQL Trace evidence and call site before

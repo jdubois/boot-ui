@@ -71,11 +71,11 @@ class RestApiRulesTests {
     }
 
     @Test
-    void responseRulesFlagCreationAndScalarReads() {
+    void responseRulesFlagCreationAndRetireScalarReads() {
         RestApiContext context = context(false, FIXTURES);
 
         assertThat(status(new CreationReturns201Rule(), context)).isEqualTo("VIOLATION");
-        assertThat(status(new ReadEndpointsReturnRepresentationRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new ReadEndpointsReturnRepresentationRule(), context)).isEqualTo("SKIPPED");
     }
 
     @Test
@@ -129,15 +129,15 @@ class RestApiRulesTests {
     }
 
     @Test
-    void documentationRulesAreSkippedWithoutSpringdocAndFireWithIt() {
+    void documentationRulesAreRetiredRegardlessOfOpenApiPresence() {
         assertThat(status(new EndpointsAreDocumentedRule(), context(false, FIXTURES)))
                 .isEqualTo("SKIPPED");
         assertThat(status(new ControllersAreTaggedRule(), context(false, FIXTURES)))
                 .isEqualTo("SKIPPED");
         assertThat(status(new EndpointsAreDocumentedRule(), context(true, FIXTURES)))
-                .isEqualTo("VIOLATION");
+                .isEqualTo("SKIPPED");
         assertThat(status(new ControllersAreTaggedRule(), context(true, FIXTURES)))
-                .isEqualTo("VIOLATION");
+                .isEqualTo("SKIPPED");
     }
 
     @Test
@@ -164,7 +164,7 @@ class RestApiRulesTests {
                 .isEqualTo("PASS");
         assertThat(status(new OptionalPrimitiveRequestParamRule(), context)).isEqualTo("PASS");
         assertThat(status(new MutatingEndpointsDeclareMediaTypesRule(), context))
-                .isEqualTo("PASS");
+                .isEqualTo("SKIPPED");
         assertThat(status(new PatchUsesPatchMediaTypeRule(), context)).isEqualTo("PASS");
         assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("PASS");
     }
@@ -195,11 +195,11 @@ class RestApiRulesTests {
     }
 
     @Test
-    void versioningEdgeRulesFlagMissingConsumesAndPatchMediaType() {
+    void versioningEdgeRulesRetireMissingConsumesAndEvaluatePatchMediaType() {
         RestApiContext context = context(false, EDGE);
 
         assertThat(status(new MutatingEndpointsDeclareMediaTypesRule(), context))
-                .isEqualTo("VIOLATION");
+                .isEqualTo("SKIPPED");
         RestApiRuleResultDto patchResult = new PatchUsesPatchMediaTypeRule().evaluate(context);
         assertThat(patchResult.status()).isEqualTo("PASS");
     }
@@ -212,23 +212,23 @@ class RestApiRulesTests {
     }
 
     @Test
-    void phase2RulesFlagBadPhase2Controller() {
+    void phase2RulesAreRetiredOnBadPhase2Controller() {
         RestApiContext context = context(false, PHASE2_BAD);
 
         assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("SKIPPED");
-        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
-                .isEqualTo("VIOLATION");
+                .isEqualTo("SKIPPED");
     }
 
     @Test
-    void phase2RulesPassCleanPhase2Controller() {
+    void phase2RulesAreRetiredOnCleanPhase2Controller() {
         RestApiContext context = context(false, PHASE2_GOOD);
 
         assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("SKIPPED");
-        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
+        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
-                .isEqualTo("PASS");
+                .isEqualTo("SKIPPED");
     }
 
     @Test
@@ -356,12 +356,10 @@ class RestApiRulesTests {
     }
 
     @Test
-    void name002DoesNotFlagUncountableNouns() {
-        // /history from Phase3GoodController returns a collection but the noun is uncountable —
-        // NAME-002 must not flag it.
+    void name002IsRetired() {
         RestApiContext context = context(false, PHASE3_GOOD);
 
-        assertThat(status(new CollectionsUsePluralNounsRule(), context)).isEqualTo("PASS");
+        assertThat(status(new CollectionsUsePluralNounsRule(), context)).isEqualTo("SKIPPED");
     }
 
     @Test
@@ -446,20 +444,15 @@ class RestApiRulesTests {
 
         assertThat(status(new NoDuplicateRouteMappingsRule(), context)).isEqualTo("PASS");
         assertThat(status(new PathSegmentsAreKebabCaseRule(), context)).isEqualTo("PASS");
-        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
+        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("SKIPPED");
         assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("PASS");
     }
 
     @Test
-    void classLevelBasePathRuleIgnoresMappingsDeclaredOnAControllerInterface() {
-        // Issue #927: openapi-generator's kotlin-spring interfaceOnly output annotates the generated
-        // *Api interface with @RestController and repeats the full path on every method, a layout the
-        // implementing author cannot restructure. Hand-written class controllers stay reported.
+    void classLevelBasePathRuleIsRetired() {
         RestApiRuleResultDto result = new PreferClassLevelBasePathRule().evaluate(context(false, SPEC_FIRST));
 
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.violationCount()).isEqualTo(1);
-        assertThat(result.sampleViolations()).anyMatch(violation -> violation.contains("HandWrittenRefundsController"));
-        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("GeneratedPaymentsGuestApi"));
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(result.violationCount()).isZero();
     }
 }

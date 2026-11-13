@@ -4,9 +4,10 @@ The REST API panel runs a fixed, zero-config ruleset against the host applicatio
 Spring MVC and Spring WebFlux controllers, or JAX-RS/Quarkus REST resource methods. It reports declaration conflicts
 and conditional design-review prompts, not a verdict on the application's runtime HTTP behavior.
 
-There are **60 stable rule definitions across 8 categories, with 53 potentially emitting rules**. Seven definitions
-(`RAPI-MAP-008`, `RAPI-NAME-004`, `RAPI-ERR-011`, `RAPI-DOC-003`, `RAPI-VALID-005`, `RAPI-DTO-004`, and
-`RAPI-ERR-002`) retain their IDs but always return `SKIPPED`: their evidence cannot establish an HTTP contract defect.
+There are **60 stable rule definitions across 8 categories, with 45 potentially emitting rules**. Fifteen definitions
+(`RAPI-MAP-004`, `RAPI-MAP-008`, `RAPI-NAME-002`, `RAPI-NAME-004`, `RAPI-RESP-004`, `RAPI-RESP-008`, `RAPI-VALID-005`,
+`RAPI-DTO-004`, `RAPI-VER-002`, `RAPI-VER-005`, `RAPI-ERR-002`, `RAPI-ERR-011`, `RAPI-DOC-001`, `RAPI-DOC-002`, and
+`RAPI-DOC-003`) retain their IDs but always return `SKIPPED`: their evidence cannot establish an HTTP contract defect.
 Retired IDs are never reused, so saved dismissals keep their identity. The
 [complete audit disposition ledger](#complete-audit-disposition-ledger) records the original 56 decisions, and the
 [contract-defect audit](#contract-defect-audit-2026) records the later removals, fixes, and four additions.
@@ -148,11 +149,11 @@ confidence: a mutation-like method name is weaker evidence than a conflicting re
 | Scope | HIGH | MEDIUM | LOW | INFO | Total |
 | --- | --- | --- | --- | --- | --- |
 | Stable definitions, including retired emissions | 9 | 7 | 20 | 24 | 60 |
-| Potentially emitting rules | 8 | 7 | 17 | 21 | 53 |
+| Potentially emitting rules | 8 | 7 | 15 | 15 | 45 |
 
-The documentation checks are gated by the optional OpenAPI integration: Swagger/springdoc annotation availability on
-Spring or MicroProfile OpenAPI on Quarkus. Both annotation families are recognized without making either dependency
-mandatory. Missing annotations are not proof that generated or static documentation is absent.
+The `RAPI-DOC-*` documentation rules are retired and always return `SKIPPED`: Swagger/springdoc on Spring and
+MicroProfile OpenAPI on Quarkus generate OpenAPI documents from controller signatures without requiring explicit
+`@Operation` or `@Tag` annotations.
 
 The shared advisor score weights concrete findings, not just violated rule IDs; dismissing a rule removes its
 findings from that calculation. `SCANNED` and `PARTIAL` reports can score usable observed evidence, while complete-empty
@@ -199,11 +200,8 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-MAP-004 - Prefer a class-level base path
 
-- **Severity**: LOW
-- **Detects**: Spring controller mapping alternatives repeat a common leading segment without a type-level base path.
-  All alternatives must support that conclusion. Controller interfaces, including generated spec-first interfaces,
-  are exempt; hand-written interfaces receive the same exemption.
-- **Recommendation**: Optionally hoist the common prefix to the class. This is a maintainability preference, not HTTP correctness.
+**Retired.** Always `SKIPPED` (`LOW` metadata retained). Repeating a full path on each handler method for greppability
+is a code-layout preference with zero effect on the HTTP contract. The dismissal ID remains reserved.
 - **Learn more**: [Spring mapping declarations][spring-mapping].
 
 ### RAPI-MAP-005 - Review trailing and doubled slashes
@@ -280,11 +278,9 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-NAME-002 - Consider plural collection names
 
-- **Severity**: INFO
-- **Detects**: A known collection-shaped response with a singular-looking endpoint name, excluding recognized
-  uncountable/collective words such as `history`, `inventory`, `staff`, and `news`.
-- **Recommendation**: Use a consistent vocabulary appropriate to the API's language. Return shape and English
-  spelling do not prove runtime cardinality; binary bodies are not resource collections.
+**Retired.** Always `SKIPPED` (`INFO` metadata retained). An English suffix check on the last static path segment cannot
+distinguish resource collections from sub-resource filters (`/orders/active`), streams (`/orders/stream`), version
+segments (`/orders/v1`), or uncountable domain nouns. The dismissal ID remains reserved.
 - **Learn more**: [RFC 9110 resource identification][http-resources] (pluralization is optional style).
 
 ### RAPI-NAME-003 - Consider lowercase kebab-case paths
@@ -336,10 +332,8 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-RESP-004 - Consider structured read representations
 
-- **Severity**: INFO
-- **Detects**: A GET with a known bare String or primitive body, without an explicit `text/*` media declaration.
-- **Recommendation**: Consider a DTO for an evolving contract. Scalars are valid HTTP/JSON representations, and
-  a structured envelope is optional.
+**Retired.** Always `SKIPPED` (`INFO` metadata retained). Scalar `GET` responses (`/count`, `/exists`, `/ping`) are valid
+HTTP representations, and a structured wrapper is optional. The dismissal ID remains reserved.
 - **Learn more**: [RFC 9110 representations][http-representations].
 
 ### RAPI-RESP-005 - Review default no-body GET declarations
@@ -375,10 +369,9 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-RESP-008 - Consider discoverability for declared 201 responses
 
-- **Severity**: INFO
-- **Detects**: A plain-body declared 201 without a visible header-setting response path, as an optional review prompt.
-- **Recommendation**: Consider Location when a newly created resource differs from the target URI. RFC 9110 uses
-  the target URI when Location is absent. Filters/advice may add headers; this is not a missing-Location finding.
+**Retired.** Always `SKIPPED` (`INFO` metadata retained). Spring has no response-header annotation for
+`@ResponseStatus(HttpStatus.CREATED)` handlers, and RFC 9110 uses the target URI when `Location` is absent. The
+dismissal ID remains reserved.
 - **Learn more**: [RFC 9110 §15.3.2][http-created].
 
 ### RAPI-RESP-009 - Review dedicated HEAD handler efficiency
@@ -576,13 +569,9 @@ bounded versioning hints, not a runtime request proving that version selection w
 
 ### RAPI-VER-002 - Consider explicit consumes declarations
 
-- **Severity**: INFO (was LOW)
-- **Detects**: A POST/PUT/PATCH request-entity declaration without an explicit consumes constraint.
-- **Recommendation**: Declare supported formats on the body-accepting method when useful to the contract. Absence of
-  consumes does not make every media type readable: Spring converters/readers and JAX-RS providers still constrain
-  decoding, while an explicit consumes narrows and documents acceptance. On Spring, do not hoist consumes to the class
-  level: GET/HEAD/DELETE handlers would then reject requests without `Content-Type` (RAPI-VER-007). It is INFO because
-  the declaration is optional explicitness, and the previous LOW weighting penalized almost every POST.
+**Retired.** Always `SKIPPED` (`INFO` metadata retained). Framework message converters and entity readers already
+constrain readable media types on idiomatic JSON endpoints, and hoisting `consumes` to the class level causes 415 errors
+on bodyless `GET`/`HEAD`/`DELETE` handlers (`RAPI-VER-007`). The dismissal ID remains reserved.
 - **Learn more**: [Spring media mapping][spring-mapping]; [Jakarta REST media declarations][jaxrs-media].
 
 ### RAPI-VER-003 - Review wildcard media ranges
@@ -604,11 +593,9 @@ bounded versioning hints, not a runtime request proving that version selection w
 
 ### RAPI-VER-005 - Review inconsistent produces declarations
 
-- **Severity**: LOW
-- **Detects**: Some body-producing handlers in a controller declare produces while others omit it. No-body,
-  headers-only, and unknown imperative responses do not establish a missing body-media declaration.
-- **Recommendation**: Consider consistent explicit media declarations. Writers/providers can still select supported
-  formats without them, so this is not proof of an inconsistent wire contract.
+**Retired.** Always `SKIPPED` (`LOW` metadata retained). Declaring `produces` on a single specialized sibling handler
+(such as `text/event-stream`, `text/csv`, or `application/pdf`) does not make default JSON handlers in the same
+controller inconsistent. The dismissal ID remains reserved.
 - **Learn more**: [Spring media mapping][spring-mapping]; [Jakarta REST media declarations][jaxrs-media].
 
 ### RAPI-VER-006 - Review mixed versioning strategies
@@ -761,20 +748,15 @@ bounded versioning hints, not a runtime request proving that version selection w
 
 ### RAPI-DOC-001 - Consider explicit operation documentation
 
-- **Severity**: INFO
-- **Detects**: With the optional documentation integration available, a non-hidden handler lacks a recognized
-  explicit Operation annotation.
-- **Recommendation**: Add useful summaries/descriptions where needed. Generated operations, static documents,
-  model readers, and filters may already supply documentation; no annotation does not mean no documented endpoint.
+**Retired.** Always `SKIPPED` (`INFO` metadata retained). `springdoc-openapi` and `quarkus-smallrye-openapi` generate
+OpenAPI operations directly from controller signatures without requiring `@Operation` on every handler. The dismissal ID
+remains reserved.
 - **Learn more**: [MicroProfile OpenAPI generation][mp-generation]; [OpenAPI Operation Object][openapi-operation].
 
 ### RAPI-DOC-002 - Consider explicit operation grouping
 
-- **Severity**: INFO
-- **Detects**: With the optional documentation integration available, no recognized explicit grouping is present.
-  Swagger and MicroProfile Tag annotations, repeatable tag containers, and Operation tag lists count.
-- **Recommendation**: Add meaningful tags if default grouping is insufficient. Tags are optional and generators
-  can group automatically; this does not prove missing groups in the final document.
+**Retired.** Always `SKIPPED` (`INFO` metadata retained). OpenAPI generators group operations by controller or resource
+automatically without requiring explicit `@Tag` annotations. The dismissal ID remains reserved.
 - **Learn more**: [OpenAPI Operation Object][openapi-operation]; [MicroProfile OpenAPI processing][mp-processing].
 
 ### RAPI-DOC-003 - Deprecated endpoints signal deprecation to HTTP clients
@@ -881,7 +863,13 @@ declarations that break requests deterministically. No ID was reused or repurpos
 | RAPI-RESP-011 | **Added**, LOW | An empty `Optional` read answers 200 with an empty body, not 404 ([`ResponseEntity.of`][spring-response-entity]). |
 | RAPI-MAP-002 | Narrowed; HIGH retained | Identical Spring mappings fail startup, so they only appear for inactive alternatives and are no longer reported; partial overlaps fail at request time and still are ([handler registration][spring-handler-mapping]). |
 | RAPI-RESP-006 | HIGH → MEDIUM | Servers drop 204 content, so clients see a consistent 204; the defect is a contradictory declaration ([RFC 9110 §15.3.5][http-no-content]). |
-| RAPI-VER-002 | LOW → INFO; method-level advice | Missing consumes is optional explicitness; class-level consumes would trigger RAPI-VER-007. |
+| RAPI-VER-002 | Retired | Framework converters/readers already constrain readable media types; class-level `consumes` triggers RAPI-VER-007. |
+| RAPI-MAP-004 | Retired | Repeating full paths on methods is a code-layout preference with zero HTTP contract effect. |
+| RAPI-NAME-002 | Retired | English suffix check false-positives on sub-resource filters, streams, version segments, and uncountable nouns. |
+| RAPI-RESP-004 | Retired | Scalar `GET` responses (`/count`, `/exists`, `/ping`) are valid RFC 9110 representations. |
+| RAPI-RESP-008 | Retired | Spring has no `@ResponseHeader("Location")` on `@ResponseStatus(CREATED)` handlers, and RFC 9110 falls back to the target URI. |
+| RAPI-VER-005 | Retired | A specialized `produces` on one sibling handler (`text/event-stream`, `text/csv`, `application/pdf`) does not make JSON siblings inconsistent. |
+| RAPI-DOC-001, RAPI-DOC-002 | Retired | `springdoc-openapi` and `quarkus-smallrye-openapi` generate operations and grouping without explicit `@Operation`/`@Tag` annotations. |
 | RAPI-VALID-005 | Retired | Name heuristic; deduplication outside handler signatures is invisible ([draft history][idempotency-draft]). |
 | RAPI-DTO-004 | Retired | Response DTO setters do not affect the HTTP contract; code style. |
 | RAPI-ERR-002 | Retired | `throws` clauses do not affect exception resolution or the HTTP contract; Java style. |

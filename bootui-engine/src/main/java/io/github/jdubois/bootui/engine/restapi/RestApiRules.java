@@ -17,14 +17,6 @@ import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Base class for curated REST API Advisor rules.
- *
- * <p>Subclasses inspect the derived handler model and return a result; any failure to evaluate is
- * captured and reported as an {@code ERROR} outcome (catching {@link RuntimeException} and
- * {@link LinkageError}, but never {@link VirtualMachineError}) so one broken rule never aborts the
- * scan.</p>
- */
 abstract class AbstractRestApiRule implements RestApiRule {
 
     private final RestApiRuleDefinition definition;
@@ -53,7 +45,6 @@ abstract class AbstractRestApiRule implements RestApiRule {
 
     abstract RestApiRuleResultDto doEvaluate(RestApiContext context);
 
-    /** Collects one violation detail per handler that matches the predicate. */
     RestApiRuleResultDto handlersMatching(
             RestApiContext context, Predicate<HandlerMethodModel> predicate, String suffix) {
         return handlersMatching(context, handler -> true, predicate, suffix);
@@ -80,7 +71,6 @@ abstract class AbstractRestApiRule implements RestApiRule {
     }
 }
 
-/** Shared static helpers for the REST API Advisor rules. */
 final class RestApiRuleHelp {
 
     private static final String SPRING_MVC_REFERENCE =
@@ -142,18 +132,11 @@ final class RestApiRuleHelp {
             "get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify", "post", "put",
             "patch", "read");
 
-    /**
-     * Verbs that are unambiguously HTTP-method-like when standing alone as a path segment.
-     * HTTP-method words (post, put, patch) and generic-English words (read) are excluded from the
-     * standalone exact-match check to avoid false positives like /blog/post/{id}, but remain in
-     * {@link #VERBS} so camelCase prefix detection (postMessage, putData, readAll) still works.
-     */
     private static final Set<String> VERB_STANDALONE =
             Set.of("get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify");
 
     private static final Set<String> CREATION_PREFIXES = Set.of("create", "add", "save", "insert", "register", "new");
 
-    /** Spring {@code HttpStatus} enum constant names in the 5xx (server error) range. */
     static final Set<String> SERVER_ERROR_STATUS_NAMES = Set.of(
             "INTERNAL_SERVER_ERROR",
             "NOT_IMPLEMENTED",
@@ -168,20 +151,9 @@ final class RestApiRuleHelp {
             "NOT_EXTENDED",
             "NETWORK_AUTHENTICATION_REQUIRED");
 
-    /**
-     * Exact mapping param/header names (case-insensitive) that signal header/param API versioning. Package-
-     * private so {@link RestApiHandlerModelBuilder} can reuse it when detecting JAX-RS
-     * {@code @HeaderParam}/{@code @QueryParam} (and Quarkus {@code @RestHeader}/{@code @RestQuery}) version
-     * bindings, the JAX-RS analogue of Spring's {@code @RequestHeader}/{@code @RequestParam}.
-     */
     static final Set<String> VERSION_PARAM_NAMES =
             Set.of("version", "api-version", "x-api-version", "accept-version", "api_version");
 
-    /**
-     * Leading static path segments that denote operational, documentation, or auth endpoints which
-     * are conventionally left unversioned; they should not make an otherwise versioned API look
-     * "mixed".
-     */
     private static final Set<String> NON_API_SEGMENTS = Set.of(
             "actuator",
             "health",
@@ -255,11 +227,9 @@ final class RestApiRuleHelp {
 
     static boolean isVerbSegment(String segment) {
         String lower = segment.toLowerCase(Locale.ROOT);
-        // Standalone exact match: only clear, HTTP-method-unambiguous verbs.
         if (VERB_STANDALONE.contains(lower)) {
             return true;
         }
-        // camelCase prefix check: all verbs including post/put/patch/read to catch postMessage etc.
         for (String verb : VERBS) {
             if (lower.startsWith(verb)
                     && segment.length() > verb.length()
@@ -289,7 +259,6 @@ final class RestApiRuleHelp {
         return false;
     }
 
-    /** True when {@code name} begins with {@code prefix} at a camelCase word boundary (or equals it). */
     static boolean startsWithWord(String name, String prefix) {
         String lower = name.toLowerCase(Locale.ROOT);
         if (lower.equals(prefix)) {
@@ -335,7 +304,6 @@ final class RestApiRuleHelp {
         return strategies;
     }
 
-    /** True when a mapping {@code params}/{@code headers} entry keys on a known API-version name. */
     private static boolean hasVersionParam(List<String> conditions) {
         for (String condition : conditions) {
             if (condition.trim().startsWith("!") || condition.contains("!=")) {
@@ -349,7 +317,6 @@ final class RestApiRuleHelp {
         return false;
     }
 
-    /** Extracts the lower-cased key of a Spring mapping condition such as {@code "X-API-Version=1"}. */
     private static String conditionKey(String condition) {
         String key = condition;
         if (key.startsWith("!")) {
@@ -365,11 +332,6 @@ final class RestApiRuleHelp {
         return key.substring(0, cut).trim().toLowerCase(Locale.ROOT);
     }
 
-    /**
-     * True when the handler's first static path segment is an operational/doc/auth endpoint, or when any static
-     * segment names generated API documentation (springdoc's {@code /v3/api-docs}). A leading {@code /v3} alone
-     * is an ordinary version segment, not documentation.
-     */
     static boolean isNonApiEndpoint(HandlerMethodModel handler) {
         for (String path : handler.effectivePaths()) {
             List<String> statics = staticSegments(path);
@@ -385,7 +347,6 @@ final class RestApiRuleHelp {
         return false;
     }
 
-    /** Normalizes a media type for comparison: lower-cased, parameters ({@code ;charset=...}) stripped. */
     static String normalizeMediaType(String mediaType) {
         String value = mediaType.trim().toLowerCase(Locale.ROOT);
         int semicolon = value.indexOf(';');
@@ -421,7 +382,6 @@ final class RestApiRuleHelp {
         return false;
     }
 
-    /** Extracts declared path-variable token names ({@code {id}}, {@code {id:regex}}, {@code {*path}}). */
     static Set<String> pathVariableTokens(String path) {
         return new LinkedHashSet<>(pathVariableTokenOccurrences(path));
     }
@@ -468,12 +428,6 @@ final class RestApiRuleHelp {
                 || body.equals("tools.jackson.databind.JsonNode");
     }
 
-    /**
-     * True when any path declares a JAX-RS regex path-variable template whose regex matches everything
-     * (e.g. {@code {path:.*}}, {@code {path:.+}}) — the JAX-RS analogue of Spring's {@code /**}/{@code
-     * {*path}} catch-all. This does not establish shadowing or the response status. Constrained templates
-     * like {@code {id:[0-9]+}} are not flagged.
-     */
     static boolean hasCatchAllRegexPathVariable(HandlerMethodModel handler) {
         for (String path : handler.effectivePaths()) {
             Matcher matcher = PATH_VARIABLE_REGEX_TOKEN.matcher(path);
@@ -494,10 +448,6 @@ final class RestApiRuleHelp {
         return normalized.equals(".*") || normalized.equals(".+");
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Routing & HTTP method mapping — RAPI-MAP
-// ---------------------------------------------------------------------------------------------
 
 final class UseHttpMethodSpecificMappingsRule extends AbstractRestApiRule {
     UseHttpMethodSpecificMappingsRule() {
@@ -572,12 +522,6 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
 
     private record RouteKey(RestApiModel.Framework framework, String method, String path, String conditions) {}
 
-    /**
-     * Normalizes unconstrained path-variable names ({@code {id}} and {@code {userId}}) to {@code {*}} so
-     * structurally identical route templates collide regardless of variable naming, while preserving regex
-     * constraints ({@code {*:regex}}), catch-all tokens ({@code {**}}), and unresolved property/SpEL
-     * placeholders ({@code ${...}}, {@code #{...}}).
-     */
     private static String normalizeRoutePath(String path) {
         StringBuilder normalized = new StringBuilder(path.length());
         int depth = 0;
@@ -626,11 +570,6 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         return normalized.toString();
     }
 
-    /**
-     * Spring rejects identical mappings ("Ambiguous mapping") while the context starts, so a running application can
-     * only contain them when at least one controller is not registered, such as profile- or condition-specific
-     * alternatives. Only mappings that differ in their method or path alternatives register and fail at request time.
-     */
     private static boolean startupRejected(List<HandlerMethodModel> sharing) {
         if (sharing.stream().anyMatch(HandlerMethodModel::jaxRs)) {
             return false;
@@ -643,10 +582,6 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         return mappings.size() == 1;
     }
 
-    /**
-     * Distinguishes routes that share a verb and path but differ by content negotiation (consumes/produces),
-     * required params/headers, or API version, so legitimate conditional mappings are not reported as duplicates.
-     */
     private static String conditionKey(HandlerMethodModel handler) {
         List<String> parts = new ArrayList<>();
         addMediaConditionParts(parts, "consumes:", handler.effectiveConsumes());
@@ -669,11 +604,6 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         }
     }
 
-    /**
-     * Normalizes a media-type expression for dispatch comparison: lower-cases the type/subtype and drops
-     * non-dispatch parameters ({@code charset}, {@code q}), while preserving dispatch-significant parameters
-     * such as {@code version=1} or {@code v=2}.
-     */
     private static String normalizeDispatchMediaType(String mediaType) {
         String trimmed = mediaType.trim();
         int semicolon = trimmed.indexOf(';');
@@ -742,75 +672,18 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
                 "Prefer a class-level base path",
                 RestApiCategory.ROUTING,
                 "LOW",
-                "Controllers that repeat the same leading path segment on every method but declare no type-level"
-                        + " @RequestMapping duplicate routing information. Mappings declared on a controller"
-                        + " interface are not evaluated: they are inherited by every implementation, so the"
-                        + " implementing author cannot restructure them, and spec-first code generators (for example"
-                        + " openapi-generator's kotlin-spring interfaceOnly output) emit exactly that layout.",
-                "Hoist the shared prefix into a class-level @RequestMapping and keep method paths relative.",
+                "Retired heuristic: repeating a leading path segment across methods is a code-layout preference"
+                        + " that does not affect the HTTP contract.",
+                "Choose class-level or method-level path declarations by project convention.",
                 RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        Map<String, List<HandlerMethodModel>> byController = new LinkedHashMap<>();
-        for (HandlerMethodModel handler : context.handlers()) {
-            byController
-                    .computeIfAbsent(handler.controllerClassName(), ignored -> new ArrayList<>())
-                    .add(handler);
-        }
-        AdvisorFindings violations = new AdvisorFindings();
-        for (ControllerModel controller : context.targets(
-                context.controllers(),
-                candidate -> !candidate.declaredOnInterface() && candidate.handlerCount() >= 2)) {
-            if (controller.declaredOnInterface()
-                    || !controller.typeLevelPaths().isEmpty()
-                    || controller.handlerCount() < 2) {
-                continue;
-            }
-            List<HandlerMethodModel> controllerHandlers = byController.getOrDefault(controller.className(), List.of());
-            String shared = sharedLeadingSegment(controllerHandlers);
-            if (shared != null) {
-                violations.add(
-                        controller.simpleName() + " repeats leading path segment '/" + shared
-                                + "' on every method but has no class-level @RequestMapping",
-                        context.location(controller));
-            }
-        }
-        return RestApiRuleSupport.fromViolations(context, definition(), violations);
-    }
-
-    private static String sharedLeadingSegment(List<HandlerMethodModel> handlers) {
-        if (handlers.size() < 2) {
-            return null;
-        }
-        String shared = null;
-        for (HandlerMethodModel handler : handlers) {
-            if (handler.effectivePaths().isEmpty()) {
-                return null;
-            }
-            for (String path : handler.effectivePaths()) {
-                String first = firstSegment(path);
-                if (first == null) {
-                    return null;
-                }
-                if (shared == null) {
-                    shared = first;
-                } else if (!shared.equals(first)) {
-                    return null;
-                }
-            }
-        }
-        return shared;
-    }
-
-    private static String firstSegment(String path) {
-        List<String> segments = RestApiRuleHelp.segments(path);
-        if (segments.isEmpty()) {
-            return null;
-        }
-        String first = segments.get(0);
-        return RestApiRuleHelp.isVariable(first) ? null : first;
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: class-level base paths are a code-layout preference, not an HTTP contract"
+                        + " requirement.");
     }
 }
 
@@ -875,10 +748,6 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
         return trailing || doubled;
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Naming & resource design — RAPI-NAME
-// ---------------------------------------------------------------------------------------------
 
 final class PathVariablesAreBoundRule extends AbstractRestApiRule {
     PathVariablesAreBoundRule() {
@@ -993,84 +862,25 @@ final class ResourcePathsAreNounsRule extends AbstractRestApiRule {
 }
 
 final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
-    private static final Set<String> IRREGULAR_PLURALS = Set.of(
-            "people",
-            "children",
-            "men",
-            "women",
-            "media",
-            "data",
-            "criteria",
-            "indices",
-            "vertices",
-            "feet",
-            "teeth",
-            "geese",
-            "mice",
-            "series",
-            "species");
-
-    // Uncountable / collective / operational nouns that are legitimately singular in URLs.
-    private static final Set<String> UNCOUNTABLE_NOUNS = Set.of(
-            "history",
-            "inventory",
-            "staff",
-            "info",
-            "information",
-            "search",
-            "news",
-            "status",
-            "metadata",
-            "feedback",
-            "content",
-            "equipment",
-            "software",
-            "hardware",
-            "analytics",
-            "reporting",
-            "billing",
-            "processing",
-            "shipping",
-            "access");
-
     CollectionsUsePluralNounsRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-NAME-002",
                 "Consider plural collection names",
                 RestApiCategory.NAMING,
                 "INFO",
-                "An English-language spelling heuristic suggests a singular path for a collection return declaration."
-                        + " It does not establish runtime resource cardinality or an HTTP requirement.",
-                "Consider plural collection names if that matches the project's language and naming convention.",
+                "Retired heuristic: an English-language suffix check on the last path segment cannot distinguish"
+                        + " resource collections from sub-resource filters, streams, version segments, or"
+                        + " uncountable nouns.",
+                "Choose collection and sub-resource path names according to the API's domain vocabulary.",
                 RestApiRuleHelp.RESOURCES_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        AdvisorFindings violations = new AdvisorFindings();
-        for (HandlerMethodModel handler : context.handlers()) {
-            if (!handler.serializesBody()
-                    || !handler.httpMethods().contains("GET")
-                    || !(handler.returnsCollection() || handler.returnsPageOrSlice())) {
-                continue;
-            }
-            for (String path : handler.effectivePaths()) {
-                List<String> staticSegments = RestApiRuleHelp.staticSegments(path);
-                if (staticSegments.isEmpty()) {
-                    continue;
-                }
-                context.evidence().markApplicable();
-                String last = staticSegments.get(staticSegments.size() - 1);
-                String lower = last.toLowerCase(Locale.ROOT);
-                if (!lower.endsWith("s") && !IRREGULAR_PLURALS.contains(lower) && !UNCOUNTABLE_NOUNS.contains(lower)) {
-                    violations.add(
-                            handler.describe() + " — collection path '/" + last + "' is singular",
-                            context.location(handler));
-                    break;
-                }
-            }
-        }
-        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: English plural-suffix heuristics cannot establish resource cardinality or"
+                        + " naming defects.");
     }
 }
 
@@ -1108,10 +918,6 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Status codes & responses — RAPI-RESP
-// ---------------------------------------------------------------------------------------------
 
 final class CreationReturns201Rule extends AbstractRestApiRule {
     CreationReturns201Rule() {
@@ -1211,38 +1017,17 @@ final class ReadEndpointsReturnRepresentationRule extends AbstractRestApiRule {
                 "Consider structured read representations",
                 RestApiCategory.RESPONSES,
                 "INFO",
-                "A scalar is a valid representation, but adding fields later may require a contract change.",
-                "Consider a DTO/record if the read representation is expected to grow; scalar and text APIs can be"
-                        + " intentional.",
+                "Retired heuristic: scalar GET responses are valid RFC 9110 representations.",
+                "Use scalar or structured representations according to the endpoint's contract.",
                 RestApiRuleHelp.REPRESENTATIONS_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context,
-                handler -> handler.httpMethods().contains("GET") && handler.serializesBody(),
-                handler -> handler.httpMethods().contains("GET")
-                        && handler.bodyIsScalar()
-                        && !handler.returnsCollection()
-                        && handler.serializesBody()
-                        && !producesPlainText(handler),
-                "GET returns a bare scalar (String/primitive)");
-    }
-
-    private static boolean producesPlainText(HandlerMethodModel handler) {
-        for (String mediaType : handler.effectiveProduces()) {
-            if (mediaType.toLowerCase(Locale.ROOT).startsWith("text/")) {
-                return true;
-            }
-        }
-        return false;
+        return RestApiRuleSupport.skipped(
+                definition(), "Retired heuristic: scalar GET responses are valid HTTP representations.");
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Input validation & binding — RAPI-VALID
-// ---------------------------------------------------------------------------------------------
 
 final class VoidReadEndpointsReturnContentRule extends AbstractRestApiRule {
     VoidReadEndpointsReturnContentRule() {
@@ -1330,7 +1115,6 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
                 "method-level @ResponseStatus and status-bearing ResponseEntity both declared; review precedence");
     }
 
-    /** On Spring MVC a reason discards the ResponseEntity outright; RAPI-RESP-010 reports that case. */
     private static boolean reportedAsDiscardedBody(RestApiContext context, HandlerMethodModel handler) {
         return context.evidence().springWebStack() == RestApiScanner.SpringWebStack.SERVLET
                 && !handler.responseStatusReason().isEmpty()
@@ -1411,10 +1195,6 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// DTO & payload contracts — RAPI-DTO
-// ---------------------------------------------------------------------------------------------
-
 final class NoEntitiesInResponsesRule extends AbstractRestApiRule {
     NoEntitiesInResponsesRule() {
         super(new RestApiRuleDefinition(
@@ -1484,10 +1264,6 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
                 "Retired heuristic: response DTO setters do not affect the HTTP contract; mutability is code style.");
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Pagination & collections — RAPI-PAGE
-// ---------------------------------------------------------------------------------------------
 
 final class CollectionReadsArePaginatedRule extends AbstractRestApiRule {
     CollectionReadsArePaginatedRule() {
@@ -1597,10 +1373,6 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Versioning & content negotiation — RAPI-VER
-// ---------------------------------------------------------------------------------------------
-
 final class ApiIsVersionedRule extends AbstractRestApiRule {
     ApiIsVersionedRule() {
         super(new RestApiRuleDefinition(
@@ -1665,30 +1437,19 @@ final class MutatingEndpointsDeclareMediaTypesRule extends AbstractRestApiRule {
                 "Consider explicit consumes declarations",
                 RestApiCategory.VERSIONING,
                 "INFO",
-                "A POST/PUT/PATCH request entity without a consumes constraint has no explicit mapping-level media"
-                        + " contract. Framework converters/readers still restrict which content types are readable;"
-                        + " an explicit consumes narrows acceptance further and documents it.",
-                "Optionally declare consumes (e.g. application/json) on the body-accepting method itself. On Spring, do"
-                        + " not hoist it to the class level: GET/HEAD/DELETE handlers would then reject requests"
-                        + " without Content-Type (RAPI-VER-007).",
+                "Retired heuristic: framework message converters and entity readers already constrain readable"
+                        + " media types without an explicit mapping-level consumes attribute.",
+                "Declare consumes only when a handler needs to narrow accepted media types beyond the configured"
+                        + " converters or disambiguate routes.",
                 RestApiRuleHelp.CONSUMES_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context,
-                handler -> isMutating(handler) && handler.hasRequestBody(),
-                handler -> isMutating(handler)
-                        && handler.hasRequestBody()
-                        && handler.effectiveConsumes().isEmpty(),
-                "mutating endpoint with a body declares no consumes media type");
-    }
-
-    private static boolean isMutating(HandlerMethodModel handler) {
-        return handler.httpMethods().contains("POST")
-                || handler.httpMethods().contains("PUT")
-                || handler.httpMethods().contains("PATCH");
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: omitting mapping-level consumes on standard JSON endpoints is idiomatic and"
+                        + " still constrained by framework message converters.");
     }
 }
 
@@ -1710,10 +1471,6 @@ final class NoWildcardMediaTypesRule extends AbstractRestApiRule {
         return handlersMatching(context, RestApiRuleHelp::containsWildcardMediaType, "declares a wildcard media type");
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Error handling & documentation — RAPI-ERR / RAPI-DOC
-// ---------------------------------------------------------------------------------------------
 
 final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
     PatchUsesPatchMediaTypeRule() {
@@ -1934,25 +1691,19 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiRule {
                 "Consider explicit operation documentation",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
-                "OpenAPI annotations are available but some handlers have no explicit @Operation enrichment."
-                        + " Generated, static or filtered documentation may already describe them.",
-                "Consider @Operation summaries/descriptions where they add useful information beyond generated"
+                "Retired heuristic: OpenAPI generators derive operations from controller signatures without requiring"
+                        + " explicit @Operation annotations.",
+                "Consider @Operation summaries/descriptions only where they add information beyond generated"
                         + " documentation.",
                 RestApiRuleHelp.OPENAPI_OPERATION_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().openApiKnown())
-            return missingEvidence(context, "Required framework evidence could not be read.");
-        if (!context.openApiAnnotationsPresent()) {
-            return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
-        }
-        return handlersMatching(
-                context,
-                handler -> !handler.hidden() && handler.serializesBody(),
-                handler -> !handler.hasOperationAnnotation() && handler.serializesBody(),
-                "no @Operation annotation");
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: OpenAPI generators derive operations from controller signatures without requiring"
+                        + " explicit @Operation annotations.");
     }
 }
 
@@ -1963,52 +1714,20 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
                 "Consider explicit operation grouping",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
-                "No explicit tag or operation-tag grouping was found on some controllers/resources."
-                        + " Generators and static documents can supply grouping without these annotations.",
-                "Consider explicit tags when they improve the generated or supplied OpenAPI grouping.",
+                "Retired heuristic: OpenAPI generators group operations by controller or resource automatically"
+                        + " without requiring explicit @Tag annotations.",
+                "Consider explicit tags only when custom grouping is needed beyond the generator's default.",
                 RestApiRuleHelp.OPENAPI_OPERATION_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        if (!context.evidence().openApiKnown())
-            return missingEvidence(context, "Required framework evidence could not be read.");
-        if (!context.openApiAnnotationsPresent()) {
-            return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
-        }
-        Set<String> controllersWithRestHandler = new LinkedHashSet<>();
-        Set<String> controllersWithTaggedHandler = new LinkedHashSet<>();
-        for (HandlerMethodModel handler : context.handlers()) {
-            if (handler.serializesBody()) {
-                controllersWithRestHandler.add(handler.controllerClassName());
-            }
-            if (handler.hasTag()) {
-                controllersWithTaggedHandler.add(handler.controllerClassName());
-            }
-        }
-        AdvisorFindings violations = new AdvisorFindings();
-        for (ControllerModel controller : context.targets(
-                context.controllers(),
-                candidate -> !candidate.hidden()
-                        && (candidate.restController()
-                                || controllersWithRestHandler.contains(candidate.className())))) {
-            if (controller.hidden()
-                    || (!controller.restController() && !controllersWithRestHandler.contains(controller.className()))) {
-                continue;
-            }
-            if (!controller.hasTag() && !controllersWithTaggedHandler.contains(controller.className())) {
-                violations.add(
-                        controller.simpleName() + " has no explicit tag/operation-tag grouping",
-                        context.location(controller));
-            }
-        }
-        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: OpenAPI generators group operations automatically without requiring explicit @Tag"
+                        + " annotations.");
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Phase 2 additions
-// ---------------------------------------------------------------------------------------------
 
 final class MutatingItemMethodsTargetResourceRule extends AbstractRestApiRule {
     MutatingItemMethodsTargetResourceRule() {
@@ -2038,25 +1757,20 @@ final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
                 "Consider discoverability for declared 201 responses",
                 RestApiCategory.RESPONSES,
                 "INFO",
-                "A declared 201 is an optional discoverability review opportunity, not proof of a missing Location."
-                        + " RFC 9110 identifies the primary resource by Location when present, otherwise the target URI."
-                        + " Filters/advice may supply headers.",
-                "Consider Location when it helps clients discover a newly created resource distinct from the target"
-                        + " URI.",
+                "Retired heuristic: Spring has no declarative response-header annotation on @ResponseStatus(CREATED)"
+                        + " handlers, and RFC 9110 identifies the created resource by the target URI when Location"
+                        + " is absent.",
+                "Include a Location header when the created resource is identified by a URI distinct from the"
+                        + " request target.",
                 RestApiRuleHelp.CREATED_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context,
-                handler -> "CREATED".equals(handler.responseStatusValue()),
-                handler -> "CREATED".equals(handler.responseStatusValue())
-                        && !handler.returnsResponseEntity()
-                        && !handler.hasResponseParam()
-                        && !handler.declaresResponseHeader("Location"),
-                "declares 201 Created; optionally review resource discoverability (Location is not universally"
-                        + " required)");
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: @ResponseStatus(CREATED) declarations cannot express response headers on"
+                        + " Spring, and Location is not universally required by RFC 9110.");
     }
 }
 
@@ -2067,44 +1781,21 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
                 "Review inconsistent produces declarations",
                 RestApiCategory.VERSIONING,
                 "LOW",
-                "Within a controller that declares produces media types on some response handlers, other"
-                        + " body-returning handlers that omit produces create an inconsistent content contract.",
-                "Declare produces (e.g. application/json) consistently on the response-producing handlers of a"
-                        + " controller.",
+                "Retired heuristic: declaring produces on a specialized sibling handler (such as SSE, CSV, or PDF)"
+                        + " does not make default JSON handlers in the same controller inconsistent.",
+                "Declare produces on handlers that need an explicit media constraint without requiring redundant"
+                        + " declarations on sibling handlers.",
                 RestApiRuleHelp.PRODUCES_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        Set<String> controllersDeclaringProduces = new LinkedHashSet<>();
-        for (HandlerMethodModel handler : context.targets(
-                context.handlers(), ResponseProducingEndpointsDeclareProducesRule::serializesRepresentation)) {
-            if (serializesRepresentation(handler)
-                    && !handler.effectiveProduces().isEmpty()) {
-                controllersDeclaringProduces.add(handler.controllerClassName());
-            }
-        }
-        AdvisorFindings violations = new AdvisorFindings();
-        for (HandlerMethodModel handler : context.handlers()) {
-            if (serializesRepresentation(handler)
-                    && handler.effectiveProduces().isEmpty()
-                    && controllersDeclaringProduces.contains(handler.controllerClassName())) {
-                violations.add(
-                        handler.describe() + " — serializes a body but declares no produces media type",
-                        context.location(handler));
-            }
-        }
-        return RestApiRuleSupport.fromViolations(context, definition(), violations);
-    }
-
-    private static boolean serializesRepresentation(HandlerMethodModel handler) {
-        return handler.serializesBody() && !handler.returnsVoid() && !handler.hasResponseParam();
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: method-specific produces declarations on specialized endpoints do not require"
+                        + " redundant produces attributes on sibling handlers.");
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Phase 3 additions — new routing rules
-// ---------------------------------------------------------------------------------------------
 
 final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
     DuplicatePathVariableTokenRule() {

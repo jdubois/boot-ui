@@ -48,12 +48,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/**
- * Base class for curated architecture rules backed by a single ArchUnit {@link ArchRule}.
- *
- * <p>Subclasses build the rule for the current context; any failure to build or evaluate it is
- * captured and reported as an {@code ERROR} outcome so one broken rule never aborts the scan.</p>
- */
 abstract class AbstractArchitectureRule implements ArchitectureRule {
 
     private final ArchitectureRuleDefinition definition;
@@ -67,9 +61,6 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
         return definition;
     }
 
-    /**
-     * Builds the ArchUnit rule for this evaluation, or returns {@code null} to skip the rule.
-     */
     abstract ArchRule rule(ArchitectureContext context);
 
     @Override
@@ -85,8 +76,6 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
                 return ArchitectureRuleSupport.skipped(definition, "Rule is not applicable to the imported classes.");
             }
             return ArchitectureRuleSupport.evaluate(definition, rule, context);
-            // Catch LinkageError as well as RuntimeException so one rule that trips over an unresolvable class
-            // reports an ERROR result instead of aborting the whole scan; VirtualMachineError still propagates.
         } catch (RuntimeException | LinkageError ex) {
             return ArchitectureRuleSupport.error(
                     definition, "Rule could not be evaluated (" + ex.getClass().getSimpleName() + ").");
@@ -94,10 +83,6 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
     }
 }
 
-/**
- * Spring stereotype annotation type names, matched by name so the rules work even when the
- * annotation classes themselves are not on the BootUI classpath.
- */
 final class SpringStereotypes {
 
     static final String CONTROLLER = "org.springframework.stereotype.Controller";
@@ -122,7 +107,6 @@ final class SpringStereotypes {
     static final String TRANSACTIONAL_EVENT_LISTENER =
             "org.springframework.transaction.event.TransactionalEventListener";
     static final String APPLICATION_MODULE_LISTENER = "org.springframework.modulith.events.ApplicationModuleListener";
-    // Spring Modulith 1.x carried the same annotation directly under org.springframework.modulith.
     static final String LEGACY_APPLICATION_MODULE_LISTENER = "org.springframework.modulith.ApplicationModuleListener";
     static final String CONFIGURATION_PROPERTIES =
             "org.springframework.boot.context.properties.ConfigurationProperties";
@@ -136,12 +120,10 @@ final class SpringStereotypes {
             "org.springframework.beans.factory.config.BeanFactoryPostProcessor";
     static final String BEAN_POST_PROCESSOR = "org.springframework.beans.factory.config.BeanPostProcessor";
 
-    // Spring Framework 7 core resilience annotations and Spring Retry: both are applied through an AOP proxy.
     static final String RETRYABLE = "org.springframework.resilience.annotation.Retryable";
     static final String CONCURRENCY_LIMIT = "org.springframework.resilience.annotation.ConcurrencyLimit";
     static final String SPRING_RETRY_RETRYABLE = "org.springframework.retry.annotation.Retryable";
 
-    // Method security is enforced by AOP interceptors, so a call that skips the proxy skips the check.
     static final String PRE_AUTHORIZE = "org.springframework.security.access.prepost.PreAuthorize";
     static final String POST_AUTHORIZE = "org.springframework.security.access.prepost.PostAuthorize";
     static final String PRE_FILTER = "org.springframework.security.access.prepost.PreFilter";
@@ -207,8 +189,6 @@ final class SpringStereotypes {
             .or(annotatedWith(ROLES_ALLOWED))
             .as("annotated with a method security annotation");
 
-    // Method-level only: these mirror the interceptors Spring applies through a proxy. Class-level @Retryable,
-    // @ConcurrencyLimit and method security are deliberately absent from CLASS_LEVEL_PROXY_ANNOTATED below.
     static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = TRANSACTIONAL_ANNOTATED
             .or(annotatedWith(ASYNC))
             .or(CACHE_OPERATION_ANNOTATED)
@@ -217,12 +197,6 @@ final class SpringStereotypes {
             .as("annotated with @Transactional, @Async, a Spring cache operation, @Retryable, @ConcurrencyLimit,"
                     + " or a method security annotation");
 
-    // Class-level @Async / cache operations make every method proxied, so self-invocation always loses
-    // the behaviour. Class-level @Transactional is deliberately excluded here: a self-call to another
-    // method of the same class simply joins the existing class-level transaction, so flagging it is noise.
-    // Class-level @ConcurrencyLimit is excluded because the outer call already holds the shared permit (a
-    // proxied nested call could even deadlock at a limit of 1), and class-level @Retryable or method
-    // security because the outer call is already retried or authorized under the same declaration.
     static final DescribedPredicate<CanBeAnnotated> CLASS_LEVEL_PROXY_ANNOTATED = annotatedWith(ASYNC)
             .or(CACHE_OPERATION_ANNOTATED)
             .as("a class annotated with @Async or a Spring cache operation");
@@ -230,10 +204,6 @@ final class SpringStereotypes {
     private SpringStereotypes() {}
 }
 
-/**
- * Recognizes classes a Spring or CDI container manages, so rules about injection and lifecycle annotations judge only
- * classes those containers actually process, never a class that another injector (Guice, Dagger) may own.
- */
 final class ContainerBeans {
 
     private static final String SCOPE = "jakarta.inject.Scope";
@@ -241,7 +211,6 @@ final class ContainerBeans {
     private static final String STEREOTYPE = "jakarta.enterprise.inject.Stereotype";
     private static final String PRODUCES = "jakarta.enterprise.inject.Produces";
 
-    // Matched by name as well, so recognition holds when the annotation type's own meta-annotations cannot be read.
     private static final Set<String> BEAN_DEFINING_ANNOTATIONS = Set.of(
             SpringStereotypes.SERVICE,
             SpringStereotypes.REPOSITORY,
@@ -269,12 +238,10 @@ final class ContainerBeans {
         }
     }
 
-    /** Whether a Spring or CDI container registers this class as a bean in the scanned application. */
     boolean isManaged(JavaClass javaClass) {
         return producedTypes.contains(javaClass.getName()) || isAnnotatedBean(javaClass);
     }
 
-    /** Whether the class carries a Spring stereotype or a CDI bean-defining annotation, directly or composed. */
     static boolean isAnnotatedBean(JavaClass javaClass) {
         if (javaClass.isAnnotatedWith(SpringStereotypes.COMPONENT)
                 || javaClass.isMetaAnnotatedWith(SpringStereotypes.COMPONENT)) {
@@ -292,28 +259,16 @@ final class ContainerBeans {
         return false;
     }
 
-    /** Whether a class declares {@code @Bean} or CDI producer methods, which makes it container infrastructure. */
     static boolean declaresFactoryMethods(JavaClass javaClass) {
         return ArchitectureRuleSupport.declaredMethods(javaClass).stream()
                 .anyMatch(method -> method.isAnnotatedWith(SpringStereotypes.BEAN) || method.isAnnotatedWith(PRODUCES));
     }
 }
 
-/**
- * The legacy {@code javax.*} injection and lifecycle annotations ARCH-SPRING-024 reports, shared with
- * ARCH-CODE-016 so one annotation is never reported under both IDs.
- */
 final class LegacyJavaxInjection {
 
     private LegacyJavaxInjection() {}
 
-    /**
-     * Why the container ignores this member's legacy annotation, or empty when ARCH-SPRING-024 does not report it.
-     * Callbacks are reported on any class: neither supported container reads {@code javax.annotation} callbacks.
-     * Injection points are reported only on container beans, since Guice or Dagger may still own a plain class, and
-     * a member that also carries its Jakarta counterpart, or a sole constructor the container injects implicitly,
-     * keeps working.
-     */
     static Optional<String> ignoredAnnotation(JavaMember member, ContainerBeans beans) {
         if (member.isAnnotatedWith(SpringStereotypes.JAVAX_POST_CONSTRUCT)
                 && !member.isAnnotatedWith(SpringStereotypes.POST_CONSTRUCT)) {
@@ -339,7 +294,6 @@ final class LegacyJavaxInjection {
         return Optional.empty();
     }
 
-    // Both Spring and Arc inject through a class's only constructor without any annotation.
     private static boolean isImplicitlyInjectedConstructor(JavaMember member) {
         return member instanceof JavaConstructor
                 && ArchitectureRuleSupport.declaredConstructors(member.getOwner())
@@ -348,10 +302,6 @@ final class LegacyJavaxInjection {
     }
 }
 
-/**
- * Flags cyclic dependencies between the top-level package slices under each application base
- * package. Cycles are the single highest-value, project-agnostic architecture smell.
- */
 final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
 
     private static final int MAX_SAMPLES = 10;
@@ -418,8 +368,6 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                     .record(definition().id(), totalViolations, retained, java.util.function.UnaryOperator.identity());
             return ArchitectureRuleSupport.result(
                     definition(), ArchitectureRuleSupport.VIOLATION, totalViolations, samples);
-            // See AbstractArchitectureRule#evaluate: LinkageError is caught to degrade to an ERROR result rather
-            // than aborting the scan; VirtualMachineError (e.g. OutOfMemoryError) is intentionally not caught.
         } catch (RuntimeException | LinkageError ex) {
             return ArchitectureRuleSupport.error(
                     definition(),
@@ -427,12 +375,6 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
         }
     }
 
-    /**
-     * Returns the configured base packages plus any shared multi-segment parent package roots across
-     * clusters of base packages (for example {@code com.acme} when {@code com.acme.inventory} and
-     * {@code com.acme.order} are both roots), never collapsing to a single-segment top-level package
-     * such as {@code com} or {@code org}.
-     */
     static List<String> sliceRoots(List<String> basePackages) {
         List<String> roots = new ArrayList<>(basePackages);
         Set<String> seenParents = new LinkedHashSet<>(basePackages);
@@ -470,9 +412,6 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags direct use of {@code System.out} / {@code System.err}, which bypasses structured logging.
- */
 final class NoStandardStreamsRule extends AbstractArchitectureRule {
 
     NoStandardStreamsRule() {
@@ -494,9 +433,6 @@ final class NoStandardStreamsRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags throwing generic exception types such as {@code Exception} or {@code RuntimeException}.
- */
 final class NoGenericExceptionsRule extends AbstractArchitectureRule {
 
     NoGenericExceptionsRule() {
@@ -517,9 +453,6 @@ final class NoGenericExceptionsRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags use of {@code java.util.logging} instead of a logging facade such as SLF4J.
- */
 final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
 
     NoJavaUtilLoggingRule() {
@@ -539,8 +472,6 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
     @Override
     ArchRule rule(ArchitectureContext context) {
         if (context.platform() == ArchitecturePlatform.QUARKUS) {
-            // Quarkus lists JUL as a built-in logging API, and its documented @LoggingFilter extension point
-            // must implement java.util.logging.Filter, so flagging JUL there reports idiomatic code.
             return null;
         }
         if (!context.classes().isEmpty()) context.evidence().observed();
@@ -548,42 +479,6 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags use of the legacy Joda-Time library instead of {@code java.time}.
- */
-final class NoJodaTimeRule extends AbstractArchitectureRule {
-
-    NoJodaTimeRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-004",
-                "Classes should not use Joda-Time",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects use of the legacy Joda-Time library instead of the java.time API.",
-                "Migrate Joda-Time usage to the standard java.time API.",
-                "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.NO_CLASSES_SHOULD_USE_JODATIME;
-    }
-}
-
-/**
- * Flags calls that forcibly terminate the JVM ({@code System.exit(int)}, {@code Runtime.exit(int)},
- * or {@code Runtime.halt(int)}), which bypass orderly application and container shutdown.
- *
- * <p>{@code System.exit(int)} is exempt when called directly from a static {@code main} method: this
- * is Spring Boot's own officially documented pattern for propagating an {@code ExitCodeGenerator}
- * result from CLI/batch applications, {@code System.exit(SpringApplication.exit(context, ...))}. See
- * the Spring Boot reference docs, "Application Exit":
- * https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.application-exit
- * . A {@code System.exit} call from anywhere else &mdash; a service, controller, or other
- * business-logic class &mdash; is still flagged, as are all {@code Runtime.exit}/{@code Runtime.halt}
- * calls regardless of origin.
- */
 final class NoSystemExitRule extends AbstractArchitectureRule {
 
     NoSystemExitRule() {
@@ -646,12 +541,6 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags dependencies on unsupported JDK-internal packages ({@code sun..}, {@code jdk.internal..},
- * and the internal {@code com.sun..internal..} subtrees), which are not part of the public API and
- * may change or disappear. Exported {@code com.sun.*} APIs (for example {@code com.sun.net.httpserver}
- * or {@code com.sun.management}) are intentionally not flagged.
- */
 final class NoJdkInternalApiRule extends AbstractArchitectureRule {
 
     NoJdkInternalApiRule() {
@@ -678,10 +567,6 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags use of the legacy {@code java.util.Date} / {@code Calendar} family instead of
- * {@code java.time}, except for the standard conversion bridges between the two APIs.
- */
 final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
 
     private static final Set<String> LEGACY_TYPES =
@@ -744,16 +629,12 @@ final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
         if (returnType.equals(JAVA_TIME_BRIDGES.get(target.getFullName()))) {
             return true;
         }
-        // The bytecode owner can be a subclass, e.g. java.sql.Date.from(Instant) inherited from java.util.Date.
         return target.resolveMember()
                 .filter(method -> returnType.equals(JAVA_TIME_BRIDGES.get(method.getFullName())))
                 .isPresent();
     }
 }
 
-/**
- * Flags use of APIs marked {@code @Deprecated}.
- */
 final class NoDeprecatedApiRule extends AbstractArchitectureRule {
 
     private static final String KOTLIN_DEPRECATED = "kotlin.Deprecated";
@@ -971,22 +852,6 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags Spring field injection ({@code @Autowired} / {@code @Value} on fields), which hampers
- * testability and hides required dependencies.
- *
- * <p>Deliberately scoped to Spring's own annotations only. ArchUnit's built-in {@code
- * NO_CLASSES_SHOULD_USE_FIELD_INJECTION} also matches the standard {@code jakarta.inject.Inject} /
- * {@code javax.inject.Inject} / {@code jakarta.annotation.Resource} annotations, which are the
- * idiomatic way to do field injection in a CDI/Quarkus application — reusing it here would make a
- * rule filed under "Spring stereotypes" fire on ordinary CDI code with no Spring on the classpath at
- * all. {@link FieldsShouldNotUseStandardInjectionAnnotationsRule} covers those standard annotations
- * as a separate, framework-neutral coding-practice rule instead.</p>
- *
- * <p>A Kotlin primary-constructor property such as {@code class Foo(@Value("\${x}") private val x: String)} is
- * constructor injection, but Kotlin also copies the annotation onto the backing field. That copy is recognised by
- * {@link KotlinBytecode#isConstructorPropertyAnnotation} and not reported.</p>
- */
 final class NoFieldInjectionRule extends AbstractArchitectureRule {
 
     private static final List<String> SPRING_INJECTION_ANNOTATIONS =
@@ -1011,7 +876,6 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        // Static fields are never injected at all; ARCH-SPRING-023 reports them instead.
         return noFields()
                 .that()
                 .areNotStatic()
@@ -1026,7 +890,6 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
                 .as("no classes should use Spring field injection");
     }
 
-    /** Whether every Spring injection annotation on the field is Kotlin's copy of a constructor-property one. */
     private static boolean isConstructorPropertyBackingField(JavaField field) {
         boolean copied = false;
         for (String annotation : SPRING_INJECTION_ANNOTATIONS) {
@@ -1038,17 +901,6 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags field injection through the standard JSR-330 / Jakarta / Guice injection annotations ({@code
- * @Inject}, {@code @Resource}) that CDI containers such as Quarkus' Arc use, alongside plain Guice.
- * Framework-neutral counterpart to {@link NoFieldInjectionRule}, which only covers Spring's own
- * {@code @Autowired} / {@code @Value}.
- *
- * <p>The finding is MEDIUM on Spring, matching ARCH-SPRING-001 because the Spring team advocates constructor
- * injection; on Quarkus, where package-private {@code @Inject} field injection is the idiom of the official
- * guides and Quarkus only advises against {@code private} injected fields, {@code private} injected fields are
- * reported at LOW and non-private injected fields at INFO.</p>
- */
 final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractArchitectureRule {
 
     private static final List<String> STANDARD_INJECTION_ANNOTATIONS = List.of(
@@ -1126,9 +978,6 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
                                 if (onlyPrivate && !field.getModifiers().contains(JavaModifier.PRIVATE)) {
                                     return false;
                                 }
-                                // A static field is never injected (ARCH-SPRING-023), and a legacy javax annotation
-                                // on a container bean is ignored altogether (ARCH-SPRING-024): neither is field
-                                // injection.
                                 return !isConstructorPropertyBackingField(field)
                                         && LegacyJavaxInjection.ignoredAnnotation(field, beans)
                                                 .isEmpty();
@@ -1167,10 +1016,6 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
     }
 }
 
-/**
- * Flags Spring controllers that depend directly on {@code @Repository} beans, skipping a service
- * layer.
- */
 final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchitectureRule {
 
     ControllersShouldNotDependOnRepositoriesRule() {
@@ -1197,9 +1042,6 @@ final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchite
     }
 }
 
-/**
- * Flags {@code @Repository} beans that depend on Spring controllers, an inverted-dependency smell.
- */
 final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchitectureRule {
 
     RepositoriesShouldNotDependOnControllersRule() {
@@ -1224,11 +1066,6 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
     }
 }
 
-/**
- * Flags Spring beans that invoke their own {@code @Transactional} / {@code @Async} /
- * {@code @Cacheable} methods directly ({@code this.method()}), which bypasses the Spring proxy so
- * the transaction, async, or caching behaviour is silently lost.
- */
 final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRule {
 
     NoSelfInvocationOfProxiedMethodsRule() {
@@ -1250,8 +1087,6 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        // Deliberately not ProxyRules: it only exposes the call target to its predicate, and filters origins
-        // by ACC_BRIDGE alone. Kotlin needs both ends of the call examined — see bypassesProxy below.
         ContainerBeans beans = new ContainerBeans(context.classes());
         return noClasses()
                 .should(
@@ -1274,24 +1109,6 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                 .because("it bypasses the proxy mechanism");
     }
 
-    /**
-     * Whether this call loses the proxy behaviour, judging both ends of it.
-     *
-     * <p>The <strong>origin</strong> must be code the developer wrote. Kotlin routes calls through
-     * generated dispatch bridges, and a bridge calling the function it exists to reach is the compiler's
-     * own call: nobody can refactor it, and reporting it says a Kotlin bean self-invokes when the source
-     * contains a single ordinary call. Only dispatch bridges are skipped, never every synthetic method,
-     * because a lambda body is synthetic too and a self-invocation inside a lambda is a genuine bypass.
-     *
-     * <p>The <strong>target</strong> must be the function the developer wrote. When a call omits a default
-     * argument, Kotlin compiles it into a call to the {@code $default} bridge, which carries none of the
-     * annotations; following that hop is what keeps a real self-invocation reported instead of silently
-     * disappearing as soon as a proxied function gains a default parameter value.
-     *
-     * <p>A call that only <strong>joins</strong> the caller's transaction loses nothing: a transactional origin
-     * calling a target whose sole proxy behaviour is a {@code REQUIRED}, {@code SUPPORTS} or {@code MANDATORY}
-     * transaction with the same manager, rollback rules, isolation and timeout. See {@link TransactionJoin}.
-     */
     private static boolean bypassesProxy(
             ArchitectureContext context, ContainerBeans beans, JavaCodeUnitAccess<?> access) {
         if (context.platform() != ArchitecturePlatform.SPRING
@@ -1310,9 +1127,6 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
             return SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target);
         }
         if (ArchitectureRuleSupport.isCompilerGenerated(resolved.get())) {
-            // A $default bridge stands in for a declared function, so resolve through it. Any other
-            // compiler-generated target — the $suspendImpl body of an open suspend fun, a javac bridge —
-            // is plumbing that merely inherits the annotation, and judging it invents a finding.
             resolved = KotlinBytecode.defaultArgumentDispatchTarget(resolved.get());
             if (resolved.isEmpty()) {
                 return false;
@@ -1349,11 +1163,6 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
         return false;
     }
 
-    /**
-     * The call, described by the function the developer wrote rather than by the {@code $default} bridge
-     * or {@code $suspendImpl} helper that stands in for it. A finding naming a method that appears in no
-     * source file cannot be acted on.
-     */
     private static String describe(JavaCodeUnitAccess<?> access) {
         String description = access.getDescription();
         JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
@@ -1377,9 +1186,6 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
     }
 }
 
-/**
- * Flags services that depend directly on controllers.
- */
 final class ServicesShouldNotDependOnControllersRule extends AbstractArchitectureRule {
 
     ServicesShouldNotDependOnControllersRule() {
@@ -1404,9 +1210,6 @@ final class ServicesShouldNotDependOnControllersRule extends AbstractArchitectur
     }
 }
 
-/**
- * Flags exceptions that do not have an 'Exception' suffix.
- */
 final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRule {
 
     ExceptionsShouldBeNamedExceptionRule() {
@@ -1442,16 +1245,6 @@ final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRul
                 .as("Exceptions should be named ending with Exception");
     }
 
-    /**
-     * Whether the name identifies this class as an exception, reading the enclosing chain and not only the
-     * simple name.
-     *
-     * <p>A nested variant of an exception hierarchy — the idiomatic shape of a Kotlin {@code sealed class},
-     * and common enough in Java — is already named at the point of use: {@code ClaimException.AlreadyAssigned}
-     * says what it is, and renaming it to {@code AlreadyAssignedException} would stutter as
-     * {@code ClaimException.AlreadyAssignedException}. The rule exists so an exception's purpose is clear at
-     * a glance, and here it already is.
-     */
     private static boolean isNamedAsException(JavaClass javaClass) {
         Optional<JavaClass> current = Optional.of(javaClass);
         while (current.isPresent()) {
@@ -1464,23 +1257,6 @@ final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRul
     }
 }
 
-/**
- * Flags mutable or externally exposed loggers, with supported injection and abstract-base exceptions.
- *
- * <p>Container-managed injection points ({@code @Inject}/{@code @Autowired}/{@code @Resource}) are
- * exempt entirely: a field wired by the container is non-static by construction, so the idiomatic
- * Quarkus CDI pattern {@code @Inject Logger log;} is not a violation. See the Quarkus Logging guide's
- * injection section: https://quarkus.io/guides/logging#injection-of-a-configured-logger .
- *
- * <p>A {@code protected}, non-static, {@code final} logger declared in an abstract base class and
- * initialized via {@code LoggerFactory.getLogger(getClass())} is also accepted as an alternate valid
- * pattern: subclasses inherit the field and each logs under its own runtime class name, which requires
- * the field to be an instance (non-static) member. The SLF4J FAQ explicitly declines to recommend
- * static over instance loggers ("we no longer recommend one approach over the other") and documents
- * instance loggers as IOC-friendly: https://www.slf4j.org/faq.html#declared_static . This is
- * accepted alongside private final instance or static loggers. Mutable or externally exposed fields
- * still fail unless they match a supported injection or abstract-base pattern.
- */
 final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRule {
 
     private static final Set<String> CONTAINER_MANAGED_ANNOTATIONS = Set.of(
@@ -1583,9 +1359,6 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
     }
 }
 
-/**
- * Flags accidental dependencies from application classes to test-only APIs.
- */
 final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
 
     NoTestFrameworkDependenciesRule() {
@@ -1629,10 +1402,6 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                         "io.restassured..");
     }
 
-    /**
-     * Whether the class file sits in a recognized local test output directory, for example under
-     * {@code spring-boot:test-run} or Gradle's {@code bootTestRun}. Archives and unknown layouts stay judged.
-     */
     static boolean isTestOutput(JavaClass javaClass) {
         return javaClass
                 .getSource()
@@ -1642,10 +1411,6 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags repository beans that depend on service beans, which reverses the usual persistence-to-
- * domain dependency direction.
- */
 final class RepositoriesShouldNotDependOnServicesRule extends AbstractArchitectureRule {
 
     RepositoriesShouldNotDependOnServicesRule() {
@@ -1670,10 +1435,6 @@ final class RepositoriesShouldNotDependOnServicesRule extends AbstractArchitectu
     }
 }
 
-/**
- * Flags service and repository beans that depend on servlet or reactive web request/response
- * infrastructure.
- */
 final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends AbstractArchitectureRule {
 
     ServicesAndRepositoriesShouldNotDependOnServletTypesRule() {
@@ -1707,12 +1468,6 @@ final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends Abs
     }
 }
 
-/**
- * Flags transaction annotations on interfaces, which Spring recommends avoiding because behaviour
- * differs between proxy modes and can be silently ignored with AspectJ weaving. Spring Data repository
- * interfaces and their inherited fragments are exempt on Spring because repository proxies read their
- * transaction declarations.
- */
 final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends AbstractArchitectureRule {
 
     TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule() {
@@ -1791,18 +1546,6 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
     }
 }
 
-/**
- * Flags methods annotated with proxy-driven annotations that the runtime's proxy mechanism cannot
- * actually intercept.
- *
- * <p>Spring Boot's default class-based proxies support public, protected, and package-private
- * methods. Private, static, and final methods still cannot be intercepted. Interface-based proxies
- * remain public-only, so accepting non-public methods avoids false positives for the default while
- * the recommendation calls out that portability caveat.
- *
- * <p>Quarkus Arc additionally supports intercepted static methods and transforms final intercepted
- * methods by default, so only private methods are reported there.</p>
- */
 final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchitectureRule {
 
     ProxiedMethodsShouldNotBePrivateOrStaticRule() {
@@ -1845,12 +1588,6 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                 .as("Proxy-driven methods should be publicly overridable");
     }
 
-    /**
-     * Returns the visibility/modifier problem preventing this method's proxy annotation from being
-     * honoured, if any. Spring's own annotations are held to Spring's stricter "public only" bar;
-     * a method annotated only with the portable {@code jakarta.transaction.Transactional} is held to
-     * the more permissive bar a CDI client proxy actually supports.
-     */
     private static Optional<String> proxyabilityProblem(JavaMethod method, ArchitecturePlatform platform) {
         boolean springAnnotated = method.isAnnotatedWith(SpringStereotypes.TRANSACTIONAL)
                 || method.isAnnotatedWith(SpringStereotypes.ASYNC)
@@ -1860,7 +1597,6 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
         if (springAnnotated && platform == ArchitecturePlatform.SPRING) {
             return visibilityProblem(method, false);
         }
-        // Portable Jakarta interceptor bindings: Arc intercepts static methods and transforms final ones.
         if (method.isAnnotatedWith(SpringStereotypes.JAKARTA_TRANSACTIONAL)
                 || method.isAnnotatedWith(SpringStereotypes.ROLES_ALLOWED)) {
             return visibilityProblem(method, platform == ArchitecturePlatform.QUARKUS);
@@ -1868,9 +1604,6 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
         return Optional.empty();
     }
 
-    /**
-     * @param quarkus whether Arc's static-interception and final-method transformation semantics apply
-     */
     private static Optional<String> visibilityProblem(JavaMethod method, boolean quarkus) {
         Set<JavaModifier> modifiers = method.getModifiers();
         List<String> problems = new ArrayList<>();
@@ -1887,15 +1620,6 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
     }
 }
 
-/**
- * Flags {@code @Async} methods with unsupported return types. Spring Framework 7's
- * {@code AsyncExecutionAspectSupport.doSubmit} accepts only {@code Future} variants, {@code void}, and
- * {@code kotlin.Unit}, and throws {@code IllegalArgumentException} on every proxied invocation of anything else,
- * including a Kotlin suspending function, whose raw return type is {@code Object}.
- *
- * <p>Only methods a class-based proxy can intercept are judged: a private, static, or final method never reaches
- * the interceptor, so it cannot throw, and ARCH-SPRING-010 already reports its ignored annotation.</p>
- */
 final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
 
     AsyncMethodsShouldHaveSupportedSignaturesRule() {
@@ -1930,8 +1654,6 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
                             }
                             context.evidence().observed();
                             if (KotlinBytecode.isSuspendFunction(method)) {
-                                // Unlike @Scheduled, Spring's async interceptor has no coroutine bridge: the raw
-                                // Object return type is rejected before the continuation is ever resumed.
                                 events.add(SimpleConditionEvent.violated(
                                         method,
                                         "Async method " + method.getFullName()
@@ -1971,11 +1693,6 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
     }
 }
 
-/**
- * Checks source signatures, not runtime scheduler activation or custom reactive adapter registrations.
- * Spring supports deferred reactive types and suspend functions (including value-returning ones).
- * A registered non-deferred adapter is rejected, unlike an ordinary ignored synchronous return value.
- */
 final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
 
     private static final String SCHEDULES = "org.springframework.scheduling.annotation.Schedules";
@@ -2091,9 +1808,6 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
     }
 }
 
-/**
- * Flags {@code @Async} usage in configuration classes, which Spring explicitly does not support.
- */
 final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchitectureRule {
 
     AsyncShouldNotBeUsedInConfigurationClassesRule() {
@@ -2137,10 +1851,6 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
     }
 }
 
-/**
- * Flags use of {@code AopContext.currentProxy()}, which couples application code directly to
- * Spring AOP internals and requires exposing proxies.
- */
 final class NoAopContextCurrentProxyRule extends AbstractArchitectureRule {
 
     NoAopContextCurrentProxyRule() {
@@ -2172,10 +1882,6 @@ final class NoAopContextCurrentProxyRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags {@code public static} fields that are not {@code final}, which expose shared, globally
- * reachable mutable state.
- */
 final class NoPublicMutableStaticFieldsRule extends AbstractArchitectureRule {
 
     NoPublicMutableStaticFieldsRule() {
@@ -2206,10 +1912,6 @@ final class NoPublicMutableStaticFieldsRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags utility classes (classes that expose only static members) that are not {@code final} or that
- * allow instantiation through a non-private constructor.
- */
 final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends AbstractArchitectureRule {
 
     UtilityClassesShouldBeFinalWithPrivateConstructorRule() {
@@ -2258,8 +1960,6 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
 
     private static boolean isUtilityClass(JavaClass javaClass) {
         if (KotlinBytecode.isCompilerGenerated(javaClass)) {
-            // Kotlin file facades (FooKt), companion holders, DefaultImpls and WhenMappings tables are
-            // emitted by the compiler, so their finality and constructors are not the author's to change.
             return false;
         }
         if (javaClass.isInterface()
@@ -2279,8 +1979,6 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
             return false;
         }
         if (ContainerBeans.isAnnotatedBean(javaClass) || ContainerBeans.declaresFactoryMethods(javaClass)) {
-            // Beans and @Bean / CDI producer holders are container infrastructure, not utility classes: the
-            // container instantiates them, and @Configuration classes must stay subclassable for CGLIB.
             return false;
         }
         boolean hasStaticMethod = false;
@@ -2306,11 +2004,6 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
     }
 }
 
-/**
- * Flags {@code @ConfigurationProperties} classes whose instance fields are not {@code final}, which
- * makes their bound configuration mutable. Spring Boot favours immutable configuration through
- * records or constructor binding.
- */
 final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchitectureRule {
 
     ConfigurationPropertiesShouldBeImmutableRule() {
@@ -2341,13 +2034,6 @@ final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchite
     }
 }
 
-/**
- * Flags direct calls between {@code @Bean} methods declared in the same class when that class is not
- * a full {@code @Configuration(proxyBeanMethods=true)}. In lite mode such a call is a plain method
- * invocation, so the Spring container does not intercept it. Calling a sibling factory method creates
- * a new instance rather than resolving the container-managed bean; whether that is a duplicate singleton
- * or another unmanaged object depends on the factory method's scope and implementation.
- */
 final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends AbstractArchitectureRule {
 
     LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule() {
@@ -2468,13 +2154,6 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
     }
 }
 
-/**
- * Flags {@code @PostConstruct} / {@code @PreDestroy} lifecycle callbacks that are also annotated with
- * a proxy-driven annotation ({@code @Transactional}, {@code @Async}, or a Spring cache operation).
- * Spring
- * invokes lifecycle callbacks before the bean is wrapped in its proxy (and after it is unwrapped at
- * destruction), so the proxy behaviour never applies.
- */
 final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchitectureRule {
 
     LifecycleCallbacksShouldNotBeProxyDrivenRule() {
@@ -2517,25 +2196,10 @@ final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchite
     }
 }
 
-/**
- * Flags methods annotated with both {@code @Async} and {@code @Transactional}. The transaction runs
- * on the async worker thread, so the caller's transaction and security context do not propagate and
- * the returned {@code Future} completes outside the transaction boundary; the combination is usually
- * unintended.
- *
- * <p>A transactional event listener that runs after the publishing transaction completed is the
- * exception: {@code @Async} plus {@code @Transactional(propagation = REQUIRES_NEW)} plus
- * {@code @TransactionalEventListener} is exactly what Spring Modulith's
- * {@code @ApplicationModuleListener} composes, and not joining the publisher's transaction is the
- * point of that shape — by the time the listener runs there is no transaction left to join. Such
- * methods are not reported. A {@code BEFORE_COMMIT} listener still is: there the publishing
- * transaction is genuinely still open while the listener runs on another thread.</p>
- */
 final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchitectureRule {
 
     private static final String BEFORE_COMMIT_PHASE = "BEFORE_COMMIT";
 
-    // The default phase of @TransactionalEventListener, and the phase @ApplicationModuleListener fixes.
     private static final String AFTER_COMMIT_PHASE = "AFTER_COMMIT";
 
     AsyncAndTransactionalShouldNotBeCombinedRule() {
@@ -2593,13 +2257,6 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
                 .as("Async and transactional semantics on one method should be reviewed");
     }
 
-    /**
-     * Returns the transaction phase of the transactional event listener annotation on the method, or
-     * empty when the method is not a transactional event listener. The annotation is recognised both
-     * directly and through a composed annotation such as Spring Modulith's
-     * {@code @ApplicationModuleListener}, which is additionally matched by name so the exemption holds
-     * even when that annotation type cannot be resolved from the classpath.
-     */
     private static Optional<String> transactionalEventListenerPhase(JavaMethod method) {
         Optional<String> direct = method.tryGetAnnotationOfType(SpringStereotypes.TRANSACTIONAL_EVENT_LISTENER)
                 .map(AsyncAndTransactionalShouldNotBeCombinedRule::phaseOf);
@@ -2625,7 +2282,6 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
         return Optional.empty();
     }
 
-    // An unset or unresolvable phase means the annotation's own default, AFTER_COMMIT.
     private static String phaseOf(JavaAnnotation<?> annotation) {
         Object phase = annotation.get("phase").orElse(null);
         if (phase instanceof JavaEnumConstant enumConstant) {
@@ -2635,11 +2291,6 @@ final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchite
     }
 }
 
-/**
- * Flags asynchronous event listeners that declare a return value. Spring explicitly supports
- * {@code @Async} on {@code @EventListener}, but its contract states that an asynchronous listener
- * cannot publish a follow-up event by returning a value.
- */
 final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitectureRule {
 
     AsyncEventListenersShouldReturnVoidRule() {
@@ -2691,10 +2342,6 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
     }
 }
 
-/**
- * Flags the legacy Java EE transaction annotation, which is ignored on the Spring Framework 7 /
- * Jakarta EE 11 baseline used by Spring Boot 4 and on Quarkus 3's Jakarta-only CDI container.
- */
 final class LegacyJavaxTransactionalShouldBeMigratedRule extends AbstractArchitectureRule {
 
     LegacyJavaxTransactionalShouldBeMigratedRule() {
@@ -2742,12 +2389,6 @@ final class LegacyJavaxTransactionalShouldBeMigratedRule extends AbstractArchite
     }
 }
 
-/**
- * Flags non-static {@code @Bean} methods that return a {@code BeanFactoryPostProcessor} or
- * {@code BeanPostProcessor}. A non-static post-processor factory method forces its configuration
- * class to be instantiated very early, before bean post-processing is fully set up, which can
- * disable post-processing of other beans and trigger autowiring warnings.
- */
 final class BeanPostProcessorFactoryMethodsShouldBeStaticRule extends AbstractArchitectureRule {
 
     BeanPostProcessorFactoryMethodsShouldBeStaticRule() {
@@ -2796,12 +2437,6 @@ final class BeanPostProcessorFactoryMethodsShouldBeStaticRule extends AbstractAr
     }
 }
 
-/**
- * Flags dependencies that reach into another module's {@code internal} package (for example
- * {@code base.order} accessing {@code base.inventory.internal}). The literal {@code internal} segment
- * marks an encapsulation boundary; only code within the owning module (the packages above its
- * {@code internal} subpackage) may depend on it.
- */
 final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractArchitectureRule {
 
     InternalPackagesShouldNotBeAccessedExternallyRule() {
@@ -2843,8 +2478,6 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
                             if (originPackage.equals(modulePrefix) || originPackage.startsWith(modulePrefix + ".")) {
                                 continue;
                             }
-                            // One event per dependency, carrying its own description and source line, rather than
-                            // the same class-level text repeated once per access.
                             events.add(SimpleConditionEvent.violated(
                                     dependency,
                                     "Internal package " + targetPackage + " of another module is accessed: "
@@ -2918,17 +2551,6 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
     }
 }
 
-/**
- * Flags direct {@code new Thread(...)} construction (including instantiating a class that extends
- * {@code Thread}) from application code.
- *
- * <p>An unmanaged thread bypasses pool sizing, naming, and uncaught-exception handling, and sits
- * outside both frameworks' managed-concurrency story: Spring's {@code TaskExecutor} / {@code @Async}
- * (and {@code spring.threads.virtual.enabled} on Java 21+), or Quarkus's {@code ManagedExecutor} /
- * {@code @RunOnVirtualThread}. This mirrors Effective Java Item 80, "Prefer executors, tasks, and
- * streams to threads", and the JDK {@code java.util.concurrent.Executor} Javadoc. See the Quarkus
- * context-propagation guide: https://quarkus.io/guides/context-propagation .
- */
 final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
 
     NoDirectThreadInstantiationRule() {
@@ -2967,47 +2589,6 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
     }
 }
 
-/**
- * Flags {@code assert} statements (compiled as a no-arg {@code new AssertionError()}) that have no
- * detail message, which produce near-useless failure diagnostics.
- *
- * <p>Wires in ArchUnit's own ready-made {@code GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE}.
- */
-final class AssertionsShouldHaveDetailMessageRule extends AbstractArchitectureRule {
-
-    AssertionsShouldHaveDetailMessageRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-018",
-                "Assertions should have a detail message",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects assert statements (compiled as new AssertionError() with no arguments) that have no detail"
-                        + " message, which produce near-useless failure diagnostics.",
-                "Add a detail message, e.g. \"assert x > 0 : \\\"x must be positive\\\";\", so a failure explains what"
-                        + " was expected.",
-                "https://docs.oracle.com/javase/8/docs/technotes/guides/language/assert.html"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE;
-    }
-}
-
-/**
- * Flags injection annotations on static fields and static methods. Spring Framework 7's
- * {@code AutowiredAnnotationBeanPostProcessor} logs "Autowired annotation is not supported on static fields" at INFO
- * and skips {@code @Autowired}, {@code @Value}, and {@code jakarta.inject.Inject} on static members; Quarkus Arc warns
- * "An injection field must be non-static" and ignores a static {@code @Inject}. The member is never populated by the
- * container, so it keeps whatever value it had, usually {@code null}.
- *
- * <p>Spring's own {@code @Autowired} and {@code @Value} are reported on any class. The standard
- * {@code jakarta.inject.Inject} is reported only on recognized Spring or CDI beans, because Guice can legitimately
- * inject static members it was asked to. {@code @Resource} is excluded: Spring rejects it on static members at
- * startup, so the problem is already visible. A non-static setter that assigns a static field is the supported
- * workaround and is not reported.</p>
- */
 final class StaticInjectionPointsAreIgnoredRule extends AbstractArchitectureRule {
 
     StaticInjectionPointsAreIgnoredRule() {
@@ -3067,16 +2648,6 @@ final class StaticInjectionPointsAreIgnoredRule extends AbstractArchitectureRule
     }
 }
 
-/**
- * Flags the legacy Java EE {@code javax.annotation} lifecycle and resource annotations and {@code javax.inject.Inject}.
- * Spring Framework 7 registers only {@code jakarta.annotation.PostConstruct}, {@code PreDestroy}, and
- * {@code Resource} in {@code CommonAnnotationBeanPostProcessor}, and only {@code jakarta.inject.Inject} beside
- * {@code @Autowired} and {@code @Value}; Quarkus 3's Arc is Jakarta-only too. The callback silently never runs and the
- * injection point is never populated. See {@link LegacyJavaxInjection} for the exemptions.
- *
- * <p>Kept separate from ARCH-SPRING-022 ({@code javax.transaction.Transactional}) so that rule's meaning and any
- * existing dismissal of it stay unchanged.</p>
- */
 final class LegacyJavaxInjectionAnnotationsShouldBeMigratedRule extends AbstractArchitectureRule {
 
     LegacyJavaxInjectionAnnotationsShouldBeMigratedRule() {
@@ -3122,22 +2693,6 @@ final class LegacyJavaxInjectionAnnotationsShouldBeMigratedRule extends Abstract
     }
 }
 
-/**
- * Flags HTTP clients built from Spring Framework's static factories, {@code RestClient.builder(..)} /
- * {@code RestClient.create(..)} and {@code WebClient.builder()} / {@code WebClient.create(..)}, while Spring Boot's
- * auto-configured builder is available.
- *
- * <p>Spring Boot exposes prototype {@code RestClient.Builder} and {@code WebClient.Builder} beans that carry the
- * context's message converters or codecs, the {@code ObservationRegistry} ({@code http.client.requests} metrics and
- * trace propagation), and every {@code RestClientCustomizer} / {@code WebClientCustomizer}. A client built from the
- * static factory works but skips all of that, including BootUI's own REST client trace interceptor.</p>
- *
- * <p>Each client family is checked only when its Spring Boot module ({@code spring-boot-restclient} or
- * {@code spring-boot-webclient}) is on the classpath, since without it there is no auto-configured builder to inject.
- * Classes positively identified as generated, such as an OpenAPI Generator {@code ApiClient} whose default
- * constructor calls {@code RestClient.builder()}, are not reported. {@code new RestTemplate(..)} is deliberately out
- * of scope: some APIs still require a {@code RestOperations}, and SPRING-WIRING-007 already reviews RestTemplate.</p>
- */
 final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRule {
 
     static final String REST_CLIENT = "org.springframework.web.client.RestClient";
@@ -3270,7 +2825,6 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
                 Class.forName(name, false, loader);
                 return true;
             } catch (ClassNotFoundException | LinkageError ex) {
-                // Absent from this loader; try the next one.
             }
         }
         return false;

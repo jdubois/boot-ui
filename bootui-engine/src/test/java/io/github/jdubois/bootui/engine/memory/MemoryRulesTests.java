@@ -70,6 +70,25 @@ class MemoryRulesTests {
         assertThat(find(scan(context), "MEM-HEAP-001")).isNull();
     }
 
+    @Test
+    void heapUtilizationFallsBackToCollectionUsageWhenPostGcHeapIsUnavailable() {
+        MemoryPoolSnapshot oldGen = new MemoryPoolSnapshot("G1 Old Gen", 990 * MB, 1 * GB, 1 * GB, 980 * MB);
+        MemoryData highAfterCollection = memory(500 * MB, 1 * GB, List.of(oldGen), null, List.of("-Xmx1g"));
+        MemoryContext highContext =
+                context(highAfterCollection, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto flagged = find(scan(highContext), "MEM-HEAP-001");
+        assertThat(flagged).isNotNull();
+        assertThat(flagged.sampleViolations().get(0)).contains("collectionUsage");
+
+        MemoryPoolSnapshot reclaimedOldGen = new MemoryPoolSnapshot("G1 Old Gen", 980 * MB, 1 * GB, 1 * GB, 300 * MB);
+        MemoryData lowAfterCollection = memory(980 * MB, 1 * GB, List.of(reclaimedOldGen), null, List.of("-Xmx1g"));
+        MemoryContext lowContext =
+                context(lowAfterCollection, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(lowContext), "MEM-HEAP-001")).isNull();
+    }
+
     // --- MEM-HEAP-002: post-GC old generation ------------------------------------------------
 
     @Test
@@ -90,6 +109,27 @@ class MemoryRulesTests {
                 memory, ThreadData.empty(), new PostGcHeapData(true, 600 * MB, true, 100 * MB), healthyRuntime());
 
         assertThat(find(scan(context), "MEM-HEAP-002")).isNull();
+    }
+
+    @Test
+    void oldGenerationFallsBackToCollectionUsageWhenPostGcHeapIsUnavailable() {
+        MemoryPoolSnapshot highCollectionOldGen =
+                new MemoryPoolSnapshot("G1 Old Gen", 400 * MB, 950 * MB, 1 * GB, 900 * MB);
+        MemoryData highMemory = memory(600 * MB, 2 * GB, List.of(highCollectionOldGen), null, List.of("-Xmx2g"));
+        MemoryContext highContext =
+                context(highMemory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto flagged = find(scan(highContext), "MEM-HEAP-002");
+        assertThat(flagged).isNotNull();
+        assertThat(flagged.sampleViolations().get(0)).contains("collectionUsage");
+
+        MemoryPoolSnapshot lowCollectionOldGen =
+                new MemoryPoolSnapshot("G1 Old Gen", 920 * MB, 950 * MB, 1 * GB, 200 * MB);
+        MemoryData lowMemory = memory(600 * MB, 2 * GB, List.of(lowCollectionOldGen), null, List.of("-Xmx2g"));
+        MemoryContext lowContext =
+                context(lowMemory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        assertThat(find(scan(lowContext), "MEM-HEAP-002")).isNull();
     }
 
     // --- MEM-HEAP-003: dead unbounded-heap branch removed ------------------------------------
@@ -558,6 +598,30 @@ class MemoryRulesTests {
         MemoryContext context = context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
 
         assertThat(find(scan(context), "MEM-POOL-005")).isNull();
+    }
+
+    @Test
+    void compressedClassSpaceNearMaxNotesCompactObjectHeadersWhenEnabled() {
+        MemoryPoolSnapshot ccs = new MemoryPoolSnapshot("Compressed Class Space", 900 * MB, 950 * MB, GB);
+        MemoryData memory = memory(256 * MB, 2 * GB, List.of(ccs), null, List.of("-XX:+UseCompactObjectHeaders"));
+        MemoryContext fromInputArg =
+                context(memory, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto result = find(scan(fromInputArg), "MEM-POOL-005");
+        assertThat(result).isNotNull();
+        assertThat(result.sampleViolations().get(0))
+                .contains("UseCompactObjectHeaders")
+                .contains("22-bit");
+
+        RuntimeData liveCompactHeaders = new RuntimeData(
+                300_000, 1_500, 50, 0, -1, MB, 4, -1, -1, null, -1, -1, null, -1, -1, -1, null, Boolean.TRUE);
+        MemoryContext fromLiveOption = context(
+                memory(256 * MB, 2 * GB, List.of(ccs), null, List.of()),
+                ThreadData.empty(),
+                PostGcHeapData.unavailable(),
+                liveCompactHeaders);
+        assertThat(find(scan(fromLiveOption), "MEM-POOL-005").sampleViolations().get(0))
+                .contains("UseCompactObjectHeaders");
     }
 
     // --- MEM-FOOTPRINT-003: container memory current usage ----------------------------------
@@ -1045,7 +1109,65 @@ class MemoryRulesTests {
         MemoryRuleResultDto result = find(scan(context), "MEM-FOOTPRINT-001");
 
         assertThat(result).isNotNull();
+        assertThat(result.severity()).isEqualTo("MEDIUM");
         assertThat(result.sampleViolations().get(0)).contains("maximum heap").contains("headroom");
+    }
+
+    @Test
+    void configuredContainerHeadroomDowngradesToLowWhenCrossedOnlyByThreadStacksWithLowWorkingSet() {
+        // coreFootprint = 512 MiB + 120 MiB + 0 = 632 MiB (61% of 1 GiB < 90%).
+        // Adding 300 threads * 1 MiB = 300 MiB reaches 932 MiB (91% >= 90%), while cgroup workingSet is 400 MiB (39% <
+        // 75%).
+        MemoryData lowWorkingSetMemory = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                100 * MB,
+                120 * MB,
+                -1,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                500 * MB,
+                400 * MB,
+                List.of());
+        MemoryContext lowWorkingSetContext =
+                context(lowWorkingSetMemory, threads(300), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto downgraded = find(scan(lowWorkingSetContext), "MEM-FOOTPRINT-001");
+        assertThat(downgraded).isNotNull();
+        assertThat(downgraded.severity()).isEqualTo("LOW");
+
+        // When cgroup workingSet is >= 75% (800 MiB = 78%), severity remains MEDIUM.
+        MemoryData highWorkingSetMemory = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                100 * MB,
+                120 * MB,
+                -1,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                850 * MB,
+                800 * MB,
+                List.of());
+        MemoryContext highWorkingSetContext =
+                context(highWorkingSetMemory, threads(300), PostGcHeapData.unavailable(), healthyRuntime());
+
+        MemoryRuleResultDto staysMedium = find(scan(highWorkingSetContext), "MEM-FOOTPRINT-001");
+        assertThat(staysMedium).isNotNull();
+        assertThat(staysMedium.severity()).isEqualTo("MEDIUM");
     }
 
     // --- MEM-CLASS-001: excessive loaded classes (test coverage gap) -------------------------

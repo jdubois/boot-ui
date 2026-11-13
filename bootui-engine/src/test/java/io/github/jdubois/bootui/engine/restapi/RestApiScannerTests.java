@@ -232,10 +232,12 @@ class RestApiScannerTests {
     }
 
     @Test
-    void springdocFlagEnablesDocumentationRules() {
+    void springdocFlagLeavesRetiredDocumentationRulesSkipped() {
         RestApiReport report = scanner(List.of(FIXTURES), true).scan();
 
-        assertThat(report.results()).extracting(RestApiRuleResultDto::id).contains("RAPI-DOC-001", "RAPI-DOC-002");
+        assertThat(report.results())
+                .extracting(RestApiRuleResultDto::id)
+                .doesNotContain("RAPI-DOC-001", "RAPI-DOC-002", "RAPI-DOC-003");
     }
 
     @Test

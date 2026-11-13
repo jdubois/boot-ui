@@ -10,10 +10,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-/**
- * Static Memory Advisor rules. Each rule reads only from {@link MemoryContext} and returns a
- * health finding with a severity; rules never collect data or mutate runtime state.
- */
 abstract class AbstractMemoryRule implements MemoryRule {
 
     private final MemoryRuleDefinition definition;
@@ -96,9 +92,6 @@ abstract class AbstractMemoryRule implements MemoryRule {
     }
 }
 
-/**
- * Shared formatting and threshold helpers for Memory Advisor rules.
- */
 final class MemoryFormat {
 
     static final long KILOBYTE = 1024L;
@@ -136,7 +129,6 @@ final class MemoryFormat {
                 .intValue();
     }
 
-    /** Unknown or overflowing estimates stay unknown, rather than wrapping into healthy values. */
     static long sum(long... values) {
         long total = 0;
         for (long value : values) {
@@ -155,10 +147,6 @@ final class MemoryFormat {
         return left * right;
     }
 }
-
-// ---------------------------------------------------------------------------
-// Heap pressure
-// ---------------------------------------------------------------------------
 
 final class HighHeapUtilizationRule extends AbstractMemoryRule {
 
@@ -196,6 +184,20 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
                         "Heap is " + postPercent + "% full (" + MemoryFormat.bytes(postGc.heapUsed()) + " of "
                                 + MemoryFormat.bytes(memory.heapMax())
                                 + ") in the post-histogram snapshot; confirm sustained pressure with GC evidence.");
+            }
+            return pass();
+        }
+        long collectionUsed = memory.heapCollectionUsed();
+        if (collectionUsed >= 0) {
+            int collectionPercent = MemoryFormat.percentOf(collectionUsed, memory.heapMax());
+            if (collectionPercent >= THRESHOLD_PERCENT) {
+                return violation(
+                        context,
+                        MemoryRuleSupport.MEDIUM,
+                        "Heap was " + collectionPercent + "% full (" + MemoryFormat.bytes(collectionUsed) + " of "
+                                + MemoryFormat.bytes(memory.heapMax())
+                                + ") in pool collectionUsage after the most recent garbage collection; confirm"
+                                + " sustained pressure with GC evidence.");
             }
             return pass();
         }
@@ -256,6 +258,18 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
             }
             return pass();
         }
+        if (pool.collectionUsed() > 0) {
+            int collectionPercent = pool.collectionUsedPercent();
+            if (collectionPercent >= THRESHOLD_PERCENT) {
+                return violation(
+                        context,
+                        "Old-generation pool '" + pool.name() + "' was " + collectionPercent + "% full ("
+                                + MemoryFormat.bytes(pool.collectionUsed()) + " of " + MemoryFormat.bytes(pool.max())
+                                + ") after its most recent garbage collection (collectionUsage); this is occupancy, not"
+                                + " a retained-size measurement.");
+            }
+            return pass();
+        }
         if (pool.used() < 0) {
             return skipped("Old-generation usage is unavailable.");
         }
@@ -293,8 +307,6 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
     MemoryEvaluation evaluateRule(MemoryContext context) {
         MemoryData memory = context.memory();
         if (memory.heapMax() <= 0) {
-            // HotSpot effectively always reports a bounded max heap; skip rather than fire a
-            // spurious violation when getMax() returns -1 on unusual JVMs or startup edge-cases.
             return skipped("Maximum heap size is not reported by this JVM.");
         }
         Long containerLimit = memory.containerMemoryLimitBytes();
@@ -302,7 +314,6 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
             return pass();
         }
         boolean smallHeap = MemoryFormat.percentOf(memory.heapMax(), containerLimit) < SMALL_HEAP_PERCENT;
-        // Prefer the more recent snapshot without claiming it proves collection or retention.
         int usedPercent;
         MemoryContext.PostGcHeapData postGc = context.postGcHeap();
         if (postGc.heapAvailable() && postGc.heapUsed() >= 0) {
@@ -325,10 +336,6 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
         return pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Memory pools
-// ---------------------------------------------------------------------------
 
 final class MetaspaceSaturationRule extends AbstractMemoryRule {
 
@@ -445,7 +452,6 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
         return violation(context, details);
     }
 
-    /** Segmented HotSpot code heaps: {@code CodeHeap 'profiled nmethods'} and {@code 'non-profiled nmethods'}. */
     static boolean isNmethodSegment(String name) {
         String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
         return lower.contains("nmethods") && !lower.contains("non-nmethods");
@@ -502,10 +508,6 @@ final class DirectBufferGrowthRule extends AbstractMemoryRule {
         return pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// GC configuration
-// ---------------------------------------------------------------------------
 
 final class MissingHeapSizingInContainerRule extends AbstractMemoryRule {
 
@@ -580,10 +582,6 @@ final class ContainerSupportDisabledRule extends AbstractMemoryRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Threads
-// ---------------------------------------------------------------------------
-
 final class DeadlockDetectedRule extends AbstractMemoryRule {
 
     DeadlockDetectedRule() {
@@ -618,11 +616,6 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
     private static final int MIN_BLOCKED = 5;
     private static final double RATIO_THRESHOLD = 0.25;
     private static final int ABSOLUTE_BLOCKED = 20;
-    /**
-     * Minimum ratio required when the absolute threshold triggers. Without this floor an app with
-     * hundreds of threads could fire on 20 blocked threads that represent only a tiny fraction of
-     * total threads — a false positive in large thread pools.
-     */
     private static final double MIN_RATIO_FOR_ABSOLUTE = 0.10;
 
     HighBlockedThreadRatioRule() {
@@ -727,10 +720,6 @@ final class RunawayCpuThreadRule extends AbstractMemoryRule {
         return missingCpu ? violation(context, details).withMissingEvidence() : violation(context, details);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Heap content
-// ---------------------------------------------------------------------------
 
 final class BigObjectsRule extends AbstractMemoryRule {
 
@@ -925,19 +914,10 @@ final class DominantClassRule extends AbstractMemoryRule {
                 .orElseGet(this::pass);
     }
 
-    /**
-     * Returns {@code true} for any array class. After histogram normalisation every array type has
-     * a name ending in {@code []} (e.g. {@code byte[]}, {@code Object[]}, {@code com.example.Foo[]}).
-     * Internal JVM descriptor forms starting with {@code [} are also matched as a safety net.
-     */
     static boolean isArrayClass(String className) {
         return className != null && (className.endsWith("[]") || className.startsWith("["));
     }
 }
-
-// ---------------------------------------------------------------------------
-// Class loading
-// ---------------------------------------------------------------------------
 
 final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
 
@@ -974,13 +954,10 @@ final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Native memory
-// ---------------------------------------------------------------------------
-
 final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule {
 
     private static final int THRESHOLD_PERCENT = 90;
+    private static final int LOW_WORKING_SET_PERCENT = 75;
 
     CommittedFootprintNearContainerLimitRule() {
         super(new MemoryRuleDefinition(
@@ -1028,17 +1005,31 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
         if (context.threads().total() <= 0 || context.runtime().threadStackBytes() <= 0) {
             return skipped("Platform-thread stack estimate is unavailable.");
         }
+        long coreFootprint =
+                MemoryFormat.sum(memory.heapMax(), memory.nonHeapCommitted(), memory.directBufferCapacity());
         long stacks = MemoryFormat.product(
                 context.threads().total(), context.runtime().threadStackBytes());
-        long configuredFootprint =
-                MemoryFormat.sum(memory.heapMax(), memory.nonHeapCommitted(), memory.directBufferCapacity(), stacks);
+        long configuredFootprint = MemoryFormat.sum(coreFootprint, stacks);
         if (configuredFootprint < 0) {
             return skipped("Configured memory components are unavailable or exceed the numeric range.");
         }
         if (MemoryFormat.percentOf(configuredFootprint, limit) >= THRESHOLD_PERCENT) {
             int percent = MemoryFormat.percentOf(configuredFootprint, limit);
+            boolean crossedOnlyByStacks = MemoryFormat.percentOf(coreFootprint, limit) < THRESHOLD_PERCENT;
+            Long workingSet = memory.containerMemoryWorkingSetBytes();
+            Long current = memory.containerMemoryCurrentBytes();
+            Long measuredCgroupUsage =
+                    workingSet != null && workingSet >= 0 && (current == null || workingSet <= current)
+                            ? workingSet
+                            : current;
+            boolean lowCgroupWorkingSet = measuredCgroupUsage != null
+                    && measuredCgroupUsage >= 0
+                    && MemoryFormat.percentOf(measuredCgroupUsage, limit) < LOW_WORKING_SET_PERCENT;
+            String severity =
+                    crossedOnlyByStacks && lowCgroupWorkingSet ? MemoryRuleSupport.LOW : MemoryRuleSupport.MEDIUM;
             return violation(
                     context,
+                    severity,
                     "Configured JVM memory envelope " + MemoryFormat.bytes(configuredFootprint) + " is "
                             + percent + "% of the container memory limit " + MemoryFormat.bytes(limit)
                             + " (maximum heap "
@@ -1053,10 +1044,6 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
         return pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// GC configuration (lifetime overhead and sizing)
-// ---------------------------------------------------------------------------
 
 final class HighGcOverheadRule extends AbstractMemoryRule {
 
@@ -1148,10 +1135,6 @@ final class UnequalInitialAndMaxHeapRule extends AbstractMemoryRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Heap pressure (sizing thresholds)
-// ---------------------------------------------------------------------------
-
 final class CompressedOopsCliffRule extends AbstractMemoryRule {
 
     private static final long DEFAULT_ALIGNMENT_BYTES = 8L;
@@ -1179,7 +1162,6 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
     MemoryEvaluation evaluateRule(MemoryContext context) {
         MemoryData memory = context.memory();
         MemoryContext.RuntimeData runtime = context.runtime();
-        // MemoryMXBean's maximum can exclude a survivor space on Serial/Parallel; prefer the option.
         long heapMax = runtime.maxHeapSizeOptionBytes() > 0 ? runtime.maxHeapSizeOptionBytes() : memory.heapMax();
         if (heapMax <= 0) {
             return missingPass();
@@ -1205,15 +1187,12 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
         }
         boolean inWindow;
         if (Boolean.FALSE.equals(useCompressedOops)) {
-            // UseCompressedOops defaults to false and is only set ergonomically when the heap fits, so a
-            // false live value without an explicit disable means this heap is past the effective limit.
             if (heapMax <= lowerBound) {
                 return inapplicable("Compressed object pointers are off at a heap well below their limit;"
                         + " the cause is not a heap-size cliff.");
             }
             inWindow = heapMax <= upperBound;
         } else {
-            // The effective limit is below the encoding range, so a heap at the range is already past it.
             inWindow = heapMax >= encodingLimit && heapMax <= upperBound;
         }
         if (!inWindow) {
@@ -1231,7 +1210,6 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
                         + ". A heap capped just below the limit may hold more objects for the same memory.");
     }
 
-    /** Uses the last {@code -XX:ObjectAlignmentInBytes} argument, as HotSpot does. */
     private static long parseObjectAlignmentBytes(List<String> inputArguments) {
         String prefix = "-XX:ObjectAlignmentInBytes=";
         long alignment = DEFAULT_ALIGNMENT_BYTES;
@@ -1243,7 +1221,6 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
                         alignment = parsed;
                     }
                 } catch (NumberFormatException ignored) {
-                    // keep the previous alignment
                 }
             }
         }
@@ -1283,10 +1260,6 @@ final class PendingFinalizationBacklogRule extends AbstractMemoryRule {
         return pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Memory pools (Metaspace ceiling)
-// ---------------------------------------------------------------------------
 
 final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
 
@@ -1328,10 +1301,6 @@ final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
         return pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Class loading (churn)
-// ---------------------------------------------------------------------------
 
 final class ClassLoadingChurnRule extends AbstractMemoryRule {
 
@@ -1377,10 +1346,6 @@ final class ClassLoadingChurnRule extends AbstractMemoryRule {
         return context.classLoading().loadedClasses() <= 0 ? missingPass() : pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Native memory (thread stacks)
-// ---------------------------------------------------------------------------
 
 final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
 
@@ -1443,10 +1408,6 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// GC configuration (recent overhead)
-// ---------------------------------------------------------------------------
-
 final class RecentGcOverheadRule extends AbstractMemoryRule {
 
     private static final long MIN_WINDOW_MILLIS = 10_000L;
@@ -1495,10 +1456,6 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Memory pools (Compressed Class Space)
-// ---------------------------------------------------------------------------
-
 final class CompressedClassSpaceRule extends AbstractMemoryRule {
 
     private static final int THRESHOLD_PERCENT = 85;
@@ -1511,9 +1468,12 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
                 "MEDIUM",
                 "Flags Compressed Class Space at 85% of its reported maximum. Compressed class pointers are distinct"
                         + " from compressed ordinary object pointers; availability and capacity depend on JVM version and"
-                        + " configuration. Exhaustion can cause OutOfMemoryError: Compressed class space.",
+                        + " configuration, including JEP 450/519 compact object headers (-XX:+UseCompactObjectHeaders)."
+                        + " Exhaustion can cause OutOfMemoryError: Compressed class space.",
                 "Review class generation and the effective class-space and Metaspace limits before changing"
-                        + " -XX:CompressedClassSpaceSize; account for the JVM's object-header mode and native headroom.",
+                        + " -XX:CompressedClassSpaceSize; account for the JVM's object-header mode"
+                        + " (-XX:+UseCompactObjectHeaders caps the 22-bit narrow-klass encoding range) and native"
+                        + " headroom.",
                 "https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html"));
     }
 
@@ -1529,19 +1489,24 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
             return skipped("Compressed Class Space does not report a maximum size on this JVM.");
         }
         if (ccs.usedPercent() >= THRESHOLD_PERCENT) {
+            Boolean liveCompactHeaders = context.runtime().useCompactObjectHeaders();
+            boolean compactHeaders = Boolean.TRUE.equals(liveCompactHeaders)
+                    || (liveCompactHeaders == null
+                            && Boolean.TRUE.equals(context.memory().booleanJvmArgument("UseCompactObjectHeaders")));
+            String compactHeaderNote = compactHeaders
+                    ? " -XX:+UseCompactObjectHeaders (JEP 450/519) is active, which uses 22-bit narrow class pointers"
+                            + " and bounds the addressable Compressed Class Space ceiling; investigate dynamic"
+                            + " class/proxy generation before raising -XX:CompressedClassSpaceSize."
+                    : "";
             return violation(
                     context,
                     "Compressed Class Space is " + ccs.usedPercent() + "% full ("
                             + MemoryFormat.bytes(ccs.used()) + " of " + MemoryFormat.bytes(ccs.max())
-                            + "); exhaustion causes OutOfMemoryError: Compressed class space.");
+                            + "); exhaustion causes OutOfMemoryError: Compressed class space." + compactHeaderNote);
         }
         return pass();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Native memory (container current usage)
-// ---------------------------------------------------------------------------
 
 final class ContainerMemoryPressureRule extends AbstractMemoryRule {
 
@@ -1594,16 +1559,8 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// GC configuration (Serial GC on multi-core)
-// ---------------------------------------------------------------------------
-
 final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
 
-    /**
-     * JDK 17, 21, and 25 select G1 ergonomically on a server-class machine (2+ CPUs and roughly 2 GiB
-     * of memory); below that threshold Serial GC remains an expected default.
-     */
     private static final long SERVER_CLASS_MEMORY_THRESHOLD_BYTES = 2 * MemoryFormat.GIGABYTE;
 
     SerialGcOnMultiCoreRule() {
@@ -1646,10 +1603,6 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
                         + "-CPU system; review collector tradeoffs against measured workload goals, not CPU count alone.");
     }
 
-    /**
-     * Prefers the container memory limit (what actually bounds this JVM); falls back to total
-     * physical memory when no container limit is detected. Returns -1 when neither is known.
-     */
     private static long effectiveMemoryBytes(MemoryData memory, MemoryContext.RuntimeData runtime) {
         Long containerLimit = memory.containerMemoryLimitBytes();
         if (containerLimit != null && containerLimit > 0) {
@@ -1659,10 +1612,6 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
         return totalPhysical > 0 ? totalPhysical : -1;
     }
 }
-
-// ---------------------------------------------------------------------------
-// GC configuration (G1 Full GC frequency)
-// ---------------------------------------------------------------------------
 
 final class G1FullGcFrequencyRule extends AbstractMemoryRule {
 
@@ -1706,10 +1655,6 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
                         + " tuning.");
     }
 }
-
-// ---------------------------------------------------------------------------
-// GC configuration (latest-event duration)
-// ---------------------------------------------------------------------------
 
 final class GcEventDurationOutlierRule extends AbstractMemoryRule {
 
@@ -1755,10 +1700,6 @@ final class GcEventDurationOutlierRule extends AbstractMemoryRule {
                         + ", at or above the " + PAUSE_THRESHOLD_MILLIS + " ms threshold.");
     }
 }
-
-// ---------------------------------------------------------------------------
-// GC configuration (non-generational ZGC)
-// ---------------------------------------------------------------------------
 
 final class NonGenerationalZgcRule extends AbstractMemoryRule {
 
@@ -1806,10 +1747,6 @@ final class NonGenerationalZgcRule extends AbstractMemoryRule {
         return violation(context, "ZGC is running in non-generational mode; " + action);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Memory pools (buffer pool growth trend)
-// ---------------------------------------------------------------------------
 
 final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
 
@@ -1873,10 +1810,6 @@ final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
         return violation(context, escalateToHigh ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Heap pressure (old-generation usage trend)
-// ---------------------------------------------------------------------------
 
 final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
 

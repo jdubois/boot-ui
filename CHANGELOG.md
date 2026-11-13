@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
+  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
 - **Local instance discovery and `bootui init`** list and target running local applications with `bootui instances` and
   `bootui --app <name>`, and idempotently write or preview MCP client configurations ([CLI guide](docs/CLI.md); [#1673](https://github.com/jdubois/boot-ui/issues/1673)).
 

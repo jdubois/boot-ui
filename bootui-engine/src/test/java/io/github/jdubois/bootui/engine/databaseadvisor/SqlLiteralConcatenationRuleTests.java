@@ -73,7 +73,18 @@ class SqlLiteralConcatenationRuleTests {
         DatabaseAdvisorRuleResultDto result = evaluate(List.of(
                 statement("select * from earnings where owner_id=? and order_id in (?) and status<>'VOIDED'"),
                 statement("select * from earnings where owner_id=? and order_id in (?,?) and status<>'VOIDED'"),
-                statement("select * from earnings where owner_id=? and order_id in (?,?,?,?) and status<>'VOIDED'")));
+                statement("select * from earnings where owner_id=? and order_id in (?,?,?,?) and status<>'VOIDED'"),
+                statement("select *\n  from earnings /* traceparent=00-1 */\n  where owner_id=?\n"
+                        + "    and order_id in (\n      ?,\n      ?\n    )\n    and status<>'VOIDED'")));
+
+        assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.PASS);
+    }
+
+    @Test
+    void doesNotReportCommentOrWhitespaceOnlyDifferencesOnAConstantPredicate() {
+        DatabaseAdvisorRuleResultDto result = evaluate(List.of(
+                statement("/* trace=1 */ select 1 from orders where deleted = 0"),
+                statement("/* trace=2 */ select  1\nfrom orders -- inline comment\nwhere deleted = 0")));
 
         assertThat(result.status()).isEqualTo(DatabaseAdvisorRuleSupport.PASS);
     }

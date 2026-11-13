@@ -16,26 +16,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import javax.sql.DataSource;
 
-/**
- * Reads the physical schema of one {@code DataSource} through plain {@code java.sql.DatabaseMetaData} —
- * tables, columns, primary keys, foreign keys, and indexes — and augments it, for PostgreSQL and
- * MySQL/MariaDB, with the read-only catalog facts the generic JDBC API cannot answer.
- *
- * <p>This is purely read-only: it never executes DDL and never queries application data, only driver catalog
- * metadata and system-catalog rows. Three properties matter as much as the data itself:</p>
- *
- * <ul>
- *   <li><strong>Bounded.</strong> Every list is read one row past its bound so truncation is detected
- *       deterministically, every catalog statement carries a query timeout clamped to the remaining scan
- *       budget, and the scan stops between tables once the budget is spent — keeping whatever it already
- *       read.</li>
- *   <li><strong>Honest.</strong> A failure introspecting one datasource, one table, or one catalog
- *       augmentation is recorded as a diagnostic and leaves the rest of the scan intact; nothing that failed
- *       is ever presented as a clean result.</li>
- *   <li><strong>Non-invasive.</strong> The connection's original read-only flag is restored before it goes
- *       back to the pool, and no other connection state is touched.</li>
- * </ul>
- */
 final class SchemaIntrospector {
 
     private static final String[] TABLE_TYPES = {"TABLE", "PARTITIONED TABLE"};
@@ -66,10 +46,6 @@ final class SchemaIntrospector {
         return introspect(dataSourceName, dataSource, budget, limits, null);
     }
 
-    /**
-     * @param poolDriverProperties the driver properties the datasource's pool supplies (allow-listed names only), or
-     *     {@code null} when they could not be read, which is not the same as none being configured
-     */
     static SchemaSnapshot introspect(
             String dataSourceName,
             DataSource dataSource,
@@ -82,7 +58,6 @@ final class SchemaIntrospector {
         return introspect(dataSourceName, dataSource::getConnection, budget, limits, poolDriverProperties);
     }
 
-    /** Test seam: the same introspection over any source of a JDBC {@link Connection}. */
     @FunctionalInterface
     interface ConnectionSource {
         Connection get() throws SQLException;
@@ -217,7 +192,7 @@ final class SchemaIntrospector {
         for (VendorAugmentation<?> truncation : findings.truncations()) {
             diagnostics.add(SchemaDiagnostic.warning(
                     dataSourceName,
-                    truncation.kind().label() + " was truncated at " + limits.maxVendorFindings()
+                    truncation.kind().label() + " was truncated at " + limits.rowLimit(truncation.kind())
                             + " rows; some findings may be missing."));
         }
 
@@ -237,11 +212,6 @@ final class SchemaIntrospector {
                 driver);
     }
 
-    /**
-     * The driver's name and version and its allow-listed settings, each read on its own so one failing metadata call
-     * costs only that field. The JDBC URL is parsed for allow-listed settings and not kept; no diagnostic quotes it
-     * or an exception message.
-     */
     private static DriverEvidence readDriverEvidence(
             String dataSourceName,
             DatabaseMetaData metaData,
@@ -271,27 +241,12 @@ final class SchemaIntrospector {
         try {
             return DriverEvidenceReader.read(name.value(), version.value(), url, poolDriverProperties);
         } catch (RuntimeException ex) {
-            // Driver evidence must never cost a datasource its schema scan.
             diagnostics.add(SchemaDiagnostic.warning(
                     dataSourceName, "The JDBC driver settings could not be evaluated; driver checks are skipped."));
             return null;
         }
     }
 
-    /**
-     * A driver-reported {@code "Oracle"} product name is not proof of a genuine Oracle Database server: some
-     * Oracle-compatible databases (OceanBase's driver, in its 2.2.x default or with
-     * {@code useCompatibleMetadata=true}) report it too. {@code v$version.banner} (falling back to
-     * {@code product_component_version.product} for a role locked out of {@code v$} views, which are not
-     * always granted to {@code PUBLIC}) is Oracle's own self-identification: a genuine server's banner has
-     * "Oracle" appearing before "Database" (matching both the long-standing "Oracle Database 19c ..." banner
-     * and the newer "Oracle AI Database 26ai ..." rebrand). OceanBase's own banner reads
-     * {@code "OceanBase Database ... (Oracle Compatible Mode)"} — "Database" appears <em>before</em> "Oracle"
-     * there, so the order-sensitive check still tells them apart. Tibero and EDB Postgres Advanced Server
-     * report their own product names and never collide on the product name check at all. A server that
-     * cannot confirm itself this way is treated as {@link Dialect#GENERIC}: it still gets the full generic
-     * JDBC ruleset, just not Oracle-specific augmentation it may not actually support.
-     */
     static Dialect resolveOracle(
             Connection connection, Dialect detected, String dataSourceName, List<SchemaDiagnostic> diagnostics) {
         return resolveOracle(
@@ -362,10 +317,6 @@ final class SchemaIntrospector {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 
-    /**
-     * The connected session's {@code CURRENT_SCHEMA}, so the generic table scan and every Oracle-specific
-     * {@code ALL_*} query stay scoped to it — never to every schema the connected user can merely see.
-     */
     private static String oracleCurrentSchema(
             Connection connection,
             String dataSourceName,
@@ -491,8 +442,6 @@ final class SchemaIntrospector {
         try {
             return readTableRefs(metaData, catalog, escapedSchemaPattern, schemaPattern, types.types(), limits, budget);
         } catch (SQLException ex) {
-            // Not every driver accepts a table type it does not know; retry with the universal "TABLE" type
-            // rather than losing the whole datasource over PostgreSQL's partitioned-table type.
             diagnostics.add(SchemaDiagnostic.info(
                     dataSourceName,
                     "The driver rejected the PARTITIONED TABLE type filter; retried with TABLE only (" + describe(ex)
@@ -516,7 +465,6 @@ final class SchemaIntrospector {
         boolean truncated = false;
         requireBudget(budget);
         try (ResultSet rs = metaData.getTables(catalog, schemaPattern, "%", types)) {
-            // One row past the bound: seeing max + 1 candidates is what makes truncation observable.
             int examined = 0;
             while (rs.next()) {
                 if (++examined > limits.maxTables() || budget.exhausted()) {
@@ -644,7 +592,6 @@ final class SchemaIntrospector {
                 if (!Objects.equals(tableName, ref.name())
                         || !Objects.equals(rs.getString("TABLE_CAT"), ref.catalog())
                         || !Objects.equals(rs.getString("TABLE_SCHEM"), ref.schema())) {
-                    // getColumns takes patterns, so an escaped-but-still-matching sibling table can appear.
                     continue;
                 }
                 if (columns.size() >= limits.maxColumnsPerTable()) {
@@ -663,8 +610,6 @@ final class SchemaIntrospector {
         String defaultValue = null;
         boolean defaultRead = true;
         try {
-            // Read before later columns: Oracle exposes COLUMN_DEF as a LONG stream that is lost once a
-            // later column of the row has been accessed.
             defaultValue = rs.getString("COLUMN_DEF");
         } catch (SQLException ex) {
             defaultRead = false;
@@ -854,8 +799,6 @@ final class SchemaIntrospector {
         Set<String> completed = new java.util.HashSet<>();
         String currentIndex = null;
         boolean truncated = false;
-        // approximate = true keeps this off the table-statistics path some drivers take otherwise; the index
-        // definitions themselves are exact either way.
         requireBudget(budget);
         try (ResultSet rs = metaData.getIndexInfo(ref.catalog(), ref.schema(), ref.name(), false, true)) {
             int rows = 0;
@@ -925,7 +868,6 @@ final class SchemaIntrospector {
         List<IndexModel> indexes = new ArrayList<>();
         for (var entry : partsByIndex.entrySet()) {
             if (truncated && !completed.contains(entry.getKey())) {
-                // JDBC orders rows by index identity and position; only earlier closed groups are complete.
                 continue;
             }
             requireConsecutive(entry.getValue());
@@ -1014,7 +956,6 @@ final class SchemaIntrospector {
         }
     }
 
-    /** Escapes JDBC metadata pattern wildcards so a table named {@code user_data} matches only itself. */
     private static String escapePattern(String value, String escape) {
         if (value == null || escape == null || escape.isEmpty()) {
             return value;
@@ -1058,15 +999,10 @@ final class SchemaIntrospector {
             connection.setReadOnly(true);
             return true;
         } catch (SQLException | RuntimeException ex) {
-            // Not every driver supports read-only mode; the scanner never issues a write regardless.
             return false;
         }
     }
 
-    /**
-     * Puts the connection back exactly as it was found. Pooled connections are reused by the application, so
-     * leaving one flipped to read-only would break the next writer that borrows it.
-     */
     private static String restoreReadOnly(Connection connection, Boolean originalReadOnly, boolean applied) {
         if (!applied || originalReadOnly == null || originalReadOnly) {
             return null;
@@ -1141,7 +1077,6 @@ final class SchemaIntrospector {
         return rs.wasNull() ? null : value;
     }
 
-    /** {@code YES}/{@code NO} as a tri-state; an empty or unexpected value is unknown, not {@code NO}. */
     private static Boolean yesNo(String value) {
         if ("YES".equalsIgnoreCase(value)) {
             return Boolean.TRUE;
@@ -1166,7 +1101,6 @@ final class SchemaIntrospector {
         return metaDataRead(supplier, budget).value();
     }
 
-    /** A metadata string, or the fact that reading it failed, which a {@code null} answer is not. */
     private record MetaDataRead(String value, boolean failed) {}
 
     private static MetaDataRead metaDataRead(MetaDataString supplier, ScanBudget budget) {

@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedForeignKeyFacts;
-import java.util.List;
 
 /** Reviews complete association declarations against observed foreign key identities and column pairs. */
 final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCrossReferenceRule {
@@ -61,15 +60,12 @@ final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCr
                 continue;
             }
             TableModel table = resolution.table();
-            MappedEntityFacts targetDeclaration = new MappedEntityFacts(
-                    foreignKey.attributeDescription(),
-                    foreignKey.targetTableName(),
-                    foreignKey.targetSchema(),
+            MappedTableResolution target = MappedTableResolution.resolveDeclared(
+                    context,
+                    context.dataSourceOfEntity(entity.entityName()),
                     foreignKey.targetCatalog(),
-                    List.of(),
-                    List.of(),
-                    List.of());
-            MappedTableResolution target = MappedTableResolution.resolve(context, targetDeclaration);
+                    foreignKey.targetSchema(),
+                    foreignKey.targetTableName());
             if (target.resolved() && !supportsRelation(target.table())) {
                 continue;
             }
