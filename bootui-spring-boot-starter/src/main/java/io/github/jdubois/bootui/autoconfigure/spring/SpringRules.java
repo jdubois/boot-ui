@@ -205,6 +205,8 @@ final class AmbiguousTaskExecutorRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
+        if (c.observations().yes(ASYNC_QUALIFIED_ONLY))
+            return skipped("All observed @Async declarations specify an explicit executor qualifier.");
         AsyncSelection selection = c.observations().get(ASYNC_SELECTION, AsyncSelection.class);
         c.applies(selection != null);
         return selection == null
@@ -386,10 +388,12 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         List<String> details = new ArrayList<>();
-        for (String key : List.of("debug", "trace"))
-            if (c.observed(c.isPropertyTrue(key)))
+        for (String key : List.of("debug", "trace")) {
+            String value = c.observed(c.hostBind(key, String.class));
+            if (value != null && !value.equals("false"))
                 details.add(
                         key + " is configured for selected diagnostic loggers, not every logger's effective level.");
+        }
         for (String logger : List.of("root", "web", "sql", "org.springframework", "org.hibernate")) {
             String value = c.firstProperty("logging.level." + logger);
             if (value == null) continue;
@@ -537,21 +541,25 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
                 "Consider virtual threads for applicable blocking work",
                 SpringCategory.PERFORMANCE,
                 "INFO",
-                "Java 21+ MVC or observed Boot task execution can offer a virtual-thread opportunity, not a guaranteed speedup. Pure reactive HTTP is not the target.",
-                "Measure blocking workload suitability and downstream concurrency limits. CPU work does not become faster. Reactor boundedElastic virtual-thread mode is configured separately; JDK 24 removes synchronized-monitor pinning.",
+                "Java 24+ MVC or observed Boot task execution can offer a virtual-thread opportunity without synchronized-monitor pinning (JEP 491), not a guaranteed speedup. Pure reactive HTTP is not the target.",
+                "Measure blocking workload suitability and downstream concurrency limits. CPU work does not become faster. In Boot 4, spring.threads.virtual.enabled=true also switches Reactor boundedElastic to virtual threads while leaving reactive event loops unchanged.",
                 "features/task-execution-and-scheduling.html");
     }
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.virtualThreadsSupported()) return skipped("Virtual threads require Java 21+.");
+        Integer version = c.observations().get(JAVA_FEATURE_VERSION, Integer.class);
+        if (version != null && version < 24)
+            return skipped(
+                    "Virtual-thread adoption prompt applies on JDK 24+ (JEP 491); on JDK 21-23 synchronized blocks can pin carrier threads.");
         c.applies(c.dispatcherServletPresent() || c.bootApplicationTaskExecutorPresent());
         if (c.bind("spring.threads.virtual.enabled", Boolean.class) != null) return pass();
         if (!c.dispatcherServletPresent() && !c.bootApplicationTaskExecutorPresent())
             return skipped("No applicable MVC or Boot task-execution evidence; reactive HTTP alone is inapplicable.");
         return violation(
                 c,
-                "Virtual threads are available but not configured for applicable MVC/Boot task execution. Measure blocking workloads; this does not convert reactive event loops or boundedElastic.");
+                "Virtual threads are available on JDK 24+ (JEP 491) but not configured for applicable MVC/Boot task execution. Measure blocking workloads; reactive event loops are unchanged.");
     }
 }
 
@@ -602,6 +610,8 @@ final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
+        if (c.observations().yes(ASYNC_QUALIFIED_ONLY))
+            return skipped("All observed @Async declarations specify an explicit executor qualifier.");
         AsyncSelection selection = c.observations().get(ASYNC_SELECTION, AsyncSelection.class);
         c.applies(selection != null);
         return selection == null
@@ -657,7 +667,7 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
                 "Review an unbounded default async queue",
                 SpringCategory.PERFORMANCE,
                 "LOW",
-                "The positively selected default @Async executor has an observed effectively unbounded queue, including explicit Integer.MAX_VALUE capacity.",
+                "The positively selected default @Async executor has an observed effectively unbounded queue, including explicit Integer.MAX_VALUE capacity, which can also leave a finite maxPoolSize above corePoolSize unreachable.",
                 "Review bounded queueing, rejection/backpressure and downstream admission control. Virtual threads are not admission control.",
                 "features/task-execution-and-scheduling.html");
     }
@@ -665,15 +675,23 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.asyncEnabled()) return skipped("Async annotation processing is not present.");
+        if (c.observations().yes(ASYNC_QUALIFIED_ONLY))
+            return skipped("All observed @Async declarations specify an explicit executor qualifier.");
+        if (c.observations().yes(ASYNC_NON_POOL))
+            return skipped(
+                    "The observed default @Async executor is SimpleAsyncTaskExecutor, which does not use a task queue.");
         Integer capacity = c.observations().get(ASYNC_QUEUE_CAPACITY, Integer.class);
         c.applies(capacity != null);
-        return capacity == null
-                ? unknown(c)
-                : capacity == Integer.MAX_VALUE
-                        ? violation(
-                                c,
-                                "The observed default @Async executor queue is effectively unbounded; backlog can increase heap use under sustained load.")
-                        : pass();
+        if (capacity == null) return unknown(c);
+        if (capacity != Integer.MAX_VALUE) return pass();
+        Integer unreachableMax = c.observations().get(ASYNC_UNREACHABLE_MAX_POOL_SIZE, Integer.class);
+        return violation(
+                c,
+                unreachableMax != null
+                        ? "The observed default @Async executor queue is effectively unbounded and maxPoolSize ("
+                                + unreachableMax
+                                + ") exceeds corePoolSize, so the pool never expands beyond corePoolSize."
+                        : "The observed default @Async executor queue is effectively unbounded; backlog can increase heap use under sustained load.");
     }
 }
 
@@ -879,9 +897,7 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
             return unknown(c);
         Duration connect = c.bind("spring.http.clients.connect-timeout", Duration.class);
         Duration read = c.bind("spring.http.clients.read-timeout", Duration.class);
-        Map<String, Map<String, Object>> groups = SpringProperties.bind(
-                c.environment(),
-                false,
+        Map<String, Map<String, Object>> groups = c.bind(
                 "spring.http.serviceclient",
                 Bindable.of(org.springframework.core.ResolvableType.forType(
                         new org.springframework.core.ParameterizedTypeReference<
@@ -1019,18 +1035,28 @@ final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.isProductionProfileActive())
             return skipped("No production-like effective profile name; deployment purpose is not inferred.");
+        List<String> details = c.observations().get(JDBC_IN_MEMORY_DETAILS, List.class);
         String kind = c.observations().get(JDBC_KIND, String.class);
-        c.applies(kind != null);
-        return kind == null
-                ? unknown(c)
-                : kind.endsWith(" memory")
-                        ? violation(
-                                c,
-                                "Observed supported JDBC memory storage with a production-like effective profile name (naming heuristic); review durability. URL omitted.")
-                        : pass();
+        boolean incomplete = c.observations().yes(JDBC_INCOMPLETE);
+        c.applies(kind != null || (details != null && !details.isEmpty()));
+        if (details != null && !details.isEmpty()) {
+            if (incomplete) {
+                c.observations()
+                        .evaluation()
+                        .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
+            }
+            return violation(c, details);
+        }
+        if (kind == null || incomplete) return unknown(c);
+        return kind.endsWith(" memory")
+                ? violation(
+                        c,
+                        "Observed supported JDBC memory storage with a production-like effective profile name (naming heuristic); review durability. URL omitted.")
+                : pass();
     }
 }
 

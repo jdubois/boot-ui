@@ -43,9 +43,9 @@ provider coverage.
 Servlet OSIV and servlet multipart guidance are inapplicable on WebFlux, and the two
 [reactive rules](#reactive-webflux-only) are inapplicable on MVC.
 
-Virtual-thread advice distinguishes Boot task execution from reactive event loops, because Boot's virtual-thread switch
-does not switch Reactor's shared `boundedElastic` scheduler. Client advice distinguishes observable Boot settings from
-unknown per-client customization.
+Virtual-thread advice distinguishes Boot task execution and Reactor's shared `boundedElastic` scheduler (which Boot 4's
+`ReactorEnvironmentPostProcessor` switches to virtual threads when `spring.threads.virtual.enabled=true`) from reactive
+event loops. Client advice distinguishes observable Boot settings from unknown per-client customization.
 
 ## Severity scale
 
@@ -136,7 +136,7 @@ findings from the score.
 ### SPRING-CONFIG-002 - Review broad verbose logging configuration
 
 - **Severity**: LOW
-- **Detects**: Configured `debug`/`trace` flags, or a `DEBUG`, `TRACE` or `ALL` level on the broad `root`, `web`, `sql`, `org.springframework` or `org.hibernate` loggers. These are configuration observations, not a measurement of current logger state or sensitive log contents. Boot's debug flag does not set every logger to DEBUG; profile names do not increase severity.
+- **Detects**: Configured `debug`/`trace` flags (matching Boot's `LoggingApplicationListener.isSet` condition: any non-null value other than `"false"`, including CLI `--debug`/`--trace`), or a `DEBUG`, `TRACE` or `ALL` level on the broad `root`, `web`, `sql`, `org.springframework` or `org.hibernate` loggers. These are configuration observations, not a measurement of current logger state or sensitive log contents. Boot's debug flag does not set every logger to DEBUG; profile names do not increase severity.
 - **Recommendation**: Remove the debug/trace flags and configure logging levels only for narrow packages that need them.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html>
 
@@ -204,8 +204,8 @@ findings from the score.
 ### SPRING-PERF-001 - Consider virtual threads for applicable blocking work
 
 - **Severity**: INFO
-- **Detects**: Java 21+ and applicable MVC or Boot task-execution evidence, without an explicit virtual-thread opt-out. A pure reactive HTTP path is not an opportunity to replace event loops.
-- **Recommendation**: Consider `spring.threads.virtual.enabled=true` for suitable blocking workloads, measuring the effect and preserving downstream concurrency limits. It does not accelerate CPU-bound work or switch Reactor `boundedElastic`; Reactor has a separate `reactor.schedulers.defaultBoundedElasticOnVirtualThreads` system property. Java 24's JEP 491 removes synchronized-monitor pinning; assess limitations against the actual JDK.
+- **Detects**: Java 24+ (JEP 491) and applicable MVC or Boot task-execution evidence, without an explicit virtual-thread configuration. On JDK 21-23, this rule is skipped so it does not conflict with SPRING-PERF-007. A pure reactive HTTP path is not an opportunity to replace event loops.
+- **Recommendation**: Consider `spring.threads.virtual.enabled=true` for suitable blocking workloads, measuring the effect and preserving downstream concurrency limits. It does not accelerate CPU-bound work or replace reactive event loops, though Boot 4's `ReactorEnvironmentPostProcessor` automatically sets `reactor.schedulers.defaultBoundedElasticOnVirtualThreads=true`. Java 24's JEP 491 removes synchronized-monitor pinning; assess limitations against the actual JDK.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
 ### SPRING-PERF-002 - Review pooled executor routing
@@ -232,7 +232,7 @@ findings from the score.
 ### SPRING-PERF-006 - Review an unbounded default async queue
 
 - **Severity**: LOW
-- **Detects**: A positively identified default async executor has an observed effectively unbounded queue. By-type executor lookup considers primary metadata before the default-candidate fallback; an executor excluded from unqualified injection can still be selected by that lookup. An explicit `Integer.MAX_VALUE` is still unbounded; a bounded custom executor is not flagged merely because Boot properties are absent. Lazy/unobservable executor or custom selection remains unknown.
+- **Detects**: A positively identified default async executor (including Boot's `@Lazy` `applicationTaskExecutor` inspected via its `ThreadPoolTaskExecutorBuilder`) has an observed effectively unbounded queue, including when a finite `maxPoolSize > corePoolSize` is rendered unreachable by `Integer.MAX_VALUE` queue capacity. By-type executor lookup considers primary metadata before the default-candidate fallback; an executor excluded from unqualified injection can still be selected by that lookup. An explicit `Integer.MAX_VALUE` is still unbounded; a bounded custom executor is not flagged merely because Boot properties are absent. Exact `SimpleAsyncTaskExecutor` selection is inapplicable to this queue check, not a missing queue observation. Custom lazy/unobservable executors or custom selection remain unknown.
 - **Recommendation**: Review queue capacity, rejection/backpressure and downstream limits together. An unbounded queue prevents maximum pool size from serving as a normal expansion control; virtual threads are not admission control.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -315,14 +315,14 @@ findings from the score.
 ### SPRING-DATA-001 - Review in-memory JDBC with production-like profiles
 
 - **Severity**: MEDIUM
-- **Detects**: Supported datasource configuration provenance indicates an H2/HSQLDB/Derby memory subprotocol alongside production-like effective profile names. Configured default profiles apply when active profiles are absent. Naming is only a heuristic, and memory-looking query values in a durable URL are not memory databases. Unknown custom connection details are unevaluated; raw URLs are never shown.
+- **Detects**: Supported datasource configuration provenance (unwrapping BootUI's SQL Trace proxy, single-target `DelegatingDataSource` wrappers, and static AOP proxies per `DataSource`) indicates an H2 (`jdbc:h2:mem`, `jdbc:h2:mem:...`, `jdbc:h2:mem;...`), HSQLDB, or Derby memory subprotocol alongside production-like effective profile names. Configured default profiles apply when active profiles are absent. Naming is only a heuristic, and memory-looking query values in a durable URL are not memory databases. Unknown custom connection details are unevaluated; raw URLs are never shown.
 - **Recommendation**: Verify durability requirements and the actual datasource. Memory databases can be intentional; use durable storage where data must survive process termination.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.embedded>
 
 ### SPRING-DATA-002 - Review in-memory R2DBC with production-like profiles
 
 - **Severity**: MEDIUM
-- **Detects**: A Boot R2DBC URL selecting H2 memory storage (`r2dbc:h2:mem:` or `r2dbc:pool:h2:mem:`) with attributable factory evidence and production-like effective profile names. A configured URL with no relevant runtime provenance is insufficient; custom connection details remain unknown and URL values are not exposed.
+- **Detects**: A Boot R2DBC URL selecting H2 memory storage (`r2dbc:h2:mem:` or `r2dbc:pool:h2:mem:`, including URLs with `?` query parameters) with attributable factory evidence and production-like effective profile names. A configured URL with no relevant runtime provenance is insufficient; custom connection details remain unknown and URL values are not exposed.
 - **Recommendation**: Verify the application's durability requirements and actual connection factory rather than inferring them from profile names.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.r2dbc.embedded>
 
@@ -375,7 +375,7 @@ Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring M
 ### SPRING-REACTIVE-003 - Review explicitly unlimited codec aggregation
 
 - **Severity**: LOW
-- **Detects**: Positive Boot codec configuration evidence with `spring.http.codecs.max-in-memory-size=-1` requests unlimited aggregation. Defaults and positive limits are not findings; custom codec overrides with unknown effective behavior are unevaluated. The legacy namespace belongs to SPRING-CONFIG-003.
+- **Detects**: Positive Boot codec configuration evidence (ignoring BootUI's own non-codec-limit `WebFluxConfigurer` beans) with `spring.http.codecs.max-in-memory-size=-1` requests unlimited aggregation. Defaults and positive limits are not findings; custom codec overrides with unknown effective behavior are unevaluated. The legacy namespace belongs to SPRING-CONFIG-003.
 - **Recommendation**: Use a workload-appropriate bounded aggregation limit where possible. This is not a universal request-body, upload or streaming limit; no arbitrary larger buffer is prescribed. The new ID does not inherit dismissal of the retired opposite recommendation.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/reactive.html>
 

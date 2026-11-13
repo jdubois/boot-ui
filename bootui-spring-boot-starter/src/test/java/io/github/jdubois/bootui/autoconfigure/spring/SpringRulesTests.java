@@ -358,6 +358,17 @@ class SpringRulesTests {
         prod.setDefaultProfiles("production");
         assertThat(evaluate(new DebugOrTraceLoggingRule(), prod, Map.of()).severity())
                 .isEqualTo("LOW");
+        for (String set : List.of("", "true", "off", "no", "FALSE", "pw:api"))
+            assertThat(evaluate(new DebugOrTraceLoggingRule(), env("debug", set), Map.of())
+                            .status())
+                    .as("debug=" + set)
+                    .isEqualTo("VIOLATION");
+        assertThat(evaluate(new DebugOrTraceLoggingRule(), env("trace", ""), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(evaluate(new DebugOrTraceLoggingRule(), env("debug", "false"), Map.of())
+                        .status())
+                .isEqualTo("PASS");
         assertThat(new DevToolsOnClasspathRule()
                         .evaluate(SpringContext.builder(prod)
                                 .devToolsPresent(true)
@@ -385,6 +396,22 @@ class SpringRulesTests {
     @Test
     void virtualThreadsRemainAnOptionalApplicableOpportunity() {
         var rule = new VirtualThreadsAvailableRule();
+        for (int jdk : List.of(21, 23))
+            assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(JAVA_FEATURE_VERSION, jdk))
+                                    .virtualThreadsSupported(true)
+                                    .dispatcherServletPresent(true)
+                                    .build())
+                            .status())
+                    .as("JDK " + jdk + " is skipped to avoid Catch-22 with SPRING-PERF-007")
+                    .isEqualTo("SKIPPED");
+        for (int jdk : List.of(24, 25))
+            assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(JAVA_FEATURE_VERSION, jdk))
+                                    .virtualThreadsSupported(true)
+                                    .dispatcherServletPresent(true)
+                                    .build())
+                            .status())
+                    .as("JDK " + jdk)
+                    .isEqualTo("VIOLATION");
         assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
                                 .virtualThreadsSupported(true)
                                 .dispatcherServletPresent(true)
@@ -783,13 +810,49 @@ class SpringRulesTests {
         assertThat(evaluate(new InMemoryDatasourceInProductionRule(), prod, Map.of(JDBC_KIND, "other"))
                         .status())
                 .isEqualTo("PASS");
+        assertThat(SpringInventory.jdbcKind("jdbc:h2:mem")).isEqualTo("H2 memory");
+        assertThat(SpringInventory.jdbcKind("jdbc:h2:mem;DB_CLOSE_DELAY=-1")).isEqualTo("H2 memory");
         assertThat(SpringInventory.jdbcKind("jdbc:postgresql://db/test?hint=jdbc:h2:mem:foo"))
+                .isEqualTo("other");
+        assertThat(SpringInventory.r2dbcKind("r2dbc:h2:mem:///orders?options=DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE"))
+                .isEqualTo("H2 memory");
+        assertThat(SpringInventory.r2dbcKind("r2dbc:pool:h2:mem:///orders?options=DB_CLOSE_DELAY=-1"))
+                .isEqualTo("H2 memory");
+        assertThat(SpringInventory.r2dbcKind("r2dbc:postgresql://db/orders?sslMode=verify-full&hint=r2dbc:h2:mem:foo"))
                 .isEqualTo("other");
         assertThat(evaluate(new InMemoryR2dbcInProductionRule(), prod, Map.of(R2DBC_KIND, "H2 memory"))
                         .status())
                 .isEqualTo("VIOLATION");
         assertThat(evaluate(new InMemoryR2dbcInProductionRule(), prod, Map.of()).status())
                 .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void oversizedUnrelatedSystemEnvironmentVariableDoesNotFailPropertyRules() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.application.name", "orders");
+        environment
+                .getPropertySources()
+                .addLast(new SystemEnvironmentPropertySource(
+                        "systemEnvironment",
+                        Map.of(
+                                "UNRELATED_HUGE_VAR", "secret".repeat(1000),
+                                "OVERSIZED_BOUND_NAME", "secret".repeat(1000))));
+        ConfigurationPropertySources.attach(environment);
+        assertThat(evaluate(new MissingApplicationNameRule(), environment, Map.of())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(new RemovedOrRenamedPropertyRule(), environment, Map.of())
+                        .status())
+                .isEqualTo("PASS");
+        MockEnvironment oversizedAppName = new MockEnvironment();
+        oversizedAppName
+                .getPropertySources()
+                .addFirst(new SystemEnvironmentPropertySource(
+                        "systemEnvironment", Map.of("SPRING_APPLICATION_NAME", "secret".repeat(1000))));
+        ConfigurationPropertySources.attach(oversizedAppName);
+        var result = evaluate(new MissingApplicationNameRule(), oversizedAppName, Map.of());
+        assertThat(result.status()).isEqualTo("ERROR");
+        assertThat(result.toString()).doesNotContain("secret");
     }
 
     @Test

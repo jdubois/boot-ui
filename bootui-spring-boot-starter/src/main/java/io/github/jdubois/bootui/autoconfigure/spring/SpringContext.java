@@ -43,7 +43,8 @@ record SpringContext(
         List<String> defaultPackageBeans,
         List<String> mutableSingletonFields,
         SpringObservations observations,
-        AdvisorViolationCollector violationCollector) {
+        AdvisorViolationCollector violationCollector,
+        SpringProperties properties) {
 
     SpringContext(
             Environment environment,
@@ -103,7 +104,8 @@ record SpringContext(
                 defaultPackageBeans,
                 mutableSingletonFields,
                 observations,
-                null);
+                null,
+                new SpringProperties(environment));
     }
 
     SpringContext withViolationCollector(AdvisorViolationCollector collector) {
@@ -136,7 +138,8 @@ record SpringContext(
                 defaultPackageBeans,
                 mutableSingletonFields,
                 observations,
-                collector);
+                collector,
+                properties);
     }
 
     SpringContext {
@@ -150,6 +153,9 @@ record SpringContext(
         cacheManagers = List.copyOf(cacheManagers);
         defaultPackageBeans = List.copyOf(defaultPackageBeans);
         mutableSingletonFields = List.copyOf(mutableSingletonFields);
+        if (properties == null) {
+            properties = new SpringProperties(environment);
+        }
     }
 
     boolean applies(boolean applicable) {
@@ -182,18 +188,26 @@ record SpringContext(
      */
     String firstHostProperty(String... keys) {
         for (String key : keys) {
-            String value = SpringProperties.bind(environment, true, key, Bindable.of(String.class));
+            String value = hostBind(key, Bindable.of(String.class));
             if (value != null) return value.trim();
         }
         return null;
     }
 
     <T> T hostBind(String key, Class<T> type) {
-        return SpringProperties.bind(environment, true, key, Bindable.of(type));
+        return hostBind(key, Bindable.of(type));
+    }
+
+    <T> T hostBind(String key, Bindable<T> type) {
+        return properties.bind(true, key, type);
     }
 
     <T> T bind(String key, Class<T> type) {
-        return SpringProperties.bind(environment, false, key, Bindable.of(type));
+        return bind(key, Bindable.of(type));
+    }
+
+    <T> T bind(String key, Bindable<T> type) {
+        return properties.bind(false, key, type);
     }
 
     boolean isPropertyFalse(String key) {
@@ -233,7 +247,7 @@ record SpringContext(
     }
 
     boolean hasProperty(String key) {
-        return SpringProperties.present(environment, key);
+        return properties.present(key);
     }
 
     boolean isVirtualThreadsEnabled() {
