@@ -321,6 +321,28 @@ test.describe('BootUI on Spring WebFlux', () => {
     expect(profile.sections.find((section) => section.type === 'SQL').tier).toBe('REQUEST_ID')
   })
 
+  test('Exceptions panel renders binding & validation diagnostics on WebFlux and scrubs rejected values', async ({
+    page,
+    request,
+    baseURL
+  }) => {
+    await request.get(`${baseURL}/api/sample/boom?scenario=validation`)
+
+    await page.goto('/bootui/#/exceptions')
+    const row = page.locator('tbody tr', {hasText: 'WebExchangeBindException'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await expect(row).not.toContainText('alice-secret@example.com')
+    await expect(row).not.toContainText('secretApiKey')
+
+    await row.getByRole('button', {name: 'Details'}).click()
+    const section = page.locator('.binding-diagnostics-section')
+    await expect(section).toBeVisible()
+    await expect(section).toContainText('SampleOrderRequest')
+    await expect(section).toContainText('customer.email')
+    await expect(section).toContainText('items[*].quantity')
+    await expect(section).toContainText('attributes[*]')
+  })
+
   test('raw Spring Security panel exposes reactive chains and mappings without blocking', async ({
     page,
     request,

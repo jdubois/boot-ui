@@ -77,4 +77,10 @@ public class QuarkusExceptionCapture {
             handler = null;
         }
     }
+
+    public static java.util.function.BiFunction<
+                    Throwable, String, List<io.github.jdubois.bootui.core.dto.BindingDiagnosticDto>>
+            bindingDiagnosticExtractor() {
+        return new QuarkusBindingDiagnosticsExtractor();
+    }
 }

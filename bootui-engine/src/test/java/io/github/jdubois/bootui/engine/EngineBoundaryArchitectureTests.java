@@ -73,6 +73,18 @@ class EngineBoundaryArchitectureTests {
             .because("jakarta.persistence access is concentrated in JpaMetamodelReader (R2 optional-dependency port)");
 
     @ArchTest
+    static final ArchRule onlyTheConstraintViolationReaderTouchesJakartaValidation = ArchRuleDefinition.noClasses()
+            .that()
+            .resideInAPackage("io.github.jdubois.bootui.engine..")
+            .and()
+            .haveNameNotMatching(".*ConstraintViolationReader(\\$.*)?")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("jakarta.validation..")
+            .because(
+                    "jakarta.validation access is concentrated in ConstraintViolationReader (R2 optional-dependency port)");
+
+    @ArchTest
     static final ArchRule onlyTheSpanExporterTouchesOpenTelemetry = ArchRuleDefinition.noClasses()
             .that()
             .resideInAPackage("io.github.jdubois.bootui.engine..")

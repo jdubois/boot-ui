@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
+  and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
 - **Memory advisor rules for cgroup v2 throttling/OOM, ClassLoader/proxy bloat, and external `System.gc()` pauses** add
   `MEM-FOOTPRINT-005`, `MEM-CONTENT-005`, and `MEM-GC-009` ([Memory checks](docs/MEMORY-CHECKS.md); [#1653](https://github.com/jdubois/boot-ui/issues/1653)).
 - **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from
