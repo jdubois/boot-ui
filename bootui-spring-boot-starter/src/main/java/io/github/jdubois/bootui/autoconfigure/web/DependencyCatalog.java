@@ -198,9 +198,15 @@ public final class DependencyCatalog implements DependencyProvider {
         for (DependencyDto dependency : sbom.shipped()) {
             dependencies.putIfAbsent(key(dependency), dependency);
         }
+        Set<Path> agents = agentJars();
+        ArchiveCensus census = archiveCensus(agents);
+        List<CensusArchive> archives = census.archives();
         for (Resource resource : resources(MAVEN_PROPERTIES_PATTERN)) {
+            if (isApplicationDescriptor(resource, census.repackagedArchives())) {
+                continue;
+            }
             DependencyDto dependency = dependency(resource);
-            if (dependency != null) {
+            if (dependency != null && !sbom.applicationPackages().contains(dependency.packageName())) {
                 dependencies.putIfAbsent(key(dependency), dependency);
                 String owner = owningArchive(resource);
                 if (owner != null) {
@@ -208,14 +214,16 @@ public final class DependencyCatalog implements DependencyProvider {
                 }
             }
         }
-        Set<Path> agents = agentJars();
         for (DependencyDto dependency : javaClassPathDependencies(agents)) {
-            dependencies.putIfAbsent(key(dependency), dependency);
+            if (!sbom.applicationPackages().contains(dependency.packageName())) {
+                dependencies.putIfAbsent(key(dependency), dependency);
+            }
         }
 
-        List<CensusArchive> archives = archiveCensus(agents);
         for (DependencyDto dependency : sbom.notShipped()) {
-            if (!dependencies.containsKey(key(dependency)) && isShipped(dependency, archives)) {
+            if (!dependencies.containsKey(key(dependency))
+                    && !sbom.applicationPackages().contains(dependency.packageName())
+                    && isShipped(dependency, archives)) {
                 dependencies.put(key(dependency), dependency);
             }
         }
@@ -256,7 +264,8 @@ public final class DependencyCatalog implements DependencyProvider {
         List<String> firstParty = new ArrayList<>();
         try (OuterArchives outers = new OuterArchives()) {
             for (CensusArchive archive : archives) {
-                if (identifiedArchives.contains(archive.name()) || isIdentified(archive.name(), resolved)) {
+                if (!archive.shadowed()
+                        && (identifiedArchives.contains(archive.name()) || isIdentified(archive.name(), resolved))) {
                     continue;
                 }
                 switch (inspect(archive, packages, dependencies, outers)) {
@@ -533,13 +542,16 @@ public final class DependencyCatalog implements DependencyProvider {
         }
     }
 
+    private record ArchiveCensus(List<CensusArchive> archives, Set<String> repackagedArchives) {}
+
     /**
      * The distinct JAR archives the application actually runs with, or an empty list when they cannot be
      * enumerated from either {@code java.class.path} or the application's classloader,
      * which is reported as unknown coverage rather than as a clean bill of health.
      */
-    private List<CensusArchive> archiveCensus(Set<Path> agents) {
+    private ArchiveCensus archiveCensus(Set<Path> agents) {
         Map<String, CensusArchive> archives = new LinkedHashMap<>();
+        Set<String> repackagedArchives = new LinkedHashSet<>();
         Map<Path, Optional<LayersIndex>> explodedIndexes = new HashMap<>();
         for (Path entry : archiveEntries()) {
             if (Files.isDirectory(entry) || isAgentJar(entry, agents)) {
@@ -551,6 +563,10 @@ public final class DependencyCatalog implements DependencyProvider {
                 // libraries are the real dependency set, and the outer archive is deliberately not counted.
                 // This is also why the entry is inspected before its extension is considered: an executable
                 // WAR is a classpath entry that is not itself a JAR.
+                Path fileName = entry.getFileName();
+                if (fileName != null) {
+                    repackagedArchives.add(fileName.toString());
+                }
                 for (CensusArchive archive : nested) {
                     addToCensus(archives, archive);
                 }
@@ -564,7 +580,7 @@ public final class DependencyCatalog implements DependencyProvider {
                                 archive, entry, null, explodedApplicationLayer(entry, archive, explodedIndexes)));
             }
         }
-        return List.copyOf(archives.values());
+        return new ArchiveCensus(List.copyOf(archives.values()), Set.copyOf(repackagedArchives));
     }
 
     private Set<Path> archiveEntries() {
@@ -772,6 +788,36 @@ public final class DependencyCatalog implements DependencyProvider {
     }
 
     /**
+     * Whether a {@code pom.properties} resource comes from the host application's own classes directory
+     * ({@code BOOT-INF/classes/} or {@code WEB-INF/classes/}) or from the outer root of a repackaged
+     * application archive (outside {@code BOOT-INF/lib/} and {@code WEB-INF/lib/}), which is the application
+     * itself rather than a third-party dependency.
+     */
+    private static boolean isApplicationDescriptor(Resource resource, Set<String> repackagedArchives) {
+        String location = location(resource);
+        if (location == null) {
+            return false;
+        }
+        if (location.contains("/BOOT-INF/classes/")
+                || location.contains("!BOOT-INF/classes/")
+                || location.contains("/WEB-INF/classes/")
+                || location.contains("!WEB-INF/classes/")) {
+            return true;
+        }
+        int marker = location.indexOf(MAVEN_METADATA_MARKER);
+        if (marker < 0 || repackagedArchives.isEmpty()) {
+            return false;
+        }
+        String archivePart = location.substring(0, marker);
+        if (archivePart.contains("!/") || archivePart.contains("/!")) {
+            return false;
+        }
+        int slash = Math.max(archivePart.lastIndexOf('/'), archivePart.lastIndexOf('\\'));
+        String archiveName = slash < 0 ? archivePart : archivePart.substring(slash + 1);
+        return repackagedArchives.contains(archiveName);
+    }
+
+    /**
      * The archive a classpath descriptor was read from, parsed out of its resource URL, or {@code null} for
      * a descriptor on an exploded directory classpath. This attributes a descriptor to its archive exactly,
      * rather than inferring it from coordinates that a shaded archive may not match.
@@ -821,7 +867,7 @@ public final class DependencyCatalog implements DependencyProvider {
      * when the archive census proves its JAR is on the classpath after all.</p>
      */
     private SbomComponents sbomComponents() {
-        SbomComponents sbom = new SbomComponents(new LinkedHashMap<>(), new LinkedHashMap<>());
+        SbomComponents sbom = new SbomComponents(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>());
         for (String pattern : SBOM_PATTERNS) {
             for (Resource resource : resources(pattern)) {
                 readSbom(resource, sbom);
@@ -845,9 +891,36 @@ public final class DependencyCatalog implements DependencyProvider {
         if (root == null || !root.isObject()) {
             return;
         }
-        // The BOM's own metadata.component is the application itself, not one of its dependencies, so only
-        // the components array is read.
+        // The BOM's own metadata.component is the application itself, not one of its dependencies: record its
+        // package name so a classpath pom.properties for the host application does not re-add it.
+        String applicationPackage = applicationPackage(root.get("metadata"));
+        if (applicationPackage != null) {
+            sbom.applicationPackages().add(applicationPackage);
+        }
         collectSbomComponents(root.get("components"), sbom, false);
+    }
+
+    private static String applicationPackage(JsonNode metadata) {
+        if (metadata == null || !metadata.isObject()) {
+            return null;
+        }
+        JsonNode component = metadata.get("component");
+        if (component == null || !component.isObject()) {
+            return null;
+        }
+        JsonNode purl = component.get("purl");
+        PackageUrls.MavenCoordinates coordinates =
+                purl == null || !purl.isString() ? null : PackageUrls.mavenCoordinates(purl.stringValue());
+        if (coordinates != null) {
+            return coordinates.packageName();
+        }
+        JsonNode group = component.get("group");
+        JsonNode name = component.get("name");
+        String groupId =
+                group != null && group.isString() ? BlankStrings.blankToNullTrimmed(group.stringValue()) : null;
+        String artifactId =
+                name != null && name.isString() ? BlankStrings.blankToNullTrimmed(name.stringValue()) : null;
+        return groupId != null && artifactId != null ? groupId + ":" + artifactId : null;
     }
 
     private void collectSbomComponents(JsonNode components, SbomComponents sbom, boolean parentNotShipped) {
@@ -913,7 +986,10 @@ public final class DependencyCatalog implements DependencyProvider {
     }
 
     /** SBOM components split by whether the SBOM declares them shipped; see {@link #sbomComponents()}. */
-    private record SbomComponents(Map<String, DependencyDto> shippedByKey, Map<String, DependencyDto> notShippedByKey) {
+    private record SbomComponents(
+            Map<String, DependencyDto> shippedByKey,
+            Map<String, DependencyDto> notShippedByKey,
+            Set<String> applicationPackages) {
 
         Collection<DependencyDto> shipped() {
             return shippedByKey.values();

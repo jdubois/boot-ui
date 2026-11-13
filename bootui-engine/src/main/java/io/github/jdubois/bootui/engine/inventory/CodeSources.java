@@ -166,7 +166,8 @@ final class CodeSources {
             return null;
         }
         for (String[] gav : metadata) {
-            if (fileName != null && (fileName.startsWith(gav[1] + "-") || fileName.startsWith(gav[0] + "." + gav[1]))) {
+            if (fileName != null
+                    && (fileName.startsWith(gav[1] + "-") || fileName.startsWith(gav[0] + "." + gav[1] + "-"))) {
                 return gav;
             }
         }
@@ -178,13 +179,18 @@ final class CodeSources {
         if (fileName == null || artifactId == null) {
             return false;
         }
-        String withVersion = version == null || version.isBlank() ? null : artifactId + "-" + version + ".jar";
-        if (withVersion != null) {
-            return fileName.equals(withVersion)
-                    || (groupId != null && fileName.equals(groupId + "." + withVersion))
-                    || fileName.startsWith(artifactId + "-" + version + "-");
+        if (version != null && !version.isBlank()) {
+            return io.github.jdubois.bootui.engine.vulnerabilities.ArchiveNames.matches(fileName, artifactId, version)
+                    || (groupId != null
+                            && !groupId.isBlank()
+                            && io.github.jdubois.bootui.engine.vulnerabilities.ArchiveNames.matches(
+                                    fileName, groupId + "." + artifactId, version));
         }
-        return fileName.startsWith(artifactId + "-") && fileName.endsWith(".jar");
+        return (fileName.startsWith(artifactId + "-")
+                        || (groupId != null
+                                && !groupId.isBlank()
+                                && fileName.startsWith(groupId + "." + artifactId + "-")))
+                && fileName.endsWith(".jar");
     }
 
     private static String trim(String value) {

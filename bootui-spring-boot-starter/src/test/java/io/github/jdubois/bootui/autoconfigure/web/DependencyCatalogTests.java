@@ -841,6 +841,50 @@ class DependencyCatalogTests {
     }
 
     @Test
+    void aShadowedDuplicateArchiveIsNeverMarkedIdentifiedEvenWhenItsNameMatchesAResolvedCoordinate() throws Exception {
+        Path first = plainJar("a/resolved-1.0.0.jar");
+        Path second = plainJar("b/resolved-1.0.0.jar");
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [{"purl": "pkg:maven/com.example/resolved@1.0.0"}]}
+                """);
+
+        DependencyCoverageDto coverage = withClassPathInventory(resolver, first.toString(), second.toString())
+                .coverage();
+
+        assertThat(coverage).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("resolved-1.0.0.jar")));
+    }
+
+    @Test
+    void excludesTheHostApplicationFromMavenDescriptorsWhenNamedBySbomOrBootInfClasses() throws Exception {
+        Path fatJar = repackagedJar("app.jar", "BOOT-INF/lib/", List.of("widget-1.2.3.jar"));
+        Resource appFromSbom = new ByteArrayResource(
+                "groupId=com.example\nartifactId=demo-app\nversion=0.0.1\n".getBytes(StandardCharsets.UTF_8));
+        Resource appFromBootInfClasses = descriptorAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/classes/META-INF/maven/com.example/other-app/pom.properties");
+        Resource appFromOuterJarRoot =
+                descriptorAtUrl("jar:file:/app/app.jar!/META-INF/maven/com.example/outer-app/pom.properties");
+        Resource widgetDescriptor = descriptorAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/lib/widget-1.2.3.jar!/META-INF/maven/com.acme/widget/pom.properties");
+        ResourcePatternResolver resolver = patternResolver(Map.of(
+                "classpath*:META-INF/sbom/application.cdx.json",
+                List.of(sbomResource("""
+                        {
+                          "metadata": {"component": {"purl": "pkg:maven/com.example/demo-app@0.0.1"}},
+                          "components": []
+                        }
+                        """)),
+                "classpath*:META-INF/maven/*/*/pom.properties",
+                List.of(appFromSbom, appFromBootInfClasses, appFromOuterJarRoot, widgetDescriptor)));
+
+        DependencyInventory inventory = withClassPathInventory(resolver, fatJar.toString());
+
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("com.acme:widget");
+        assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 0, List.of()));
+    }
+
+    @Test
     void anExplodedWarHonorsItsLayersIndex() throws Exception {
         Path webInf = Files.createDirectories(tempDir.resolve("war/WEB-INF"));
         Files.writeString(webInf.resolve("layers.idx"), """
