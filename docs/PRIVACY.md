@@ -16,8 +16,9 @@ application: requests, SQL, logs, exceptions, traces, and optional agent sensor 
 it does not guarantee that all sensitive data is removed.
 
 The default Java agent sensors never record file contents, process arguments, or environment values. The separate,
-startup opt-in `bootui.agent.security-sinks.request-values=true` can hold bounded query/path parameter values
-transiently in memory while requests run; reports redact those values. Method-probe shapes are separately opt-in and
+startup opt-in `bootui.agent.security-sinks.request-values=true` can hold bounded query, path, and (Spring MVC) form
+parameter values transiently in memory while requests run; reports redact those values. Of the
+`X-BootUI-Assessment-Id` header only its presence is read, never its value. Method-probe shapes are separately opt-in and
 stay in the browser panel, never MCP or CLI answers.
 
 Explicit actions can contact external services, such as dependency scans querying OSV.dev/FIRST and GitHub refreshes.

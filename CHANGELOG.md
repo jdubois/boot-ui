@@ -22,6 +22,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Loopback-gated `X-BootUI-Request-Id` response header** links local application responses directly to their HTTP
   Exchanges row and Live Activity request profile by default (`bootui.http-exchanges.expose-request-id-header`)
   ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1674](https://github.com/jdubois/boot-ui/issues/1674)).
+- **DAST-driven security sinks** let an external scanner such as OWASP ZAP drive the `security-sinks` sensor: requests
+  tagged with `X-BootUI-Assessment-Id` have their short probes (1 to 3 characters) checked too, each match of one shown
+  only once a second request confirms it, and Spring MVC now checks form values a handler binds as parameters
+  ([Security sinks](docs/features/java-agent.md#driving-it-from-a-dast-tool); [#1629](https://github.com/jdubois/boot-ui/issues/1629)).
 
 ## [2.4.0] - 2026-11-12
 
