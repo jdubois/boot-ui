@@ -472,8 +472,10 @@ test.describe('BootUI on Spring WebFlux', () => {
       headers: {accept: 'application/json', 'x-api-key': 'e2e-must-not-be-copied'}
     })
     expect(probe.ok()).toBeTruthy()
+    expect(probe.headers()['x-bootui-request-id']).toMatch(/^[0-9a-f]{16}$/)
 
     await page.goto('/bootui/#/http-exchanges')
+    await expect(page.locator('.http-exchanges-request-id-tip')).toContainText('X-BootUI-Request-Id')
     await page.locator('#http-exchanges-filter').fill('curlProbe')
 
     const probeRow = page.locator('.http-exchanges-table tbody tr', {hasText: 'curlProbe'}).first()

@@ -395,12 +395,26 @@ class ReactiveRequestCorrelationFilterTests {
     }
 
     @Test
-    void doesNotExposeRequestIdHeaderByDefault() {
+    void exposesRequestIdHeaderByDefaultAndSuppressesItWhenDisabled() {
         MockServerWebExchange exchange = exchangeWithRemote("/api/orders", "127.0.0.1");
 
         filter.filter(exchange, ex -> ex.getResponse().setComplete()).block(Duration.ofSeconds(5));
 
         assertThat(exchange.getResponse()
+                        .getHeaders()
+                        .getFirst(io.github.jdubois.bootui.engine.correlation.RequestIds.RESPONSE_HEADER))
+                .isEqualTo(
+                        ReactiveRequestCorrelationFilter.correlation(exchange).requestId());
+
+        BootUiProperties disabledProperties = new BootUiProperties();
+        disabledProperties.getHttpExchanges().setExposeRequestIdHeader(false);
+        ReactiveRequestCorrelationFilter disabledFilter = new ReactiveRequestCorrelationFilter(disabledProperties);
+        MockServerWebExchange disabledExchange = exchangeWithRemote("/api/orders", "127.0.0.1");
+        disabledFilter
+                .filter(disabledExchange, ex -> ex.getResponse().setComplete())
+                .block(Duration.ofSeconds(5));
+        assertThat(disabledExchange
+                        .getResponse()
                         .getHeaders()
                         .getFirst(io.github.jdubois.bootui.engine.correlation.RequestIds.RESPONSE_HEADER))
                 .isNull();

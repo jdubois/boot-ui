@@ -497,7 +497,7 @@ class BootUiReactiveAutoConfigurationTests {
     }
 
     @Test
-    void reactiveRequestCorrelationFilterExposesRequestIdHeaderOnlyWhenConfigured() {
+    void reactiveRequestCorrelationFilterExposesRequestIdHeaderByDefaultAndCanBeDisabled() {
         runner.withPropertyValues("bootui.enabled=ON").run(context -> {
             io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter filter = context.getBean(
                     io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter.class);
@@ -508,9 +508,9 @@ class BootUiReactiveAutoConfigurationTests {
                                             java.net.InetAddress.getByName("127.0.0.1"), 12345)));
             filter.filter(exchange, ex -> ex.getResponse().setComplete()).block(java.time.Duration.ofSeconds(5));
             assertThat(exchange.getResponse().getHeaders().getFirst("X-BootUI-Request-Id"))
-                    .isNull();
+                    .matches("[0-9a-f]{16}");
         });
-        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.expose-request-id-header=true")
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.expose-request-id-header=false")
                 .run(context -> {
                     io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter filter =
                             context.getBean(
@@ -525,7 +525,7 @@ class BootUiReactiveAutoConfigurationTests {
                     filter.filter(exchange, ex -> ex.getResponse().setComplete())
                             .block(java.time.Duration.ofSeconds(5));
                     assertThat(exchange.getResponse().getHeaders().getFirst("X-BootUI-Request-Id"))
-                            .matches("[0-9a-f]{16}");
+                            .isNull();
                 });
     }
 

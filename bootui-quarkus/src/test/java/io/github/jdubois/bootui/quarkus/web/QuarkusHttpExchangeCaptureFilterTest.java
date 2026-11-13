@@ -206,16 +206,24 @@ class QuarkusHttpExchangeCaptureFilterTest {
     void exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues() {
         HttpExchangeBuffer buffer = new HttpExchangeBuffer(20);
 
-        // Default is false: loopback request receives no X-BootUI-Request-Id header.
+        // Default is true: loopback request receives X-BootUI-Request-Id matching its captured exchange.
         RoutingContext defaultRc = mockRequest("/orders", "127.0.0.1");
         completeRequest(filter(buffer, Map.of()), defaultRc);
-        assertThat(defaultRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+        CapturedHttpExchange defaultExchange = buffer.snapshot().get(0);
+        assertThat(defaultRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(defaultExchange.requestId());
+        assertThat(defaultExchange.responseHeaders().get("X-BootUI-Request-Id"))
+                .containsExactly(defaultExchange.requestId());
 
-        // Enabled on loopback: response and captured exchange carry the exact requestId.
+        // Explicitly disabled: loopback request receives no X-BootUI-Request-Id header.
+        RoutingContext disabledRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(filter(buffer, Map.of("bootui.http-exchanges.expose-request-id-header", "false")), disabledRc);
+        assertThat(disabledRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // Enabled on loopback and trusted proxy: response and captured exchange carry the exact requestId.
         QuarkusHttpExchangeCaptureFilter enabledFilter = filter(
                 buffer,
                 Map.of(
-                        "bootui.http-exchanges.expose-request-id-header", "true",
                         "bootui.trusted-proxies", "10.30.0.0/16",
                         "bootui.allow-non-localhost", "true"));
         RoutingContext loopbackRc = mockRequest("/orders", "127.0.0.1");

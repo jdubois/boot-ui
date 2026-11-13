@@ -407,7 +407,7 @@ public class QuarkusHttpExchangeCaptureFilter {
         }
         try {
             return config.getOptionalValue(EXPOSE_REQUEST_ID_HEADER_KEY, Boolean.class)
-                    .orElse(Boolean.FALSE);
+                    .orElse(Boolean.TRUE);
         } catch (IllegalArgumentException ex) {
             if (loggedInvalidExposeHeaderConfig.compareAndSet(false, true)) {
                 LOG.warnf(

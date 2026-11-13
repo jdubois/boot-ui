@@ -325,7 +325,9 @@ function headerValues(header) {
 }
 
 function hasMetadata(exchange) {
-  return Boolean(exchange.traceId || exchange.remoteAddress || exchange.principal || exchange.sessionId)
+  return Boolean(
+    exchange.requestId || exchange.traceId || exchange.remoteAddress || exchange.principal || exchange.sessionId
+  )
 }
 
 function detailCount(exchange) {
@@ -618,13 +620,18 @@ onMounted(() => {
 
     <div class="row g-2 mb-3">
       <div class="col-lg-6">
-        <label class="form-label" for="http-exchanges-filter">Path or trace filter</label>
+        <label class="form-label" for="http-exchanges-filter">Path, trace, or request id filter</label>
         <input
           id="http-exchanges-filter"
           v-model="filter"
+          aria-describedby="http-exchanges-filter-tip"
           class="form-control"
-          placeholder="Filter by path, query, URL, or trace id…"
+          placeholder="Filter by path, query, URL, trace id, or X-BootUI-Request-Id…"
         />
+        <div id="http-exchanges-filter-tip" class="form-text small http-exchanges-request-id-tip">
+          Tip: paste <code>X-BootUI-Request-Id</code> from your browser DevTools Network response headers to find that
+          exact request and open its profile.
+        </div>
       </div>
       <div class="col-sm-6 col-lg-3">
         <label class="form-label" for="http-exchanges-method">Method</label>
@@ -769,6 +776,10 @@ onMounted(() => {
                   <div v-if="hasMetadata(exchange)" class="mb-3">
                     <h3 class="h6">Metadata</h3>
                     <dl class="row small mb-0">
+                      <dt v-if="exchange.requestId" class="col-sm-3">Request id</dt>
+                      <dd v-if="exchange.requestId" class="col-sm-9">
+                        <code>{{ exchange.requestId }}</code>
+                      </dd>
                       <dt v-if="exchange.remoteAddress" class="col-sm-3">Remote address</dt>
                       <dd v-if="exchange.remoteAddress" class="col-sm-9">{{ exchange.remoteAddress }}</dd>
                       <dt v-if="exchange.principal" class="col-sm-3">Principal</dt>

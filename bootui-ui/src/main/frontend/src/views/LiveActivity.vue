@@ -1247,7 +1247,8 @@ function toggleFlow() {
                 v-model="requestIdFilter"
                 type="search"
                 class="form-control form-control-sm"
-                placeholder="Request id"
+                placeholder="X-BootUI-Request-Id"
+                title="Paste the X-BootUI-Request-Id response header from browser DevTools"
               />
             </div>
             <div>
@@ -1589,6 +1590,12 @@ function toggleFlow() {
                 <template v-if="profile.request.principal">
                   <dt class="col-4">Principal</dt>
                   <dd class="col-8">{{ profile.request.principal }}</dd>
+                </template>
+                <template v-if="profile.request.requestId || journalProfile?.requestId">
+                  <dt class="col-4">Request id</dt>
+                  <dd class="col-8">
+                    <code>{{ profile.request.requestId || journalProfile?.requestId }}</code>
+                  </dd>
                 </template>
                 <template v-if="profile.request.traceId">
                   <dt class="col-4">Trace id</dt>

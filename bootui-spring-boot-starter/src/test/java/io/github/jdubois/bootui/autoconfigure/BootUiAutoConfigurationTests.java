@@ -979,23 +979,23 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
-    void requestCorrelationFilterExposesRequestIdHeaderOnlyWhenConfigured() {
+    void requestCorrelationFilterExposesRequestIdHeaderByDefaultAndCanBeDisabled() {
         runner.withPropertyValues("bootui.enabled=ON").run(context -> {
             RequestCorrelationFilter filter = (RequestCorrelationFilter)
                     context.getBean("bootUiRequestCorrelationFilterRegistration", FilterRegistrationBean.class)
                             .getFilter();
             MockHttpServletResponse response = new MockHttpServletResponse();
             filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), response, (req, res) -> {});
-            assertThat(response.getHeader("X-BootUI-Request-Id")).isNull();
+            assertThat(response.getHeader("X-BootUI-Request-Id")).matches("[0-9a-f]{16}");
         });
-        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.expose-request-id-header=true")
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.expose-request-id-header=false")
                 .run(context -> {
                     RequestCorrelationFilter filter = (RequestCorrelationFilter)
                             context.getBean("bootUiRequestCorrelationFilterRegistration", FilterRegistrationBean.class)
                                     .getFilter();
                     MockHttpServletResponse response = new MockHttpServletResponse();
                     filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), response, (req, res) -> {});
-                    assertThat(response.getHeader("X-BootUI-Request-Id")).matches("[0-9a-f]{16}");
+                    assertThat(response.getHeader("X-BootUI-Request-Id")).isNull();
                 });
     }
 

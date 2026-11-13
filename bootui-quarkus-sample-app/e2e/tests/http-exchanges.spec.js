@@ -5,9 +5,11 @@ test.describe('HTTP Exchanges view (Quarkus)', () => {
   test('shows recent sample app requests', async ({openView, page}) => {
     const apiResponse = await page.request.get('/api/sample/hello')
     expect(apiResponse.ok()).toBeTruthy()
+    expect(apiResponse.headers()['x-bootui-request-id']).toMatch(/^[0-9a-f]{16}$/)
 
     await openView('http-exchanges', 'HTTP Exchanges')
 
+    await expect(page.locator('.http-exchanges-request-id-tip')).toContainText('X-BootUI-Request-Id')
     await expect(page.locator('.http-exchanges-table')).toContainText('/api/sample/hello', {timeout: 15_000})
     await expect(page.locator('.http-exchanges-table')).toContainText('GET')
     await expect(page.locator('.http-exchanges-table')).toContainText('200')
@@ -17,6 +19,7 @@ test.describe('HTTP Exchanges view (Quarkus)', () => {
     await expect(detailsButton).toBeVisible()
     await detailsButton.click()
     await expect(page.locator('.http-exchanges-detail').first()).toContainText('Request headers')
+    await expect(page.locator('.http-exchanges-detail').first()).toContainText('Request id')
   })
 
   test('states the failure-preserving retention window', async ({openView, page}) => {

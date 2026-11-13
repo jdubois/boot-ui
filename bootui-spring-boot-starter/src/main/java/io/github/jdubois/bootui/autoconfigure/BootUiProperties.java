@@ -1171,7 +1171,7 @@ public class BootUiProperties {
          * application responses while the HTTP Exchanges panel is enabled, so browser DevTools and
          * automated browser agents can open the request's profile directly by id.
          */
-        private boolean exposeRequestIdHeader = false;
+        private boolean exposeRequestIdHeader = true;
 
         public int getMaxExchanges() {
             return maxExchanges;

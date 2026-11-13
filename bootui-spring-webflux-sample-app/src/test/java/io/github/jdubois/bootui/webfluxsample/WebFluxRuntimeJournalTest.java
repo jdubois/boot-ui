@@ -70,34 +70,32 @@ class WebFluxRuntimeJournalTest {
     @Test
     void exposesLoopbackRequestIdHeaderWhenEnabledAndMatchesTheRequestProfile() throws Exception {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
-        assertThat(probe.get("/api/notes/1").header("X-BootUI-Request-Id")).isNull();
+        var response = probe.get("/api/notes/1");
+        assertThat(response.status()).isEqualTo(200);
+        String requestId = response.header("X-BootUI-Request-Id");
+        assertThat(requestId).matches("[0-9a-f]{16}");
+        assertThat(probe.get("/bootui/api/overview").header("X-BootUI-Request-Id"))
+                .isNull();
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+        assertThat(probe.get("/bootui/api/activity/request/" + requestId + "/journal")
+                        .body())
+                .contains("\"available\":true")
+                .contains("\"requestId\":\"" + requestId + "\"");
+        assertThat(probe.get("/bootui/api/http-exchanges?query=" + requestId).body())
+                .contains("\"id\":\"" + requestId + "\"");
 
-        bootUiProperties.getHttpExchanges().setExposeRequestIdHeader(true);
+        bootUiProperties.panel("http-exchanges").setEnabled(false);
         try {
-            var response = probe.get("/api/notes/1");
-            assertThat(response.status()).isEqualTo(200);
-            String requestId = response.header("X-BootUI-Request-Id");
-            assertThat(requestId).matches("[0-9a-f]{16}");
-            assertThat(probe.get("/bootui/api/overview").header("X-BootUI-Request-Id"))
-                    .isNull();
-            assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
-            assertThat(probe.get("/bootui/api/activity/request/" + requestId + "/journal")
-                            .body())
-                    .contains("\"available\":true")
-                    .contains("\"requestId\":\"" + requestId + "\"");
-            assertThat(probe.get("/bootui/api/http-exchanges?query=" + requestId)
-                            .body())
-                    .contains("\"id\":\"" + requestId + "\"");
-
-            bootUiProperties.panel("http-exchanges").setEnabled(false);
-            try {
-                assertThat(probe.get("/api/notes/1").header("X-BootUI-Request-Id"))
-                        .isNull();
-            } finally {
-                bootUiProperties.panel("http-exchanges").setEnabled(true);
-            }
+            assertThat(probe.get("/api/notes/1").header("X-BootUI-Request-Id")).isNull();
         } finally {
-            bootUiProperties.getHttpExchanges().setExposeRequestIdHeader(false);
+            bootUiProperties.panel("http-exchanges").setEnabled(true);
+        }
+
+        bootUiProperties.getHttpExchanges().setExposeRequestIdHeader(false);
+        try {
+            assertThat(probe.get("/api/notes/1").header("X-BootUI-Request-Id")).isNull();
+        } finally {
+            bootUiProperties.getHttpExchanges().setExposeRequestIdHeader(true);
         }
     }
 
