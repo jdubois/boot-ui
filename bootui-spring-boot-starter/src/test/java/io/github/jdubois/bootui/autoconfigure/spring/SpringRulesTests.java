@@ -46,12 +46,23 @@ class SpringRulesTests {
     static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
-    void registryPinsAllFortyOneRulesAndOnlyFiveRetirements() {
+    void registryPinsAllThirtyNineRulesAndSevenRetirements() {
         var ids = SpringRuleRegistry.activeRules().stream()
                 .map(rule -> rule.definition().id())
                 .toList();
+        assertThat(SpringRules.RETIRED_RULE_IDS)
+                .isEqualTo(SpringRuleRegistry.RETIRED_RULE_IDS)
+                .isEqualTo(SpringScanner.RETIRED_RULE_IDS)
+                .containsExactlyInAnyOrder(
+                        "SPRING-PROFILE-001",
+                        "SPRING-PERF-004",
+                        "SPRING-WEB-003",
+                        "SPRING-WEB-006",
+                        "SPRING-REACTIVE-001",
+                        "SPRING-REACTIVE-002",
+                        "SPRING-CONFIG-001");
         assertThat(ids)
-                .hasSize(41)
+                .hasSize(39)
                 .doesNotHaveDuplicates()
                 .contains(
                         "SPRING-REACTIVE-003",
@@ -59,12 +70,7 @@ class SpringRulesTests {
                         "SPRING-CONFIG-008",
                         "SPRING-PERF-007",
                         "SPRING-WEB-008")
-                .doesNotContain(
-                        "SPRING-PROFILE-001",
-                        "SPRING-PERF-004",
-                        "SPRING-WEB-006",
-                        "SPRING-REACTIVE-002",
-                        "SPRING-CONFIG-001");
+                .doesNotContainAnyElementsOf(SpringRuleRegistry.RETIRED_RULE_IDS);
         assertThat(SpringRuleRegistry.activeRules().stream()
                         .filter(r -> Set.of(
                                         "SPRING-WIRING-003",
@@ -81,7 +87,6 @@ class SpringRulesTests {
                                         "SPRING-PERF-007",
                                         "SPRING-CACHE-001",
                                         "SPRING-WEB-001",
-                                        "SPRING-WEB-003",
                                         "SPRING-WEB-005")
                                 .contains(r.definition().id())))
                 .allSatisfy(rule -> assertThat(rule.definition().severity()).isEqualTo("INFO"));
@@ -358,6 +363,17 @@ class SpringRulesTests {
         prod.setDefaultProfiles("production");
         assertThat(evaluate(new DebugOrTraceLoggingRule(), prod, Map.of()).severity())
                 .isEqualTo("LOW");
+        for (String set : List.of("", "true", "off", "no", "FALSE", "pw:api"))
+            assertThat(evaluate(new DebugOrTraceLoggingRule(), env("debug", set), Map.of())
+                            .status())
+                    .as("debug=" + set)
+                    .isEqualTo("VIOLATION");
+        assertThat(evaluate(new DebugOrTraceLoggingRule(), env("trace", ""), Map.of())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(evaluate(new DebugOrTraceLoggingRule(), env("debug", "false"), Map.of())
+                        .status())
+                .isEqualTo("PASS");
         assertThat(new DevToolsOnClasspathRule()
                         .evaluate(SpringContext.builder(prod)
                                 .devToolsPresent(true)
@@ -385,6 +401,22 @@ class SpringRulesTests {
     @Test
     void virtualThreadsRemainAnOptionalApplicableOpportunity() {
         var rule = new VirtualThreadsAvailableRule();
+        for (int jdk : List.of(21, 23))
+            assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(JAVA_FEATURE_VERSION, jdk))
+                                    .virtualThreadsSupported(true)
+                                    .dispatcherServletPresent(true)
+                                    .build())
+                            .status())
+                    .as("JDK " + jdk + " is skipped to avoid Catch-22 with SPRING-PERF-007")
+                    .isEqualTo("SKIPPED");
+        for (int jdk : List.of(24, 25))
+            assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(JAVA_FEATURE_VERSION, jdk))
+                                    .virtualThreadsSupported(true)
+                                    .dispatcherServletPresent(true)
+                                    .build())
+                            .status())
+                    .as("JDK " + jdk)
+                    .isEqualTo("VIOLATION");
         assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
                                 .virtualThreadsSupported(true)
                                 .dispatcherServletPresent(true)
@@ -575,33 +607,26 @@ class SpringRulesTests {
 
     @Test
     void originOpportunitiesRequireProvenanceAndRespectOptOutsOnBothStacks() {
-        for (boolean reactive : List.of(false, true))
-            for (var pair : Map.of(
-                            new ResponseCompressionDisabledRule(),
-                            "server.compression.enabled",
-                            new Http2DisabledRule(),
-                            "server.http2.enabled")
-                    .entrySet()) {
-                assertThat(pair.getKey()
-                                .evaluate(context(new MockEnvironment(), Map.of(BOOT_WEB_SERVER, true))
-                                        .reactive(reactive)
-                                        .build())
+        var rule = new ResponseCompressionDisabledRule();
+        for (boolean reactive : List.of(false, true)) {
+            assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(BOOT_WEB_SERVER, true))
+                                    .reactive(reactive)
+                                    .build())
+                            .status())
+                    .isEqualTo("VIOLATION");
+            assertThat(rule.evaluate(context(new MockEnvironment(), Map.of())
+                                    .reactive(reactive)
+                                    .build())
+                            .status())
+                    .isEqualTo("SKIPPED");
+            for (String value : List.of("true", "false"))
+                assertThat(rule.evaluate(
+                                        context(env("server.compression.enabled", value), Map.of(BOOT_WEB_SERVER, true))
+                                                .reactive(reactive)
+                                                .build())
                                 .status())
-                        .isEqualTo("VIOLATION");
-                assertThat(pair.getKey()
-                                .evaluate(context(new MockEnvironment(), Map.of())
-                                        .reactive(reactive)
-                                        .build())
-                                .status())
-                        .isEqualTo("SKIPPED");
-                for (String value : List.of("true", "false"))
-                    assertThat(pair.getKey()
-                                    .evaluate(context(env(pair.getValue(), value), Map.of(BOOT_WEB_SERVER, true))
-                                            .reactive(reactive)
-                                            .build())
-                                    .status())
-                            .isEqualTo("PASS");
-            }
+                        .isEqualTo("PASS");
+        }
     }
 
     @ParameterizedTest
@@ -783,13 +808,49 @@ class SpringRulesTests {
         assertThat(evaluate(new InMemoryDatasourceInProductionRule(), prod, Map.of(JDBC_KIND, "other"))
                         .status())
                 .isEqualTo("PASS");
+        assertThat(SpringInventory.jdbcKind("jdbc:h2:mem")).isEqualTo("H2 memory");
+        assertThat(SpringInventory.jdbcKind("jdbc:h2:mem;DB_CLOSE_DELAY=-1")).isEqualTo("H2 memory");
         assertThat(SpringInventory.jdbcKind("jdbc:postgresql://db/test?hint=jdbc:h2:mem:foo"))
+                .isEqualTo("other");
+        assertThat(SpringInventory.r2dbcKind("r2dbc:h2:mem:///orders?options=DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE"))
+                .isEqualTo("H2 memory");
+        assertThat(SpringInventory.r2dbcKind("r2dbc:pool:h2:mem:///orders?options=DB_CLOSE_DELAY=-1"))
+                .isEqualTo("H2 memory");
+        assertThat(SpringInventory.r2dbcKind("r2dbc:postgresql://db/orders?sslMode=verify-full&hint=r2dbc:h2:mem:foo"))
                 .isEqualTo("other");
         assertThat(evaluate(new InMemoryR2dbcInProductionRule(), prod, Map.of(R2DBC_KIND, "H2 memory"))
                         .status())
                 .isEqualTo("VIOLATION");
         assertThat(evaluate(new InMemoryR2dbcInProductionRule(), prod, Map.of()).status())
                 .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void oversizedUnrelatedSystemEnvironmentVariableDoesNotFailPropertyRules() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.application.name", "orders");
+        environment
+                .getPropertySources()
+                .addLast(new SystemEnvironmentPropertySource(
+                        "systemEnvironment",
+                        Map.of(
+                                "UNRELATED_HUGE_VAR", "secret".repeat(1000),
+                                "OVERSIZED_BOUND_NAME", "secret".repeat(1000))));
+        ConfigurationPropertySources.attach(environment);
+        assertThat(evaluate(new MissingApplicationNameRule(), environment, Map.of())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(new RemovedOrRenamedPropertyRule(), environment, Map.of())
+                        .status())
+                .isEqualTo("PASS");
+        MockEnvironment oversizedAppName = new MockEnvironment();
+        oversizedAppName
+                .getPropertySources()
+                .addFirst(new SystemEnvironmentPropertySource(
+                        "systemEnvironment", Map.of("SPRING_APPLICATION_NAME", "secret".repeat(1000))));
+        ConfigurationPropertySources.attach(oversizedAppName);
+        var result = evaluate(new MissingApplicationNameRule(), oversizedAppName, Map.of());
+        assertThat(result.status()).isEqualTo("ERROR");
+        assertThat(result.toString()).doesNotContain("secret");
     }
 
     @Test
@@ -924,6 +985,45 @@ class SpringRulesTests {
         assertThat(evaluate(new ActuatorExposeAllRule(), config, ENDPOINT_EVIDENCE)
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void actuatorExposureRulesDeferWhenApplicationSecurityChainIsPresentWhileShowValuesAndErrorDetailsStayActive() {
+        var wildcardEnv = env("management.endpoints.web.exposure.include", "*")
+                .withProperty("management.endpoint.heapdump.access", "read-only")
+                .withProperty("management.endpoint.shutdown.access", "unrestricted")
+                .withProperty("management.endpoint.health.show-details", "always")
+                .withProperty("spring.web.error.include-stacktrace", "always");
+        Map<Fact, Object> evidence = new java.util.HashMap<>(ENDPOINT_EVIDENCE);
+        evidence.put(BOOT_ERROR_HANDLING, true);
+
+        var secured = context(wildcardEnv, evidence)
+                .applicationSecurityChainPresent(true)
+                .build();
+        for (SpringRule deferred : List.of(
+                new ActuatorExposeAllRule(),
+                new SensitiveActuatorEndpointsExposedRule(),
+                new DangerousActuatorEndpointsAccessibleRule())) {
+            var result = deferred.evaluate(secured);
+            assertThat(result.status()).as(result.id()).isEqualTo("SKIPPED");
+            assertThat(result.sampleViolations()).containsExactly(ActuatorExposure.DEFERRED_TO_SECURITY_ADVISOR);
+        }
+        assertThat(new ActuatorShowValuesAlwaysRule().evaluate(secured).status())
+                .isEqualTo("VIOLATION");
+        assertThat(new ErrorDetailsExposedRule().evaluate(secured).status()).isEqualTo("VIOLATION");
+        assertThat(secured.observations().evaluation().evidence(List.of()).coverageComplete())
+                .isTrue();
+
+        var explicitSensitiveEnv = env("management.endpoints.web.exposure.include", "env,configprops");
+        Map<Fact, Object> factSecuredEvidence = new java.util.HashMap<>(ENDPOINT_EVIDENCE);
+        factSecuredEvidence.put(APPLICATION_SECURITY_CHAIN, true);
+        var factSecured = context(explicitSensitiveEnv, factSecuredEvidence).build();
+        assertThat(new SensitiveActuatorEndpointsExposedRule()
+                        .evaluate(factSecured)
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(factSecured.observations().evaluation().evidence(List.of()).coverageComplete())
+                .isTrue();
     }
 
     @Test

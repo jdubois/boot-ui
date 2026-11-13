@@ -4,16 +4,21 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.exc.PropertyBindingException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+import io.github.jdubois.bootui.core.dto.BindingDiagnosticDto;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
-import io.github.jdubois.bootui.engine.exceptions.ExceptionStore.BindingDiagnostic;
 import java.util.List;
+import java.util.function.BiFunction;
 
-final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.BindingDiagnosticExtractor {
+final class QuarkusBindingDiagnosticsExtractor implements BiFunction<Throwable, String, List<BindingDiagnosticDto>> {
 
     private static final int MAX_CAUSE_DEPTH = 8;
 
     @Override
-    public List<BindingDiagnostic> extract(Throwable throwable, String handler) {
+    public List<BindingDiagnosticDto> apply(Throwable throwable, String handler) {
+        return extract(throwable, handler);
+    }
+
+    List<BindingDiagnosticDto> extract(Throwable throwable, String handler) {
         if (throwable == null) {
             return List.of();
         }
@@ -29,7 +34,7 @@ final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.Binding
         return List.of();
     }
 
-    private static BindingDiagnostic fromJacksonMismatchedInput(MismatchedInputException exception, String handler) {
+    private static BindingDiagnosticDto fromJacksonMismatchedInput(MismatchedInputException exception, String handler) {
         // Never call InvalidFormatException.getValue() or read the parser token stream.
         StringBuilder path = new StringBuilder();
         String rootTargetType = null;
@@ -67,12 +72,12 @@ final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.Binding
                     ? path.toString()
                     : propertyBinding.getPropertyName() != null ? propertyBinding.getPropertyName() : "(property)";
             String reason = unrecognized ? "UnrecognizedProperty" : "IgnoredProperty";
-            return new BindingDiagnostic(rootTargetType, fieldPath, reason, unrecognized);
+            return ExceptionStore.diagnostic(rootTargetType, fieldPath, reason, unrecognized);
         }
         String fieldPath = !path.isEmpty() ? path.toString() : "(body)";
         String reason = exception.getTargetType() != null
                 ? ExceptionStore.simpleTypeName(exception.getTargetType())
                 : "MismatchedInput";
-        return new BindingDiagnostic(rootTargetType, fieldPath, reason, false);
+        return new BindingDiagnosticDto(rootTargetType, fieldPath, reason);
     }
 }

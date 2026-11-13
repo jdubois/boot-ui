@@ -364,21 +364,48 @@ class ArchitectureRuleAuditTests {
     // ARCH-CODE-016
 
     @Test
-    void standardFieldInjectionIsMediumOnSpringAndLowOnQuarkus() {
+    void standardFieldInjectionIsMediumOnSpringInfoForPackagePrivateOnQuarkusAndLowForPrivateOnQuarkus() {
         ArchitectureRuleResultDto spring = evaluate(
                 ArchitecturePlatform.SPRING,
                 new FieldsShouldNotUseStandardInjectionAnnotationsRule(),
                 JakartaFieldInjectedBean.class);
-        ArchitectureRuleResultDto quarkus = evaluate(
+        ArchitectureRuleResultDto quarkusPackagePrivate = evaluate(
                 ArchitecturePlatform.QUARKUS,
                 new FieldsShouldNotUseStandardInjectionAnnotationsRule(),
                 JakartaFieldInjectedBean.class);
+        ArchitectureRuleResultDto quarkusPrivate = evaluate(
+                ArchitecturePlatform.QUARKUS,
+                new FieldsShouldNotUseStandardInjectionAnnotationsRule(),
+                PrivateJakartaFieldInjectedBean.class);
+        ArchitectureRuleResultDto quarkusMixed = evaluate(
+                ArchitecturePlatform.QUARKUS,
+                new FieldsShouldNotUseStandardInjectionAnnotationsRule(),
+                JakartaFieldInjectedBean.class,
+                PrivateJakartaFieldInjectedBean.class);
 
         assertThat(spring.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(spring.severity()).isEqualTo("MEDIUM");
-        assertThat(quarkus.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(quarkus.id()).isEqualTo("ARCH-CODE-016");
-        assertThat(quarkus.severity()).isEqualTo("LOW");
+        assertThat(quarkusPackagePrivate.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(quarkusPackagePrivate.id()).isEqualTo("ARCH-CODE-016");
+        assertThat(quarkusPackagePrivate.severity()).isEqualTo("INFO");
+        assertThat(quarkusPrivate.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(quarkusPrivate.id()).isEqualTo("ARCH-CODE-016");
+        assertThat(quarkusPrivate.severity()).isEqualTo("LOW");
+        assertThat(quarkusMixed.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(quarkusMixed.severity()).isEqualTo("LOW");
+        assertThat(quarkusMixed.violationCount())
+                .as("in a mixed Quarkus scan, only the private @Inject field is penalized at LOW")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void staticStandardInjectionFieldsAreIgnoredByArchCode016() {
+        ArchitectureRuleResultDto result = evaluate(
+                ArchitecturePlatform.SPRING,
+                new FieldsShouldNotUseStandardInjectionAnnotationsRule(),
+                StaticResourceFieldHolder.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
     private static ArchitectureRuleResultDto evaluate(
@@ -644,5 +671,17 @@ class ArchitectureRuleAuditTests {
 
         @jakarta.inject.Inject
         Object repository;
+    }
+
+    static class PrivateJakartaFieldInjectedBean {
+
+        @jakarta.inject.Inject
+        private Object repository;
+    }
+
+    static class StaticResourceFieldHolder {
+
+        @jakarta.annotation.Resource
+        static Object resource;
     }
 }

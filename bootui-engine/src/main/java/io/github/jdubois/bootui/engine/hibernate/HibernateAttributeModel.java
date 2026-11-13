@@ -75,6 +75,11 @@ public record HibernateAttributeModel(
     }
 
     static HibernateAttributeModel fromMember(String name, Member member, String persistentAttributeType) {
+        return fromMember(name, member, persistentAttributeType, List.of());
+    }
+
+    static HibernateAttributeModel fromMember(
+            String name, Member member, String persistentAttributeType, List<Annotation> overrideAnnotations) {
         RawType rawType = rawType(member);
         String entityName = member.getDeclaringClass().getName();
         // The JPA metamodel always reports the plain attribute name here (e.g. "id"), never a "()"-suffixed
@@ -88,34 +93,54 @@ public record HibernateAttributeModel(
                 persistentAttributeType,
                 Modifier.isPublic(member.getModifiers()),
                 member instanceof Field,
-                annotations(member),
+                combineAnnotations(overrideAnnotations, annotations(member)),
                 member.getName());
     }
 
     static HibernateAttributeModel from(Field field) {
+        return from(field, field.getName(), List.of());
+    }
+
+    static HibernateAttributeModel from(Field field, String qualifiedName, List<Annotation> overrideAnnotations) {
         return new HibernateAttributeModel(
                 field.getDeclaringClass().getName(),
-                field.getName(),
+                qualifiedName,
                 field.getType(),
                 field.getGenericType(),
                 persistentAttributeType(field),
                 Modifier.isPublic(field.getModifiers()),
                 true,
-                List.of(field.getAnnotations()),
+                combineAnnotations(overrideAnnotations, List.of(field.getAnnotations())),
                 field.getName());
     }
 
     static HibernateAttributeModel from(Method method) {
+        return from(method, method.getName() + "()", List.of());
+    }
+
+    static HibernateAttributeModel from(Method method, String qualifiedName, List<Annotation> overrideAnnotations) {
         return new HibernateAttributeModel(
                 method.getDeclaringClass().getName(),
-                method.getName() + "()",
+                qualifiedName,
                 method.getReturnType(),
                 method.getGenericReturnType(),
                 persistentAttributeType(method),
                 Modifier.isPublic(method.getModifiers()),
                 false,
-                List.of(method.getAnnotations()),
+                combineAnnotations(overrideAnnotations, List.of(method.getAnnotations())),
                 method.getName());
+    }
+
+    private static List<Annotation> combineAnnotations(
+            List<Annotation> overrideAnnotations, List<Annotation> memberAnnotations) {
+        if (overrideAnnotations == null || overrideAnnotations.isEmpty()) {
+            return memberAnnotations;
+        }
+        java.util.ArrayList<Annotation> combined =
+                new java.util.ArrayList<>(overrideAnnotations.size() + memberAnnotations.size());
+        combined.addAll(overrideAnnotations);
+        combined.addAll(memberAnnotations);
+        return List.copyOf(combined);
     }
 
     boolean isAssociation() {
@@ -191,16 +216,22 @@ public record HibernateAttributeModel(
 
     String propertyName() {
         if (name.endsWith("()")) {
-            String base = name.substring(0, name.length() - 2);
-            if (base.startsWith("get") && base.length() > 3) {
-                return Character.toLowerCase(base.charAt(3)) + base.substring(4);
-            }
-            if (base.startsWith("is") && base.length() > 2) {
-                return Character.toLowerCase(base.charAt(2)) + base.substring(3);
-            }
-            return base;
+            int dot = name.lastIndexOf('.');
+            String prefix = dot >= 0 ? name.substring(0, dot + 1) : "";
+            String base = name.substring(dot + 1, name.length() - 2);
+            return prefix + propertyNameFromMethodName(base);
         }
         return name;
+    }
+
+    static String propertyNameFromMethodName(String base) {
+        if (base.startsWith("get") && base.length() > 3) {
+            return Character.toLowerCase(base.charAt(3)) + base.substring(4);
+        }
+        if (base.startsWith("is") && base.length() > 2) {
+            return Character.toLowerCase(base.charAt(2)) + base.substring(3);
+        }
+        return base;
     }
 
     boolean isTransient() {
@@ -220,7 +251,7 @@ public record HibernateAttributeModel(
     }
 
     boolean isElementCollection() {
-        return annotation(ELEMENT_COLLECTION) != null;
+        return "ELEMENT_COLLECTION".equals(persistentAttributeType) || annotation(ELEMENT_COLLECTION) != null;
     }
 
     boolean hasBasicLazy() {

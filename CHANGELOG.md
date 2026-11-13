@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
   and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
+- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
+  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
 
 ## [2.4.0] - 2026-11-12
 

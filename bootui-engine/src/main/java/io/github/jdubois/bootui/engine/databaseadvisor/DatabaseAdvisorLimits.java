@@ -16,11 +16,33 @@ record DatabaseAdvisorLimits(
         int maxColumnsPerTable,
         int maxIndexesPerTable,
         int maxVendorFindings,
+        int maxVendorEnrichmentRows,
         Duration scanBudget,
         Duration statementTimeout) {
 
     static final DatabaseAdvisorLimits DEFAULTS =
-            new DatabaseAdvisorLimits(300, 300, 100, 500, Duration.ofSeconds(20), Duration.ofSeconds(5));
+            new DatabaseAdvisorLimits(300, 300, 100, 500, 5_000, Duration.ofSeconds(20), Duration.ofSeconds(5));
+
+    DatabaseAdvisorLimits(
+            int maxTables,
+            int maxColumnsPerTable,
+            int maxIndexesPerTable,
+            int maxVendorFindings,
+            Duration scanBudget,
+            Duration statementTimeout) {
+        this(
+                maxTables,
+                maxColumnsPerTable,
+                maxIndexesPerTable,
+                maxVendorFindings,
+                maxVendorFindings,
+                scanBudget,
+                statementTimeout);
+    }
+
+    int rowLimit(VendorFindingKind<?> kind) {
+        return kind != null && kind.enrichment() ? maxVendorEnrichmentRows : maxVendorFindings;
+    }
 
     /** The whole-number seconds to hand to {@code Statement.setQueryTimeout}, at least one second. */
     int statementTimeoutSeconds() {

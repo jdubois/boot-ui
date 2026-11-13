@@ -342,9 +342,8 @@ index. Discovery is single-module; the `bootui.internal.base-packages` key (comm
 The REST API panel runs a curated, zero-config ruleset against the host application's web layer: `@RestController` /
 `@Controller` handlers on Spring, or JAX-RS resources on Quarkus. It derives a read-only model (methods, paths,
 parameters, return types, validation, declared throws) and evaluates 60 stable rule definitions across eight categories,
-of which 53 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
-error handling and documentation. The `RAPI-DOC-*` rules run only when Swagger or MicroProfile OpenAPI annotations are
-present. Security concerns belong to the Security panel.
+of which 45 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
+error handling and documentation. Security concerns belong to the Security panel.
 
 The scan runs on demand and caches its last report; the list shows only flagged rules. See
 [REST API checks](../REST-API-CHECKS.md) for the full catalogue.

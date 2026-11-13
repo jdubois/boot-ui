@@ -6,7 +6,6 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.BindingDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
-import io.github.jdubois.bootui.engine.exceptions.ExceptionStore.BindingDiagnostic;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.LocalDate;
@@ -56,13 +55,13 @@ class SpringBindingDiagnosticsExtractorTests {
                 new MethodParameter(OrderController.class.getDeclaredMethod("create", CreateOrderRequest.class), 0);
         MethodArgumentNotValidException ex = new MethodArgumentNotValidException(parameter, bindingResult);
 
-        List<BindingDiagnostic> diagnostics = extractor.extract(ex, "OrderController#create");
+        List<BindingDiagnosticDto> diagnostics = extractor.extract(ex, "OrderController#create");
 
         assertThat(diagnostics)
                 .containsExactly(
-                        new BindingDiagnostic("CreateOrderRequest", "(object)", "ValidOrderTotal", false),
-                        new BindingDiagnostic("CreateOrderRequest", "attributes['secretKey']", "NotBlank", false),
-                        new BindingDiagnostic("CreateOrderRequest", "items[2].quantity", "Positive", false));
+                        new BindingDiagnosticDto("CreateOrderRequest", "(object)", "ValidOrderTotal"),
+                        new BindingDiagnosticDto("CreateOrderRequest", "attributes['secretKey']", "NotBlank"),
+                        new BindingDiagnosticDto("CreateOrderRequest", "items[2].quantity", "Positive"));
 
         BindException bindEx = new BindException(bindingResult);
         assertThat(extractor.extract(bindEx, "OrderController#create")).isEqualTo(diagnostics);
@@ -106,12 +105,12 @@ class SpringBindingDiagnosticsExtractorTests {
                 List.of(directParamResult, parameterErrors));
         HandlerMethodValidationException ex = new HandlerMethodValidationException(result);
 
-        List<BindingDiagnostic> diagnostics = extractor.extract(ex, "OrderController#list");
+        List<BindingDiagnosticDto> diagnostics = extractor.extract(ex, "OrderController#list");
 
         assertThat(diagnostics)
                 .containsExactly(
-                        new BindingDiagnostic("CreateOrderRequest", "['secretMapKey'].customer.email", "Email", false),
-                        new BindingDiagnostic("OrderController#list", "page", "Min", false));
+                        new BindingDiagnosticDto("CreateOrderRequest", "['secretMapKey'].customer.email", "Email"),
+                        new BindingDiagnosticDto("OrderController#list", "page", "Min"));
     }
 
     @Test
@@ -132,11 +131,11 @@ class SpringBindingDiagnosticsExtractorTests {
                 };
 
         assertThat(extractor.extract(mismatch, "OrderController#list"))
-                .containsExactly(new BindingDiagnostic("OrderController#list", "page", "Integer", false));
+                .containsExactly(new BindingDiagnosticDto("OrderController#list", "page", "Integer"));
 
         ServerWebInputException webInput = new ServerWebInputException("Type mismatch", pageParam, mismatch);
         assertThat(extractor.extract(webInput, "OrderController#list"))
-                .containsExactly(new BindingDiagnostic("OrderController#list", "page", "Integer", false));
+                .containsExactly(new BindingDiagnosticDto("OrderController#list", "page", "Integer"));
     }
 
     @Test

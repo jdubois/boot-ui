@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
+import io.github.jdubois.bootui.core.dto.BindingDiagnosticDto;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ElementKind;
@@ -16,11 +17,6 @@ import java.util.Set;
 
 /**
  * The sole {@code bootui-engine} class that imports {@code jakarta.validation}.
- *
- * <p>Only invoked after {@link #hasConstraintViolationInChain(Throwable)} has confirmed by class-name
- * comparison that a throwable in the cause chain is an instance of
- * {@code jakarta.validation.ConstraintViolationException}, so applications without Jakarta Bean
- * Validation on their classpath never load this class.</p>
  */
 final class ConstraintViolationReader {
 
@@ -28,12 +24,12 @@ final class ConstraintViolationReader {
 
     private ConstraintViolationReader() {}
 
-    static List<ExceptionStore.BindingDiagnostic> extract(Throwable throwable, String handler) {
+    static List<BindingDiagnosticDto> extract(Throwable throwable, String handler) {
         Throwable current = throwable;
         int depth = 0;
         while (current != null && depth < MAX_CAUSE_DEPTH) {
             if (current instanceof ConstraintViolationException cve) {
-                List<ExceptionStore.BindingDiagnostic> extracted = extractFromException(cve, handler);
+                List<BindingDiagnosticDto> extracted = extractFromException(cve, handler);
                 if (!extracted.isEmpty()) {
                     return extracted;
                 }
@@ -44,13 +40,13 @@ final class ConstraintViolationReader {
         return List.of();
     }
 
-    private static List<ExceptionStore.BindingDiagnostic> extractFromException(
+    private static List<BindingDiagnosticDto> extractFromException(
             ConstraintViolationException exception, String handler) {
         Set<ConstraintViolation<?>> violations = exception.getConstraintViolations();
         if (violations == null || violations.isEmpty()) {
             return List.of();
         }
-        List<ExceptionStore.BindingDiagnostic> diagnostics = new ArrayList<>(violations.size());
+        List<BindingDiagnosticDto> diagnostics = new ArrayList<>(violations.size());
         for (ConstraintViolation<?> violation : violations) {
             if (violation == null) {
                 continue;
@@ -58,12 +54,11 @@ final class ConstraintViolationReader {
             // Deliberately never reads violation.getInvalidValue() or violation.getExecutableParameters().
             PathAndTarget pathAndTarget = resolvePathAndTarget(violation, handler);
             String reason = resolveReason(violation.getConstraintDescriptor());
-            diagnostics.add(new ExceptionStore.BindingDiagnostic(
-                    pathAndTarget.targetType(), pathAndTarget.fieldPath(), reason, false));
+            diagnostics.add(new BindingDiagnosticDto(pathAndTarget.targetType(), pathAndTarget.fieldPath(), reason));
         }
-        diagnostics.sort(Comparator.comparing(ExceptionStore.BindingDiagnostic::fieldPath)
-                .thenComparing(ExceptionStore.BindingDiagnostic::reason)
-                .thenComparing(ExceptionStore.BindingDiagnostic::targetType));
+        diagnostics.sort(Comparator.comparing(BindingDiagnosticDto::fieldPath)
+                .thenComparing(BindingDiagnosticDto::reason)
+                .thenComparing(BindingDiagnosticDto::targetType));
         return diagnostics;
     }
 
@@ -73,7 +68,7 @@ final class ConstraintViolationReader {
             if (annotation != null && annotation.annotationType() != null) {
                 String name = annotation.annotationType().getSimpleName();
                 if (!name.isEmpty()) {
-                    return BindingDiagnostics.truncate(name);
+                    return ExceptionStore.truncateDiagnostic(name);
                 }
             }
         }
@@ -123,7 +118,7 @@ final class ConstraintViolationReader {
                     path.append("[*]");
                 } else if (node.getKey() != null) {
                     path.append("['")
-                            .append(BindingDiagnostics.truncateKey(node.getKey()))
+                            .append(ExceptionStore.truncateDiagnosticKey(node.getKey()))
                             .append("']");
                 } else {
                     path.append("[*]");
@@ -144,9 +139,9 @@ final class ConstraintViolationReader {
         }
 
         String fieldPath = !path.isEmpty()
-                ? BindingDiagnostics.normalizeNumericIndices(path.toString())
+                ? ExceptionStore.normalizeNumericIndices(path.toString())
                 : propertyPath != null && !propertyPath.toString().isBlank()
-                        ? BindingDiagnostics.normalizeNumericIndices(propertyPath.toString())
+                        ? ExceptionStore.normalizeNumericIndices(propertyPath.toString())
                         : paramName != null ? paramName : "(object)";
 
         String targetType = resolveTargetType(rootClass, leafBean, methodName, paramName, startIndex >= 2, handler);
@@ -163,29 +158,29 @@ final class ConstraintViolationReader {
         if (cascadedBeanProperty) {
             Class<?> paramType = findParameterType(rootClass, methodName, paramName);
             if (paramType != null && !isCollectionOrMap(paramType)) {
-                return BindingDiagnostics.simpleTypeName(paramType);
+                return ExceptionStore.simpleTypeName(paramType);
             }
             if (leafBean != null
                     && (rootClass == null || leafBean.getClass() != rootClass)
                     && !isCollectionOrMap(leafBean.getClass())) {
-                return BindingDiagnostics.simpleTypeName(leafBean.getClass());
+                return ExceptionStore.simpleTypeName(leafBean.getClass());
             }
         }
         if (methodName != null) {
             if (handler != null && !handler.isBlank()) {
-                return BindingDiagnostics.truncate(handler);
+                return ExceptionStore.truncateDiagnostic(handler);
             }
             if (rootClass != null) {
-                return BindingDiagnostics.simpleTypeName(rootClass) + "#" + methodName;
+                return ExceptionStore.simpleTypeName(rootClass) + "#" + methodName;
             }
         }
         if (rootClass != null) {
-            return BindingDiagnostics.simpleTypeName(rootClass);
+            return ExceptionStore.simpleTypeName(rootClass);
         }
         if (leafBean != null && !isCollectionOrMap(leafBean.getClass())) {
-            return BindingDiagnostics.simpleTypeName(leafBean.getClass());
+            return ExceptionStore.simpleTypeName(leafBean.getClass());
         }
-        return handler != null && !handler.isBlank() ? BindingDiagnostics.truncate(handler) : "Object";
+        return handler != null && !handler.isBlank() ? ExceptionStore.truncateDiagnostic(handler) : "Object";
     }
 
     private static Class<?> findParameterType(Class<?> rootClass, String methodName, String paramName) {

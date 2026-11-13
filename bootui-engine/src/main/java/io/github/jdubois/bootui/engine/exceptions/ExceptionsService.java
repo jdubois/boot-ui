@@ -162,9 +162,7 @@ public final class ExceptionsService {
         boolean fullExposure = exposure.valueExposure() == ValueExposure.FULL;
         List<BindingDiagnosticDto> diagnostics = occurrence.bindingDiagnostics().stream()
                 .map(d -> new BindingDiagnosticDto(
-                        d.targetType(),
-                        BindingDiagnostics.exposeFieldPath(d.fieldPath(), d.unrecognizedProperty(), fullExposure),
-                        d.reason()))
+                        d.targetType(), ExceptionStore.exposeFieldPath(d.fieldPath(), fullExposure), d.reason()))
                 .toList();
         return new ExceptionOccurrenceDto(
                 occurrence.timestamp(),

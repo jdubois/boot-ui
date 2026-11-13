@@ -471,6 +471,25 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void tablesWithOnlyNonUniqueSecondaryIndexesOrUnrelatedUniqueIndexesDoNotTriggerUnknownBackingDiagnostics() {
+        TableModel withSecondary = table(
+                "orders",
+                List.of(column("id", "bigint", Types.BIGINT), column("customer_id", "bigint", Types.BIGINT)),
+                List.of("id"),
+                List.of(),
+                List.of(
+                        IndexModel.of("PRIMARY", List.of("id"), true),
+                        IndexModel.of("ix_orders_customer", List.of("customer_id"), false),
+                        IndexModel.of("uq_orders_customer", List.of("customer_id"), true)));
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB, Dialect.ORACLE, Dialect.GENERIC)) {
+            DatabaseAdvisorContext context = context(schema("ds", dialect, List.of(withSecondary)));
+            DatabaseAdvisorRuleResultDto result = new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+            assertThat(result.status()).as(dialect.name()).isEqualTo("SKIPPED");
+            assertThat(context.evaluationDiagnostics()).as(dialect.name()).isEmpty();
+        }
+    }
+
+    @Test
     void foreignKeyDuplicateRequiresKnownMatchingActionsAndExactPairedIdentity() {
         ForeignKeyModel first = fk("one", List.of("a", "b"), List.of("x", "y"), 0);
         ForeignKeyModel reordered = fk("two", List.of("b", "a"), List.of("y", "x"), 0);
@@ -623,6 +642,65 @@ class DatabaseAdvisorSchemaRulesTests {
         assertThat(ColumnTypeCompatibility.mismatch(
                         column("a", "bigint unsigned", Types.BIGINT), column("b", "int", Types.INTEGER)))
                 .contains("signedness");
+    }
+
+    @Test
+    void postgresSerialTypesAndUnboundedSentinelsAreComparedAccurately() {
+        ColumnModel smallserial = column("id", "smallserial", Types.SMALLINT, 5);
+        ColumnModel serial = column("id", "serial", Types.INTEGER, 10);
+        ColumnModel bigserial = column("id", "bigserial", Types.BIGINT, 19);
+        ColumnModel int2 = column("parent_id", "int2", Types.SMALLINT, 5);
+        ColumnModel int4 = column("parent_id", "int4", Types.INTEGER, 10);
+        ColumnModel int8 = column("parent_id", "int8", Types.BIGINT, 19);
+
+        assertThat(ColumnTypeCompatibility.comparable(int2, smallserial)).isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(int2, smallserial)).isNull();
+        assertThat(ColumnTypeCompatibility.comparable(int4, serial)).isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(int4, serial)).isNull();
+        assertThat(ColumnTypeCompatibility.comparable(int8, bigserial)).isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(int8, bigserial)).isNull();
+        assertThat(ColumnTypeCompatibility.comparable(int4, bigserial)).isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(int4, bigserial)).contains("narrower integer type");
+        assertThat(ColumnTypeCompatibility.comparable(int2, serial)).isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(int2, serial)).contains("narrower integer type");
+
+        ColumnModel varchar100 = column("code", "varchar", Types.VARCHAR, 100);
+        ColumnModel unboundedText = column("code", "text", Types.VARCHAR, Integer.MAX_VALUE);
+        ColumnModel unboundedVarchar = column("code", "varchar", Types.VARCHAR, Integer.MAX_VALUE);
+        assertThat(unboundedText.describeType()).isEqualTo("text");
+        assertThat(ColumnTypeCompatibility.comparable(varchar100, unboundedText))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(varchar100, unboundedText))
+                .isEqualTo("a shorter declared length (100 vs unbounded)");
+        assertThat(ColumnTypeCompatibility.comparable(unboundedText, varchar100))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(unboundedText, varchar100)).isNull();
+        assertThat(ColumnTypeCompatibility.comparable(unboundedText, unboundedVarchar))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(unboundedText, unboundedVarchar))
+                .isNull();
+
+        ColumnModel pgUnconstrainedNumeric = declared("numeric", Types.NUMERIC, 131089, 0);
+        ColumnModel oracleUnconstrainedNumber = declared("NUMBER", Types.NUMERIC, 0, -127);
+        ColumnModel boundedNumeric = decimal(10, 2);
+        assertThat(pgUnconstrainedNumeric.describeType()).isEqualTo("numeric");
+        assertThat(oracleUnconstrainedNumber.describeType()).isEqualTo("NUMBER");
+        assertThat(ColumnTypeCompatibility.comparable(pgUnconstrainedNumeric, boundedNumeric))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(pgUnconstrainedNumeric, boundedNumeric))
+                .isNull();
+        assertThat(ColumnTypeCompatibility.comparable(boundedNumeric, pgUnconstrainedNumeric))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(boundedNumeric, pgUnconstrainedNumeric))
+                .contains("10,2 vs unconstrained");
+        assertThat(ColumnTypeCompatibility.comparable(pgUnconstrainedNumeric, oracleUnconstrainedNumber))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.mismatch(pgUnconstrainedNumeric, oracleUnconstrainedNumber))
+                .isNull();
+        assertThat(ColumnTypeCompatibility.mismatch(decimal(1000, 0), decimal(999, 2)))
+                .contains("fractional");
+        assertThat(ColumnTypeCompatibility.mismatch(decimal(4, -2), decimal(5, -2)))
+                .contains("integer-digit");
     }
 
     @Test

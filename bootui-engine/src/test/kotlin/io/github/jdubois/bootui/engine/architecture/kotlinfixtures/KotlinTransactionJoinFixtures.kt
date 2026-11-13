@@ -43,6 +43,12 @@ open class KotlinSubscriptionService {
     open fun addToAllowlist(email: String) {
         email.length
     }
+
+    /** Joining self-call from an `open suspend fun`: `suspendCaller$suspendImpl` unwraps to `suspendCaller`. */
+    @Transactional
+    open suspend fun suspendCaller(email: String) {
+        addToAllowlist(email)
+    }
 }
 
 /** A private helper of class-level transactional functions runs inside their transaction. */

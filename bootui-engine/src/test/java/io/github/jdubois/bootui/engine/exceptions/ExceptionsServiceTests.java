@@ -264,10 +264,10 @@ class ExceptionsServiceTests {
                 "web",
                 null,
                 List.of(
-                        new ExceptionStore.BindingDiagnostic(
-                                "CreateOrderRequest", "items[0].quantity", "Positive", false),
-                        new ExceptionStore.BindingDiagnostic(
-                                "CreateOrderRequest", "attributes['secretMapKey']", "NotBlank", false)));
+                        new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                "CreateOrderRequest", "items[0].quantity", "Positive"),
+                        new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                                "CreateOrderRequest", "attributes['secretMapKey']", "NotBlank")));
         store.record(
                 failures.get(1),
                 "http-2",
@@ -276,7 +276,7 @@ class ExceptionsServiceTests {
                 "OrderController#create",
                 "web",
                 null,
-                List.of(new ExceptionStore.BindingDiagnostic(
+                List.of(ExceptionStore.diagnostic(
                         "CreateOrderRequest", "secretUnknownProp", "UnrecognizedProperty", true)));
 
         String id = store.groups().get(0).fingerprint();
@@ -323,12 +323,15 @@ class ExceptionsServiceTests {
     @Test
     void capsBindingDiagnosticsPerOccurrenceAtTenAndMarksTruncation() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
-        List<ExceptionStore.BindingDiagnostic> twelve = new java.util.ArrayList<>();
+        List<io.github.jdubois.bootui.core.dto.BindingDiagnosticDto> twelve = new java.util.ArrayList<>();
         // Repeated list elements normalize to items[*].quantity and collapse to one diagnostic before capping.
-        twelve.add(new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "items[0].quantity", "Positive"));
-        twelve.add(new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "items[1].quantity", "Positive"));
+        twelve.add(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                "CreateOrderRequest", "items[0].quantity", "Positive"));
+        twelve.add(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                "CreateOrderRequest", "items[1].quantity", "Positive"));
         for (int i = 0; i < 11; i++) {
-            twelve.add(new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "field" + i, "NotBlank"));
+            twelve.add(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                    "CreateOrderRequest", "field" + i, "NotBlank"));
         }
 
         store.record(
@@ -375,8 +378,8 @@ class ExceptionsServiceTests {
                 "H#c",
                 "web",
                 null,
-                List.of(new ExceptionStore.BindingDiagnostic(
-                        "CreateOrderRequest", longPrefix + "['boundarySecretKey']", "NotBlank", false)));
+                List.of(new io.github.jdubois.bootui.core.dto.BindingDiagnosticDto(
+                        "CreateOrderRequest", longPrefix + "['boundarySecretKey']", "NotBlank")));
 
         var service = new ExceptionsService(policy(ValueExposure.MASKED, true));
         var detail = service.detail(store.find(store.groups().get(0).fingerprint()));

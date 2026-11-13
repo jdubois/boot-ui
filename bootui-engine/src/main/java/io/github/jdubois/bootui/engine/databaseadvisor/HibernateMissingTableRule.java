@@ -44,11 +44,13 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
         if (targeted.isEmpty()) {
             return skipped("No explicit table declarations with supported placement were found.");
         }
-        if (context.schemas().size() != 1) {
+        boolean anyAttributed =
+                targeted.stream().anyMatch(entity -> context.dataSourceOfEntity(entity.entityName()) != null);
+        if (context.schemas().size() != 1 && !anyAttributed) {
             unknown(context, "The mapping facts do not associate persistence units with the discovered datasources.");
             return skipped("Multiple datasource inventories cannot be attributed to these mapping declarations.");
         }
-        if (schemas.stream().anyMatch(SchemaSnapshot::truncated)) {
+        if (context.schemas().size() == 1 && schemas.stream().anyMatch(SchemaSnapshot::truncated)) {
             // A truncated table list would make every unread table look like a missing one.
             unknown(context, "A truncated relation inventory cannot prove that a declared relation is absent.");
             return skipped("The table list was truncated for at least one datasource, so a missing mapped table "
@@ -58,14 +60,21 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
         int eligible = 0;
         for (MappedEntityFacts entity : targeted) {
             MappedTableResolution resolution = MappedTableResolution.resolve(context, entity);
+            if (resolution.schema() != null && resolution.schema().truncated()) {
+                unknown(context, "A truncated relation inventory cannot prove that a declared relation is absent.");
+                continue;
+            }
             if (resolution.status() == MappedTableResolution.Status.NOT_FOUND) {
+                String dataSourceName = resolution.schema() != null
+                        ? resolution.schema().dataSourceName()
+                        : context.schemas().get(0).dataSourceName();
                 eligible++;
                 details.add(
                         entity.entityName() + " declares relation name " + entity.qualifiedTableName()
                                 + ", which was not found in the scoped observed relation inventory. "
                                 + "Confirm effective physical naming before changing the mapping.",
                         DatabaseIdentities.of(
-                                context.schemas().get(0).dataSourceName(),
+                                dataSourceName,
                                 "entity=" + entity.entityName(),
                                 "relation=" + entity.qualifiedTableName()));
             } else if (resolution.resolved()) {
@@ -79,13 +88,21 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
             for (MappedSecondaryTableFacts secondaryTable : entity.secondaryTables()) {
                 MappedTableResolution secondaryResolution =
                         MappedTableResolution.resolveSecondary(context, entity, secondaryTable.name());
+                if (secondaryResolution.schema() != null
+                        && secondaryResolution.schema().truncated()) {
+                    unknown(context, "A truncated relation inventory cannot prove that a declared relation is absent.");
+                    continue;
+                }
                 if (secondaryResolution.status() == MappedTableResolution.Status.NOT_FOUND) {
+                    String dataSourceName = secondaryResolution.schema() != null
+                            ? secondaryResolution.schema().dataSourceName()
+                            : context.schemas().get(0).dataSourceName();
                     eligible++;
                     details.add(
                             entity.entityName() + " declares @SecondaryTable " + secondaryTable.qualifiedName()
                                     + ", whose name was not found in the scoped observed relation inventory.",
                             DatabaseIdentities.of(
-                                    context.schemas().get(0).dataSourceName(),
+                                    dataSourceName,
                                     "entity=" + entity.entityName(),
                                     "secondary=" + secondaryTable.qualifiedName()));
                 } else if (secondaryResolution.resolved()) {

@@ -581,6 +581,8 @@ public final class HibernateSchemaBridge {
 
     private static boolean unsupportedPlacement(HibernateAttributeModel attribute) {
         return attribute.isElementCollection()
+                || "EMBEDDED".equals(attribute.persistentAttributeType())
+                || attribute.name().contains(".")
                 || attribute.annotations().stream().anyMatch(annotation -> {
                     String name = annotation.annotationType().getName();
                     return name.equals("jakarta.persistence.JoinTable")

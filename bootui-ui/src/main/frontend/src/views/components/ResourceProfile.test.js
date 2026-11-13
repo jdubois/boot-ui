@@ -14,6 +14,10 @@ const idle = {
   cpuSamples: 0,
   outsideSamples: 0,
   requests: 0,
+  virtualThreadPinningSupported: true,
+  pinnedEvents: 0,
+  outsidePinnedEvents: 0,
+  pinnedDurationMicros: 0,
   routes: [],
   routesOmitted: 0,
   limitations: []
@@ -29,6 +33,10 @@ const completed = {
   cpuSamples: 400,
   outsideSamples: 100,
   requests: 12,
+  virtualThreadPinningSupported: true,
+  pinnedEvents: 3,
+  outsidePinnedEvents: 1,
+  pinnedDurationMicros: 14_500,
   routes: [
     {
       route: 'GET /api/report/{id}',
@@ -39,12 +47,29 @@ const completed = {
       hotFrames: [
         {frame: 'com.example.ReportService.render:42', samples: 200},
         {frame: 'com.example.ReportService.load:17', samples: 50}
+      ],
+      pinnedEvents: 2,
+      pinnedDurationMicros: 12_000,
+      pinnedFrames: [
+        {frame: 'com.example.ReportService.legacySync:84', samples: 1},
+        {frame: 'com.example.ReportService.jniExport:109', samples: 1}
       ]
     },
-    {route: 'GET /api/health', requests: 2, cpuSamples: 30, allocatedBytes: 2048, virtualThreads: false, hotFrames: []}
+    {
+      route: 'GET /api/health',
+      requests: 2,
+      cpuSamples: 30,
+      allocatedBytes: 2048,
+      virtualThreads: false,
+      hotFrames: [],
+      pinnedEvents: 0,
+      pinnedDurationMicros: 0,
+      pinnedFrames: []
+    }
   ],
   limitations: [
-    'CPU is counted in samples of running threads every 10 ms (jdk.ExecutionSample), not as a measured time.'
+    'CPU is counted in samples of running threads every 10 ms (jdk.ExecutionSample), not as a measured time.',
+    'On JDK 24 and later (JEP 491), synchronized blocks no longer pin virtual threads; jdk.VirtualThreadPinned records only native frames and class initializers.'
   ]
 }
 
@@ -142,6 +167,9 @@ describe('ResourceProfile', () => {
     expect(wrapper.get('.insight-profile-summary').text()).toMatch(
       /^400 CPU samples, 75 % of them while a request ran, joined to 12 requests by the execution sampler · ended .+\.$/
     )
+    expect(wrapper.get('.insight-profile-pinning').text()).toBe(
+      '3 virtual-thread pinned events (14.5 ms total, 1 outside requests).'
+    )
     const rows = wrapper.findAll('tbody tr')
     expect(rows).toHaveLength(2)
     expect(rows[0].classes()).toContain('insight-profile-top')
@@ -149,12 +177,28 @@ describe('ResourceProfile', () => {
     expect(rows[0].text()).toContain('5.0 MB')
     expect(rows[0].text()).toContain('270 · 90 %')
     expect(rows[0].get('.insight-share-bar').attributes('style')).toContain('width: 90%')
+    expect(rows[0].get('.insight-profile-pinned').text()).toContain('2 pins · 12.0 ms')
+    expect(rows[0].get('.insight-profile-pinned').text()).toContain('ReportService.legacySync:84')
+    expect(rows[0].get('.insight-profile-pinned code').attributes('title')).toBe(
+      'com.example.ReportService.legacySync:84'
+    )
     expect(rows[0].text()).toContain('ReportService.render:42')
     expect(rows[0].get('.insight-profile-frame code').attributes('title')).toBe('com.example.ReportService.render:42')
-    expect(rows[0].get('details summary').text()).toBe('1 more')
+    expect(rows[0].get('.insight-profile-frame details summary').text()).toBe('1 more')
+    expect(rows[1].get('.insight-profile-pinned').text()).toBe('None')
     expect(rows[1].text()).toContain('No frame sampled')
     expect(wrapper.text()).toContain('not as a measured time')
+    expect(wrapper.text()).toContain('JEP 491')
     expect(wrapper.get('.insight-profile-start').text()).toBe('Profile again')
+  })
+
+  it('hides virtual-thread pinning column and summary when the runtime does not support jdk.VirtualThreadPinned', async () => {
+    respond({...completed, virtualThreadPinningSupported: false, pinnedEvents: 0, outsidePinnedEvents: 0})
+    wrapper = mount(ResourceProfile)
+    await flushPromises()
+
+    expect(wrapper.find('.insight-profile-pinning').exists()).toBe(false)
+    expect(wrapper.find('.insight-profile-pinned').exists()).toBe(false)
   })
 
   it('cannot start a session when the panel is read-only or the runtime has no JFR', async () => {

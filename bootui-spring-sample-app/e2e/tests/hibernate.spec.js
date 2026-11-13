@@ -100,6 +100,8 @@ test.describe('Hibernate Advisor view', () => {
     await expect(
       page.getByText(/SampleOrderRepository#findPageNative is a native paged @Query without countQuery/)
     ).toBeVisible()
+    await expect(page.getByText('Derived deleteBy methods load entities before deletion')).toBeVisible()
+    await expect(page.getByText(/SampleOrderRepository#deleteByStatus is a derived delete query/)).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
   })
 

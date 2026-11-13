@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
+import io.github.jdubois.bootui.core.dto.BindingDiagnosticDto;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -75,7 +76,17 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
     private static final int MAX_MESSAGE_LENGTH = 4096;
 
     /** Maximum number of binding/validation diagnostics retained per occurrence. */
-    public static final int MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE = BindingDiagnostics.MAX_DIAGNOSTICS_PER_OCCURRENCE;
+    public static final int MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE = 10;
+
+    static final int MAX_DIAGNOSTIC_FIELD_LENGTH = 256;
+
+    static final String UNRECOGNIZED_PROPERTY_PLACEHOLDER = "(unrecognized property)";
+
+    private static final java.util.regex.Pattern NUMERIC_OR_EMPTY_INDEX =
+            java.util.regex.Pattern.compile("\\[(?:\\d+|\\s*)\\]");
+
+    private static final java.util.regex.Pattern ANY_BRACKET_SEGMENT =
+            java.util.regex.Pattern.compile("\\[[^\\]]*(?:\\]|$)", java.util.regex.Pattern.DOTALL);
 
     private final int maxGroups;
     private final int maxOccurrencesPerGroup;
@@ -90,7 +101,8 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
 
     private volatile List<String> applicationPackages = List.of();
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
-    private volatile BindingDiagnosticExtractor bindingDiagnosticExtractor = (throwable, handler) -> List.of();
+    private volatile java.util.function.BiFunction<Throwable, String, List<BindingDiagnosticDto>>
+            bindingDiagnosticExtractor = (throwable, handler) -> List.of();
     private final CorrelationSource correlation = new CorrelationSource();
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
@@ -145,13 +157,8 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         correlation.set(correlationProvider);
     }
 
-    /**
-     * Installs the adapter-specific {@link BindingDiagnosticExtractor} used to extract structured
-     * validation/binding metadata when an occurrence is recorded. Passing {@code null} restores the
-     * default no-op (which still extracts {@code jakarta.validation.ConstraintViolationException} when
-     * Jakarta Validation is present).
-     */
-    public void setBindingDiagnosticExtractor(BindingDiagnosticExtractor extractor) {
+    public void setBindingDiagnosticExtractor(
+            java.util.function.BiFunction<Throwable, String, List<BindingDiagnosticDto>> extractor) {
         this.bindingDiagnosticExtractor = extractor == null ? (throwable, handler) -> List.of() : extractor;
     }
 
@@ -188,7 +195,6 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         record(throwable, thread, method, path, handler, source, traceId, null);
     }
 
-    /** Records a thrown exception with optional pre-extracted binding diagnostics. */
     public void record(
             Throwable throwable,
             String thread,
@@ -197,13 +203,14 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String handler,
             String source,
             String traceId,
-            List<BindingDiagnostic> bindingDiagnostics) {
+            List<BindingDiagnosticDto> bindingDiagnostics) {
         if (paused || throwable == null || ignore.test(throwable) || !markSeen(throwable)) {
             return;
         }
         List<Frame> frames = buildFrames(throwable.getStackTrace());
         List<Cause> causes = buildCauses(throwable);
-        List<BindingDiagnostic> resolvedDiagnostics = resolveBindingDiagnostics(throwable, handler, bindingDiagnostics);
+        List<BindingDiagnosticDto> resolvedDiagnostics =
+                resolveBindingDiagnostics(throwable, handler, bindingDiagnostics);
         capture(
                 throwable.getClass().getName(),
                 throwable.getMessage(),
@@ -220,12 +227,12 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                 resolvedDiagnostics);
     }
 
-    private List<BindingDiagnostic> resolveBindingDiagnostics(
-            Throwable throwable, String handler, List<BindingDiagnostic> supplied) {
-        List<BindingDiagnostic> raw = supplied;
+    private List<BindingDiagnosticDto> resolveBindingDiagnostics(
+            Throwable throwable, String handler, List<BindingDiagnosticDto> supplied) {
+        List<BindingDiagnosticDto> raw = supplied;
         if (raw == null) {
             try {
-                raw = bindingDiagnosticExtractor.extract(throwable, handler);
+                raw = bindingDiagnosticExtractor.apply(throwable, handler);
             } catch (RuntimeException | LinkageError ignored) {
                 raw = List.of();
             }
@@ -315,7 +322,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String source,
             String traceId,
             ThrowableMarks marks,
-            List<BindingDiagnostic> rawDiagnostics) {
+            List<BindingDiagnosticDto> rawDiagnostics) {
         String className = exceptionClassName == null ? "java.lang.Throwable" : exceptionClassName;
         List<Frame> safeFrames = frames == null ? List.of() : frames;
         List<Cause> safeCauses = causes == null ? List.of() : causes;
@@ -325,9 +332,9 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
         CorrelationContext context = correlation.current();
-        List<BindingDiagnostic> deduplicated = normalizeAndDeduplicateDiagnostics(rawDiagnostics);
+        List<BindingDiagnosticDto> deduplicated = normalizeAndDeduplicateDiagnostics(rawDiagnostics);
         boolean diagnosticsTruncated = deduplicated.size() > MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE;
-        List<BindingDiagnostic> boundedDiagnostics = diagnosticsTruncated
+        List<BindingDiagnosticDto> boundedDiagnostics = diagnosticsTruncated
                 ? List.copyOf(deduplicated.subList(0, MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE))
                 : deduplicated;
         Occurrence occurrence = new Occurrence(
@@ -776,67 +783,148 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         }
     }
 
-    private static List<BindingDiagnostic> normalizeAndDeduplicateDiagnostics(List<BindingDiagnostic> diagnostics) {
+    private static List<BindingDiagnosticDto> normalizeAndDeduplicateDiagnostics(
+            List<BindingDiagnosticDto> diagnostics) {
         if (diagnostics == null || diagnostics.isEmpty()) {
             return List.of();
         }
-        java.util.LinkedHashSet<BindingDiagnostic> unique = new java.util.LinkedHashSet<>(diagnostics.size());
-        for (BindingDiagnostic item : diagnostics) {
+        java.util.LinkedHashSet<BindingDiagnosticDto> unique = new java.util.LinkedHashSet<>(diagnostics.size());
+        for (BindingDiagnosticDto item : diagnostics) {
             if (item == null) {
                 continue;
             }
-            unique.add(new BindingDiagnostic(
-                    BindingDiagnostics.truncate(item.targetType()),
-                    BindingDiagnostics.normalizeNumericIndices(item.fieldPath()),
-                    BindingDiagnostics.truncate(item.reason()),
-                    item.unrecognizedProperty()));
+            unique.add(new BindingDiagnosticDto(
+                    truncateDiagnostic(item.targetType()),
+                    normalizeNumericIndices(item.fieldPath()),
+                    truncateDiagnostic(item.reason())));
         }
         return List.copyOf(unique);
     }
 
+    static String normalizeNumericIndices(String fieldPath) {
+        if (fieldPath == null || fieldPath.isBlank()) {
+            return "(unknown)";
+        }
+        if (fieldPath.startsWith("\0")) {
+            return "\0"
+                    + NUMERIC_OR_EMPTY_INDEX
+                            .matcher(fieldPath.substring(1).trim())
+                            .replaceAll("[*]");
+        }
+        return NUMERIC_OR_EMPTY_INDEX.matcher(fieldPath.trim()).replaceAll("[*]");
+    }
+
+    static String exposeFieldPath(String fieldPath, boolean fullExposure) {
+        if (fieldPath != null && fieldPath.startsWith("\0")) {
+            return fullExposure
+                    ? truncateDiagnostic(normalizeNumericIndices(fieldPath.substring(1)))
+                    : UNRECOGNIZED_PROPERTY_PLACEHOLDER;
+        }
+        String normalized = normalizeNumericIndices(fieldPath);
+        if (!fullExposure) {
+            normalized = ANY_BRACKET_SEGMENT.matcher(normalized).replaceAll("[*]");
+        }
+        return truncateDiagnostic(normalized);
+    }
+
+    public static BindingDiagnosticDto diagnostic(
+            String targetType, String fieldPath, String reason, boolean unrecognized) {
+        return new BindingDiagnosticDto(
+                targetType, unrecognized ? "\0" + (fieldPath == null ? "" : fieldPath) : fieldPath, reason);
+    }
+
     public static void appendJsonPathSegment(StringBuilder path, int index, String propertyName, boolean mapReference) {
-        BindingDiagnostics.appendJsonPathSegment(path, index, propertyName, mapReference);
+        if (index >= 0) {
+            path.append("[*]");
+            return;
+        }
+        if (propertyName == null || propertyName.isEmpty()) {
+            return;
+        }
+        if (mapReference) {
+            path.append("['").append(truncateDiagnosticKey(propertyName)).append("']");
+            return;
+        }
+        if (!path.isEmpty()) {
+            path.append('.');
+        }
+        path.append(propertyName);
     }
 
     public static boolean isMapReference(Object from) {
-        return BindingDiagnostics.isMapReference(from);
+        if (from instanceof Map<?, ?>) {
+            return true;
+        }
+        return from instanceof Class<?> clazz && Map.class.isAssignableFrom(clazz);
     }
 
     public static String simpleTypeName(Class<?> type) {
-        return BindingDiagnostics.simpleTypeName(type);
+        if (type == null) {
+            return null;
+        }
+        if (type.isPrimitive()) {
+            return switch (type.getName()) {
+                case "int" -> "Integer";
+                case "long" -> "Long";
+                case "double" -> "Double";
+                case "boolean" -> "Boolean";
+                case "float" -> "Float";
+                case "short" -> "Short";
+                case "byte" -> "Byte";
+                case "char" -> "Character";
+                default -> type.getSimpleName();
+            };
+        }
+        if (type.isArray()) {
+            return simpleTypeName(type.getComponentType()) + "[]";
+        }
+        String simple = type.getSimpleName();
+        return simpleTypeName(simple.isEmpty() ? type.getName() : simple);
+    }
+
+    static String simpleTypeName(String rawName) {
+        if (rawName == null || rawName.isBlank()) {
+            return null;
+        }
+        String name = rawName.trim();
+        int lastDot = name.lastIndexOf('.');
+        if (lastDot >= 0 && lastDot + 1 < name.length()) {
+            name = name.substring(lastDot + 1);
+        }
+        for (String marker : List.of("$$", "_Subclass", "_ClientProxy", "_HibernateProxy")) {
+            int idx = name.indexOf(marker);
+            if (idx > 0) {
+                name = name.substring(0, idx);
+            }
+        }
+        int dollar = name.lastIndexOf('$');
+        if (dollar >= 0 && dollar + 1 < name.length() && !Character.isDigit(name.charAt(dollar + 1))) {
+            name = name.substring(dollar + 1);
+        }
+        return truncateDiagnostic(name);
     }
 
     public static String truncateDiagnostic(String value) {
-        return BindingDiagnostics.truncate(value);
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= MAX_DIAGNOSTIC_FIELD_LENGTH
+                ? value
+                : value.substring(0, MAX_DIAGNOSTIC_FIELD_LENGTH) + "…";
     }
 
     public static String truncateDiagnosticKey(Object key) {
-        return BindingDiagnostics.truncateKey(key);
+        if (key == null) {
+            return "*";
+        }
+        String text = String.valueOf(key).replace('\r', ' ').replace('\n', ' ').replace(']', '_');
+        return text.length() <= 64 ? text : text.substring(0, 64) + "…";
     }
 
     public record Frame(
             String declaringClass, String methodName, String fileName, int lineNumber, boolean applicationFrame) {}
 
     public record Cause(String exceptionClassName, String message, List<Frame> frames, int commonFrames) {}
-
-    /**
-     * Metadata-only validation or binding diagnostic captured for an {@link Occurrence}.
-     *
-     * @param unrecognizedProperty {@code true} when {@code fieldPath} names an unknown input property
-     *     that must be replaced with {@code "(unrecognized property)"} unless value exposure is {@code FULL}
-     */
-    public record BindingDiagnostic(String targetType, String fieldPath, String reason, boolean unrecognizedProperty) {
-
-        public BindingDiagnostic(String targetType, String fieldPath, String reason) {
-            this(targetType, fieldPath, reason, false);
-        }
-    }
-
-    /** Adapter hook that extracts metadata-only binding/validation diagnostics from a thrown exception. */
-    @FunctionalInterface
-    public interface BindingDiagnosticExtractor {
-        List<BindingDiagnostic> extract(Throwable throwable, String handler);
-    }
 
     public record Occurrence(
             long timestamp,
@@ -848,7 +936,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String traceId,
             String requestId,
             String executionId,
-            List<BindingDiagnostic> bindingDiagnostics,
+            List<BindingDiagnosticDto> bindingDiagnostics,
             boolean bindingDiagnosticsTruncated) {
 
         public Occurrence {

@@ -3,12 +3,15 @@ package io.github.jdubois.bootui.engine.architecture.kotlinfixtures
 import java.time.Instant
 import java.util.UUID
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Bean
 import org.springframework.data.repository.CrudRepository
 import org.springframework.scheduling.annotation.Async
 import org.springframework.scheduling.annotation.Scheduled
+import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.client.RestClient
 
 /**
  * Kotlin fixtures for the Architecture advisor. They are only scanned as bytecode by ArchUnit, never
@@ -96,6 +99,16 @@ open class KotlinOrderService {
     }
 
     fun audit(id: Long) = auditOrder(id)
+
+    /** A real self-invocation inside an `open suspend fun` (compiled into `auditSuspend$suspendImpl`). */
+    open suspend fun auditSuspend(id: Long) {
+        save(id)
+    }
+
+    @Transactional
+    open fun save(id: Long) {
+        log.debug("saving {}", id)
+    }
 }
 
 /**
@@ -137,3 +150,35 @@ sealed class KotlinClaimException(message: String) : RuntimeException(message) {
 
     class Expired(id: Long) : KotlinClaimException("claim $id has expired")
 }
+
+open class KotlinDeprecated {
+
+    @Deprecated("Use replacement")
+    open suspend fun oldOp(tag: String = "v1"): String = tag
+
+    @Deprecated("Use replacement")
+    internal fun oldInternalOp(): String = "internal"
+
+    @Deprecated("Use replacement")
+    open suspend fun oldCaller(tag: String): String = oldOp(tag) + oldInternalOp()
+
+    open suspend fun callOld(): String = oldOp()
+
+    internal fun callOldFromInternal(): String = oldInternalOp()
+}
+
+@Component
+class KotlinLiteBeans {
+
+    @Bean
+    fun one(): String = two()
+
+    @Bean
+    fun two(prefix: String = "bean"): String = prefix
+}
+
+open class KotlinHttpClientFixtures {
+
+    open suspend fun fetchOrders(): RestClient = RestClient.builder().build()
+}
+

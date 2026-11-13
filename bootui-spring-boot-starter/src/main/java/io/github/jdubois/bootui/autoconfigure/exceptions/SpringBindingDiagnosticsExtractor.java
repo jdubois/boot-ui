@@ -1,11 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.exceptions;
 
+import io.github.jdubois.bootui.core.dto.BindingDiagnosticDto;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
-import io.github.jdubois.bootui.engine.exceptions.ExceptionStore.BindingDiagnostic;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.BiFunction;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.core.MethodParameter;
@@ -27,16 +28,20 @@ import tools.jackson.databind.exc.MismatchedInputException;
 import tools.jackson.databind.exc.PropertyBindingException;
 import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
-final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingDiagnosticExtractor {
+final class SpringBindingDiagnosticsExtractor implements BiFunction<Throwable, String, List<BindingDiagnosticDto>> {
 
     private static final int MAX_CAUSE_DEPTH = 8;
 
     @Override
-    public List<BindingDiagnostic> extract(Throwable throwable, String handler) {
+    public List<BindingDiagnosticDto> apply(Throwable throwable, String handler) {
         return extract(throwable, null, handler);
     }
 
-    List<BindingDiagnostic> extract(Throwable throwable, Object rawHandler, String handlerDescription) {
+    List<BindingDiagnosticDto> extract(Throwable throwable, String handler) {
+        return extract(throwable, null, handler);
+    }
+
+    List<BindingDiagnosticDto> extract(Throwable throwable, Object rawHandler, String handlerDescription) {
         if (throwable == null) {
             return List.of();
         }
@@ -53,7 +58,7 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
                 return fromBindingResult(bindingResult, enclosingParameter, handlerDescription);
             }
             if (current instanceof MethodValidationResult validationResult) {
-                List<BindingDiagnostic> diagnostics = fromMethodValidation(validationResult, handlerDescription);
+                List<BindingDiagnosticDto> diagnostics = fromMethodValidation(validationResult, handlerDescription);
                 if (!diagnostics.isEmpty()) {
                     return diagnostics;
                 }
@@ -74,10 +79,10 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
         return List.of();
     }
 
-    private static List<BindingDiagnostic> fromBindingResult(
+    private static List<BindingDiagnosticDto> fromBindingResult(
             BindingResult bindingResult, MethodParameter parameter, String handler) {
         String targetType = resolveBindingTargetType(bindingResult, parameter, handler);
-        List<BindingDiagnostic> diagnostics = new ArrayList<>();
+        List<BindingDiagnosticDto> diagnostics = new ArrayList<>();
         for (FieldError fieldError : bindingResult.getFieldErrors()) {
             if (fieldError == null) {
                 continue;
@@ -85,24 +90,24 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
             // Never call fieldError.getRejectedValue().
             String fieldPath = fieldError.getField();
             String reason = resolveErrorCode(fieldError, fieldError.isBindingFailure() ? "typeMismatch" : "Invalid");
-            diagnostics.add(new BindingDiagnostic(targetType, fieldPath, reason, false));
+            diagnostics.add(new BindingDiagnosticDto(targetType, fieldPath, reason));
         }
         for (ObjectError globalError : bindingResult.getGlobalErrors()) {
             if (globalError == null) {
                 continue;
             }
             String reason = resolveErrorCode(globalError, "ObjectValidation");
-            diagnostics.add(new BindingDiagnostic(targetType, "(object)", reason, false));
+            diagnostics.add(new BindingDiagnosticDto(targetType, "(object)", reason));
         }
-        diagnostics.sort(Comparator.comparing(BindingDiagnostic::fieldPath)
-                .thenComparing(BindingDiagnostic::reason)
-                .thenComparing(BindingDiagnostic::targetType));
+        diagnostics.sort(Comparator.comparing(BindingDiagnosticDto::fieldPath)
+                .thenComparing(BindingDiagnosticDto::reason)
+                .thenComparing(BindingDiagnosticDto::targetType));
         return diagnostics;
     }
 
-    private static List<BindingDiagnostic> fromMethodValidation(
+    private static List<BindingDiagnosticDto> fromMethodValidation(
             MethodValidationResult validationResult, String handler) {
-        List<BindingDiagnostic> diagnostics = new ArrayList<>();
+        List<BindingDiagnosticDto> diagnostics = new ArrayList<>();
         for (ParameterValidationResult paramResult : validationResult.getParameterValidationResults()) {
             if (paramResult == null) {
                 continue;
@@ -128,7 +133,7 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
                     continue;
                 }
                 String reason = resolveErrorCode(error, "ParameterValidation");
-                diagnostics.add(new BindingDiagnostic(targetType, path.toString(), reason, false));
+                diagnostics.add(new BindingDiagnosticDto(targetType, path.toString(), reason));
             }
         }
         for (MessageSourceResolvable error : validationResult.getCrossParameterValidationResults()) {
@@ -137,17 +142,17 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
             }
             String targetType = resolveMethodTarget(validationResult, null, handler);
             String reason = resolveErrorCode(error, "CrossParameterValidation");
-            diagnostics.add(new BindingDiagnostic(targetType, "(parameters)", reason, false));
+            diagnostics.add(new BindingDiagnosticDto(targetType, "(parameters)", reason));
         }
-        diagnostics.sort(Comparator.comparing(BindingDiagnostic::fieldPath)
-                .thenComparing(BindingDiagnostic::reason)
-                .thenComparing(BindingDiagnostic::targetType));
+        diagnostics.sort(Comparator.comparing(BindingDiagnosticDto::fieldPath)
+                .thenComparing(BindingDiagnosticDto::reason)
+                .thenComparing(BindingDiagnosticDto::targetType));
         return diagnostics;
     }
 
-    private static List<BindingDiagnostic> fromParameterErrors(ParameterErrors parameterErrors, String handler) {
+    private static List<BindingDiagnosticDto> fromParameterErrors(ParameterErrors parameterErrors, String handler) {
         String targetType = resolveParameterBeanTarget(parameterErrors, handler);
-        List<BindingDiagnostic> diagnostics = new ArrayList<>();
+        List<BindingDiagnosticDto> diagnostics = new ArrayList<>();
         String containerPrefix = "";
         if (parameterErrors.getContainerIndex() != null) {
             containerPrefix = "[*].";
@@ -160,19 +165,19 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
             }
             String fieldPath = containerPrefix + fieldError.getField();
             String reason = resolveErrorCode(fieldError, fieldError.isBindingFailure() ? "typeMismatch" : "Invalid");
-            diagnostics.add(new BindingDiagnostic(targetType, fieldPath, reason, false));
+            diagnostics.add(new BindingDiagnosticDto(targetType, fieldPath, reason));
         }
         for (ObjectError globalError : parameterErrors.getGlobalErrors()) {
             if (globalError == null) {
                 continue;
             }
             String reason = resolveErrorCode(globalError, "ObjectValidation");
-            diagnostics.add(new BindingDiagnostic(targetType, "(object)", reason, false));
+            diagnostics.add(new BindingDiagnosticDto(targetType, "(object)", reason));
         }
         return diagnostics;
     }
 
-    private static BindingDiagnostic fromMethodArgumentTypeMismatch(
+    private static BindingDiagnosticDto fromMethodArgumentTypeMismatch(
             MethodArgumentTypeMismatchException mismatch, String handler) {
         // Never call mismatch.getValue().
         String targetType = resolveMethodTarget(null, mismatch.getParameter(), handler);
@@ -184,10 +189,10 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
         String reason = mismatch.getRequiredType() != null
                 ? ExceptionStore.simpleTypeName(mismatch.getRequiredType())
                 : "typeMismatch";
-        return new BindingDiagnostic(targetType, fieldPath, reason, false);
+        return new BindingDiagnosticDto(targetType, fieldPath, reason);
     }
 
-    private static BindingDiagnostic fromTypeMismatch(
+    private static BindingDiagnosticDto fromTypeMismatch(
             TypeMismatchException mismatch, MethodParameter parameter, String handler) {
         // Never call mismatch.getValue().
         String targetType = resolveMethodTarget(null, parameter, handler);
@@ -198,10 +203,10 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
         String reason = mismatch.getRequiredType() != null
                 ? ExceptionStore.simpleTypeName(mismatch.getRequiredType())
                 : "typeMismatch";
-        return new BindingDiagnostic(targetType, fieldPath, reason, false);
+        return new BindingDiagnosticDto(targetType, fieldPath, reason);
     }
 
-    private static BindingDiagnostic fromJacksonMismatchedInput(
+    private static BindingDiagnosticDto fromJacksonMismatchedInput(
             MismatchedInputException exception,
             MethodParameter parameter,
             Object rawHandler,
@@ -235,13 +240,13 @@ final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingD
                     ? path.toString()
                     : propertyBinding.getPropertyName() != null ? propertyBinding.getPropertyName() : "(property)";
             String reason = unrecognized ? "UnrecognizedProperty" : "IgnoredProperty";
-            return new BindingDiagnostic(rootTargetType, fieldPath, reason, unrecognized);
+            return ExceptionStore.diagnostic(rootTargetType, fieldPath, reason, unrecognized);
         }
         String fieldPath = !path.isEmpty() ? path.toString() : "(body)";
         String reason = exception.getTargetType() != null
                 ? ExceptionStore.simpleTypeName(exception.getTargetType())
                 : "MismatchedInput";
-        return new BindingDiagnostic(rootTargetType, fieldPath, reason, false);
+        return new BindingDiagnosticDto(rootTargetType, fieldPath, reason);
     }
 
     private static String resolvePayloadTargetType(
