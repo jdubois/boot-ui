@@ -480,6 +480,17 @@ class QuarkusAppSnapshotProviderImplTest {
                 .containsExactly("zero");
         assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "10s")), "QA-WEB-004"))
                 .containsExactly("positive");
+        for (String invalid : List.of("-1s", "PT-0.0005S", "9223372036854776s")) {
+            QuarkusAppSnapshot bad =
+                    snapshot("prod", Map.of("quarkus.shutdown.timeout", invalid, "quarkus.log.level", "DEBUG"));
+            assertThat(values(bad, "QA-WEB-004")).as(invalid).isEmpty();
+            assertThat(values(bad, "QA-CFG-003")).as(invalid).containsExactly("verbose");
+            assertThat(bad.evaluatedConfigurationRules()).as(invalid).doesNotContain("QA-WEB-004");
+            assertThat(bad.problems())
+                    .as(invalid)
+                    .anyMatch(p ->
+                            p.ruleId().equals("QA-WEB-004") && p.message().equals("The shutdown duration is invalid."));
+        }
     }
 
     @Test
