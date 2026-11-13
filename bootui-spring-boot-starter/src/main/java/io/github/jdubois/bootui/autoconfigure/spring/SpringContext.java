@@ -42,10 +42,82 @@ record SpringContext(
         int reactiveHandlerMethodCount,
         List<String> defaultPackageBeans,
         List<String> mutableSingletonFields,
+        List<String> dormantResilienceBeans,
+        List<String> dormantInfrastructureBeans,
+        boolean taskExecutionPropertiesPresent,
         boolean applicationSecurityChainPresent,
         SpringObservations observations,
         AdvisorViolationCollector violationCollector,
         SpringProperties properties) {
+
+    SpringContext(
+            Environment environment,
+            boolean virtualThreadsSupported,
+            int beanDefinitionCount,
+            List<BeanRef> objectMappers,
+            List<BeanRef> taskExecutors,
+            boolean bootApplicationTaskExecutorPresent,
+            List<BeanRef> executors,
+            List<BeanRef> dataSources,
+            List<PooledExecutorRef> pooledTaskExecutors,
+            boolean asyncEnabled,
+            boolean devToolsPresent,
+            boolean customAsyncConfigurerPresent,
+            List<BeanRef> transactionManagers,
+            boolean transactionManagementConfigurerPresent,
+            List<BeanRef> restTemplates,
+            boolean restClientBeanPresent,
+            boolean cachingEnabled,
+            List<CacheManagerRef> cacheManagers,
+            boolean schedulingEnabled,
+            boolean entityManagerFactoryPresent,
+            boolean dispatcherServletPresent,
+            boolean reactive,
+            boolean tomcatWebServerPresent,
+            boolean webClientBeanPresent,
+            int reactiveHandlerMethodCount,
+            List<String> defaultPackageBeans,
+            List<String> mutableSingletonFields,
+            boolean applicationSecurityChainPresent,
+            SpringObservations observations,
+            AdvisorViolationCollector violationCollector,
+            SpringProperties properties) {
+        this(
+                environment,
+                virtualThreadsSupported,
+                beanDefinitionCount,
+                objectMappers,
+                taskExecutors,
+                bootApplicationTaskExecutorPresent,
+                executors,
+                dataSources,
+                pooledTaskExecutors,
+                asyncEnabled,
+                devToolsPresent,
+                customAsyncConfigurerPresent,
+                transactionManagers,
+                transactionManagementConfigurerPresent,
+                restTemplates,
+                restClientBeanPresent,
+                cachingEnabled,
+                cacheManagers,
+                schedulingEnabled,
+                entityManagerFactoryPresent,
+                dispatcherServletPresent,
+                reactive,
+                tomcatWebServerPresent,
+                webClientBeanPresent,
+                reactiveHandlerMethodCount,
+                defaultPackageBeans,
+                mutableSingletonFields,
+                List.of(),
+                List.of(),
+                observations != null && observations.yes(SpringObservations.Fact.TASK_EXECUTION_PROPERTIES),
+                applicationSecurityChainPresent,
+                observations,
+                violationCollector,
+                properties);
+    }
 
     SpringContext(
             Environment environment,
@@ -104,6 +176,9 @@ record SpringContext(
                 reactiveHandlerMethodCount,
                 defaultPackageBeans,
                 mutableSingletonFields,
+                List.of(),
+                List.of(),
+                observations != null && observations.yes(SpringObservations.Fact.TASK_EXECUTION_PROPERTIES),
                 observations != null && observations.yes(SpringObservations.Fact.APPLICATION_SECURITY_CHAIN),
                 observations,
                 null,
@@ -139,6 +214,9 @@ record SpringContext(
                 reactiveHandlerMethodCount,
                 defaultPackageBeans,
                 mutableSingletonFields,
+                dormantResilienceBeans,
+                dormantInfrastructureBeans,
+                taskExecutionPropertiesPresent,
                 applicationSecurityChainPresent,
                 observations,
                 collector,
@@ -156,6 +234,10 @@ record SpringContext(
         cacheManagers = List.copyOf(cacheManagers);
         defaultPackageBeans = List.copyOf(defaultPackageBeans);
         mutableSingletonFields = List.copyOf(mutableSingletonFields);
+        dormantResilienceBeans = List.copyOf(dormantResilienceBeans);
+        dormantInfrastructureBeans = List.copyOf(dormantInfrastructureBeans);
+        taskExecutionPropertiesPresent = taskExecutionPropertiesPresent
+                || (observations != null && observations.yes(SpringObservations.Fact.TASK_EXECUTION_PROPERTIES));
         applicationSecurityChainPresent = applicationSecurityChainPresent
                 || (observations != null && observations.yes(SpringObservations.Fact.APPLICATION_SECURITY_CHAIN));
         if (properties == null) {
@@ -333,6 +415,9 @@ record SpringContext(
         private int reactiveHandlerMethodCount;
         private List<String> defaultPackageBeans = List.of();
         private List<String> mutableSingletonFields = List.of();
+        private List<String> dormantResilienceBeans = List.of();
+        private List<String> dormantInfrastructureBeans = List.of();
+        private boolean taskExecutionPropertiesPresent;
         private boolean applicationSecurityChainPresent;
         private SpringObservations observations = SpringObservations.unknown();
 
@@ -480,6 +565,21 @@ record SpringContext(
             return this;
         }
 
+        Builder dormantResilienceBeans(List<String> value) {
+            this.dormantResilienceBeans = value;
+            return this;
+        }
+
+        Builder dormantInfrastructureBeans(List<String> value) {
+            this.dormantInfrastructureBeans = value;
+            return this;
+        }
+
+        Builder taskExecutionPropertiesPresent(boolean value) {
+            this.taskExecutionPropertiesPresent = value;
+            return this;
+        }
+
         Builder applicationSecurityChainPresent(boolean value) {
             this.applicationSecurityChainPresent = value;
             return this;
@@ -514,6 +614,9 @@ record SpringContext(
                     reactiveHandlerMethodCount,
                     defaultPackageBeans,
                     mutableSingletonFields,
+                    dormantResilienceBeans,
+                    dormantInfrastructureBeans,
+                    taskExecutionPropertiesPresent,
                     applicationSecurityChainPresent,
                     observations,
                     null,

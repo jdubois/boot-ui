@@ -131,6 +131,20 @@ findings from the score.
 - **Recommendation**: Make the field private and expose an accessor if needed, mark it final and set it only from the constructor, or move truly per-request/per-call state out of the singleton (a method-local variable, a request-scoped bean, or immutable value types).
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html>
 
+### SPRING-WIRING-010 - Enable resilience processing for `@Retryable` and `@ConcurrencyLimit` beans
+
+- **Severity**: HIGH
+- **Detects**: Application beans annotated with Spring Framework 7's `@org.springframework.resilience.annotation.Retryable` without `RetryAnnotationBeanPostProcessor` (`internalRetryAnnotationProcessor`), `@org.springframework.resilience.annotation.ConcurrencyLimit` without `ConcurrencyLimitBeanPostProcessor` (`internalConcurrencyLimitProcessor`), or Spring Retry's `@org.springframework.retry.annotation.Retryable` without `RetryConfiguration`. Spring Boot 4 does not auto-enable `@EnableResilientMethods`, so omitting the enabler leaves these annotations inert at runtime.
+- **Recommendation**: Add `@EnableResilientMethods` on a `@Configuration` class for Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, or `@EnableRetry` for Spring Retry `@Retryable`.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/core/resilience.html>
+
+### SPRING-WIRING-011 - Enable infrastructure for `@Async`, `@Scheduled`, `@Cacheable`, and `@Transactional` beans
+
+- **Severity**: HIGH
+- **Detects**: Application beans declaring `@Async` without `AsyncAnnotationBeanPostProcessor`/`AsyncExecutionAspectSupport`, `@Scheduled`/`@Schedules` without `ScheduledTaskHolder`/`internalScheduledAnnotationProcessor`, `@Cacheable`/`@CachePut`/`@CacheEvict`/`@Caching` without `CacheAspectSupport`/`internalCacheAdvisor`, or `@Transactional` without `TransactionAspectSupport`/`internalTransactionAdvisor` and a `TransactionManager` (or `TransactionManagementConfigurer`) bean.
+- **Recommendation**: Add `@EnableAsync`, `@EnableScheduling`, or `@EnableCaching` on a `@Configuration` class, or ensure `@EnableTransactionManagement` and a `TransactionManager` bean are present for `@Transactional` beans.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
+
 ## Configuration
 
 ### SPRING-CONFIG-002 - Review broad verbose logging configuration
@@ -242,6 +256,27 @@ findings from the score.
 - **Detects**: `spring.threads.virtual.enabled=true` with applicable MVC or Boot task-execution evidence (the same gate as SPRING-PERF-001) on JDK 21-23. Before [JEP 491](https://openjdk.org/jeps/491) (JDK 24), blocking inside `synchronized` pins the carrier thread and the scheduler does not compensate, so heavy pinned blocking can starve carriers. This is a runtime-version review prompt, not observed pinning; reactive event loops are unaffected.
 - **Recommendation**: Prefer JDK 24 or later (25 is LTS) for virtual threads. Otherwise load-test with JFR `jdk.VirtualThreadPinned` events and review libraries that block inside `synchronized`; the absence of events under light load does not prove safety. Disabling virtual threads is not required.
 - **Learn more**: <https://openjdk.org/jeps/491>
+
+### SPRING-PERF-008 - Review `applicationTaskExecutor` back-off when virtual threads are enabled
+
+- **Severity**: MEDIUM
+- **Detects**: `spring.threads.virtual.enabled=true` on Java 21+ with Boot's `TaskExecutionProperties` present, when `applicationTaskExecutor` backed off because at least one `java.util.concurrent.Executor` bean (such as a custom executor or STOMP message-broker channel executor) is registered and `spring.task.execution.mode=force` is not set.
+- **Recommendation**: Set `spring.task.execution.mode=force` so Spring Boot still registers its virtual-thread `applicationTaskExecutor` alongside other `Executor` beans, or define an explicit `applicationTaskExecutor` bean if custom routing is intentional.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
+
+### SPRING-PERF-009 - Review task pool properties ignored under virtual threads
+
+- **Severity**: LOW
+- **Detects**: Configured `spring.task.execution.pool.*` (`core-size`, `max-size`, `queue-capacity`, `keep-alive`, `allow-core-thread-timeout`, `shutdown.accept-tasks-after-context-close`, when no application-owned `ThreadPoolTaskExecutor` is present) or `spring.task.scheduling.pool.size` properties when Boot's virtual-thread `SimpleAsyncTaskExecutor` (`applicationTaskExecutor`) or `SimpleAsyncTaskScheduler` (`taskScheduler`) is active. Under virtual threads, these thread-pool sizing properties have no effect.
+- **Recommendation**: Remove unused pool sizing properties under virtual threads, or configure `spring.task.execution.simple.concurrency-limit` and `spring.task.scheduling.simple.concurrency-limit` when bounded concurrency is needed.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
+
+### SPRING-PERF-011 - Review incomplete task executor or scheduler shutdown termination settings
+
+- **Severity**: MEDIUM
+- **Detects**: `spring.task.execution.shutdown.await-termination=true` or `spring.task.scheduling.shutdown.await-termination=true` configured without a positive `await-termination-period` (which skips `SmartLifecycle` stop on platform threads and waits `0ms` during bean destruction), or a positive `await-termination-period` configured without `await-termination=true` while `spring.threads.virtual.enabled=true` (where `SimpleAsyncTaskExecutorBuilder` and `SimpleAsyncTaskSchedulerBuilder` ignore the timeout unless `await-termination=true`).
+- **Recommendation**: Configure both `await-termination=true` and a positive `await-termination-period` together on `spring.task.execution.shutdown` and `spring.task.scheduling.shutdown` when graceful task drain is required.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
 ### SPRING-CACHE-001 - Review concurrent-map cache capacity
 
@@ -377,14 +412,14 @@ Active rules in this category are `SKIPPED` unconditionally on a servlet (Spring
 
 ## Rule summary
 
-The Spring Advisor ships **39 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **1 HIGH**, **12 MEDIUM**, **10 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
+The Spring Advisor ships **44 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-WIRING-010, SPRING-WIRING-011, SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007, SPRING-PERF-008, SPRING-PERF-009, SPRING-PERF-011 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **3 HIGH**, **14 MEDIUM**, **11 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
 
 | Category | Rules |
 | --- | --- |
-| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-009 |
+| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-011 |
 | Configuration | SPRING-CONFIG-002 ... SPRING-CONFIG-008 |
 | Profiles and environment | SPRING-PROFILE-002, SPRING-PROFILE-003 |
-| Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-007, SPRING-CACHE-001 |
+| Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-009, SPRING-PERF-011, SPRING-CACHE-001 |
 | Web and HTTP | SPRING-WEB-001, SPRING-WEB-002, SPRING-WEB-004, SPRING-WEB-005, SPRING-WEB-007, SPRING-WEB-008 |
 | Data and persistence | SPRING-JPA-001, SPRING-DATA-001, SPRING-DATA-002 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |
