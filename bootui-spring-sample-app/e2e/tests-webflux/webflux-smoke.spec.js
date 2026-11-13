@@ -321,6 +321,28 @@ test.describe('BootUI on Spring WebFlux', () => {
     expect(profile.sections.find((section) => section.type === 'SQL').tier).toBe('REQUEST_ID')
   })
 
+  test('Exceptions panel renders binding & validation diagnostics on WebFlux and scrubs rejected values', async ({
+    page,
+    request,
+    baseURL
+  }) => {
+    await request.get(`${baseURL}/api/sample/boom?scenario=validation`)
+
+    await page.goto('/bootui/#/exceptions')
+    const row = page.locator('tbody tr', {hasText: 'WebExchangeBindException'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await expect(row).not.toContainText('alice-secret@example.com')
+    await expect(row).not.toContainText('secretApiKey')
+
+    await row.getByRole('button', {name: 'Details'}).click()
+    const section = page.locator('.binding-diagnostics-section')
+    await expect(section).toBeVisible()
+    await expect(section).toContainText('SampleOrderRequest')
+    await expect(section).toContainText('customer.email')
+    await expect(section).toContainText('items[*].quantity')
+    await expect(section).toContainText('attributes[*]')
+  })
+
   test('raw Spring Security panel exposes reactive chains and mappings without blocking', async ({
     page,
     request,
@@ -389,12 +411,12 @@ test.describe('BootUI on Spring WebFlux', () => {
     )
     await page.getByRole('button', {name: 'Run security checks'}).click()
     const report = await (await scanResponse).json()
-    expect(report.rulesEvaluated).toBe(27)
+    expect(report.rulesEvaluated).toBe(33)
     expect(report.results.map((result) => result.id)).not.toContain('SEC-STATIC-001')
     await expect(
       page.locator('.advisor-summary__metric--status').getByText('Results available', {exact: true})
     ).toBeVisible({timeout: 15_000})
-    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('27')
+    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('33')
   })
 
   test('REST Client records WebClient calls, streams updates, and protects actions with CSRF', async ({

@@ -93,13 +93,17 @@ class ToolManifestGeneratorTests {
 
     @Test
     void noCommandPathShadowsABuiltInCommand() {
-        // 'tools' and 'mcp' are the CLI's own commands; a tool claiming one of them would make it
-        // unreachable, and picocli would only tell us at startup.
+        // 'tools', 'mcp', 'instances', and 'init' are the CLI's own commands; a tool claiming one of them would make
+        // it unreachable, and picocli would only tell us at startup.
         assertThat(CliCommandPaths.BY_TOOL.values())
                 .noneMatch(path -> path.equals("tools")
                         || path.equals("mcp")
+                        || path.equals("instances")
+                        || path.equals("init")
                         || path.startsWith("tools ")
-                        || path.startsWith("mcp "));
+                        || path.startsWith("mcp ")
+                        || path.startsWith("instances ")
+                        || path.startsWith("init "));
     }
 
     @Test

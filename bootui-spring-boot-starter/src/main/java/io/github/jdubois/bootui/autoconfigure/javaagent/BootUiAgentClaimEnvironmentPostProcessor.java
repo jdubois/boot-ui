@@ -24,18 +24,6 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 
-/**
- * Claims the BootUI Java agent as early as Spring allows ({@code docs/PLAN-v2.md} D34): once the environment, and so
- * BootUI's activation, is known. Without the agent's bridge on the bootstrap class path it does nothing. When BootUI
- * resolves to disabled, or {@code bootui.agent.enabled=false}, or BootUI was forced on despite a disabled profile such
- * as {@code prod} without {@code bootui.agent.allow-in-disabled-profiles=true} ({@link AgentProfileGuard}), it releases
- * the agent, removing its transformers unless another application's armed claim holds it. Otherwise it claims the agent for this run and hands the claim to an
- * {@link AgentClaimOwner}, which this run's initializers and listeners keep, and which refines and disarms it.
- *
- * <p>DevTools runs every {@code EnvironmentPostProcessor} again in each restart's class loader, so a restart claims
- * again in the same slot, replacing the previous run's claim; nothing static keeps a run's objects. A
- * {@code SpringApplication} run inside another one, as Spring Cloud's bootstrap context, neither claims nor releases.
- */
 public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
     private static final Log LOGGER = LogFactory.getLog(BootUiAgentClaimEnvironmentPostProcessor.class);
@@ -45,14 +33,11 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
 
     private static final String SPRING_APPLICATION = SpringApplication.class.getName();
 
-    /** {@code SpringApplication.run(String...)}, the instance method each run goes through once. */
     private static final String RUN_DESCRIPTOR =
             "([Ljava/lang/String;)Lorg/springframework/context/ConfigurableApplicationContext;";
 
-    /** Spring Cloud's {@code BootstrapApplicationListener.BOOTSTRAP_PROPERTY_SOURCE_NAME}, without its dependency. */
     private static final String SPRING_CLOUD_BOOTSTRAP = "bootstrap";
 
-    /** Request-value matching of the {@code security-sinks} sensor, opt-in (docs/PLAN-v2.md M5-6b, D37). */
     static final String REQUEST_VALUES = "bootui.agent.security-sinks.request-values";
 
     private final Supplier<AgentBridgeAccess> bridge;
@@ -70,13 +55,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         return Ordered.LOWEST_PRECEDENCE;
     }
 
-    /**
-     * Breaks start-up for one reason only: with the agent attached and BootUI enabled, {@code bootui.agent.sensors}
-     * names a sensor no version of the agent lists, which the application's developer asked for and must fix, as a
-     * Quarkus application fails to start for it. A sensor Side Effects lists but this version does not ship is accepted
-     * with a warning. This runs in every JVM with the BootUI starter, production included, so any other failure (an
-     * unexpected launcher) leaves the agent unclaimed and the application starting.
-     */
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         try {
@@ -105,7 +83,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 AgentClaim.release(access, name, mode);
                 return;
             }
-            // Request-value matching is opt-in (docs/PLAN-v2.md D37): the adapters push no value unless it is on.
             AgentRequestValues.configure(Binder.get(environment)
                     .bind(REQUEST_VALUES, Bindable.of(Boolean.class))
                     .orElse(false));
@@ -125,21 +102,13 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
             application.addInitializers(owner);
             application.addListeners(owner);
         } catch (InvalidAgentSensors ex) {
-            // Invalid input fails the start, as it fails a Quarkus start, rather than silently claiming nothing.
             throw ex;
         } catch (RuntimeException | LinkageError ex) {
             LOGGER.debug("Could not claim the BootUI agent", ex);
         }
     }
 
-    /**
-     * Whether this {@code SpringApplication} runs inside another one's {@code run}, as Spring Cloud's bootstrap context
-     * does while the application prepares its environment, and again for each legacy refresh: such a run is not the
-     * application, so it neither claims (its sources' packages would stay instrumented) nor releases (it would remove
-     * the application's claim, or the claim a DevTools restart keeps armed, D34).
-     */
     static boolean nestedRun() {
-        // The descriptor tells the instance run(String...) from the static run methods, and needs class references.
         return StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
                         .walk(frames -> frames.filter(frame -> SPRING_APPLICATION.equals(frame.getClassName())
                                         && "run".equals(frame.getMethodName())
@@ -149,7 +118,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 > 1;
     }
 
-    /** Spring Cloud's bootstrap context, whose environment carries a property source named {@code bootstrap}. */
     static boolean springCloudBootstrap(ConfigurableEnvironment environment) {
         return environment.getPropertySources().contains(SPRING_CLOUD_BOOTSTRAP);
     }
@@ -160,11 +128,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                         environment.getProperty("bootui.agent.enabled", "true").trim());
     }
 
-    /**
-     * {@code spring.application.name}, else the first class source (the {@code @SpringBootConfiguration} class, the same
-     * for every test of an application, whereas Spring Boot's test loader sets each test class as the main class), else
-     * the main application class.
-     */
     static String applicationName(ConfigurableEnvironment environment, SpringApplication application) {
         String configured = environment.getProperty("spring.application.name");
         if (configured != null && !configured.isBlank()) {
@@ -183,7 +146,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         return sources.hasNext() ? String.valueOf(sources.next()) : "application";
     }
 
-    /** {@code bootui.agent.mode}, or with {@code auto}, test when a test framework started this application. */
     public static String mode(ConfigurableEnvironment environment) {
         String configured =
                 environment.getProperty("bootui.agent.mode", "auto").trim().toLowerCase(Locale.ROOT);
@@ -193,7 +155,7 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         return startedByTestFramework() ? AgentClaim.TEST : AgentClaim.DEV;
     }
 
-    static boolean startedByTestFramework() {
+    public static boolean startedByTestFramework() {
         return StackWalker.getInstance()
                 .walk(frames -> frames.anyMatch(frame -> {
                     String type = frame.getClassName();
@@ -206,11 +168,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 }));
     }
 
-    /**
-     * The class sources' packages, the main application class's package when it is a source or in dev mode (in a test,
-     * the deduced main class can be a launcher such as Surefire's {@code ForkedBooter}), and
-     * {@code bootui.agent.packages}.
-     */
     static List<String> packages(ConfigurableEnvironment environment, SpringApplication application, String mode) {
         List<String> packages = new ArrayList<>();
         Class<?> main = application.getMainApplicationClass();
@@ -230,10 +187,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         return packages;
     }
 
-    /**
-     * {@code bootui.agent.sensors}, {@code bootui.agent.executors.*}, and {@code bootui.agent.ring-capacity}, with Reactor's scheduler threads added to the
-     * skipped threads when Reactor's automatic context propagation carries BootUI's context across them already.
-     */
     static AgentSensorSettings sensors(ConfigurableEnvironment environment) {
         Binder binder = Binder.get(environment);
         AgentSensorSettings defaults = AgentSensorSettings.defaults();
@@ -253,11 +206,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
                 : settings;
     }
 
-    /**
-     * Whether Reactor's automatic context propagation is on, or will be: {@code Hooks.isAutomaticContextPropagationEnabled()}
-     * when Reactor is present, else {@code spring.reactor.context-propagation=auto}, which Spring Boot turns it on with
-     * once the context starts and BootUI contributes for reactive applications.
-     */
     static boolean reactorPropagatesContext(ConfigurableEnvironment environment) {
         if ("auto"
                 .equalsIgnoreCase(environment
@@ -289,7 +237,6 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         return application + "@" + UUID.randomUUID().toString().substring(0, 8);
     }
 
-    /** {@code bootui.agent.sensors} names an unknown sensor: the application does not start. */
     static final class InvalidAgentSensors extends IllegalStateException {
 
         InvalidAgentSensors(IllegalArgumentException cause) {

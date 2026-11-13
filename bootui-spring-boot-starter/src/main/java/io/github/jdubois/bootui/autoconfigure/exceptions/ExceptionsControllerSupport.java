@@ -101,4 +101,15 @@ public final class ExceptionsControllerSupport {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
     }
+
+    public static java.util.function.BiFunction<
+                    Throwable, String, java.util.List<io.github.jdubois.bootui.core.dto.BindingDiagnosticDto>>
+            bindingDiagnosticExtractor() {
+        return new SpringBindingDiagnosticsExtractor();
+    }
+
+    public static java.util.List<io.github.jdubois.bootui.core.dto.BindingDiagnosticDto> extractBindingDiagnostics(
+            Throwable ex, Object rawHandler, String handlerDescription) {
+        return new SpringBindingDiagnosticsExtractor().extract(ex, rawHandler, handlerDescription);
+    }
 }

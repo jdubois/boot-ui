@@ -561,7 +561,7 @@ common performance and mapping risks: eager fetching, problematic identifier gen
 unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. It never intercepts queries, invokes
 repositories, executes SQL, or modifies mappings. See [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md).
 
-The catalog has 69 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
+The catalog has 76 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
 findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) names every failed or incompletely evaluated
 rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
 every mapping or query was verified.
@@ -573,7 +573,7 @@ a connection; a unit that cannot be attributed to one pool, and any JTA unit, is
 
 ::: details On Quarkus
 
-The panel runs the same 69-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
+The panel runs the same 76-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
 `EntityManagerFactory` across all persistence units. Spring Data query rules skip when repository metadata is
 unavailable. Differences:
 
@@ -636,7 +636,7 @@ verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 
 ### Spring WebFlux
 
-On WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
+On WebFlux it evaluates a dedicated 32-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
 CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own permit-all chain. The shared static
 analyzer configuration check is also available when Spring Security is absent.
 
@@ -644,7 +644,7 @@ analyzer configuration check is also available when Spring Security is absent.
 
 ![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
-On Quarkus it runs a 44-rule Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
+On Quarkus it runs a 48-rule Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
 endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS and transport policy,
 forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), response headers, and
 `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The shared static analyzer configuration check

@@ -1688,6 +1688,18 @@ function toggleFlow() {
                   · {{ childTierLabel(sections.EXCEPTION, index) }}</span
                 >
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
+                <div
+                  v-if="ex.bindingDiagnostics && ex.bindingDiagnostics.length"
+                  class="mt-1 activity-binding-diagnostics"
+                >
+                  <span
+                    v-for="(d, di) in ex.bindingDiagnostics"
+                    :key="di"
+                    class="badge text-bg-light border fw-normal me-1"
+                  >
+                    <code>{{ d.targetType }}</code> · <code>{{ d.fieldPath }}</code> ({{ d.reason }})
+                  </span>
+                </div>
                 <span v-if="profileExceptionLink(ex) && !ex.exceptionGroupId?.trim()" class="d-block text-muted">
                   Group ID unavailable; opens a class-name search.
                 </span>

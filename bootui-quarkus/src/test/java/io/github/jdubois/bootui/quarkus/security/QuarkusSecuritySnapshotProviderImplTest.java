@@ -970,6 +970,75 @@ class QuarkusSecuritySnapshotProviderImplTest {
         }
     }
 
+    @Test
+    void detectsInsecureOidcClientEndpointsAndTlsVerificationNoneWhileIgnoringDisabledClients() {
+        var flagged = snapshot(Map.of(
+                "quarkus.oidc-client.auth-server-url", "http://idp.internal/realms/app",
+                "quarkus.oidc-client.partner.token-path", "http://partner.internal/oauth/token",
+                "quarkus.oidc-client.partner.tls.verification", "none",
+                "quarkus.oidc-client.disabled.auth-server-url", "http://disabled.internal/realms/app",
+                "quarkus.oidc-client.disabled.client-enabled", "false"));
+        assertThat(flagged.insecureOidcClientEndpoints())
+                .containsExactly(
+                        "quarkus.oidc-client.auth-server-url uses plain HTTP",
+                        "quarkus.oidc-client.partner.tls.verification=none",
+                        "quarkus.oidc-client.partner.token-path uses plain HTTP");
+        assertThat(flagged.toString()).doesNotContain("idp.internal", "partner.internal", "disabled.internal");
+
+        var secure = snapshot(Map.of(
+                "quarkus.oidc-client.auth-server-url", "https://idp.example/realms/app",
+                "quarkus.oidc-client.token-path", "/protocol/openid-connect/token"));
+        assertThat(secure.insecureOidcClientEndpoints()).isEmpty();
+
+        ConfigSource envSource = new EnvConfigSource(
+                Map.of(
+                        "QUARKUS_OIDC_CLIENT_AUTH_SERVER_URL", "http://env-idp.internal/realms/app",
+                        "QUARKUS_OIDC_CLIENT_TLS_VERIFICATION", "none"),
+                300);
+        var fromEnv = snapshot(envSource);
+        assertThat(fromEnv.insecureOidcClientEndpoints())
+                .containsExactly(
+                        "quarkus.oidc-client.auth-server-url uses plain HTTP",
+                        "quarkus.oidc-client.tls.verification=none");
+    }
+
+    @Test
+    void detectsProdPermissionDoubleStarPathsManagementPoliciesWithoutAuthAndShortSessionEncryptionKey() {
+        var flagged = snapshot(Map.of(
+                "%prod.quarkus.http.auth.permission.admin.paths", "/admin/**",
+                "%prod.quarkus.http.auth.permission.admin.policy", "authenticated",
+                "%dev.quarkus.http.auth.permission.devonly.paths", "/dev/**",
+                "quarkus.management.auth.permission.ops.paths", "/q/*",
+                "quarkus.management.auth.permission.ops.policy", "admin-role",
+                "quarkus.management.auth.policy.admin-role.roles-allowed", "admin",
+                "quarkus.http.auth.form.enabled", "true",
+                "quarkus.http.auth.session.encryption-key", "short-secret"));
+        assertThat(flagged.invalidProdPermissionPaths()).containsExactly("quarkus.http.auth.permission.admin.paths");
+        assertThat(flagged.ignoredManagementAuthPolicies())
+                .containsExactly("quarkus.management.auth.permission.ops", "quarkus.management.auth.policy.admin-role");
+        assertThat(flagged.formSessionEncryptionKeyShort()).isTrue();
+        assertThat(flagged.toString()).doesNotContain("short-secret");
+
+        var resolved = snapshot(Map.of(
+                "%prod.quarkus.http.auth.permission.admin.paths", "/admin/*",
+                "quarkus.management.auth.basic", "true",
+                "quarkus.management.auth.permission.ops.paths", "/q/*",
+                "quarkus.management.auth.permission.ops.policy", "authenticated",
+                "quarkus.http.auth.form.enabled", "true",
+                "quarkus.http.auth.session.encryption-key", "0123456789abcdef0123456789abcdef"));
+        assertThat(resolved.invalidProdPermissionPaths()).isEmpty();
+        assertThat(resolved.ignoredManagementAuthPolicies()).isEmpty();
+        assertThat(resolved.formSessionEncryptionKeyShort()).isFalse();
+
+        var prodScopedMgmt = snapshot(Map.of(
+                "quarkus.management.auth.permission.ops.enabled", "false",
+                "%prod.quarkus.management.auth.permission.ops.enabled", "true",
+                "%prod.quarkus.management.auth.permission.ops.paths", "/q/*",
+                "%prod.quarkus.management.auth.permission.ops.policy", "authenticated",
+                "%prod.quarkus.management.auth.enabled", "true"));
+        assertThat(prodScopedMgmt.ignoredManagementAuthPolicies()).isEmpty();
+    }
+
     @ConfigMapping(prefix = "quarkus.http.auth")
     interface NativePermissions {
         Map<String, PolicyMappingConfig> permission();
@@ -989,17 +1058,18 @@ class QuarkusSecuritySnapshotProviderImplTest {
 
     private static ConfigSource flags() {
         return new PropertiesConfigSource(
-                Map.of(
-                        "bootui.internal.sec.security-present", "true",
-                        "bootui.internal.sec.oidc-present", "true",
-                        "bootui.internal.sec.jwt-present", "true",
-                        "bootui.internal.sec.jdbc-present", "true",
-                        "bootui.internal.sec.properties-present", "true",
-                        "bootui.internal.sec.kafka-present", "true",
-                        "bootui.internal.sec.openapi-present", "true",
-                        "bootui.internal.sec.health-present", "true",
-                        "bootui.internal.sec.grpc-services", "true",
-                        "bootui.internal.sec.endpoint-metadata", "true"),
+                Map.ofEntries(
+                        Map.entry("bootui.internal.sec.security-present", "true"),
+                        Map.entry("bootui.internal.sec.oidc-present", "true"),
+                        Map.entry("bootui.internal.sec.oidc-client-present", "true"),
+                        Map.entry("bootui.internal.sec.jwt-present", "true"),
+                        Map.entry("bootui.internal.sec.jdbc-present", "true"),
+                        Map.entry("bootui.internal.sec.properties-present", "true"),
+                        Map.entry("bootui.internal.sec.kafka-present", "true"),
+                        Map.entry("bootui.internal.sec.openapi-present", "true"),
+                        Map.entry("bootui.internal.sec.health-present", "true"),
+                        Map.entry("bootui.internal.sec.grpc-services", "true"),
+                        Map.entry("bootui.internal.sec.endpoint-metadata", "true")),
                 "application.properties",
                 1);
     }

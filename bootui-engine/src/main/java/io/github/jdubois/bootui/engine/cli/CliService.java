@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.engine.cli;
 
+import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.dto.CliServerStatus;
 import io.github.jdubois.bootui.core.dto.CliToolInfo;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
@@ -10,27 +12,30 @@ import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpRuntimeStats;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
+import java.io.IOException;
 import java.math.BigInteger;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
-/**
- * The whole of the {@code /bootui/api/cli} facade, so the Spring MVC, WebFlux, and Quarkus resources are
- * only routing.
- *
- * <p>Tool invocation goes through an {@link McpDispatcher} built over the <em>same</em> tool registry the MCP
- * server uses, which is what makes the CLI a projection rather than a second implementation: unknown tool,
- * unexpected argument, disabled panel, action on a read-only panel, missing {@code id}, result capping,
- * concurrency, and execution timeout are all the existing code path, so none of them can drift.
- *
- * <p>The dispatcher is deliberately a <em>separate instance</em> from the MCP server's. Sharing one would mix
- * command-line traffic into the MCP Server panel's call counters and concurrency budget, making that panel
- * report something other than what agents did.
- */
 public final class CliService {
 
     private final boolean enabled;
@@ -41,17 +46,6 @@ public final class CliService {
     private final String endpoint;
     private final int maxResults;
 
-    /**
-     * @param enabled the {@code bootui.cli.enabled} setting
-     * @param tools the same tool supplier the MCP server is built from
-     * @param policy the per-panel enable/read-only policy
-     * @param serverVersion the BootUI version to report
-     * @param endpoint the absolute request path this facade is mounted at, for self-description
-     * @param maxResults the {@code bootui.cli.max-results} cap
-     * @param maxConcurrentCalls the {@code bootui.cli.max-concurrent-calls} cap
-     * @param executionTimeoutMillis the {@code bootui.cli.execution-timeout} budget
-     * @param failureReporter the adapter's diagnostics sink for unexpected tool failures
-     */
     public CliService(
             boolean enabled,
             Supplier<List<McpTool>> tools,
@@ -75,12 +69,6 @@ public final class CliService {
                 panelId -> null);
     }
 
-    /**
-     * Creates the facade with the adapter's panel availability, so a command whose tool this application does not
-     * advertise is answered with its panel's reason.
-     *
-     * @param panelUnavailableReason the reason a panel is unavailable here, or {@code null} when it is available
-     */
     public CliService(
             boolean enabled,
             Supplier<List<McpTool>> tools,
@@ -111,22 +99,41 @@ public final class CliService {
                 panelUnavailableReason);
     }
 
-    /** Whether tool invocation is currently accepted. */
     public boolean enabled() {
         return enabled;
     }
 
-    /** Call counters for this facade, kept separate from the MCP server's. */
     public McpRuntimeStats runtimeStats() {
         return dispatcher.runtimeStats();
     }
 
-    /**
-     * Describes what this instance exposes: the advertised tools, the command each is reached by, their
-     * argument shapes, how their panels are currently gated, and this facade's own call counters. Answered
-     * even while disabled, so the CLI can explain itself rather than fail opaquely; the tool list is then
-     * empty because nothing is invocable.
-     */
+    public static String composeApiPath(String apiPath, String... prefixes) {
+        return InstanceLease.composeApiPath(apiPath, prefixes);
+    }
+
+    public static Path writeInstanceLease(
+            RunIdentity run,
+            String appName,
+            String framework,
+            String baseUrl,
+            String apiPath,
+            String configuredInstancesDir) {
+        Path instancesDir = InstanceLease.resolveInstancesDir(configuredInstancesDir);
+        if (instancesDir == null) {
+            return null;
+        }
+        try {
+            return InstanceLease.forCurrentProcess(run, appName, framework, baseUrl, apiPath)
+                    .writeQuietlyTo(instancesDir);
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
+    public static void deleteInstanceLease(Path leaseFile) {
+        InstanceLease.deleteQuietly(leaseFile);
+    }
+
     public CliServerStatus status() {
         List<CliToolInfo> infos = enabled
                 ? tools.get().stream()
@@ -157,17 +164,6 @@ public final class CliService {
                 infos);
     }
 
-    /**
-     * Invokes one tool by name with the request body's arguments.
-     *
-     * <p>The adapter passes the decoded body <em>verbatim</em>, every property included, rather than a fixed
-     * {@code (query, limit, id)} triple. That is what lets the dispatcher's unexpected-argument check apply to
-     * the CLI too: a caller who misspells {@code query} as {@code q} gets the same refusal MCP gives, instead
-     * of a {@code 200} carrying an unfiltered report that silently ignored the filter they asked for.
-     *
-     * @param name the tool name
-     * @param arguments the decoded request body, or {@code null}/empty when none was sent
-     */
     public CliToolResponse invoke(String name, Map<String, Object> arguments) {
         if (!enabled) {
             return CliOutcomes.disabled();
@@ -191,14 +187,6 @@ public final class CliService {
         return CliOutcomes.toResponse(outcome);
     }
 
-    /**
-     * Invokes one tool with already-typed arguments, for callers that are not decoding a request body.
-     *
-     * @param name the tool name
-     * @param query the optional {@code query} filter
-     * @param limit the optional {@code limit}, capped at {@code maxResults}
-     * @param id the optional {@code id} for tools that require one
-     */
     public CliToolResponse invoke(String name, String query, Integer limit, String id) {
         Map<String, Object> arguments = new LinkedHashMap<>();
         if (query != null) {
@@ -213,11 +201,6 @@ public final class CliService {
         return invoke(name, arguments);
     }
 
-    /**
-     * Applies the same type checks the MCP envelope codecs apply to {@code params.arguments}, so a malformed
-     * value is refused with the identical canonical message on both transports. An explicitly null value is a
-     * type error rather than an absent argument, matching how a JSON null is treated there.
-     */
     private static ParsedArguments parseArguments(Map<String, Object> arguments) {
         String query = null;
         Integer limit = null;
@@ -269,7 +252,6 @@ public final class CliService {
         return new ParsedArguments(query, limit, id, null, scanId, offset);
     }
 
-    /** The value as a whole number, or {@code null} when it is not an integral JSON number. */
     private static Long asIntegral(Object value) {
         if (value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte) {
             return ((Number) value).longValue();
@@ -302,5 +284,316 @@ public final class CliService {
         private static ParsedArguments error(String error) {
             return new ParsedArguments(null, null, null, error, null, null);
         }
+    }
+}
+
+record InstanceLease(
+        String instanceId,
+        String runId,
+        long pid,
+        long processStartEpochMillis,
+        String appName,
+        String framework,
+        String baseUrl,
+        String apiPath,
+        long startedAt) {
+
+    public static final String BOOTUI_HOME_ENV = "BOOTUI_HOME";
+
+    public static final Pattern SAFE_ID = Pattern.compile("^[0-9A-Za-z_-]{1,64}$");
+
+    private static final Logger log = Logger.getLogger(InstanceLease.class.getName());
+    private static final Set<PosixFilePermission> DIR_PERMISSIONS = PosixFilePermissions.fromString("rwx------");
+    private static final Set<PosixFilePermission> FILE_PERMISSIONS = PosixFilePermissions.fromString("rw-------");
+
+    public InstanceLease {
+        instanceId = requireSafeId(instanceId, "instanceId");
+        runId = requireSafeId(runId, "runId");
+        if (pid <= 0) {
+            throw new IllegalArgumentException("pid must be positive");
+        }
+        if (processStartEpochMillis < 0) {
+            throw new IllegalArgumentException("processStartEpochMillis must be non-negative");
+        }
+        appName = (appName == null || appName.isBlank()) ? "application" : appName.trim();
+        if (framework == null || framework.isBlank()) {
+            throw new IllegalArgumentException("framework must not be blank");
+        }
+        framework = framework.trim();
+        baseUrl = validateLoopbackBaseUrl(baseUrl);
+        apiPath = BootUiPathNormalizer.normalizeApiPath(apiPath);
+        if (startedAt <= 0) {
+            throw new IllegalArgumentException("startedAt must be positive");
+        }
+    }
+
+    public static InstanceLease forCurrentProcess(
+            RunIdentity run, String appName, String framework, String baseUrl, String apiPath) {
+        Objects.requireNonNull(run, "run");
+        ProcessHandle current = ProcessHandle.current();
+        long pid = current.pid();
+        long processStart =
+                current.info().startInstant().map(Instant::toEpochMilli).orElse(run.startedAtEpochMillis());
+        return new InstanceLease(
+                RunIdentity.instanceId(),
+                run.id(),
+                pid,
+                processStart,
+                appName,
+                framework,
+                baseUrl,
+                apiPath,
+                run.startedAtEpochMillis());
+    }
+
+    public static Path resolveInstancesDir(String configuredInstancesDir) {
+        return resolveInstancesDir(configuredInstancesDir, System.getenv(), System.getProperty("user.home"));
+    }
+
+    public static Path resolveInstancesDir(
+            String configuredInstancesDir, Map<String, String> environment, String userHome) {
+        if (configuredInstancesDir != null && !configuredInstancesDir.isBlank()) {
+            return Path.of(configuredInstancesDir.trim()).toAbsolutePath().normalize();
+        }
+        String bootUiHome = environment == null ? null : environment.get(BOOTUI_HOME_ENV);
+        if (bootUiHome != null && !bootUiHome.isBlank()) {
+            return Path.of(bootUiHome.trim(), "instances").toAbsolutePath().normalize();
+        }
+        if (userHome != null && !userHome.isBlank()) {
+            return Path.of(userHome.trim(), ".bootui", "instances")
+                    .toAbsolutePath()
+                    .normalize();
+        }
+        return null;
+    }
+
+    public Path writeTo(Path instancesDir) throws IOException {
+        if (instancesDir == null) {
+            return null;
+        }
+        Path normalizedDir = instancesDir.toAbsolutePath().normalize();
+        ensureOwnerDirectory(normalizedDir);
+        Path target = normalizedDir.resolve(fileName()).toAbsolutePath().normalize();
+        if (!normalizedDir.equals(target.getParent())) {
+            throw new IOException("Refusing to write lease outside instances directory: " + target);
+        }
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(target)) {
+            throw new IOException("Refusing to overwrite symbolic link lease file: " + target);
+        }
+
+        boolean posix = supportsPosix(normalizedDir);
+        Path temp = posix
+                ? Files.createTempFile(
+                        normalizedDir,
+                        ".lease-" + instanceId + "-",
+                        ".tmp",
+                        PosixFilePermissions.asFileAttribute(FILE_PERMISSIONS))
+                : Files.createTempFile(normalizedDir, ".lease-" + instanceId + "-", ".tmp");
+        try {
+            if (posix) {
+                Files.setPosixFilePermissions(temp, FILE_PERMISSIONS);
+            }
+            Files.writeString(temp, toJson() + System.lineSeparator(), StandardCharsets.UTF_8);
+            if (posix) {
+                Files.setPosixFilePermissions(temp, FILE_PERMISSIONS);
+            }
+            try {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicUnsupported) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            if (posix) {
+                Files.setPosixFilePermissions(target, FILE_PERMISSIONS);
+            }
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+        return target;
+    }
+
+    public Path writeQuietlyTo(Path instancesDir) {
+        try {
+            return writeTo(instancesDir);
+        } catch (IOException | RuntimeException ex) {
+            log.log(Level.WARNING, "Could not write BootUI instance lease file", ex);
+            return null;
+        }
+    }
+
+    public static void deleteQuietly(Path leaseFile) {
+        if (leaseFile != null) {
+            try {
+                Files.deleteIfExists(leaseFile);
+            } catch (IOException ex) {
+                log.log(Level.FINE, "Could not delete BootUI instance lease file on shutdown", ex);
+            }
+        }
+    }
+
+    private static void ensureOwnerDirectory(Path instancesDir) throws IOException {
+        Path parent = instancesDir.getParent();
+        if (parent != null && Files.exists(parent, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(parent)) {
+            throw new IOException("Refusing to use symbolic link parent directory: " + parent);
+        }
+        if (Files.exists(instancesDir, LinkOption.NOFOLLOW_LINKS) && Files.isSymbolicLink(instancesDir)) {
+            throw new IOException("Refusing to use symbolic link instances directory: " + instancesDir);
+        }
+        Files.createDirectories(instancesDir);
+        if (!Files.isDirectory(instancesDir, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Instances path is not a regular directory: " + instancesDir);
+        }
+        if (supportsPosix(instancesDir)) {
+            if (parent != null
+                    && parent.getFileName() != null
+                    && ".bootui".equals(parent.getFileName().toString())
+                    && Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
+                Files.setPosixFilePermissions(parent, DIR_PERMISSIONS);
+            }
+            Files.setPosixFilePermissions(instancesDir, DIR_PERMISSIONS);
+        }
+    }
+
+    private static boolean supportsPosix(Path path) {
+        try {
+            return Files.getFileStore(path).supportsFileAttributeView("posix");
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    public static String composeApiPath(String apiPath, String... prefixes) {
+        StringBuilder full = new StringBuilder();
+        if (prefixes != null) {
+            for (String prefix : prefixes) {
+                full.append(normalizePrefix(prefix));
+            }
+        }
+        String normalizedApi = BootUiPathNormalizer.normalizeApiPath(
+                apiPath == null || apiPath.isBlank() ? BootUiPathNormalizer.DEFAULT_PATH + "/api" : apiPath);
+        full.append(normalizedApi);
+        return BootUiPathNormalizer.normalizeApiPath(full.toString());
+    }
+
+    private static String normalizePrefix(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        while (trimmed.endsWith("/") && trimmed.length() > 1) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        if (trimmed.isEmpty() || "/".equals(trimmed)) {
+            return "";
+        }
+        return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+    }
+
+    public static String requireSafeId(String id, String fieldName) {
+        if (id == null || !SAFE_ID.matcher(id).matches() || ".".equals(id) || "..".equals(id)) {
+            throw new IllegalArgumentException(fieldName + " must match [0-9A-Za-z_-]{1,64}");
+        }
+        return id;
+    }
+
+    public static String validateLoopbackBaseUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            throw new IllegalArgumentException("baseUrl must not be blank");
+        }
+        String trimmed = rawUrl.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        URI uri;
+        try {
+            uri = new URI(trimmed);
+        } catch (URISyntaxException invalid) {
+            throw new IllegalArgumentException("baseUrl is not a valid URI: " + rawUrl, invalid);
+        }
+        String scheme = uri.getScheme() == null ? null : uri.getScheme().toLowerCase(Locale.ROOT);
+        String host = uri.getHost();
+        int port = uri.getPort();
+        String path = uri.getRawPath();
+        if (scheme == null
+                || (!"http".equals(scheme) && !"https".equals(scheme))
+                || host == null
+                || !isLoopbackHost(host)
+                || port < 1
+                || port > 65535
+                || uri.getRawUserInfo() != null
+                || uri.getRawQuery() != null
+                || uri.getRawFragment() != null
+                || (path != null && !path.isEmpty() && !"/".equals(path))) {
+            throw new IllegalArgumentException(
+                    "baseUrl must be a literal loopback origin with an explicit port: " + rawUrl);
+        }
+        return scheme + "://" + host.toLowerCase(Locale.ROOT) + ":" + port;
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        String normalized = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        if ("localhost".equalsIgnoreCase(normalized)
+                || "::1".equals(normalized)
+                || "0:0:0:0:0:0:0:1".equals(normalized)) {
+            return true;
+        }
+        String[] parts = normalized.split("\\.", -1);
+        if (parts.length != 4) {
+            return false;
+        }
+        for (int i = 0; i < 4; i++) {
+            if (!parts[i].matches("0|[1-9][0-9]{0,2}")) {
+                return false;
+            }
+            int octet = Integer.parseInt(parts[i]);
+            if (octet < 0 || octet > 255) {
+                return false;
+            }
+            if (i == 0 && octet != 127) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public String fileName() {
+        return instanceId + ".json";
+    }
+
+    public String toJson() {
+        return "{\n"
+                + "  \"instanceId\": " + quote(instanceId) + ",\n"
+                + "  \"runId\": " + quote(runId) + ",\n"
+                + "  \"pid\": " + pid + ",\n"
+                + "  \"processStartEpochMillis\": " + processStartEpochMillis + ",\n"
+                + "  \"appName\": " + quote(appName) + ",\n"
+                + "  \"framework\": " + quote(framework) + ",\n"
+                + "  \"baseUrl\": " + quote(baseUrl) + ",\n"
+                + "  \"apiPath\": " + quote(apiPath) + ",\n"
+                + "  \"startedAt\": " + startedAt + "\n"
+                + "}";
+    }
+
+    private static String quote(String value) {
+        StringBuilder out = new StringBuilder(value.length() + 2).append('"');
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                case '\b' -> out.append("\\b");
+                case '\f' -> out.append("\\f");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.append('"').toString();
     }
 }

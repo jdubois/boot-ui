@@ -30,7 +30,7 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all ten panel-buffer signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST
+`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 32-rule Security advisor, and REST
 Client capture over instrumented `WebClient` instances; HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter**
 serves most panels over the same engine; panels with no Quarkus equivalent (such as Conditions, Startup Timeline, Spring
@@ -3618,6 +3618,8 @@ Initial properties:
 | `bootui.cli.max-results`                     | `200`                                   | Maximum items returned by paginated command-line read tools, tracked separately from the MCP cap. |
 | `bootui.cli.max-concurrent-calls`            | `20`                                    | Maximum concurrent command-line tool calls; additional calls are refused with `429`. |
 | `bootui.cli.execution-timeout`               | `30s`                                   | Maximum wall-clock duration of a command-line tool call; timeouts return `504`. |
+| `bootui.cli.instance-discovery.enabled`      | `true` in dev, `false` in tests         | Write an atomic `0600` local discovery lease file (`<instanceId>.json`) after port binding, and delete it on shutdown. |
+| `bootui.cli.instances-dir`                   | `~/.bootui/instances`                   | Directory where local instance discovery lease files are written (also overridable via `BOOTUI_HOME`). |
 
 Every visible panel must support `bootui.panels.<panel-id>.enabled`; panels with mutating browser actions must also
 support `bootui.panels.<panel-id>.read-only`. These properties are specified panel-by-panel in

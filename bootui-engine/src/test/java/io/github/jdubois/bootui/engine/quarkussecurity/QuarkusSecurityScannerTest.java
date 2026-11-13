@@ -343,6 +343,10 @@ class QuarkusSecurityScannerTest {
         List<String> legacyTlsProtocols = List.of();
         boolean oidcTokenEncryptionDisabled = false;
         boolean forwardedHeadersTrustAnyProxy = false;
+        List<String> insecureOidcClientEndpoints = List.of();
+        List<String> invalidProdPermissionPaths = List.of();
+        List<String> ignoredManagementAuthPolicies = List.of();
+        boolean formSessionEncryptionKeyShort = false;
         QuarkusSecurityEvidence evidence = QuarkusSecurityEvidence.LEGACY;
 
         QuarkusSecuritySnapshot build() {
@@ -418,6 +422,10 @@ class QuarkusSecurityScannerTest {
                     legacyTlsProtocols,
                     oidcTokenEncryptionDisabled,
                     forwardedHeadersTrustAnyProxy,
+                    insecureOidcClientEndpoints,
+                    invalidProdPermissionPaths,
+                    ignoredManagementAuthPolicies,
+                    formSessionEncryptionKeyShort,
                     evidence);
         }
     }
@@ -1517,7 +1525,7 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(44);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(48);
     }
 
     @Test
@@ -1604,6 +1612,7 @@ class QuarkusSecurityScannerTest {
                 "QS-AUTHZ-001",
                 "QS-AUTHZ-002",
                 "QS-AUTHZ-004",
+                "QS-AUTHZ-005",
                 "QS-TLS-001",
                 "QS-TLS-003",
                 "QS-TLS-004",
@@ -1625,12 +1634,15 @@ class QuarkusSecurityScannerTest {
                 "QS-OIDC-003",
                 "QS-OIDC-004",
                 "QS-OIDC-005",
+                "QS-OIDC-006",
                 "QS-MGMT-001",
                 "QS-MGMT-003",
+                "QS-MGMT-004",
                 "QS-CFG-001",
                 "QS-SESSION-001",
                 "QS-SESSION-002",
                 "QS-SESSION-003",
+                "QS-SESSION-004",
                 "QS-GRPC-001",
                 "QS-GRAPHQL-001",
                 "QS-MSG-001",
@@ -1648,6 +1660,36 @@ class QuarkusSecurityScannerTest {
                 .isEqualTo("https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth");
         assertThat(QuarkusSecurityChecks.learnMore("QS-HDR-004"))
                 .isEqualTo("https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers");
+        assertThat(QuarkusSecurityChecks.learnMore("QS-OIDC-006"))
+                .isEqualTo("https://quarkus.io/version/3.33/guides/security-openid-connect-client-reference");
+    }
+
+    @Test
+    void oidcClientAuthzProdWildcardManagementAuthAndShortSessionKeyRulesEmitExpectedSeverities() {
+        Snap s = new Snap();
+        s.form = true;
+        s.insecureOidcClientEndpoints = List.of(
+                "quarkus.oidc-client.auth-server-url uses plain HTTP",
+                "quarkus.oidc-client.partner.tls.verification=none");
+        s.invalidProdPermissionPaths = List.of("quarkus.http.auth.permission.admin.paths");
+        s.ignoredManagementAuthPolicies = List.of("quarkus.management.auth.permission.admin");
+        s.formSessionEncryptionKeyShort = true;
+
+        SecurityReport report = scan(s);
+
+        assertThat(find(report, "QS-OIDC-006")).isNotNull().satisfies(result -> {
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.violationCount()).isEqualTo(2);
+        });
+        assertThat(find(report, "QS-AUTHZ-005"))
+                .isNotNull()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("MEDIUM"));
+        assertThat(find(report, "QS-MGMT-004"))
+                .isNotNull()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("HIGH"));
+        assertThat(find(report, "QS-SESSION-004"))
+                .isNotNull()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("MEDIUM"));
     }
 
     @Test

@@ -9,12 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
+  and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
 - **Memory advisor rules for cgroup v2 throttling/OOM, ClassLoader/proxy bloat, and external `System.gc()` pauses** add
   `MEM-FOOTPRINT-005`, `MEM-CONTENT-005`, and `MEM-GC-009` ([Memory checks](docs/MEMORY-CHECKS.md); [#1653](https://github.com/jdubois/boot-ui/issues/1653)).
 - **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from
   Mappings and HTTP Exchanges without auto-sending ([HTTP Probe](docs/features/diagnostics.md#http-probe); [#1668](https://github.com/jdubois/boot-ui/issues/1668)).
 - **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
   and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
+- **Local instance discovery and `bootui init`** list and target running local applications with `bootui instances` and
+  `bootui --app <name>`, and idempotently write or preview MCP client configurations ([CLI guide](docs/CLI.md); [#1673](https://github.com/jdubois/boot-ui/issues/1673)).
 
 ## [2.4.0] - 2026-11-12
 

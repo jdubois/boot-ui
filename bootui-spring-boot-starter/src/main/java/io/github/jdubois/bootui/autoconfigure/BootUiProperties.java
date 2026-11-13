@@ -2744,6 +2744,12 @@ public class BootUiProperties {
         /** Maximum wall-clock duration of one command-line tool invocation; default 30 seconds (504 on expiry). */
         private Duration executionTimeout = Duration.ofMillis(McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS);
 
+        /**
+         * Directory where local instance discovery lease files ({@code <instanceId>.json}) are written.
+         * Defaults to {@code ~/.bootui/instances} (or {@code $BOOTUI_HOME/instances}).
+         */
+        private String instancesDir;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -2776,6 +2782,14 @@ public class BootUiProperties {
             this.executionTimeout = executionTimeout == null
                     ? Duration.ofMillis(McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS)
                     : executionTimeout;
+        }
+
+        public String getInstancesDir() {
+            return instancesDir;
+        }
+
+        public void setInstancesDir(String instancesDir) {
+            this.instancesDir = instancesDir;
         }
     }
 

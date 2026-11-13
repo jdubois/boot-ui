@@ -204,7 +204,9 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
           <h3 class="h6 fw-bold mb-2"><i class="bi bi-download me-2"></i>Talk to this application</h3>
           <p class="text-muted small mb-3">
             The CLI is one runnable jar that needs a JDK 17 or later. Piped output is this application's JSON verbatim,
-            so it parses with <code>jq</code>.
+            so it parses with <code>jq</code>. Use <code>bootui instances</code> and
+            <code>bootui --app &lt;name&gt;</code> to discover and target local dev instances by application name, or
+            <code>bootui init --vscode</code> to configure your IDE's MCP client.
           </p>
 
           <div class="d-flex align-items-center justify-content-between gap-2 mb-2">

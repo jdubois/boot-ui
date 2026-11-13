@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatistic
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentProfileGuard;
+import io.github.jdubois.bootui.autoconfigure.javaagent.BootUiAgentClaimEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
@@ -63,6 +64,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
 import io.github.jdubois.bootui.engine.codepaths.JournalRequestOutcomes;
 import io.github.jdubois.bootui.engine.config.ConfigService;
@@ -153,12 +155,15 @@ import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.springframework.aop.scope.ScopedObject;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -169,18 +174,23 @@ import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.restclient.RestTemplateCustomizer;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
+import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.cache.interceptor.CacheOperationSource;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
@@ -356,6 +366,13 @@ public class BootUiEngineConfiguration {
     @Bean
     ControlMarkerPublisher bootUiControlMarkerPublisher(RuntimeJournal journal, ApplicationContext context) {
         return new ControlMarkerPublisher(journal, context);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    BootUiInstanceLeaseLifecycle bootUiInstanceLeaseLifecycle(
+            RunIdentity run, BootUiProperties properties, ApplicationContext context) {
+        return new BootUiInstanceLeaseLifecycle(run, properties, context);
     }
 
     /**
@@ -2101,5 +2118,147 @@ public class BootUiEngineConfiguration {
     private static boolean hasTextProperty(Environment environment, String name) {
         String value = environment.getProperty(name);
         return value != null && !value.isBlank();
+    }
+}
+
+final class BootUiInstanceLeaseLifecycle implements ApplicationListener<ApplicationEvent>, DisposableBean {
+
+    private final RunIdentity run;
+    private final BootUiProperties properties;
+    private final ApplicationContext context;
+    private final boolean startedInTest;
+    private volatile Path leaseFile;
+
+    BootUiInstanceLeaseLifecycle(RunIdentity run, BootUiProperties properties, ApplicationContext context) {
+        this(run, properties, context, BootUiAgentClaimEnvironmentPostProcessor.startedByTestFramework());
+    }
+
+    BootUiInstanceLeaseLifecycle(
+            RunIdentity run, BootUiProperties properties, ApplicationContext context, boolean startedInTest) {
+        this.run = Objects.requireNonNull(run, "run");
+        this.properties = Objects.requireNonNull(properties, "properties");
+        this.context = Objects.requireNonNull(context, "context");
+        this.startedInTest = startedInTest;
+    }
+
+    @Override
+    public void onApplicationEvent(ApplicationEvent event) {
+        if (event instanceof WebServerInitializedEvent webEvent) {
+            if (webEvent.getApplicationContext() == context && webEvent.getWebServer() != null) {
+                int port = webEvent.getWebServer().getPort();
+                if (port > 0) {
+                    registerIfEligible(port);
+                }
+            }
+        } else if (event instanceof ApplicationReadyEvent readyEvent) {
+            if (readyEvent.getApplicationContext() == context && leaseFile == null) {
+                registerIfEligible(null);
+            }
+        } else if (event instanceof ContextClosedEvent closedEvent) {
+            if (closedEvent.getApplicationContext() == context) {
+                destroy();
+            }
+        }
+    }
+
+    synchronized Path registerIfEligible(Integer boundPort) {
+        if (!properties.getCli().isEnabled()) {
+            return null;
+        }
+        Environment environment = context.getEnvironment();
+        if (!isDiscoveryEnabled(environment)) {
+            return null;
+        }
+        int port = resolvePort(environment, boundPort);
+        if (port <= 0 || port > 65535) {
+            return null;
+        }
+        boolean sslEnabled = isSslEnabled(environment);
+        String baseUrl = (sslEnabled ? "https" : "http") + "://localhost:" + port;
+        String apiPath = resolveEffectiveApiPath(environment);
+        String appName = environment.getProperty("spring.application.name", "application");
+        CliService.deleteInstanceLease(this.leaseFile);
+        this.leaseFile = CliService.writeInstanceLease(
+                run, appName, "Spring Boot", baseUrl, apiPath, resolveConfiguredDir(environment));
+        return this.leaseFile;
+    }
+
+    boolean isDiscoveryEnabled(Environment environment) {
+        if (environment != null) {
+            String raw = environment.getProperty("bootui.cli.instance-discovery.enabled");
+            if (raw != null && !raw.isBlank()) {
+                return Boolean.parseBoolean(raw.trim());
+            }
+        }
+        return !startedInTest && !BootUiAgentClaimEnvironmentPostProcessor.startedByTestFramework();
+    }
+
+    String resolveEffectiveApiPath(Environment environment) {
+        if (context instanceof ReactiveWebApplicationContext) {
+            String basePath = environment == null ? "" : environment.getProperty("spring.webflux.base-path", "");
+            return CliService.composeApiPath(properties.getApiPath(), basePath);
+        }
+        String contextPath = environment == null ? "" : environment.getProperty("server.servlet.context-path", "");
+        String servletPath = environment == null ? "" : environment.getProperty("spring.mvc.servlet.path", "");
+        return CliService.composeApiPath(properties.getApiPath(), contextPath, servletPath);
+    }
+
+    private String resolveConfiguredDir(Environment environment) {
+        String configured = properties.getCli().getInstancesDir();
+        if ((configured == null || configured.isBlank()) && environment != null) {
+            configured = environment.getProperty(
+                    "bootui.cli.instances-dir", environment.getProperty("bootui.cli.instance-discovery.instances-dir"));
+        }
+        return configured;
+    }
+
+    private static boolean isSslEnabled(Environment environment) {
+        if (environment == null) {
+            return false;
+        }
+        Boolean explicit = environment.getProperty("server.ssl.enabled", Boolean.class);
+        if (explicit != null) {
+            return explicit;
+        }
+        return isNonBlank(environment.getProperty("server.ssl.bundle"))
+                || isNonBlank(environment.getProperty("server.ssl.key-store"))
+                || isNonBlank(environment.getProperty("server.ssl.certificate"))
+                || "PKCS11"
+                        .equalsIgnoreCase(environment
+                                .getProperty("server.ssl.key-store-type", "")
+                                .trim());
+    }
+
+    private static boolean isNonBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static int resolvePort(Environment environment, Integer boundPort) {
+        if (boundPort != null && boundPort > 0) {
+            return boundPort;
+        }
+        if (environment == null) {
+            return -1;
+        }
+        String raw = environment.getProperty("local.server.port");
+        if (raw == null || raw.isBlank()) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException invalid) {
+            return -1;
+        }
+    }
+
+    Path leaseFile() {
+        return leaseFile;
+    }
+
+    @Override
+    public synchronized void destroy() {
+        Path current = this.leaseFile;
+        this.leaseFile = null;
+        CliService.deleteInstanceLease(current);
     }
 }
