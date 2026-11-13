@@ -42,12 +42,18 @@ Overall **PASS** means the configured policy passed, not that every advisor pass
 diagnostic tools were absent from the catalog. `EVIDENCE_UNEVALUABLE` means tools returned a report, but usable,
 complete evidence was not established. These implementation paths can differ for unconfigured integrations.
 
-::: details Clearer skipped-advisor explanations (unreleased)
+::: details Clearer advisor failure explanations (unreleased)
 
 The human summary explains these paths and reports bounded coverage diagnostics: evidence flags, reported check/subject
 counts, and the number of coverage limitations. Counts are explicitly unvalidated observations, not assessed findings.
 Raw limitation text, application configuration, and finding prose are excluded. The JSON schema and stable reason codes
 are unchanged, so offline checks retain their existing contract. Partial coverage is still not a passed assessment.
+
+When collection fails for a required advisor, the Markdown table identifies it as `NOT_ASSESSED`, with unknown
+finding counts shown as `-`, and JUnit identifies that advisor in an error rather than an optional skip. The human
+reports retain its stable reason and safe coverage diagnostics when available. Earlier findings remain visible;
+unvisited advisors have not been assessed. The bundle's existing partial-result rows and error codes are unchanged,
+and the assessment still exits with `1`. Inspect the cached advisor report locally for detailed limitations.
 
 :::
 

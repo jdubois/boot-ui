@@ -718,6 +718,25 @@ class SpringRulesTests {
     }
 
     @Test
+    void clientAbsenceCannotOverridePositiveOrIncompleteObservations() {
+        var rule = new HttpClientTimeoutsUnsetRule();
+        var positive = context(new MockEnvironment(), Map.of(HTTP_CLIENTS_ABSENT, true, HTTP_CLIENT_DEFAULTS, true))
+                .build();
+        assertThat(rule.evaluate(positive).status()).isEqualTo("VIOLATION");
+        var incomplete = SpringContext.builder(new MockEnvironment())
+                .observations(new SpringObservations(
+                        Map.of(HTTP_CLIENTS_ABSENT, true), List.of("Bounded discovery incomplete.")))
+                .build();
+        rule.evaluate(incomplete);
+        assertThat(SpringScanner.evidence(incomplete).coverageComplete()).isFalse();
+        var contradictory = context(new MockEnvironment(), Map.of(HTTP_CLIENTS_ABSENT, true))
+                .restClientBeanPresent(true)
+                .build();
+        rule.evaluate(contradictory);
+        assertThat(SpringScanner.evidence(contradictory).coverageComplete()).isFalse();
+    }
+
+    @Test
     void clientGroupsAreIndependentAndDoNotClaimArbitraryClientsHaveNoTimeouts() {
         var rule = new HttpClientTimeoutsUnsetRule();
         assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())

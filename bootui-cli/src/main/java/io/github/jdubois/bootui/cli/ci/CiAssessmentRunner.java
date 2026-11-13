@@ -226,6 +226,7 @@ public final class CiAssessmentRunner {
             }
         } catch (AssessmentFailure failure) {
             state.finishError(failure.code(), collected);
+            state.failedAdvisor = failure.advisorFailure;
         } catch (BootUiClientException requestFailure) {
             state.finishError(
                     System.nanoTime() >= deadline ? "ASSESSMENT_BUDGET_EXCEEDED" : "TARGET_REQUEST_FAILED", collected);
@@ -281,7 +282,7 @@ public final class CiAssessmentRunner {
             String unavailable =
                     framework.supports(advisor) ? unavailability(advisor, catalog) : "FRAMEWORK_UNAVAILABLE";
             if (unavailable != null && selection.required()) {
-                throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE");
+                throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE").forAdvisor(advisor, null);
             }
             outcomes.add(object(
                     "advisor",
@@ -300,12 +301,12 @@ public final class CiAssessmentRunner {
         DetailBudget budget = new DetailBudget();
         for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
             if (System.nanoTime() >= deadline) {
-                throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
+                throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED").forAdvisor(advisor, null);
             }
             CiPolicy.Selection selection = policy.advisors().get(advisor);
             if (!framework.supports(advisor)) {
                 if (selection.required()) {
-                    throw new AssessmentFailure("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+                    throw new AssessmentFailure("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK").forAdvisor(advisor, null);
                 }
                 AdvisorResult skipped = AdvisorResult.skipped(advisor, false, "FRAMEWORK_UNAVAILABLE");
                 output.add(skipped);
@@ -315,7 +316,7 @@ public final class CiAssessmentRunner {
             String unavailable = unavailability(advisor, catalog);
             if (unavailable != null) {
                 if (selection.required()) {
-                    throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE");
+                    throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE").forAdvisor(advisor, null);
                 }
                 AdvisorResult skipped = AdvisorResult.skipped(advisor, selection.required(), unavailable);
                 output.add(skipped);
@@ -386,14 +387,18 @@ public final class CiAssessmentRunner {
                 collected.add(completed);
             } catch (AssessmentFailure failure) {
                 if (selection.required() || "ASSESSMENT_BUDGET_EXCEEDED".equals(failure.code())) {
-                    throw failure;
+                    throw failure.forAdvisor(advisor, advisorReport);
                 }
                 AdvisorResult skipped = AdvisorResult.skipped(advisor, false, failure.code(), advisorReport);
                 output.add(skipped);
                 collected.add(skipped);
             } catch (BootUiClientException requestFailure) {
                 if (selection.required()) {
-                    throw requestFailure;
+                    throw new AssessmentFailure(
+                                    System.nanoTime() >= deadline
+                                            ? "ASSESSMENT_BUDGET_EXCEEDED"
+                                            : "TARGET_REQUEST_FAILED")
+                            .forAdvisor(advisor, advisorReport);
                 }
                 AdvisorResult skipped = AdvisorResult.skipped(advisor, false, "REQUEST_FAILED");
                 output.add(skipped);
@@ -1386,6 +1391,7 @@ public final class CiAssessmentRunner {
 
         private static final long serialVersionUID = 1L;
         private final String code;
+        private AdvisorFailure advisorFailure;
 
         AssessmentFailure(String code) {
             super(code);
@@ -1394,6 +1400,21 @@ public final class CiAssessmentRunner {
 
         String code() {
             return code;
+        }
+
+        AssessmentFailure forAdvisor(CiPolicy.Advisor advisor, JsonValue report) {
+            advisorFailure = new AdvisorFailure(advisor, code, AdvisorResult.coverageNotes(advisor, code, report));
+            return this;
+        }
+    }
+
+    private record AdvisorFailure(CiPolicy.Advisor advisor, String reason, List<String> coverageNotes) {
+        String message() {
+            return "Advisor " + advisor.policyName() + " was not assessed: " + reason
+                    + (coverageNotes.isEmpty()
+                            ? ""
+                            : ". Diagnostic metadata (unvalidated, not assessed findings): "
+                                    + String.join("; ", coverageNotes));
         }
     }
 
@@ -1501,6 +1522,7 @@ public final class CiAssessmentRunner {
         private List<String> errors = List.of();
         private boolean violation;
         private RuntimeContext runtimeContext = RuntimeContext.empty("NOT_COLLECTED");
+        private AdvisorFailure failedAdvisor;
 
         Assessment(String assessmentId, Path outputDirectory) {
             this.assessmentId = assessmentId;
@@ -1648,6 +1670,19 @@ public final class CiAssessmentRunner {
                         .append(advisor.get("reason").asString("-"))
                         .append(" |\n");
             }
+            if (failedAdvisor != null) {
+                boolean required =
+                        policy.advisors().get(failedAdvisor.advisor()).required();
+                output.append("| ")
+                        .append(failedAdvisor.advisor().policyName())
+                        .append(" | ")
+                        .append(required)
+                        .append(" | NOT_ASSESSED | - | - | ")
+                        .append(failedAdvisor.reason())
+                        .append(" |\n\n")
+                        .append(failedAdvisor.message())
+                        .append(". Collection stopped; unvisited advisors were not assessed.\n");
+            }
             appendSkippedCoverage(output);
             appendFindings(output);
             JsonValue context = bundle.get("runtimeContext");
@@ -1736,7 +1771,7 @@ public final class CiAssessmentRunner {
             output.append("\n### Skipped advisor coverage\n\n")
                     .append(results.size() - skipped)
                     .append(" of ")
-                    .append(results.size())
+                    .append(policy.advisors().size())
                     .append(
                             " advisors assessed. PASS means the configured policy passed, not that skipped advisors passed.")
                     .append(" Their zero finding counts do not establish that no checks ran or no issues exist.\n\n");
@@ -1856,8 +1891,17 @@ public final class CiAssessmentRunner {
                 xml.append("</testcase>\n");
             }
             if (errorsCount > 0) {
-                xml.append("  <testcase classname=\"bootui.ci\" name=\"assessment\">")
-                        .append("<error message=\"BootUI assessment could not be completed\"/>")
+                xml.append("  <testcase classname=\"bootui.ci\" name=\"")
+                        .append(
+                                failedAdvisor == null
+                                        ? "assessment"
+                                        : failedAdvisor.advisor().policyName())
+                        .append("\"><error message=\"")
+                        .append(
+                                failedAdvisor == null
+                                        ? "BootUI assessment could not be completed"
+                                        : failedAdvisor.message())
+                        .append("\"/>")
                         .append("</testcase>\n");
             }
             xml.append("</testsuite>\n");

@@ -676,8 +676,12 @@ coverage-complete, and have at least one subject. Incomplete evidence, scan/repo
 dismissed findings, unknown severities, truncation, paging inconsistencies, and collection errors are not passes for
 a required advisor. An optional advisor is assessed and gated when available; framework incompatibility, unavailability,
 or unevaluable optional evidence is retained as an explicit `SKIPPED` row with a stable reason.
-The policy allow-list excludes the Memory advisor because its scan may trigger a full garbage collection; the
-Database advisor's policy key is `database-advisor`. Runtime Insights context is optional and report-only: omit the
+The policy allow-list excludes the Memory advisor because its scan may trigger a full garbage collection. The
+Database advisor's policy key is `database-advisor`, but its CLI commands are `bootui db scan --json` and
+`bootui db report --json`, not `bootui database-advisor scan`. A scan's `topFindings` preview does not establish
+complete coverage; read the cached advisor report for its evidence and diagnostics.
+
+Runtime Insights context is optional and report-only: omit the
 `runtimeContext` object (or set `includeInsights` to `false`) to make no extra request. A policy containing
 `runtimeContext` requires a CLI version that understands that key; older releases reject unknown policy keys.
 
