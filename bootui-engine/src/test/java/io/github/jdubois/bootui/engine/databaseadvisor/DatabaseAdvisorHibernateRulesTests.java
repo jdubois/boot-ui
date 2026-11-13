@@ -1971,4 +1971,199 @@ class DatabaseAdvisorHibernateRulesTests {
         @jakarta.persistence.Column(name = "required", nullable = false)
         String required;
     }
+
+    // --- DB-HIB-011: declared JPA @Index missing from observed schema ---
+
+    @Test
+    void declaredJpaIndexReportsViolationWhenMissingAndPassesWhenLeadingIndexAndDirectionMatch() {
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Order",
+                "orders",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new HibernateSchemaBridge.MappedIndexFacts(
+                        "com.example.Order @Table @Index(ix_orders_customer_created)",
+                        "ix_orders_customer_created",
+                        List.of(
+                                new HibernateSchemaBridge.MappedIndexColumn("customer_id", null),
+                                new HibernateSchemaBridge.MappedIndexColumn("created_at", false)),
+                        false,
+                        null)));
+        List<ColumnModel> cols = List.of(
+                column("customer_id", "int8", Types.BIGINT), column("created_at", "timestamp", Types.TIMESTAMP));
+        TableModel unindexed = table("orders", cols, List.of(), List.of(), List.of());
+        DatabaseAdvisorRuleResultDto missing = new HibernateMissingDeclaredIndexRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(unindexed)), entity));
+        assertThat(missing.status()).isEqualTo(VIOLATION);
+        assertThat(missing.severity()).isEqualTo(DatabaseAdvisorRuleSupport.MEDIUM);
+        assertThat(missing.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("ix_orders_customer_created", "public.orders [customer_id, created_at]", "ddl-auto=validate");
+
+        IndexModel matchingDesc = new IndexModel(
+                "idx_physical",
+                List.of(IndexKeyPart.column("customer_id", true), IndexKeyPart.column("created_at", false)),
+                false,
+                "btree",
+                null,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID);
+        TableModel indexed = table("orders", cols, List.of(), List.of(), List.of(matchingDesc));
+        assertThat(new HibernateMissingDeclaredIndexRule()
+                        .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(indexed)), entity))
+                        .status())
+                .isEqualTo(PASS);
+
+        IndexModel wrongDirection = new IndexModel(
+                "idx_wrong_dir",
+                List.of(IndexKeyPart.column("customer_id", true), IndexKeyPart.column("created_at", true)),
+                false,
+                "btree",
+                null,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID);
+        TableModel wrongDirTable = table("orders", cols, List.of(), List.of(), List.of(wrongDirection));
+        assertThat(new HibernateMissingDeclaredIndexRule()
+                        .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(wrongDirTable)), entity))
+                        .status())
+                .isEqualTo(VIOLATION);
+    }
+
+    // --- DB-HIB-012: non-nullable association join column allows NULL ---
+
+    @Test
+    void nonNullableJoinColumnBackedByNullablePhysicalColumnIsReported() {
+        MappedForeignKeyFacts nonNullableFk = new MappedForeignKeyFacts(
+                "com.example.Order#customer",
+                List.of("customer_id"),
+                List.of("id"),
+                null,
+                true,
+                "customers",
+                null,
+                null,
+                "id",
+                List.of("customer_id"));
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Order", "orders", null, null, List.of(nonNullableFk), List.of(), List.of());
+        TableModel nullableTable =
+                table("orders", List.of(column("customer_id", "int8", Types.BIGINT)), List.of(), List.of(), List.of());
+        DatabaseAdvisorRuleResultDto violation = new HibernateJoinColumnNullabilityMismatchRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(nullableTable)), entity));
+        assertThat(violation.status()).isEqualTo(VIOLATION);
+        assertThat(violation.severity()).isEqualTo(DatabaseAdvisorRuleSupport.MEDIUM);
+        assertThat(violation.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("com.example.Order#customer", "public.orders.customer_id", "allows NULL");
+
+        TableModel notNullTable = table(
+                "orders", List.of(notNullColumn("customer_id", "int8", Types.BIGINT)), List.of(), List.of(), List.of());
+        assertThat(new HibernateJoinColumnNullabilityMismatchRule()
+                        .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(notNullTable)), entity))
+                        .status())
+                .isEqualTo(PASS);
+    }
+
+    // --- DB-HIB-013: @Enumerated(STRING) constant exceeds bounded character column length ---
+
+    @Test
+    void enumConstantLongerThanPhysicalCharacterColumnIsHighSeverityViolation() {
+        MappedColumnFacts tooNarrow = new MappedColumnFacts(
+                "com.example.Order#status",
+                "status",
+                false,
+                "OrderStatus",
+                null,
+                false,
+                false,
+                false,
+                null,
+                null,
+                null,
+                false,
+                "AWAITING_MANUAL_APPROVAL",
+                24);
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Order", "orders", null, null, List.of(), List.of(tooNarrow), List.of());
+        TableModel narrowColumn = table(
+                "orders", List.of(column("status", "varchar", Types.VARCHAR, 16)), List.of(), List.of(), List.of());
+        DatabaseAdvisorRuleResultDto violation = new HibernateEnumValueLengthMismatchRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(narrowColumn)), entity));
+        assertThat(violation.status()).isEqualTo(VIOLATION);
+        assertThat(violation.severity()).isEqualTo(DatabaseAdvisorRuleSupport.HIGH);
+        assertThat(violation.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("com.example.Order#status", "AWAITING_MANUAL_APPROVAL (length 24)", "varchar(16)");
+
+        TableModel wideColumn = table(
+                "orders", List.of(column("status", "varchar", Types.VARCHAR, 24)), List.of(), List.of(), List.of());
+        assertThat(new HibernateEnumValueLengthMismatchRule()
+                        .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(wideColumn)), entity))
+                        .status())
+                .isEqualTo(PASS);
+    }
+
+    // --- DB-HIB-014: declared @SequenceGenerator missing from observed sequence inventory ---
+
+    @Test
+    void missingDeclaredSequenceGeneratorInPostgresAndOracleInventoriesIsReported() {
+        MappedEntityFacts entity = new MappedEntityFacts(
+                "com.example.Order",
+                "orders",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new HibernateSchemaBridge.MappedSequenceGeneratorFacts(
+                        "com.example.Order#id", "orders_id_seq", 50)));
+        TableModel orders = table(
+                "orders", List.of(notNullColumn("id", "int8", Types.BIGINT)), List.of("id"), List.of(), List.of());
+        VendorFindings emptySequences = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_SEQUENCES, List.of(), false))
+                .build();
+        DatabaseAdvisorRuleResultDto missing = new HibernateMissingSequenceRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(orders), emptySequences), entity));
+        assertThat(missing.status()).isEqualTo(VIOLATION);
+        assertThat(missing.severity()).isEqualTo(DatabaseAdvisorRuleSupport.HIGH);
+        assertThat(missing.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("com.example.Order#id", "orders_id_seq", "public.orders_id_seq");
+
+        PostgresSequenceUsage presentSeq = new PostgresSequenceUsage(
+                "public",
+                "orders_id_seq",
+                java.math.BigInteger.ONE,
+                java.math.BigInteger.valueOf(Long.MAX_VALUE),
+                null,
+                false,
+                "public",
+                "orders",
+                "id",
+                "int8",
+                1L,
+                java.math.BigInteger.ONE,
+                java.math.BigInteger.ONE,
+                null,
+                java.math.BigInteger.ONE,
+                false);
+        VendorFindings presentSequences = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_SEQUENCES, List.of(presentSeq), false))
+                .build();
+        assertThat(new HibernateMissingSequenceRule()
+                        .evaluate(hibernateContext(
+                                schema("ds", Dialect.POSTGRESQL, List.of(orders), presentSequences), entity))
+                        .status())
+                .isEqualTo(PASS);
+    }
 }

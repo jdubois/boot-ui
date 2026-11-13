@@ -436,6 +436,7 @@ half with a stated reason otherwise.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
 - A MySQL invisible, MariaDB ignored, or Oracle invisible index that writes still maintain.
+- A foreign key specifying `ON DELETE SET NULL` or `ON UPDATE SET NULL` where all referencing child columns are `NOT NULL`.
   :::
 
 ::: details What each dialect adds
@@ -447,18 +448,21 @@ half with a stated reason otherwise.
 - Constraints currently not validated.
 - A table publishing updates or deletes with no usable replica identity.
 - An `UNLOGGED` table or leaf partition.
+- A partitioned table (`relkind = 'p'`) with zero attached partitions.
 
 **MySQL/MariaDB:**
 
 - Tables on a non-transactional storage engine.
 - The legacy three-byte `utf8mb3` character set.
 - An `AUTO_INCREMENT` counter nearing its column type's capacity.
+- Unenforced MySQL 8.0.16+ check constraints (`ENFORCED = 'NO'`).
 
 **Oracle:**
 
 - Unusable indexes, including per-partition status.
 - Disabled or unvalidated constraints.
 - A non-cycling sequence or identity generator nearing exhaustion.
+- Global indexes with `ORPHANED_ENTRIES = 'YES'` from deferred partition maintenance.
 
 The dialect comes from `DatabaseMetaData.getDatabaseProductName()`, the version string, and the JDBC URL; MariaDB is
 detected as its own dialect even through the MySQL driver, and an "Oracle" product name is confirmed against
@@ -468,7 +472,7 @@ dependency in BootUI. Partitioned tables are reported once on the parent.
 
 ::: details What the JDBC driver checks add
 
-Nine rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
+Ten rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
 pool's driver properties (HikariCP `dataSourceProperties`, Agroal additional JDBC properties); no other setting, user
 name or password is kept, and no application data is read. Batching is taken from the Hibernate observations of the
 persistence unit attributed to the datasource's pool.
@@ -476,6 +480,7 @@ persistence unit attributed to the datasource's pool.
 - PostgreSQL (pgjdbc): `reWriteBatchedInserts` is not `true` while Hibernate batches writes.
 - MySQL Connector/J: `rewriteBatchedStatements` is not `true` while Hibernate batches writes.
 - MySQL Connector/J: `useAffectedRows` is `true`.
+- MySQL Connector/J: `autoReconnect` or `autoReconnectForPools` is `true`.
 - MySQL Connector/J: the prepared-statement cache is off, or its size (below 250) or SQL limit (below 2048) is small.
 - PostgreSQL (pgjdbc): the prepared-statement cache is disabled, or `autosave=always` sets a savepoint per query.
 - Connector/J and pgjdbc: a diagnostic setting such as `profileSQL` or `logUnclosedConnections` is on.
@@ -489,13 +494,14 @@ or unknown (batching rules only), or the evidence could not be settled. See
 
 ::: details What the connection-pool checks add
 
-Three rules compare the HikariCP or Agroal pool behind a PostgreSQL, MySQL or MariaDB datasource with the server's own
-limits. The pool's numbers are read without borrowing a connection; the server's `wait_timeout`/`idle_session_timeout`
+Four rules check the HikariCP or Agroal pool behind a datasource and compare its sizing and lifetime with the server's
+own limits. The pool's numbers are read without borrowing a connection; the server's `wait_timeout`/`idle_session_timeout`
 and connection limits are read in the same bounded scan, as the scan connection's session sees them.
 
 - A pool that can hold an idle connection longer than the server allows (HikariCP only).
 - A pool larger than the connections the server lets an ordinary role hold.
 - A pool whose connections are never retired for age (`maxLifetime` of `0`).
+- A pool whose connection acquisition timeout is disabled (`0` on Agroal, `Integer.MAX_VALUE` on HikariCP) or exceeds 5 minutes.
 
 A pool that cannot be attributed, another pool library, or a server value that could not be read leaves the rule
 `SKIPPED` with the reason. See [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#connection-pool).
@@ -503,14 +509,15 @@ A pool that cannot be attributed, another pool library, or a server value that c
 
 ::: details What the database-server checks add
 
-Five rules read a few settings of the PostgreSQL or MySQL server in the same bounded scan, as the scan connection's own
-session sees them, and flag the values that remove a safety net or the data the
+Six rules read a few settings of the PostgreSQL, MySQL or MariaDB server in the same bounded scan, as the scan
+connection's own session sees them, and flag the values that remove a safety net or the data the
 [PostgreSQL and MySQL panels](database.md) need. The panels stay neutral; the verdict is here, where it is scored and can
 be dismissed.
 
 - PostgreSQL: no `idle_in_transaction_session_timeout`, `autovacuum` off, `pg_stat_statements` not loaded or not
   created, and `track_io_timing` off.
 - MySQL: `performance_schema` off (skipped on MariaDB).
+- MySQL and MariaDB: session `sql_mode` lacks both `STRICT_TRANS_TABLES` and `STRICT_ALL_TABLES`.
 
 A setting the server did not report, one this version lacks, or a read that failed leaves the rule `SKIPPED` with the
 reason. Capacity-tuning values such as `shared_buffers` are deliberately not judged. See
@@ -520,9 +527,11 @@ reason. Capacity-tuning values such as `shared_buffers` are deliberately not jud
 ::: details What the Hibernate cross-reference checks
 
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
-- An explicit declared table or column name not observed in the scoped metadata.
-- Supported nondefault nullability mismatches, not guessed Java-to-JDBC type mappings.
-- A declared `@Column(length=...)` longer than a bounded physical string column.
+- An explicit declared table, column, `@Index`, or `@SequenceGenerator` name not observed in the scoped metadata.
+- Supported nondefault nullability mismatches on `@Column(nullable = false)` and `@JoinColumn(nullable = false)` /
+  `optional = false`, not guessed Java-to-JDBC type mappings.
+- A declared `@Column(length=...)` or `@Enumerated(EnumType.STRING)` constant name longer than a bounded physical
+  string column.
 - A positive `@Column(precision=..., scale=...)` wider than a bounded physical `DECIMAL`/`NUMERIC` column.
 - A mapped unique constraint with no physical index that enforces it.
 - An explicitly named `@Id` with `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no

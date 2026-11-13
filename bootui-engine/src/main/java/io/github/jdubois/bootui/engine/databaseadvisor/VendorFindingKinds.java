@@ -63,6 +63,12 @@ final class VendorFindingKinds {
     static final VendorFindingKind<MySqlIndexDetail> MYSQL_INDEX_DETAILS = new VendorFindingKind<>(
             "mysql.index-details", "MySQL/MariaDB index semantics", MySqlIndexDetail.class, true);
 
+    static final VendorFindingKind<MySqlUnenforcedCheckConstraint> MYSQL_UNENFORCED_CHECK_CONSTRAINTS =
+            new VendorFindingKind<>(
+                    "mysql.unenforced-check-constraints",
+                    "MySQL unenforced check constraints",
+                    MySqlUnenforcedCheckConstraint.class);
+
     static final VendorFindingKind<OracleIndexDetail> ORACLE_INDEX_DETAILS = new VendorFindingKind<>(
             "oracle.index-details", "Oracle index status/visibility", OracleIndexDetail.class, true);
 
