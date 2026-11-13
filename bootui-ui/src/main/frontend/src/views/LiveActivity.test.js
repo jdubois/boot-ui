@@ -1138,6 +1138,75 @@ describe('LiveActivity', () => {
     expect(fetchMock).toHaveBeenCalledWith('api/activity/request/req-warm-2', expect.anything())
   })
 
+  it('ignores out-of-order compareWith responses and preserves the loaded journal profile on compareWith failure', async () => {
+    const candidates = [
+      {requestId: 'req-warm-1', startedAt: 1700000000000, durationMicros: 12000, status: 200},
+      {requestId: 'req-warm-2', startedAt: 1700000001000, durationMicros: 15000, status: 200},
+      {requestId: 'req-warm-3', startedAt: 1700000002000, durationMicros: 18000, status: 200}
+    ]
+    const buildJournalProfile = (baselineId, baselineMicros, deltaMicros) => ({
+      available: true,
+      requestId: 'req-1',
+      route: 'GET /api/todos',
+      status: 500,
+      durationMicros: 120_000,
+      baselineComparison: {
+        baselineRequestId: baselineId,
+        baselineDurationMicros: baselineMicros,
+        routeP50Micros: 12000,
+        durationDeltaMicros: deltaMicros,
+        candidates
+      }
+    })
+    let resolveSlowCompare
+    const slowCompare = new Promise((resolve) => {
+      resolveSlowCompare = resolve
+    })
+    const fetchMock = vi.fn((url) => {
+      if (String(url) === 'api/activity/request/req-1/journal?compareWith=req-warm-2') {
+        return slowCompare
+      }
+      if (String(url) === 'api/activity/request/req-1/journal?compareWith=req-warm-3') {
+        return Promise.resolve(jsonResponse(buildJournalProfile('req-warm-3', 18000, 102000)))
+      }
+      if (String(url) === 'api/activity/request/req-1/journal?compareWith=req-warm-1') {
+        return Promise.resolve(new Response('', {status: 500}))
+      }
+      if (String(url).endsWith('/journal')) {
+        return Promise.resolve(jsonResponse(buildJournalProfile('req-warm-1', 12000, 108000)))
+      }
+      if (String(url).startsWith('api/activity/request/')) {
+        return Promise.resolve(jsonResponse(requestProfile()))
+      }
+      return Promise.resolve(jsonResponse(activityReport()))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('.activity-drawer')
+    const select = drawer.get('.request-journal__baseline-select')
+    await select.setValue('req-warm-2')
+    await select.setValue('req-warm-3')
+    await flushPromises()
+    expect(drawer.text()).toContain('+102.0 ms')
+
+    // Now the stale req-warm-2 response resolves; it must not overwrite req-warm-3.
+    resolveSlowCompare(jsonResponse(buildJournalProfile('req-warm-2', 15000, 105000)))
+    await flushPromises()
+    expect(drawer.text()).toContain('+102.0 ms')
+    expect(drawer.text()).not.toContain('+105.0 ms')
+
+    // A failed compareWith fetch preserves the loaded journal profile instead of wiping it out.
+    await select.setValue('req-warm-1')
+    await flushPromises()
+    expect(drawer.text()).toContain('Compared with baseline request')
+    expect(drawer.text()).toContain('+102.0 ms')
+  })
+
   it('restores focus to the drawer opener after close button, Escape, and backdrop closes', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback) => callback())
     vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))

@@ -1153,9 +1153,60 @@ class RequestJournalProfilesTests {
             assertThat(explicitPartial.notes()).anyMatch(note -> note.contains("r-partial"));
 
             // Profiling the partially evicted request itself does not compute a baseline comparison from incomplete
-            // work.
+            // work, and an explicit compareWith explains why.
             RequestJournalProfileDto partialProfile = smallProfiles.profile("r-partial", "r-warm-complete");
             assertThat(partialProfile.baselineComparison()).isNull();
+            assertThat(partialProfile.notes()).anyMatch(note -> note.contains("loss horizon"));
+        } finally {
+            small.close();
+        }
+    }
+
+    @Test
+    void lossHorizonAndRecordedColdRequestIdProtectBaselinesWhenAnOlderReservedFailureSurvives() {
+        RuntimeJournal small = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 5, 10_000_000, 100, 40, 10, JournalSource.all()),
+                RunIdentity.start(),
+                false);
+        JournalAggregates smallAggregates = new JournalAggregates();
+        small.addListener(smallAggregates);
+        try {
+            // An early reserved failure at t=100 stays in the ring, keeping oldestRetainedEpochMillis at 100.
+            small.offer(httpWithStatus("r-cold-failed", 100, 10_000_000, 500, null));
+            // r-partial starts at t=1_000 and its SQL at t=1_050 is evicted, advancing lossHorizonMillis to 1_050.
+            small.offer(child(
+                    "r-partial",
+                    JournalSource.SQL,
+                    1_050,
+                    1_000_000,
+                    new SqlPayload("select * from lost_sql", null, "orders", false)));
+            small.offer(child(
+                    "noise-1",
+                    JournalSource.SQL,
+                    1_100,
+                    1_000_000,
+                    new SqlPayload("select * from noise_1", null, "orders", false)));
+            small.offer(child(
+                    "noise-2",
+                    JournalSource.SQL,
+                    1_200,
+                    1_000_000,
+                    new SqlPayload("select * from noise_2", null, "orders", false)));
+            small.offer(httpWithStatus("r-partial", 1_000, 10_000_000, 200, null));
+            small.offer(httpWithStatus("r-warm-complete", 2_000, 12_000_000, 200, null));
+            small.offer(httpWithStatus("r-outlier", 3_000, 80_000_000, 500, null));
+            small.dispatchPending();
+
+            RequestJournalProfiles smallProfiles = new RequestJournalProfiles(small, smallAggregates, 1_000, 5, null);
+            RequestBaselineDiffDto diff = smallProfiles.profile("r-outlier").baselineComparison();
+            assertThat(diff).isNotNull();
+            assertThat(diff.baselineRequestId()).isEqualTo("r-warm-complete");
+            assertThat(diff.candidates())
+                    .extracting(RequestBaselineCandidateDto::requestId)
+                    .containsExactly("r-warm-complete");
+            assertThat(diff.sqlExecutionsDelta()).isNull();
+            assertThat(diff.cacheHitsDelta()).isNull();
+            assertThat(diff.restClientCallsDelta()).isNull();
         } finally {
             small.close();
         }

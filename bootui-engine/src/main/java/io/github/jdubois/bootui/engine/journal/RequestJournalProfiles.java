@@ -415,7 +415,12 @@ public final class RequestJournalProfiles {
             return null;
         }
         boolean evictionsOccurred = status.evictedByCount() + status.evictedByBytes() > 0;
+        boolean explicitSelection = compareWith != null && !compareWith.isBlank();
         if (isPartiallyEvicted(targetHttp, status, evictionsOccurred)) {
+            if (explicitSelection) {
+                notes.add("Baseline comparison is unavailable because this request started before the journal's loss"
+                        + " horizon, so some of its work may be missing.");
+            }
             return null;
         }
         List<JournalEntry> routeEntries = new ArrayList<>();
@@ -438,18 +443,17 @@ public final class RequestJournalProfiles {
         routeEntries.sort(
                 Comparator.comparingLong((JournalEntry entry) -> entry.event().epochMillis())
                         .thenComparingLong(JournalEntry::sequence));
-        boolean firstIsCold = (!evictionsOccurred && status.clears() == 0)
-                || (routeComparison != null
-                        && routeEntries.size() >= routeComparison.requests()
-                        && status.clears() == 0);
-        JournalEntry coldEntry = firstIsCold && !routeEntries.isEmpty() ? routeEntries.get(0) : null;
+        String coldRequestId = aggregates != null ? aggregates.coldRequestId(route) : null;
+        if (coldRequestId == null && !evictionsOccurred && status.clears() == 0 && !routeEntries.isEmpty()) {
+            coldRequestId = routeEntries.get(0).event().requestId();
+        }
         List<Long> warm2xxDurations = new ArrayList<>();
         List<JournalEntry> warm2xxCandidates = new ArrayList<>();
         for (JournalEntry entry : routeEntries) {
-            if (entry == coldEntry) {
+            RuntimeEvent event = entry.event();
+            if (coldRequestId != null && coldRequestId.equals(event.requestId())) {
                 continue;
             }
-            RuntimeEvent event = entry.event();
             HttpPayload payload = (HttpPayload) event.payload();
             if (payload.status() < 200 || payload.status() >= 300) {
                 continue;
@@ -479,9 +483,9 @@ public final class RequestJournalProfiles {
         }
 
         JournalEntry baselineEntry = null;
-        boolean explicitSelection = compareWith != null && !compareWith.isBlank();
         if (explicitSelection) {
             String requestedId = compareWith.trim();
+            String safeRequestedId = safeRequestId(requestedId);
             if (requestedId.equals(targetRequestId)) {
                 notes.add("Baseline comparison is unavailable: a request cannot be compared with itself.");
             } else {
@@ -490,10 +494,10 @@ public final class RequestJournalProfiles {
                         .findFirst()
                         .orElse(null);
                 if (match == null) {
-                    notes.add("Baseline comparison request " + requestedId + " is not a retained request on route "
+                    notes.add("Baseline comparison request " + safeRequestedId + " is not a retained request on route "
                             + route + ".");
                 } else if (isPartiallyEvicted(match.event(), status, evictionsOccurred)) {
-                    notes.add("Baseline comparison request " + requestedId
+                    notes.add("Baseline comparison request " + safeRequestedId
                             + " started before the journal's oldest retained event, so its work may be incomplete.");
                 } else {
                     baselineEntry = match;
@@ -504,15 +508,14 @@ public final class RequestJournalProfiles {
             boolean slowStanding = routeComparison != null
                     && ("ABOVE_P50".equals(routeComparison.standing())
                             || "ABOVE_P95".equals(routeComparison.standing()));
-            boolean slowBeforeStanding = (routeComparison == null || routeComparison.standing() == null)
-                    && referenceMicros != null
-                    && targetDurationMicros > referenceMicros;
+            boolean slowWithoutAggregates =
+                    routeComparison == null && referenceMicros != null && targetDurationMicros > referenceMicros;
             boolean slowByThreshold =
                     requestSlowThresholdMs > 0 && targetDurationMicros >= requestSlowThresholdMs * 1_000L;
             boolean failedOrSlow = targetPayload.status() >= 400
                     || targetHttp.failedOrSlow()
                     || slowStanding
-                    || slowBeforeStanding
+                    || slowWithoutAggregates
                     || slowByThreshold;
             if (failedOrSlow && !warm2xxCandidates.isEmpty()) {
                 baselineEntry = warm2xxCandidates.get(0);
@@ -568,14 +571,12 @@ public final class RequestJournalProfiles {
         RequestMetrics baselineMetrics = RequestMetrics.of(baselineChildren);
 
         SqlCaptureScopes.Snapshot sqlScope = journal.sqlCaptureScope();
-        boolean preparationOnlyScope = targetMetrics.sqlExecutions == 0
-                && baselineMetrics.sqlExecutions == 0
-                && !sqlScope.preparations().isEmpty()
-                && sqlScope.executions().isEmpty();
+        boolean verifiedSqlCoverage =
+                !sqlScope.executions().isEmpty() && sqlScope.preparations().isEmpty() && !sqlScope.incomplete();
         boolean sqlVerified = sourceAvailable(JournalSource.SQL)
                 && !targetMetrics.hasUnverifiedSql
                 && !baselineMetrics.hasUnverifiedSql
-                && !preparationOnlyScope;
+                && (targetMetrics.sqlExecutions > 0 || baselineMetrics.sqlExecutions > 0 || verifiedSqlCoverage);
         Integer sqlExecutionsDelta = sqlVerified ? targetMetrics.sqlExecutions - baselineMetrics.sqlExecutions : null;
         Long sqlDurationMicrosDelta =
                 sqlVerified ? targetMetrics.sqlDurationMicros - baselineMetrics.sqlDurationMicros : null;
@@ -587,11 +588,13 @@ public final class RequestJournalProfiles {
         Long connectionWaitMicrosDelta =
                 connectionAvailable ? targetMetrics.connectionWaitMicros - baselineMetrics.connectionWaitMicros : null;
 
-        boolean cacheAvailable = sourceAvailable(JournalSource.CACHE);
+        boolean cacheAvailable =
+                sourceAvailable(JournalSource.CACHE) && (targetMetrics.hasCache || baselineMetrics.hasCache);
         Integer cacheHitsDelta = cacheAvailable ? targetMetrics.cacheHits - baselineMetrics.cacheHits : null;
         Integer cacheMissesDelta = cacheAvailable ? targetMetrics.cacheMisses - baselineMetrics.cacheMisses : null;
 
-        boolean restAvailable = sourceAvailable(JournalSource.REST_CLIENT);
+        boolean restAvailable = sourceAvailable(JournalSource.REST_CLIENT)
+                && (targetMetrics.restClientCalls > 0 || baselineMetrics.restClientCalls > 0);
         Integer restClientCallsDelta =
                 restAvailable ? targetMetrics.restClientCalls - baselineMetrics.restClientCalls : null;
         Long restClientDurationMicrosDelta = restAvailable
@@ -675,10 +678,22 @@ public final class RequestJournalProfiles {
                 .toList();
     }
 
-    private static boolean isPartiallyEvicted(RuntimeEvent http, JournalStatus status, boolean evictionsOccurred) {
-        return evictionsOccurred
+    private boolean isPartiallyEvicted(RuntimeEvent http, JournalStatus status, boolean evictionsOccurred) {
+        if (evictionsOccurred
                 && status.oldestRetainedEpochMillis() != null
-                && status.oldestRetainedEpochMillis() > http.epochMillis();
+                && status.oldestRetainedEpochMillis() > http.epochMillis()) {
+            return true;
+        }
+        Long lossHorizon = journal.lossHorizonMillis();
+        return lossHorizon != null && http.epochMillis() <= lossHorizon;
+    }
+
+    private static String safeRequestId(String id) {
+        if (id == null) {
+            return "";
+        }
+        String sanitized = id.replaceAll("[\\p{Cntrl}]", "");
+        return sanitized.length() <= 64 ? sanitized : sanitized.substring(0, 64) + "…";
     }
 
     private boolean sourceAvailable(JournalSource source) {
@@ -707,6 +722,7 @@ public final class RequestJournalProfiles {
         final Map<String, Long> sqlShapeMicros = new HashMap<>();
         boolean hasConnection;
         long connectionWaitMicros;
+        boolean hasCache;
         int cacheHits;
         int cacheMisses;
         int restClientCalls;
@@ -734,6 +750,7 @@ public final class RequestJournalProfiles {
                     metrics.hasConnection = true;
                     metrics.connectionWaitMicros += Math.max(0, connection.waitNanos()) / 1_000L;
                 } else if (payload instanceof CachePayload cache) {
+                    metrics.hasCache = true;
                     if ("HIT".equalsIgnoreCase(cache.operation())) {
                         metrics.cacheHits++;
                     } else if ("MISS".equalsIgnoreCase(cache.operation())) {

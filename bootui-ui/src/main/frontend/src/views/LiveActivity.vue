@@ -641,6 +641,9 @@ async function openProfile(
   await loadProfile(entry.id, opener, entry.type === 'SCHEDULED' || (entry.type === 'MESSAGING' && fromJournal.value))
 }
 
+let journalLoadToken = 0
+let journalPendingPromise = null
+
 async function loadProfile(id, opener, execution = false) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
@@ -648,7 +651,9 @@ async function loadProfile(id, opener, execution = false) {
       : opener?.querySelector?.('.bootui-keyboard-target') || null
   profileRequestId.value = id
   const token = ++profileLoadToken
+  const jToken = ++journalLoadToken
   const isCurrent = () => token === profileLoadToken
+  const isCurrentJournal = () => token === profileLoadToken && jToken === journalLoadToken
   profileLoading.value = true
   profileError.value = null
   profile.value = null
@@ -665,10 +670,10 @@ async function loadProfile(id, opener, execution = false) {
       if (!isCurrent()) return
       profile.value = loaded
     }
-    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrent)
+    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrentJournal)
   } catch (err) {
     if (!isCurrent()) return
-    await loadJournalProfile(id, isCurrent)
+    await loadJournalProfile(id, isCurrentJournal)
     if (isCurrent() && !journalProfile.value?.available) {
       profileError.value = err.message || 'Could not load request profile'
     }
@@ -681,18 +686,32 @@ async function loadProfile(id, opener, execution = false) {
 }
 
 async function loadJournalProfile(requestId, isCurrent, compareWith = null) {
+  const run = async () => {
+    try {
+      const query = compareWith ? `?compareWith=${encodeURIComponent(compareWith)}` : ''
+      const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal${query}`)
+      if (!isCurrent()) return
+      if (!response.ok) throw new Error(`status ${response.status}`)
+      const loaded = await response.json()
+      if (isCurrent()) journalProfile.value = loaded
+    } catch (err) {
+      if (!isCurrent()) return
+      if (compareWith && journalProfile.value?.available) {
+        return
+      }
+      journalProfile.value = {
+        available: false,
+        unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
+      }
+    }
+  }
+  const pending = run()
+  journalPendingPromise = pending
   try {
-    const query = compareWith ? `?compareWith=${encodeURIComponent(compareWith)}` : ''
-    const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal${query}`)
-    if (!isCurrent()) return
-    if (!response.ok) throw new Error(`status ${response.status}`)
-    const loaded = await response.json()
-    if (isCurrent()) journalProfile.value = loaded
-  } catch (err) {
-    if (!isCurrent()) return
-    journalProfile.value = {
-      available: false,
-      unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
+    await pending
+  } finally {
+    if (journalPendingPromise === pending) {
+      journalPendingPromise = null
     }
   }
 }
@@ -701,7 +720,8 @@ async function compareJournalBaseline(compareWithId) {
   const requestId = journalProfile.value?.requestId || profile.value?.request?.requestId || profileRequestId.value
   if (!requestId || !compareWithId) return
   const token = profileLoadToken
-  const isCurrent = () => token === profileLoadToken
+  const jToken = ++journalLoadToken
+  const isCurrent = () => token === profileLoadToken && jToken === journalLoadToken
   await loadJournalProfile(requestId, isCurrent, compareWithId)
 }
 
@@ -712,6 +732,8 @@ function openBaselineRequest(baselineRequestId) {
 
 function closeProfile() {
   profileLoadToken++
+  journalLoadToken++
+  journalPendingPromise = null
   profileLoading.value = false
   const opener = profileOpenerEl.value
   profileRequestId.value = null
@@ -760,7 +782,10 @@ function trapFocus(event) {
   }
 }
 
-function copyProfile() {
+async function copyProfile() {
+  if (journalPendingPromise) {
+    await journalPendingPromise
+  }
   if (!profile.value?.available) return
   copyToClipboard(profileMarkdown(profile.value, {journalProfile: journalProfile.value}).markdown, 'profile')
 }
@@ -772,6 +797,9 @@ async function openAiExport() {
   if (!current?.available) return
   aiExport.value = {loading: true, error: null, markdown: '', omissions: []}
   try {
+    if (journalPendingPromise) {
+      await journalPendingPromise
+    }
     const {exceptionDetails, omissions} = await loadProfileExceptionDetails(current, getJson)
     if (profile.value !== current) return
     aiExport.value = {

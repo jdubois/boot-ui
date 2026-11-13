@@ -210,6 +210,15 @@ public final class JournalAggregates implements JournalListener {
         }
     }
 
+    /** The id of the first request recorded on {@code route} in the current recording window, or {@code null}. */
+    public synchronized String coldRequestId(String route) {
+        if (route == null) {
+            return null;
+        }
+        Route found = routes.entries().get(route);
+        return found == null ? null : found.firstRequestId;
+    }
+
     synchronized void failedEntries(List<JournalEntry> entries) {
         for (JournalEntry entry : entries) {
             int source = entry.event().source().ordinal();
@@ -1389,6 +1398,7 @@ public final class JournalAggregates implements JournalListener {
     private static final class Route {
 
         private long samples;
+        private String firstRequestId;
         private final LatencyHistogram latency = new LatencyHistogram();
         private final LatencyHistogram warmLatency = new LatencyHistogram();
         private final long[] statusClasses = new long[5];
@@ -1436,7 +1446,9 @@ public final class JournalAggregates implements JournalListener {
 
         void add(RuntimeEvent event, int status) {
             // A route's first request is its cold one, which loads classes and fills caches.
-            if (samples++ > 0) {
+            if (samples++ == 0) {
+                firstRequestId = event.requestId();
+            } else {
                 warmLatency.recordNanos(event.durationNanos());
             }
             latency.recordNanos(event.durationNanos());
