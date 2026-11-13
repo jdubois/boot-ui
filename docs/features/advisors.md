@@ -728,7 +728,10 @@ degrades to `PARTIAL`, and every advisory that did fetch is kept.
 The scanner follows OSV's `next_page_token` on `/v1/querybatch`, bounded by 20 page rounds per chunk (degrading to
 `PARTIAL` at the bound). The package list, already bounded by `bootui.vulnerabilities.max-packages`, is split into
 batches of at most 1,000 queries, OSV's hard limit. Detail fetches run with bounded concurrency (up to 10) and a
-configured advisory-detail cap. Request timeouts are not a whole-scan deadline.
+configured advisory-detail cap. Each HTTP call is bounded by `bootui.vulnerabilities.request-timeout` (default `10s`),
+and the whole scan across `/v1/querybatch` pages, `/v1/vulns/{id}` detail waves, and EPSS chunks is bounded by
+`bootui.vulnerabilities.scan-timeout` (default `60s`), degrading to `PARTIAL` while retaining all advisories fetched
+so far.
 
 Responses are validated, and malformed results fail visibly instead of reading as a clean scan. A later failure preserves earlier pages as `PARTIAL`; failure before any valid page is `ERROR`, with the local inventory retained.
 :::
@@ -744,10 +747,12 @@ the scan or discards OSV results.
 ### Fix availability
 
 Each advisory carries `fixedVersions` and `fixAvailable`. A candidate must be a `fixed` event closing a supported Maven
-interval containing the installed version, be newer under Maven `ComparableVersion` ordering, and be unaffected across
-all matching entries. Git/SEMVER ranges and `last_affected`/`limit` boundaries supply no upgrades. A false signal or
-empty list means no target was established, not that the dependency is safe or that no upstream fix exists. Candidates
-are upgrade evidence, not guarantees of publication or compatibility; BootUI does not install them.
+interval containing the installed version (or, when the installed branch is bounded by `last_affected` or a finite
+`limit` without a verified same-branch fix, a `fixed` event from a sibling `Maven` entry of the same
+`groupId:artifactId`), be newer under Maven `ComparableVersion` ordering, and be unaffected across all matching entries.
+Git/SEMVER ranges and `last_affected`/`limit` boundaries themselves supply no upgrades. A false signal or empty list
+means no target was established, not that the dependency is safe or that no upstream fix exists. Candidates are upgrade
+evidence, not guarantees of publication or compatibility; BootUI does not install them.
 
 ### Dismissing a vulnerability
 
@@ -763,7 +768,9 @@ The Spring adapter resolves coordinates from three sources, in decreasing author
 
 1. **The embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`). Maven PURLs carry
    the `groupId` no manifest header carries. A component declared not shipped (`scope: "excluded"`, or the
-   `cdx:maven:package:test=true` property) is left out unless the archive census finds its JAR.
+   `cdx:maven:package:test=true` property) is left out unless the archive census finds its JAR. Strictly when archive
+   census coverage is `COMPLETE`, SBOM-only `scope: "optional"` components not in the census and unshipped versions of
+   duplicate `groupId:artifactId` SBOM entries are also reconciled out.
 2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, including inside a repackaged archive's nested
    JARs.
 3. **`java.class.path` entries**, read through the Maven repository layout or an adjacent POM. A group id is derived from

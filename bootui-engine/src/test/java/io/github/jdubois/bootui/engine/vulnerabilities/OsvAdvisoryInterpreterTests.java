@@ -564,6 +564,70 @@ class OsvAdvisoryInterpreterTests {
         assertThat(result.fixedVersions()).containsExactly("1.2.2");
     }
 
+    @Test
+    void verifiesCrossBranchFixesWhenInstalledBranchEndsWithLastAffectedOrFiniteLimit() {
+        Affected eolLastAffected = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(range(event("introduced", "1.0"), event("last_affected", "1.9"))),
+                List.of(LOW));
+        Affected eolLimit = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(range(event("introduced", "1.0"), event("limit", "2.0"))),
+                List.of(LOW));
+        Affected maintainedTwo = entry("2.0", "2.4", CRITICAL);
+        Affected maintainedThree = entry("3.0", "3.2", CRITICAL);
+
+        Result fromLastAffected = interpret("1.5", eolLastAffected, maintainedTwo, maintainedThree);
+        assertThat(fromLastAffected.severity()).isEqualTo("LOW");
+        assertThat(fromLastAffected.cvssScore()).isEqualTo(3.8d);
+        assertThat(fromLastAffected.fixedVersions()).containsExactly("2.4", "3.2");
+        assertThat(fromLastAffected.unresolved()).isFalse();
+
+        Result fromLimit = interpret("1.5", eolLimit, maintainedTwo);
+        assertThat(fromLimit.severity()).isEqualTo("LOW");
+        assertThat(fromLimit.fixedVersions()).containsExactly("2.4");
+        assertThat(fromLimit.unresolved()).isFalse();
+    }
+
+    @Test
+    void rejectsCrossBranchFixesAffectedByAnotherEntryOrFromWildcardOrUnrelatedPackages() {
+        Affected eolBranch = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(range(event("introduced", "1.0"), event("last_affected", "1.9"))),
+                List.of(LOW));
+        Affected reintroducingBranch = entry("2.0", "2.4", CRITICAL);
+        Affected overlappingBranch = entry("2.2", "3.0", CRITICAL);
+        Affected wildcardBranch = new Affected(
+                "Maven",
+                "*",
+                List.of(),
+                List.of(range(event("introduced", "2.0"), event("fixed", "2.4"))),
+                List.of(CRITICAL));
+        Affected otherPackageBranch = new Affected(
+                "Maven",
+                "org.example:other",
+                List.of(),
+                List.of(range(event("introduced", "2.0"), event("fixed", "2.4"))),
+                List.of(CRITICAL));
+
+        assertThat(interpret("1.5", eolBranch, reintroducingBranch, overlappingBranch)
+                        .fixedVersions())
+                .as("2.4 is still affected by [2.2, 3.0); only 3.0 is unaffected across all entries")
+                .containsExactly("3.0");
+        assertThat(interpret("1.5", eolBranch, wildcardBranch).fixedVersions())
+                .as("wildcard entries are not sibling groupId:artifactId branches")
+                .isEmpty();
+        assertThat(interpret("1.5", eolBranch, otherPackageBranch).fixedVersions())
+                .as("other packages never supply cross-branch fixes")
+                .isEmpty();
+    }
+
     private static Result interpret(String version, Affected... affected) {
         return OsvAdvisoryInterpreter.interpret(PACKAGE, version, Arrays.asList(affected), List.of(), null);
     }
