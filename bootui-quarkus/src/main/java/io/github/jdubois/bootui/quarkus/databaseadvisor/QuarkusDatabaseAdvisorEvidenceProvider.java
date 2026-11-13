@@ -48,4 +48,9 @@ public final class QuarkusDatabaseAdvisorEvidenceProvider implements DatabaseAdv
     public Map<String, JdbcBatching> jdbcBatching() {
         return delegate.jdbcBatching();
     }
+
+    @Override
+    public Map<String, String> entityDataSources() {
+        return delegate.entityDataSources();
+    }
 }

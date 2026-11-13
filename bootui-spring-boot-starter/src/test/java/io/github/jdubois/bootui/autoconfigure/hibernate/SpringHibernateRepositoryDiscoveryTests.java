@@ -145,8 +145,33 @@ class SpringHibernateRepositoryDiscoveryTests {
         assertThat(read("projection", Pageable.class).evidence().returnElementType())
                 .isEqualTo(View.class);
         assertThat(read("dynamic", Class.class).evidence().queryRewriter()).isTrue();
+        assertThat(read("dynamic", Class.class).evidence().derivedQueryVerified())
+                .isFalse();
         assertThat(read("nativeSlice", Pageable.class).returnType()).isEqualTo(Slice.class);
+        assertThat(read("nativeSlice", Pageable.class).evidence().derivedQueryVerified())
+                .isFalse();
         assertThat(read("named", Pageable.class).evidence().namedQuery()).isTrue();
+        assertThat(read("named", Pageable.class).evidence().derivedQueryVerified())
+                .isFalse();
+        assertThat(read("findByIdIn", List.class).evidence().derivedQueryVerified())
+                .isTrue();
+    }
+
+    @Test
+    void jpaEntityNamedQueryMarksMethodNamedAndNotDerived() throws Exception {
+        HibernateRepositoryMethodModel matchingNamed = SpringHibernateRepositoryDiscovery.readMethod(
+                NamedEntityRepository.class,
+                NamedQueryOrder.class,
+                NamedEntityRepository.class.getMethod("deleteByNamedRule", String.class));
+        assertThat(matchingNamed.evidence().namedQuery()).isTrue();
+        assertThat(matchingNamed.evidence().derivedQueryVerified()).isFalse();
+
+        HibernateRepositoryMethodModel genuineDerived = SpringHibernateRepositoryDiscovery.readMethod(
+                NamedEntityRepository.class,
+                NamedQueryOrder.class,
+                NamedEntityRepository.class.getMethod("deleteByStatus", String.class));
+        assertThat(genuineDerived.evidence().namedQuery()).isFalse();
+        assertThat(genuineDerived.evidence().derivedQueryVerified()).isTrue();
     }
 
     @Test
@@ -300,6 +325,24 @@ class SpringHibernateRepositoryDiscoveryTests {
     interface ReadOnlyRepository extends Repository<Order, Long> {}
 
     interface InheritingRepository extends ParameterRepository {}
+
+    @Entity
+    @jakarta.persistence.NamedQueries(
+            @jakarta.persistence.NamedQuery(
+                    name = "NamedQueryOrder.deleteByNamedRule",
+                    query = "delete from NamedQueryOrder o where o.status = ?1"))
+    static class NamedQueryOrder {
+        @Id
+        Long id;
+
+        String status;
+    }
+
+    interface NamedEntityRepository extends Repository<NamedQueryOrder, Long> {
+        long deleteByNamedRule(String status);
+
+        long deleteByStatus(String status);
+    }
 
     @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.METHOD)

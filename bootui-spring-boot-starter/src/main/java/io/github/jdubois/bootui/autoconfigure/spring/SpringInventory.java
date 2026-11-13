@@ -3,11 +3,14 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact.*;
 
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityAware;
+import io.github.jdubois.bootui.autoconfigure.datasource.DelegatingDataSources;
+import io.github.jdubois.bootui.autoconfigure.datasource.SpringAopDataSources;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.PooledExecutorRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact;
+import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.engine.support.KotlinReflection;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
@@ -62,6 +65,14 @@ final class SpringInventory {
     static final String PROPERTIES_MIGRATOR_LISTENER =
             "org.springframework.boot.context.properties.migrator.PropertiesMigrationListener";
     private static final String DISPATCHER_REGISTRATION = "dispatcherServletRegistration";
+    private static final Set<String> BOOTUI_WEBFLUX_CONFIGURERS = Set.of(
+            "io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer",
+            "io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer");
+    private static final Set<String> BOOTUI_SECURITY_CHAIN_NAMES =
+            Set.of("bootUiSecurityFilterChain", "bootUiReactiveSecurityWebFilterChain", "bootUiSecurityWebFilterChain");
+    private static final Set<String> BOOTUI_SECURITY_AUTOCONFIGURATIONS = Set.of(
+            "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration",
+            "io.github.jdubois.bootui.autoconfigure.BootUiReactiveSpringSecurityAutoConfiguration");
     private static final Set<String> INJECTED = Set.of(
             "org.springframework.beans.factory.annotation.Autowired",
             "org.springframework.beans.factory.annotation.Value",
@@ -178,6 +189,8 @@ final class SpringInventory {
         observeOsiv(reactive);
         observeMigrationModules();
         observeMultipart(reactive);
+        boolean applicationSecurityChain = hasApplicationSecurityChain();
+        facts.put(APPLICATION_SECURITY_CHAIN, applicationSecurityChain);
         return SpringContext.builder(environment)
                 .virtualThreadsSupported(Runtime.version().feature() >= 21)
                 .beanDefinitionCount(factory.getBeanDefinitionCount())
@@ -220,6 +233,7 @@ final class SpringInventory {
                 .reactiveHandlerMethodCount(handlers)
                 .defaultPackageBeans(defaultPackage)
                 .mutableSingletonFields(mutable)
+                .applicationSecurityChainPresent(applicationSecurityChain)
                 .observations(new SpringObservations(facts, List.copyOf(incomplete)))
                 .build();
     }
@@ -403,7 +417,7 @@ final class SpringInventory {
                 || processor == null
                 || !"org.springframework.scheduling.annotation.ProxyAsyncConfiguration".equals(processor.factory())
                 || customAsyncConfigurer()
-                || asyncQualifiers()) return;
+                || !asyncDefaultExecutorApplicable()) return;
         Entry selected = null;
         if (isBoot(entry(BOOT_ASYNC), "org.springframework.boot.autoconfigure.task.")) {
             selected = entry("applicationTaskExecutor");
@@ -427,62 +441,186 @@ final class SpringInventory {
         }
         facts.put(ASYNC_SELECTION, AsyncSelection.SELECTED);
         Object singleton = factory.getSingleton(selected.name());
+        if (exact(singleton, "org.springframework.core.task.SimpleAsyncTaskExecutor")
+                || exact(singleton, "org.springframework.core.task.VirtualThreadTaskExecutor")) {
+            facts.put(ASYNC_NON_POOL, true);
+            return;
+        }
         if (singleton != null && singleton.getClass() == ThreadPoolTaskExecutor.class) {
             // Reading the configured field alone can be stale after initialization; use the actual queue.
             try {
-                var queue = ((ThreadPoolTaskExecutor) singleton)
-                        .getThreadPoolExecutor()
-                        .getQueue();
+                var executor = ((ThreadPoolTaskExecutor) singleton).getThreadPoolExecutor();
+                var queue = executor.getQueue();
                 if (queue.getClass() == java.util.concurrent.LinkedBlockingQueue.class
                         || queue.getClass() == java.util.concurrent.ArrayBlockingQueue.class
                         || queue.getClass() == java.util.concurrent.SynchronousQueue.class) {
                     long capacity = (long) queue.size() + queue.remainingCapacity();
-                    facts.put(ASYNC_QUEUE_CAPACITY, (int) Math.min(Integer.MAX_VALUE, capacity));
+                    int queueCapacity = (int) Math.min(Integer.MAX_VALUE, capacity);
+                    facts.put(ASYNC_QUEUE_CAPACITY, queueCapacity);
+                    int corePoolSize = executor.getCorePoolSize();
+                    int maxPoolSize = executor.getMaximumPoolSize();
+                    if (queueCapacity == Integer.MAX_VALUE
+                            && maxPoolSize > corePoolSize
+                            && maxPoolSize < Integer.MAX_VALUE) {
+                        facts.put(ASYNC_UNREACHABLE_MAX_POOL_SIZE, maxPoolSize);
+                    }
                 }
             } catch (IllegalStateException ex) {
                 /* uninitialized executor is unknown */
             }
+            return;
+        }
+        if (singleton == null
+                && "applicationTaskExecutor".equals(selected.name())
+                && isBoot(selected, "org.springframework.boot.autoconfigure.task.")) {
+            if ("org.springframework.core.task.SimpleAsyncTaskExecutor"
+                    .equals(selected.type().getName())) {
+                facts.put(ASYNC_NON_POOL, true);
+            } else if (selected.type() == ThreadPoolTaskExecutor.class) {
+                observeLazyBootTaskExecutorBuilder();
+            }
         }
     }
 
-    private boolean asyncQualifiers() {
+    private void observeLazyBootTaskExecutorBuilder() {
+        Entry builderEntry = entry("threadPoolTaskExecutorBuilder");
+        if (!isBoot(builderEntry, "org.springframework.boot.autoconfigure.task.")
+                || !typed("org.springframework.boot.task.ThreadPoolTaskExecutorCustomizer").stream()
+                        .allMatch(SpringInventory::isFramework)) return;
+        Object builder = factory.getSingleton(builderEntry.name());
+        if (!exact(builder, "org.springframework.boot.task.ThreadPoolTaskExecutorBuilder")) return;
+        try {
+            Object customizers = field(builder, builder.getClass(), "customizers");
+            if (customizers != null && (!(customizers instanceof java.util.Collection<?> list) || !list.isEmpty()))
+                return;
+            Object queueCapacity = field(builder, builder.getClass(), "queueCapacity");
+            Object corePoolSize = field(builder, builder.getClass(), "corePoolSize");
+            Object maxPoolSize = field(builder, builder.getClass(), "maxPoolSize");
+            if (queueCapacity instanceof Integer qc && qc >= 0) {
+                facts.put(ASYNC_QUEUE_CAPACITY, qc);
+                if (qc == Integer.MAX_VALUE
+                        && corePoolSize instanceof Integer core
+                        && maxPoolSize instanceof Integer max
+                        && max > core
+                        && max < Integer.MAX_VALUE) {
+                    facts.put(ASYNC_UNREACHABLE_MAX_POOL_SIZE, max);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            partial();
+        }
+    }
+
+    private boolean asyncDefaultExecutorApplicable() {
+        boolean[] flags = new boolean[2]; // [0] = hasUnqualifiedAsync, [1] = hasQualifiedAsync
         for (Entry entry : entries) {
             if (members >= MAX_TOTAL_MEMBERS) {
                 partial();
-                return true;
+                return false;
             }
             if (!entry.application()) continue;
-            try {
-                Async typeAsync = AnnotatedElementUtils.findMergedAnnotation(entry.type(), Async.class);
-                if (typeAsync != null && !typeAsync.value().isEmpty()) return true;
-                Method[] methods = entry.type().getMethods();
-                if (!budget(methods.length)) return true;
-                for (Method method : methods) {
-                    Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
-                    if (annotation != null && !annotation.value().isEmpty()) return true;
+            if (!inspectAsyncType(entry.type(), flags)) return false;
+            if (java.lang.reflect.Proxy.isProxyClass(entry.type())) {
+                Class<?> targetType = resolveProxyTargetType(entry.name());
+                if (targetType != null
+                        && targetType != entry.type()
+                        && !java.lang.reflect.Proxy.isProxyClass(targetType)) {
+                    if (!inspectAsyncType(targetType, flags)) return false;
                 }
-                Class<?> owner = entry.type();
-                int depth = 0;
-                while (owner != null && owner != Object.class) {
-                    if (++depth > 16) {
-                        partial();
-                        return true;
-                    }
-                    Method[] declared = owner.getDeclaredMethods();
-                    if (!budget(declared.length)) return true;
-                    for (Method method : declared) {
-                        if (Modifier.isPublic(method.getModifiers())) continue;
-                        Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
-                        if (annotation != null && !annotation.value().isEmpty()) return true;
-                    }
-                    owner = owner.getSuperclass();
-                }
-            } catch (RuntimeException | LinkageError ex) {
-                partial();
-                return true;
             }
         }
-        return false;
+        if (flags[1] && !flags[0]) {
+            facts.put(ASYNC_QUALIFIED_ONLY, true);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean inspectAsyncType(Class<?> type, boolean[] flags) {
+        try {
+            Async typeAsync = AnnotatedElementUtils.findMergedAnnotation(type, Async.class);
+            if (typeAsync != null) recordAsyncQualifier(typeAsync.value(), flags);
+            Method[] methods = type.getMethods();
+            if (!budget(methods.length)) return false;
+            for (Method method : methods) {
+                Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
+                if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+            }
+            Class<?> owner = type;
+            int depth = 0;
+            while (owner != null && owner != Object.class) {
+                if (++depth > 16) {
+                    partial();
+                    return false;
+                }
+                Method[] declared = owner.getDeclaredMethods();
+                if (!budget(declared.length)) return false;
+                for (Method method : declared) {
+                    if (Modifier.isPublic(method.getModifiers())) continue;
+                    Async annotation = AnnotatedElementUtils.findMergedAnnotation(method, Async.class);
+                    if (annotation != null) recordAsyncQualifier(annotation.value(), flags);
+                }
+                owner = owner.getSuperclass();
+            }
+            return true;
+        } catch (RuntimeException | LinkageError ex) {
+            partial();
+            return false;
+        }
+    }
+
+    private static void recordAsyncQualifier(String qualifier, boolean[] flags) {
+        if (qualifier.isEmpty() || "applicationTaskExecutor".equals(qualifier) || "taskExecutor".equals(qualifier)) {
+            flags[0] = true;
+        } else {
+            flags[1] = true;
+        }
+    }
+
+    private Class<?> resolveProxyTargetType(String name) {
+        try {
+            if (factory.containsBeanDefinition(name)) {
+                BeanDefinition definition = factory.getMergedBeanDefinition(name);
+                if (definition.getFactoryMethodName() == null) {
+                    if (definition instanceof AbstractBeanDefinition abd && abd.hasBeanClass()) {
+                        Class<?> beanClass = ClassUtils.getUserClass(abd.getBeanClass());
+                        if (!beanClass.isInterface() && !java.lang.reflect.Proxy.isProxyClass(beanClass)) {
+                            return beanClass;
+                        }
+                    }
+                    if (definition.getBeanClassName() != null) {
+                        Class<?> resolved = ClassUtils.getUserClass(ClassUtils.resolveClassName(
+                                definition.getBeanClassName(), factory.getBeanClassLoader()));
+                        if (!resolved.isInterface() && !java.lang.reflect.Proxy.isProxyClass(resolved)) {
+                            return resolved;
+                        }
+                    }
+                }
+                if (definition instanceof RootBeanDefinition root && root.getTargetType() != null) {
+                    Class<?> targetType = ClassUtils.getUserClass(root.getTargetType());
+                    if (!targetType.isInterface() && !java.lang.reflect.Proxy.isProxyClass(targetType)) {
+                        return targetType;
+                    }
+                }
+            }
+            Object singleton = factory.getSingleton(name);
+            Class<?> advised = present("org.springframework.aop.framework.Advised");
+            Class<?> targetSourceType = present("org.springframework.aop.TargetSource");
+            if (singleton != null && advised != null && targetSourceType != null && advised.isInstance(singleton)) {
+                Object targetSource = advised.getMethod("getTargetSource").invoke(singleton);
+                if (targetSource != null
+                        && Boolean.TRUE.equals(
+                                targetSourceType.getMethod("isStatic").invoke(targetSource))) {
+                    Object target = targetSourceType.getMethod("getTarget").invoke(targetSource);
+                    if (target != null && target != singleton) {
+                        return ClassUtils.getUserClass(target.getClass());
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+            /* best-effort non-eager target resolution */
+        }
+        return null;
     }
 
     private boolean customAsyncConfigurer() {
@@ -622,7 +760,7 @@ final class SpringInventory {
                 && typed("org.springframework.boot.http.codec.CodecCustomizer").stream()
                         .allMatch(SpringInventory::isFramework)
                 && typed("org.springframework.web.reactive.config.WebFluxConfigurer").stream()
-                        .allMatch(SpringInventory::isFramework)) {
+                        .allMatch(SpringInventory::isKnownNonCodecWebFluxConfigurer)) {
             Entry properties = only(typed("org.springframework.boot.http.codec.autoconfigure.HttpCodecsProperties"));
             Object singleton = properties == null ? null : factory.getSingleton(properties.name());
             if (exact(singleton, "org.springframework.boot.http.codec.autoconfigure.HttpCodecsProperties")) {
@@ -641,23 +779,64 @@ final class SpringInventory {
 
     private void observeData() {
         // Exact Hikari singleton metadata does not open connections and wins over a stale Environment URL.
-        for (Entry entry : typed("javax.sql.DataSource")) {
-            Object singleton = factory.getSingleton(entry.name());
-            if (exact(singleton, "com.zaxxer.hikari.HikariDataSource")
-                    && typed("javax.sql.DataSource").size() == 1) {
+        List<Entry> dataSources = typed("javax.sql.DataSource");
+        if (!dataSources.isEmpty()) {
+            List<String> inMemory = new ArrayList<>();
+            String firstMemoryKind = null;
+            boolean anyOther = false;
+            boolean incompleteJdbc = false;
+            Set<Object> seenPhysical = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+            for (Entry entry : dataSources) {
+                Object raw = factory.getSingleton(entry.name());
+                Object singleton = raw instanceof javax.sql.DataSource ds
+                        ? PhysicalDataSources.physical(ds, SpringInventory::wrappedDataSource)
+                        : raw;
+                if (!exact(singleton, "com.zaxxer.hikari.HikariDataSource")) {
+                    incompleteJdbc = true;
+                    continue;
+                }
+                if (!seenPhysical.add(singleton)) {
+                    continue;
+                }
                 try {
                     if (singleton.getClass().getMethod("getDataSource").invoke(singleton) != null
                             || singleton
                                             .getClass()
                                             .getMethod("getDataSourceClassName")
                                             .invoke(singleton)
-                                    != null) continue;
+                                    != null) {
+                        incompleteJdbc = true;
+                        continue;
+                    }
                     String url = (String)
                             singleton.getClass().getMethod("getJdbcUrl").invoke(singleton);
-                    if (url != null && url.length() <= SpringProperties.MAX_TEXT) facts.put(JDBC_KIND, jdbcKind(url));
+                    if (url == null || url.length() > SpringProperties.MAX_TEXT) {
+                        incompleteJdbc = true;
+                        continue;
+                    }
+                    String kind = jdbcKind(url);
+                    if (kind.endsWith(" memory")) {
+                        if (firstMemoryKind == null) firstMemoryKind = kind;
+                        inMemory.add(
+                                "Observed supported JDBC memory storage (" + kind + ") on DataSource '"
+                                        + SpringRuleSupport.detail(entry.name())
+                                        + "' with a production-like effective profile name (naming heuristic); review durability. URL omitted.");
+                    } else {
+                        anyOther = true;
+                    }
                 } catch (ReflectiveOperationException | RuntimeException ex) {
+                    incompleteJdbc = true;
                     partial();
                 }
+            }
+            if (firstMemoryKind != null) {
+                facts.put(JDBC_KIND, firstMemoryKind);
+                facts.put(JDBC_IN_MEMORY_DETAILS, List.copyOf(inMemory));
+            } else if (anyOther && !incompleteJdbc) {
+                facts.put(JDBC_KIND, "other");
+            }
+            if (incompleteJdbc) {
+                facts.put(JDBC_INCOMPLETE, true);
             }
         }
         // R2DBC providers have no general safe URL getter. Only a proven, uncustomized Boot definition
@@ -688,13 +867,7 @@ final class SpringInventory {
                     String url =
                             (String) singleton.getClass().getMethod("getUrl").invoke(singleton);
                     if (url != null && url.length() <= SpringProperties.MAX_TEXT) {
-                        String normalized = url.toLowerCase(java.util.Locale.ROOT);
-                        if (normalized.contains("?")) return; // URL options may override driver/protocol.
-                        facts.put(
-                                R2DBC_KIND,
-                                normalized.startsWith("r2dbc:h2:mem:") || normalized.startsWith("r2dbc:pool:h2:mem:")
-                                        ? "H2 memory"
-                                        : "other");
+                        facts.put(R2DBC_KIND, r2dbcKind(url));
                     }
                 } catch (ReflectiveOperationException | RuntimeException ex) {
                     partial();
@@ -778,10 +951,30 @@ final class SpringInventory {
 
     static String jdbcKind(String url) {
         String lower = url.toLowerCase(java.util.Locale.ROOT);
-        if (lower.startsWith("jdbc:h2:mem:")) return "H2 memory";
+        if (lower.equals("jdbc:h2:mem") || lower.startsWith("jdbc:h2:mem:") || lower.startsWith("jdbc:h2:mem;"))
+            return "H2 memory";
         if (lower.startsWith("jdbc:hsqldb:mem:")) return "HSQLDB memory";
         if (lower.startsWith("jdbc:derby:memory:")) return "Derby memory";
         return "other";
+    }
+
+    static String r2dbcKind(String url) {
+        String normalized = url.toLowerCase(java.util.Locale.ROOT);
+        int query = normalized.indexOf('?');
+        String base = query >= 0 ? normalized.substring(0, query) : normalized;
+        return base.startsWith("r2dbc:h2:mem:") || base.startsWith("r2dbc:pool:h2:mem:") ? "H2 memory" : "other";
+    }
+
+    private static javax.sql.DataSource wrappedDataSource(javax.sql.DataSource dataSource) {
+        if (SpringAopDataSources.isProxy(dataSource)) {
+            return SpringAopDataSources.staticTarget(dataSource);
+        }
+        if (DelegatingDataSources.isSingleTarget(dataSource.getClass())) {
+            return DelegatingDataSources.hasDistinctReadOnlyTarget(dataSource)
+                    ? null
+                    : DelegatingDataSources.target(dataSource);
+        }
+        return null;
     }
 
     private void observeOsiv(boolean reactive) {
@@ -1030,6 +1223,24 @@ final class SpringInventory {
                         && entry.method() == null
                         && entry.type().getName().startsWith("org.springframework.boot.")
                         && hasAnnotation(entry.type(), "org.springframework.context.annotation.Configuration"));
+    }
+
+    private static boolean isKnownNonCodecWebFluxConfigurer(Entry entry) {
+        return isFramework(entry)
+                || BOOTUI_WEBFLUX_CONFIGURERS.contains(entry.type().getName());
+    }
+
+    private boolean hasApplicationSecurityChain() {
+        return typed("org.springframework.security.web.SecurityFilterChain").stream()
+                        .anyMatch(entry -> !isBootUiSecurityChain(entry))
+                || typed("org.springframework.security.web.server.SecurityWebFilterChain").stream()
+                        .anyMatch(entry -> !isBootUiSecurityChain(entry));
+    }
+
+    private static boolean isBootUiSecurityChain(Entry entry) {
+        return BOOTUI_SECURITY_CHAIN_NAMES.contains(entry.name())
+                || entry.ref().aliases().stream().anyMatch(BOOTUI_SECURITY_CHAIN_NAMES::contains)
+                || (entry.factory() != null && BOOTUI_SECURITY_AUTOCONFIGURATIONS.contains(entry.factory()));
     }
 
     private Entry entry(String name) {

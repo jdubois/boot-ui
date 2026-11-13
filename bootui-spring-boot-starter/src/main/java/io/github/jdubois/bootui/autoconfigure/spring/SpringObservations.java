@@ -19,6 +19,9 @@ record SpringObservations(
         CIRCULAR,
         ASYNC_SELECTION,
         ASYNC_QUEUE_CAPACITY,
+        ASYNC_UNREACHABLE_MAX_POOL_SIZE,
+        ASYNC_NON_POOL,
+        ASYNC_QUALIFIED_ONLY,
         SCHEDULER_POOL_SIZE,
         SCHEDULER_NON_POOL,
         SCHEDULED_TASK_COUNT,
@@ -31,6 +34,8 @@ record SpringObservations(
         CODEC_LIMIT,
         OSIV,
         JDBC_KIND,
+        JDBC_IN_MEMORY_DETAILS,
+        JDBC_INCOMPLETE,
         R2DBC_KIND,
         ENDPOINTS,
         TOMCAT_VIRTUAL_EXECUTOR,
@@ -39,7 +44,8 @@ record SpringObservations(
         JAVA_FEATURE_VERSION,
         MULTIPART_MAX_REQUEST_SIZE,
         MULTIPART_MAX_FILE_SIZE,
-        MULTIPART_DISABLED
+        MULTIPART_DISABLED,
+        APPLICATION_SECURITY_CHAIN
     }
 
     enum AsyncSelection {

@@ -737,11 +737,19 @@ class HibernateAdvisorObservationTests {
         for (String query : List.of(
                 "select o from Order o where o.id in (select x.id from Other x) join fetch o.items",
                 "select o from Order o join o.items i join fetch i.tags",
-                "select o from Order o join fetch o.items i")) {
+                "select o from Order o, Other x join fetch o.items")) {
             HibernateContext context = context("7.2.19.Final", List.of(method(query, null, Order.class, false)));
             assertThat(new CollectionJoinFetchPageableRule().evaluate(context).violationCount())
                     .isZero();
             assertThat(context.evidence().requiredUnknown()).isTrue();
+        }
+        for (String query : List.of(
+                "select o from Order o join fetch o.items i",
+                "select o from Order o join fetch o.items as i where o.name in ('a', 'b') order by o.name, o.id")) {
+            HibernateContext context = context("7.2.19.Final", List.of(method(query, null, Order.class, false)));
+            assertThat(new CollectionJoinFetchPageableRule().evaluate(context).violationCount())
+                    .isEqualTo(1);
+            assertThat(context.evidence().requiredUnknown()).isFalse();
         }
         HibernateContext harmless = context(
                 "7.2.19.Final",

@@ -691,6 +691,10 @@ public final class BootUiApiContractCatalog {
                     "cpuSamples", JsonType.INTEGER,
                     "outsideSamples", JsonType.INTEGER,
                     "requests", JsonType.INTEGER,
+                    "virtualThreadPinningSupported", JsonType.BOOLEAN,
+                    "pinnedEvents", JsonType.INTEGER,
+                    "outsidePinnedEvents", JsonType.INTEGER,
+                    "pinnedDurationMicros", JsonType.INTEGER,
                     "routes", JsonType.ARRAY,
                     "routesOmitted", JsonType.INTEGER,
                     "limitations", JsonType.ARRAY));

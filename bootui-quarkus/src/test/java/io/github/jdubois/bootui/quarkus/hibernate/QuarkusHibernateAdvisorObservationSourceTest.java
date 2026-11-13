@@ -134,6 +134,25 @@ class QuarkusHibernateAdvisorObservationSourceTest {
     }
 
     @Test
+    void activeProfilesResolveFromSmallRyeConfigWhenQuarkusProfilePropertyIsUnset() {
+        io.smallrye.config.SmallRyeConfig smallRye = new io.smallrye.config.SmallRyeConfigBuilder()
+                .withProfile("dev")
+                .build();
+        SessionFactoryImplementor unit = factory("default", 25, false);
+        when(unit.getProperties())
+                .thenReturn(Map.of("jakarta.persistence.schema-generation.database.action", "drop-and-create"));
+        HibernateAdvisorObservation observation =
+                new QuarkusHibernateAdvisorObservationSource(instances(List.of(unit)), smallRye).observe();
+        assertThat(observation.application().activeProfiles()).containsExactly("dev");
+        var report =
+                HibernateScanner.observing(() -> observation, Clock.systemUTC()).scan();
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-CONFIG-002"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("INFO"));
+    }
+
+    @Test
     void nativeJakartaCreateIsCreateOnlyAndDropAndCreateIsDestructive() {
         SessionFactoryImplementor first = factory("first", 1, false);
         SessionFactoryImplementor second = factory("second", 25, true);

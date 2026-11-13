@@ -38,6 +38,10 @@ final class ActuatorExposure {
     static final Set<String> SENSITIVE_READ_ENDPOINTS =
             Set.of("env", "configprops", "beans", "threaddump", "loggers", "httpexchanges", "startup", "mappings");
 
+    /** Skip reason for SPRING-MGMT-001/002/004 when an application SecurityFilterChain/SecurityWebFilterChain exists. */
+    static final String DEFERRED_TO_SECURITY_ADVISOR =
+            "Deferred to the Security Advisor because an application SecurityFilterChain or SecurityWebFilterChain is present.";
+
     /** Endpoints Spring Boot web-exposes by default when no explicit include list is configured. */
     private static final Set<String> DEFAULT_WEB_EXPOSED = Set.of("health");
 
@@ -147,8 +151,8 @@ final class ActuatorExposure {
     }
 
     private static Integer configuredAccess(SpringContext context, String accessKey, String enabledKey) {
-        Access access = SpringProperties.bind(context.environment(), true, accessKey, Bindable.of(Access.class));
-        Boolean enabled = SpringProperties.bind(context.environment(), true, enabledKey, Bindable.of(Boolean.class));
+        Access access = context.hostBind(accessKey, Bindable.of(Access.class));
+        Boolean enabled = context.hostBind(enabledKey, Bindable.of(Boolean.class));
         if (access != null && enabled != null)
             throw new IllegalArgumentException("Conflicting endpoint access settings");
         if (access != null) return rank(access);
@@ -160,7 +164,7 @@ final class ActuatorExposure {
     }
 
     private static int rankOrDefault(SpringContext context, String key, int defaultRank) {
-        Access access = SpringProperties.bind(context.environment(), true, key, Bindable.of(Access.class));
+        Access access = context.hostBind(key, Bindable.of(Access.class));
         return access == null ? defaultRank : rank(access);
     }
 
@@ -179,7 +183,7 @@ final class ActuatorExposure {
     /** Binds the include/exclude property as a Set so comma strings and YAML lists both resolve. */
     private static Set<String> tokens(SpringContext context, String key) {
         Set<String> normalized = new LinkedHashSet<>();
-        Set<String> bound = SpringProperties.bind(context.environment(), true, key, Bindable.setOf(String.class));
+        Set<String> bound = context.hostBind(key, Bindable.setOf(String.class));
         if (bound == null) return Set.of();
         if (bound.size() > 100) throw new IllegalArgumentException("Exposure list exceeds limit");
         for (String token : bound) {

@@ -8,6 +8,7 @@ import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.properties.HasAnnotations;
+import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -82,6 +83,7 @@ final class TransactionJoin {
      * qualify, and neither do constructors, static methods, or final methods a class-based proxy cannot override.
      */
     private static Optional<Set<Definition>> enclosingTransactions(JavaCodeUnit origin, Set<JavaMethod> visiting) {
+        origin = KotlinBytecode.unwrapSuspendImplOrigin(origin);
         if (!(origin instanceof JavaMethod method) || ArchitectureRuleSupport.isCompilerGenerated(method)) {
             return Optional.empty();
         }

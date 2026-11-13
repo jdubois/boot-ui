@@ -43,12 +43,13 @@ class BootUiQuarkusSpringResourceTest {
         assertThat(scan.status()).isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
-        assertThat(scanned.path("rulesEvaluated").asInt()).isGreaterThan(0);
-        assertThat(scanned.path("analysisErrors").size()).isGreaterThan(0);
+        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(10);
+        assertThat(scanned.path("analysisErrors")).isEmpty();
+        assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
         assertThat(ruleIds(scanned))
                 .as("any application advisor finding must be a Quarkus QA-* rule, never a Spring one")
                 .allMatch(id -> id.startsWith("QA-"))
-                .contains("QA-CDI-003", "QA-CDI-004")
+                .contains("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-WEB-001", "QA-WEB-004")
                 .doesNotContain(
                         "QA-CDI-001",
                         "QA-CFG-001",
@@ -56,7 +57,8 @@ class BootUiQuarkusSpringResourceTest {
                         "QA-SCH-001",
                         "QA-PROD-001",
                         "QA-PROF-001",
-                        "QA-DB-001");
+                        "QA-DB-001",
+                        "QA-WEB-002");
 
         Response cached = probe().get("/bootui/api/spring");
         assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("PARTIAL");

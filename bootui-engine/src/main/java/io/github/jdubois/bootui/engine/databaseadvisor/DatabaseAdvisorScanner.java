@@ -301,7 +301,8 @@ public final class DatabaseAdvisorScanner {
                 List.of(),
                 null,
                 driverEvidence.jdbcBatching(),
-                pools);
+                pools,
+                driverEvidence.entityDataSources());
         List<DatabaseAdvisorRuleResultDto> results = new ArrayList<>();
         boolean usable = false;
         for (DatabaseAdvisorRule rule : DatabaseAdvisorRuleRegistry.activeRules()) {
@@ -314,7 +315,8 @@ public final class DatabaseAdvisorScanner {
                     List.of(),
                     collector,
                     context.jdbcBatching(),
-                    context.pools());
+                    context.pools(),
+                    context.entityDataSources());
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
             if (rule.comparableAcrossScans()
@@ -576,9 +578,11 @@ public final class DatabaseAdvisorScanner {
 
     /** The pool's driver properties per datasource and the effective JDBC batching, as the scan will use them. */
     private record DriverEvidenceInputs(
-            Map<String, DataSourceConfiguration> configurations, Map<String, JdbcBatching> jdbcBatching) {
+            Map<String, DataSourceConfiguration> configurations,
+            Map<String, JdbcBatching> jdbcBatching,
+            Map<String, String> entityDataSources) {
 
-        static final DriverEvidenceInputs NONE = new DriverEvidenceInputs(Map.of(), Map.of());
+        static final DriverEvidenceInputs NONE = new DriverEvidenceInputs(Map.of(), Map.of(), Map.of());
 
         /** The pool's driver properties, or {@code null} when they were not read for this datasource. */
         Map<String, String> poolDriverProperties(String dataSourceName) {
@@ -629,7 +633,25 @@ public final class DatabaseAdvisorScanner {
                     SchemaDiagnostic.WARNING,
                     "Hibernate's JDBC batching could not be read; batching-dependent driver checks are skipped.");
         }
-        return new DriverEvidenceInputs(configurations, batching);
+        Map<String, String> entityDataSources = Map.of();
+        try {
+            Map<String, String> reported = evidenceProvider.entityDataSources();
+            if (reported != null) {
+                Map<String, String> valid = new HashMap<>();
+                reported.forEach((entityName, dataSourceName) -> {
+                    if (entityName != null
+                            && !entityName.isBlank()
+                            && dataSourceName != null
+                            && !dataSourceName.isBlank()) {
+                        valid.put(entityName, dataSourceName);
+                    }
+                });
+                entityDataSources = valid;
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Persistence-unit attribution is optional; unattributed multi-datasource scans fall back to UNKNOWN.
+        }
+        return new DriverEvidenceInputs(configurations, batching, entityDataSources);
     }
 
     /**

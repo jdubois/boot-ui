@@ -344,13 +344,15 @@ cannot be read, the impact says so rather than listing nothing.
 
 ![Runtime Insights, JFR profile tab: CPU samples and allocation per route, with the hottest sampled frame](../images/bootui-runtime-insights-profile.webp)
 
-**Profile resources** measures what scope readings cannot, such as CPU on virtual threads. Only when you click it, it
-records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by default; **Stop now** ends
-it early), then joins each CPU and allocation sample to the request that ran on the sampled thread at that moment, in
-JFR's own clock, virtual threads included.
+**Profile resources** measures what scope readings cannot, such as CPU and carrier-thread pinning on virtual threads.
+Only when you click it, it records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by
+default; **Stop now** ends it early), then joins each CPU and allocation sample and each `jdk.VirtualThreadPinned` event
+(enabled at a `1 ms` threshold when the runtime supports it) to the request segment that ran on that thread in JFR's own
+clock, virtual threads included.
 
 The results list, per route, the requests sampled, the CPU samples with a bar for each route's share, JFR's estimate of
-the bytes allocated, and the hottest application frames. CPU is counted in samples, never as a measured time.
+the bytes allocated, virtual-thread pinning event counts, total pinned duration, and hot pinning frames when supported,
+and the hottest CPU application frames. CPU is counted in samples, never as a measured time.
 
 A runtime without JFR, or a journal that does not record the `resources` source, reports why no session can run.
 `bootui.panels.runtime-insights.read-only` or `bootui.read-only` blocks starting one.
@@ -358,6 +360,7 @@ A runtime without JFR, or a journal that does not record the `resources` source,
 ::: details JFR internals and limits
 
 - JFR's CPU-time sampler is used on Linux with JDK 25 and later, and its execution sampler elsewhere; the results say which ran.
+- On JDK 21 and later, `jdk.VirtualThreadPinned` is enabled with a `1 ms` threshold and stack traces, and joined to overlapping `bootui.ExecutionSegment` intervals on the pinned virtual thread's Java thread id (`outsidePinnedEvents` counts pins outside any request segment). On JDK 24 and later (JEP 491), a limitation notes that `synchronized` blocks no longer pin virtual threads and only native frames and class initializers emit `jdk.VirtualThreadPinned`.
 - Starting JFR takes about a third of a second and some 40 MB, and writes a temporary recording that is deleted once read.
 - While the HTTP Exchanges panel is disabled, the results keep their totals but list no route, and say so; re-enabling the panel shows the routes again.
 - The regular CPU ledger accounts for a closing request segment once, even when its sampler reads concurrently with closure. Request completion also releases the measured segments on Quarkus connection cancellation; a response that closed without ending is retained with status `0`, not a fabricated successful response.

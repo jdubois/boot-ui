@@ -9,7 +9,9 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.bind.PropertySourcesPlaceholdersResolver;
 import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySource;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.boot.context.properties.source.ConfigurationPropertyState;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
@@ -25,20 +27,22 @@ final class SpringProperties {
     static final int MAX_SOURCES = 100;
     static final int MAX_TEXT = 4096;
     private static final String DEVTOOLS_DEFAULTS = "devtools";
+    private static final String OVERSIZED_ENV_SENTINEL = "x".repeat(MAX_TEXT + 1);
 
-    private SpringProperties() {}
+    private final Environment environment;
+    private List<PropertySource<?>> normalPropertySources;
+    private Iterable<ConfigurationPropertySource> normalConfigSources;
+    private Binder normalBinder;
+    private Binder hostBinder;
+    private Set<String> compactNames;
 
-    static <T> T bind(Environment environment, boolean host, String key, Bindable<T> type) {
+    SpringProperties(Environment environment) {
+        this.environment = environment;
+    }
+
+    <T> T bind(boolean host, String key, Bindable<T> type) {
         try {
-            if (!(environment instanceof ConfigurableEnvironment configurable)) {
-                throw new IllegalStateException("Unsupported property sources");
-            }
-            List<PropertySource<?>> sources = sources(configurable, host);
-            T value = new Binder(
-                            ConfigurationPropertySources.from(sources),
-                            new PropertySourcesPlaceholdersResolver(sources))
-                    .bind(key, type)
-                    .orElse(null);
+            T value = binder(host).bind(key, type).orElse(null);
             if (value instanceof String text && (text.length() > MAX_TEXT || text.contains("${"))) {
                 throw new IllegalStateException("Unresolved or oversized property");
             }
@@ -48,26 +52,34 @@ final class SpringProperties {
         }
     }
 
-    static boolean present(Environment environment, String key) {
-        if (!(environment instanceof ConfigurableEnvironment configurable)) {
-            throw new InspectionFailure("Property inspection is unavailable.");
-        }
+    boolean present(String key) {
         var canonical = ConfigurationPropertyName.of(key);
-        for (var source : ConfigurationPropertySources.from(sources(configurable, false))) {
-            if (source.getConfigurationProperty(canonical) != null) return true;
+        for (var source : normalConfigSources()) {
+            if (source.getConfigurationProperty(canonical) != null
+                    || source.containsDescendantOf(canonical) == ConfigurationPropertyState.PRESENT) {
+                return true;
+            }
         }
         String compact = key.replace("-", "");
-        return names(environment).stream()
-                .map(name -> name.replace("-", ""))
+        return compactNames().stream()
                 .anyMatch(name -> name.startsWith(compact + "[") || name.startsWith(compact + "."));
     }
 
+    static <T> T bind(Environment environment, boolean host, String key, Bindable<T> type) {
+        return new SpringProperties(environment).bind(host, key, type);
+    }
+
+    static boolean present(Environment environment, String key) {
+        return new SpringProperties(environment).present(key);
+    }
+
     static Set<String> names(Environment environment) {
-        if (!(environment instanceof ConfigurableEnvironment configurable)) {
-            throw new InspectionFailure("Property-name inspection is unavailable.");
-        }
+        return new SpringProperties(environment).names();
+    }
+
+    Set<String> names() {
         Set<String> names = new LinkedHashSet<>();
-        for (PropertySource<?> source : sources(configurable, false)) {
+        for (PropertySource<?> source : normalPropertySources()) {
             if (source instanceof EnumerablePropertySource<?> enumerable) {
                 for (String name : enumerable.getPropertyNames()) {
                     // Relaxed/indexed names are compared canonically, never displayed.
@@ -77,6 +89,53 @@ final class SpringProperties {
             }
         }
         return Set.copyOf(names);
+    }
+
+    private Binder binder(boolean host) {
+        if (host) {
+            if (hostBinder == null) {
+                if (!(environment instanceof ConfigurableEnvironment configurable)) {
+                    throw new IllegalStateException("Unsupported property sources");
+                }
+                List<PropertySource<?>> sources = sources(configurable, true);
+                hostBinder = new Binder(
+                        ConfigurationPropertySources.from(sources), new PropertySourcesPlaceholdersResolver(sources));
+            }
+            return hostBinder;
+        }
+        if (normalBinder == null) {
+            List<PropertySource<?>> sources = normalPropertySources();
+            normalBinder = new Binder(normalConfigSources(), new PropertySourcesPlaceholdersResolver(sources));
+        }
+        return normalBinder;
+    }
+
+    private List<PropertySource<?>> normalPropertySources() {
+        if (normalPropertySources == null) {
+            if (!(environment instanceof ConfigurableEnvironment configurable)) {
+                throw new InspectionFailure("Property inspection is unavailable.");
+            }
+            normalPropertySources = sources(configurable, false);
+        }
+        return normalPropertySources;
+    }
+
+    private Iterable<ConfigurationPropertySource> normalConfigSources() {
+        if (normalConfigSources == null) {
+            normalConfigSources = ConfigurationPropertySources.from(normalPropertySources());
+        }
+        return normalConfigSources;
+    }
+
+    private Set<String> compactNames() {
+        if (compactNames == null) {
+            Set<String> computed = new LinkedHashSet<>();
+            for (String name : names()) {
+                computed.add(name.replace("-", ""));
+            }
+            compactNames = Set.copyOf(computed);
+        }
+        return compactNames;
     }
 
     private static List<PropertySource<?>> sources(ConfigurableEnvironment environment, boolean host) {
@@ -174,6 +233,20 @@ final class SpringProperties {
         return value;
     }
 
+    /**
+     * Reads an entry for {@link MapView}, which Spring Boot's {@code SpringIterableConfigurationPropertySource}
+     * copies eagerly across every OS environment variable. An oversized or unsupported unrelated environment variable
+     * must not abort the entire scan; replacing it with {@link #OVERSIZED_ENV_SENTINEL} keeps memory bounded while
+     * still failing if a rule actually binds that specific property.
+     */
+    private static Object readForEnvironmentMap(PropertySource<?> source, String key, boolean host) {
+        try {
+            return read(source, key, host);
+        } catch (InspectionFailure ex) {
+            return OVERSIZED_ENV_SENTINEL;
+        }
+    }
+
     private static void checkValue(Object value, int depth, int[] visited) {
         if (++visited[0] > 1000 || depth > 8)
             throw new InspectionFailure("Property structure exceeds inspection limit.");
@@ -230,7 +303,7 @@ final class SpringProperties {
 
         @Override
         public Object get(Object key) {
-            return key instanceof String text ? read(delegate, text, host) : null;
+            return key instanceof String text ? readForEnvironmentMap(delegate, text, host) : null;
         }
 
         @Override

@@ -218,6 +218,7 @@ const panel = useAdvisorPanel(props, {
                 <span class="text-muted small font-monospace">{{ result.id }}</span>
               </div>
               <div class="small fw-semibold">{{ result.name }}</div>
+              <div v-if="result.description" class="small text-muted">{{ result.description }}</div>
               <ul v-if="result.sampleViolations && result.sampleViolations.length" class="small mb-0 mt-1">
                 <li v-for="(sample, index) in result.sampleViolations" :key="index">{{ sample }}</li>
               </ul>

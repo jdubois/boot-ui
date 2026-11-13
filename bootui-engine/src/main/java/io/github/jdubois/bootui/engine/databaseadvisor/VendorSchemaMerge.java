@@ -189,7 +189,7 @@ final class VendorSchemaMerge {
                                 : linkedConstraints.isEmpty() ? null : linkedConstraints.get(0);
                 indexes.add(
                         detail == null
-                                ? index
+                                ? (backingConstraint == null ? index : index.withBackingConstraint(backingConstraint))
                                 : enrichOracle(
                                                 index,
                                                 detail,
@@ -334,9 +334,14 @@ final class VendorSchemaMerge {
                                         || details.isEmpty()
                                         || details.size() != index.keyParts().size()
                                 ? index
-                                : enrich(index, details));
+                                : enrich(table, index, details));
             }
-            merged.add(table.withIndexes(indexes));
+            TableModel enriched = table.withIndexes(indexes);
+            IndexModel backing = enriched.primaryKeyBackingIndex();
+            if (backing != null && backing.unique() && backing.validity() == IndexModel.Validity.VALID) {
+                enriched = enriched.withMetadata(enriched.metadata().withPrimaryKeyEnforced(true));
+            }
+            merged.add(enriched);
         }
         return List.copyOf(merged);
     }
@@ -347,7 +352,7 @@ final class VendorSchemaMerge {
         return key(schema, table.name(), index.name());
     }
 
-    private static IndexModel enrich(IndexModel index, List<MySqlIndexDetail> details) {
+    private static IndexModel enrich(TableModel table, IndexModel index, List<MySqlIndexDetail> details) {
         List<MySqlIndexDetail> ordered = new ArrayList<>(details);
         ordered.sort((left, right) -> Integer.compare(left.position(), right.position()));
         List<IndexKeyPart> keyParts = new ArrayList<>();
@@ -388,14 +393,27 @@ final class VendorSchemaMerge {
         IndexModel.Visibility visibility = visible == null
                 ? IndexModel.Visibility.UNKNOWN
                 : (visible ? IndexModel.Visibility.VISIBLE : IndexModel.Visibility.INVISIBLE);
+        boolean effectiveUnique = uniquenessKnown ? first.unique() : index.unique();
+        IndexModel.Validity validity = uniquenessKnown && index.validity() == IndexModel.Validity.UNKNOWN
+                ? IndexModel.Validity.VALID
+                : index.validity();
+        String backingConstraint = index.backingConstraint() != null
+                ? index.backingConstraint()
+                : uniquenessKnown
+                                && effectiveUnique
+                                && "PRIMARY".equalsIgnoreCase(index.name())
+                                && table.primaryKeyName() != null
+                                && "PRIMARY".equalsIgnoreCase(table.primaryKeyName())
+                        ? table.primaryKeyName()
+                        : null;
         return new IndexModel(
                 index.name(),
                 keyParts,
-                uniquenessKnown ? first.unique() : index.unique(),
+                effectiveUnique,
                 !consistentMethod ? null : indexType == null ? index.method() : indexType.toLowerCase(Locale.ROOT),
                 index.filterCondition(),
                 visibility,
-                index.validity(),
+                validity,
                 index.nullsNotDistinct(),
                 index.automatic(),
                 index.partitioned(),
@@ -403,7 +421,7 @@ final class VendorSchemaMerge {
                 index.includedColumns(),
                 false,
                 uniquenessKnown,
-                index.backingConstraint());
+                backingConstraint);
     }
 
     private record ObjectKey(String schema, String table, String index) {}

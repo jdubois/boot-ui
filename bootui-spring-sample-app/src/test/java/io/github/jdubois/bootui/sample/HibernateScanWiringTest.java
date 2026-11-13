@@ -55,6 +55,7 @@ class HibernateScanWiringTest {
         });
         assertThat(report.results())
                 .extracting(result -> result.id())
+                .contains("HIB-QUERY-004")
                 .doesNotHaveDuplicates()
                 .doesNotContain(
                         "HIB-FETCH-004",

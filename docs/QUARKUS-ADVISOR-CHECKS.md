@@ -5,7 +5,7 @@ the panel ID remains `spring`, the endpoint remains `/bootui/api/spring`, and th
 `SpringReport` JSON and dismissal contract are unchanged. It is separate from the
 [Quarkus Security advisor](QUARKUS-CHECKS.md).
 
-The advisor has **14 active rules**. It inspects application-owned build metadata and
+The advisor has **13 active rules**. It inspects application-owned build metadata and
 selected configuration only when the user requests a scan. It never invokes application
 beans, constructs REST clients, executes scheduled work, reads JDBC data, intercepts
 traffic, or changes configuration. Findings are review prompts, not proof of a race,
@@ -42,8 +42,10 @@ profiles are not treated as proof of a future production deployment.
 Production declarations can produce useful findings while coverage remains incomplete.
 `PARTIAL` reports retain those findings. Each rule has exactly one outcome per scan: a rule with findings is listed in
 `results`, and its incomplete coverage is stated in its description ("Coverage is incomplete: ...") and in
-`evidence.limitations`; a rule that could not be evaluated and found nothing is listed in `analysisErrors`. `ERROR`
-means no applicable evidence could be inspected.
+`evidence.limitations`; a production rule whose loaded declarations have no findings in development or test mode is
+omitted from `analysisErrors`, recorded as a `SKIPPED` diagnostic in `inspected`, and listed in `evidence.limitations`;
+a rule that could not be evaluated because of a genuine inspection or configuration failure and found nothing is listed
+in `analysisErrors`. `ERROR` means no applicable evidence could be inspected.
 Skipped/unknown checks are not counted as successfully evaluated. Dismissing a finding
 does not remove coverage errors or turn an incomplete scan into a complete one.
 Retired rule IDs are never reused, and existing dismissals of surviving IDs still apply.
@@ -85,8 +87,10 @@ instance.
 
 Make the field private and access the state through methods. Package-private visibility still permits direct proxy
 field access from the same package. Final atomics and concurrent collections are **not** exempt here, because the proxy
-holds a second object. To limit noise, final primitives and immutable value types (`String`, boxed numbers,
-`java.time`, `BigDecimal`, `UUID`) remain excluded, although a constructor-assigned value can still differ on the proxy.
+holds a second object. Synthetic fields, Kotlin `lateinit var` accessor-backed properties, `final` enum constants, and
+REST parameter fields (`@RestQuery`, `@QueryParam`, etc., including on `@BeanParam` classes) are excluded. To limit
+noise, final primitives and immutable value types (`String`, boxed numbers, `java.time`, `BigDecimal`, `UUID`) remain
+excluded, although a constructor-assigned value can still differ on the proxy.
 
 ### QA-CDI-002 - Public state on a singleton REST resource
 
@@ -128,16 +132,18 @@ and [Quarkus REST scope handling](https://github.com/quarkusio/quarkus/blob/3.33
 
 - **Severity**: MEDIUM
 
-Observed production configuration enables Hibernate SQL logging on a
+Observed production configuration (`%prod.` declarations or unqualified declarations in a base
+`application.properties`/`application.yaml` file) enables Hibernate SQL logging on a
 default or named persistence unit. Review production log volume and the sensitivity of
 SQL text. SQL logging does **not** automatically enable bind-parameter logging, which
-has separate settings; SQL literals may nevertheless contain application data.
+has separate settings; SQL literals may nevertheless contain application data. When `prod` is the sole active profile,
+the rule defers to the Hibernate advisor's HIB-CONFIG-012 so one setting is not charged twice.
 
 ### QA-CFG-003 - Verbose root logging in observed production configuration
 
 - **Severity**: MEDIUM
 
-The observed production root log level is `DEBUG`, `TRACE`, or `ALL`.
+The observed production root log level is `DEBUG`, `TRACE`, `FINE`, `FINER`, `FINEST`, or `ALL`.
 Review whether that verbosity is intended for the deployment; `INFO` or `WARN` is often
 a more appropriate baseline. BootUI does not infer a measured slowdown or an actual
 secret disclosure from the level alone.
@@ -187,7 +193,8 @@ means **create-only**, not Hibernate's legacy `hibernate.hbm2ddl.auto=create`, w
 drops before recreating. `create` and `update` can still perform unreviewed production
 DDL, but are not described as guaranteed deletion of existing data. `none` and `validate`
 do not trigger this rule. Unknown spellings are not silently normalized into a
-destructive action.
+destructive action. When `prod` is the sole active profile, the rule defers to the Hibernate advisor's HIB-CONFIG-002
+so the effective setting is not charged twice.
 
 Prefer reviewed migrations or the deployment's existing schema-management process.
 The advisor does not require that migration tooling run inside the application.
@@ -196,8 +203,9 @@ The advisor does not require that migration tooling run inside the application.
 
 - **Severity**: MEDIUM
 
-A supported JDBC URL explicitly selects in-memory storage. H2, HSQLDB or
-Derby **database kind alone is not evidence of volatile storage**: file-backed and
+A supported JDBC URL explicitly selects in-memory storage (including `jdbc:h2:mem`, `jdbc:h2:mem:...`,
+`jdbc:hsqldb:mem:...`, `jdbc:derby:memory:...`, and `jdbc:sqlite::memory:`). H2, HSQLDB, Derby, or SQLite
+**database kind alone is not evidence of volatile storage**: file-backed and
 server-backed databases are valid. URL matching uses storage-mode forms, not an
 incidental `mem` substring elsewhere in the URL.
 
@@ -228,12 +236,11 @@ universally necessary. Upstream compression, client negotiation, response media 
 
 ### QA-WEB-002 - HTTP request-draining timeout is zero
 
-- **Severity**: LOW
-
-`quarkus.shutdown.timeout=0` disables HTTP request-draining grace; zero does not mean waiting without
-limit. Set a **positive duration**, for example `10s`, if requests should be allowed to finish. Removing the override
-is not equivalent: the framework default also leaves draining disabled, which is why the behaviourally identical
-default is only the INFO prompt QA-WEB-004. This does not promise completion of every scheduled or messaging operation.
+**Retired.** Folded into QA-WEB-004 (`INFO`). In Quarkus (`ShutdownConfig.isTimeoutEnabled()`), an explicit
+`quarkus.shutdown.timeout=0` (or sub-millisecond duration where `timeout.toMillis() <= 0L`) has the exact same runtime
+behavior as an absent `quarkus.shutdown.timeout` (request draining disabled), so penalizing an explicit zero at `LOW`
+while reporting the identical default at `INFO` split one runtime state across two severities. The ID remains reserved
+in `RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals do not target an unrelated rule.
 
 ### QA-WEB-003 - Registered REST client timer is disabled
 
@@ -258,12 +265,13 @@ extension produces incomplete coverage, not a claim that no clients exist.
 
 - **Severity**: INFO
 
-The shutdown timeout is known to be absent. Quarkus request-draining grace is
-opt-in, so configure a positive `quarkus.shutdown.timeout` if required. Development mode never drains, even with a
-positive timeout, so a visible `%prod.quarkus.shutdown.timeout` declaration is preferred over the active value for both
-shutdown rules, and both report incomplete production coverage unless `prod` is the sole active profile.
-This rule is mutually exclusive with QA-WEB-002. An unreadable duration is an analysis
-error, not an absent value.
+The shutdown timeout is known to be absent or non-positive (`timeout == null || timeout.toMillis() <= 0L`, matching
+Quarkus `ShutdownConfig.isTimeoutEnabled()`). Quarkus request-draining grace is opt-in, so configure a positive
+`quarkus.shutdown.timeout` (for example `10s`) if required; removing a zero override does not enable draining, and zero
+does not mean waiting without limit. Development mode never drains, even with a positive timeout, so a visible
+`%prod.quarkus.shutdown.timeout` declaration is preferred over the active value, and the rule reports incomplete
+production coverage unless `prod` is the sole active profile. An unreadable or negative duration is an analysis error,
+not an absent value.
 
 Sources: [compression default](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/VertxHttpBuildTimeConfig.java#L72-L80),
 [shutdown default](https://github.com/quarkusio/quarkus/blob/3.33.3.1/core/runtime/src/main/java/io/quarkus/runtime/shutdown/ShutdownConfig.java#L18-L23),
@@ -277,15 +285,18 @@ and [zero connect-timer semantics](https://github.com/netty/netty/blob/netty-4.1
 
 - **Severity**: LOW
 
-On the **running JDK 21-23**, an identified Quarkus REST virtual-thread entry
-implementation is also declared `synchronized`. The native-resolved implementation,
+On the **running JDK 21-23**, an identified Quarkus virtual-thread entry
+implementation (Quarkus REST root or sub-resource endpoint, `@Scheduled` method, Reactive Messaging
+`@Incoming`/`@Outgoing` method, Vert.x `@ConsumeEvent` method, or WebSockets Next callback) is also declared
+`synchronized`. The native-resolved implementation,
 not a superclass/interface declaration supplying REST annotations, determines this flag.
 Review blocking work performed while holding
-the monitor; declaration metadata alone does not establish that blocking occurs.
+the monitor; declaration metadata alone does not establish that blocking occurs. Consider targeted locking changes such
+as `@io.quarkus.arc.Lock` only when justified.
 
 The rule does not treat every helper in an annotated class as a virtual-thread entry
 point and does not double-count a method annotated at both class and method level.
-Method-body synchronized blocks and unmodeled scheduler/messaging invocation paths are
+Method-body synchronized blocks are
 outside its evidence. [JEP 491](https://openjdk.org/jeps/491) removes synchronized-related
 pinning from JDK 24 onward, so this rule does not fire there. The build JDK is not used
 as a substitute for the running JDK.
@@ -330,7 +341,7 @@ and [Agroal default maximum](https://github.com/quarkusio/quarkus/blob/3.33.3.1/
 ## Second audit disposition
 
 A second audit re-checked every surviving rule against Quarkus 3.33.3.x sources and CDI 4.1. Twenty-one IDs are now
-accounted for: 14 active and 7 retired. Each added rule and severity change was reviewed independently by three
+accounted for: 13 active and 8 retired. Each added rule and severity change was reviewed independently by three
 models before implementation.
 
 | Rule | Disposition | Reason |
@@ -342,14 +353,13 @@ models before implementation.
 | QA-CFG-004 | Updated | Also detects the deprecated `create-schemas` and `halt-on-error` keys, names each replacement and reports once per unit. |
 | QA-CFG-005 | Added | Build-time bind-parameter logging in the production view; complements HIB-CONFIG-018, which reads only an active production profile. |
 | QA-WEB-001 | Updated | Explicit `false` suppresses the prompt; a visible `%prod.` declaration is preferred in development mode. |
-| QA-WEB-002 | Updated | MEDIUM to LOW: an explicit zero behaves like the INFO default; visible `%prod.` declaration preferred. |
-| QA-WEB-004 | Updated | False positive fixed: `%prod.quarkus.shutdown.timeout` was invisible to the development profile. |
+| QA-WEB-002 | Retired | Folded into QA-WEB-004 (`INFO`): `quarkus.shutdown.timeout=0` and sub-millisecond durations (`timeout.toMillis() <= 0L`) behave identically to the absent default (`ShutdownConfig.isTimeoutEnabled()`). |
+| QA-WEB-004 | Updated | Covers both absent and non-positive (`timeout.toMillis() <= 0L`) shutdown timeouts; `%prod.quarkus.shutdown.timeout` preferred in development mode. |
 | Others | Retained | QA-CFG-002, QA-CFG-003, QA-PROD-002, QA-PROD-003, QA-WEB-003 and QA-PERF-002 were re-verified. |
 
 Not added: a REST client without a URL (Quarkus already fails with a precise message on first use), a log category
-below `quarkus.log.min-level` and `@RunOnVirtualThread` on JDK 17 (Quarkus warns at startup), scheduled-job overlap
-(the default `PROCEED` policy is legitimate), and unqualified base-file declarations for the runtime production rules
-(development-only sources, Dev Services and launch overrides cannot be told apart reliably at runtime).
+below `quarkus.log.min-level` and `@RunOnVirtualThread` on JDK 17 (Quarkus warns at startup), and scheduled-job overlap
+(the default `PROCEED` policy is legitimate).
 
 The source audit targets Quarkus **3.33.3.1**. Pinned supporting JDK, Hibernate, SmallRye
 and database references explain specific semantics; they do not claim every application

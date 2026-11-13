@@ -77,7 +77,8 @@ class RestApiRuleAccuracyTests {
                 "untypedEnvelope",
                 "untypedHttpEntity",
                 "nestedUntypedHttpEntity");
-        violations(new CreatedResponsesExposeLocationRule(), context, "created");
+        assertThat(new CreatedResponsesExposeLocationRule().evaluate(context).status())
+                .isEqualTo("SKIPPED");
         violations(new RetryAfterOnThrottlingResponsesRule(), context, "retry");
         assertThat(new ResponseStatusIgnoredWithResponseEntityRule()
                         .definition()
@@ -153,12 +154,15 @@ class RestApiRuleAccuracyTests {
     }
 
     @Test
-    void repeatedPrefixRequiresEveryMappingAlternativeToAgree() {
-        violations(new PreferClassLevelBasePathRule(), context(RestApiRuleAccuracyFixtures.PrefixAliases.class));
+    void repeatedPrefixRuleIsRetired() {
+        assertThat(new PreferClassLevelBasePathRule()
+                        .evaluate(context(RestApiRuleAccuracyFixtures.PrefixAliases.class))
+                        .status())
+                .isEqualTo("SKIPPED");
         var result =
                 new PreferClassLevelBasePathRule().evaluate(context(RestApiRuleAccuracyFixtures.RepeatedPrefix.class));
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(result.violationCount()).isZero();
     }
 
     @Test
@@ -377,25 +381,41 @@ class RestApiRuleAccuracyTests {
     }
 
     @Test
-    void documentationRecognizesTagContainersAndOperationTagsWithoutRequiringAnnotationsForGeneration() {
+    void documentationRecognizesTagContainersAndOperationTagsAndRetiresOpenApiRules() {
         RestApiContext context = context(
                 RestApiRuleAccuracyFixtures.ContainerTags.class,
                 RestApiRuleAccuracyFixtures.OperationTags.class,
                 RestApiRuleAccuracyFixtures.MicroProfileTags.class);
-        violations(new ControllersAreTaggedRule(), context);
+        assertThat(context.controllers())
+                .allMatch(controller -> controller.hasTag()
+                        || context.handlers().stream()
+                                .anyMatch(
+                                        handler -> handler.controllerClassName().equals(controller.className())
+                                                && handler.hasTag()));
+        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo("SKIPPED");
         var operations = new EndpointsAreDocumentedRule().evaluate(context);
-        assertThat(operations.status()).isEqualTo("VIOLATION");
-        assertThat(operations.violationCount()).isEqualTo(2);
-        assertThat(operations.description()).contains("Generated, static or filtered documentation");
+        assertThat(operations.status()).isEqualTo("SKIPPED");
+        assertThat(operations.violationCount()).isZero();
     }
 
     @Test
     void retiredSignalsNeverEmitEvenWhenTheOldPredicatesWouldMatch() {
         RestApiContext context = context(RestApiRuleAccuracyFixtures.RetiredSignals.class);
         for (RestApiRule rule : Arrays.asList(
+                new PreferClassLevelBasePathRule(),
                 new MutatingItemMethodsTargetResourceRule(),
+                new CollectionsUsePluralNounsRule(),
                 new FormatSuffixInPathRule(),
+                new ReadEndpointsReturnRepresentationRule(),
+                new CreatedResponsesExposeLocationRule(),
+                new DtosAreImmutableRule(),
+                new MutatingEndpointsDeclareMediaTypesRule(),
+                new ResponseProducingEndpointsDeclareProducesRule(),
+                new NoBroadThrowsOnHandlersRule(),
                 new ExceptionHandlersDoNotExposeStackTracesRule(),
+                new IdempotencyKeyOnCreationEndpointsRule(),
+                new EndpointsAreDocumentedRule(),
+                new ControllersAreTaggedRule(),
                 new DeprecatedEndpointsSignalDeprecationRule())) {
             var result = rule.evaluate(context);
             assertThat(result.status()).as(result.id()).isEqualTo("SKIPPED");

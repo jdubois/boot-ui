@@ -330,6 +330,19 @@ final class HibernateRuleModelSupport {
         return implementsPersistable(type.getSuperclass());
     }
 
+    private static final Set<Integer> NON_ORDINAL_ENUM_JDBC_TYPES = Set.of(
+            java.sql.Types.CHAR,
+            java.sql.Types.VARCHAR,
+            java.sql.Types.LONGVARCHAR,
+            4001, // org.hibernate.type.SqlTypes.LONG32VARCHAR
+            java.sql.Types.NCHAR,
+            java.sql.Types.NVARCHAR,
+            java.sql.Types.LONGNVARCHAR,
+            4002, // org.hibernate.type.SqlTypes.LONG32NVARCHAR
+            6000, // org.hibernate.type.SqlTypes.ENUM
+            6001 // org.hibernate.type.SqlTypes.NAMED_ENUM
+            );
+
     static boolean hasCustomIdentifierGenerator(HibernateAttributeModel attribute) {
         if (!attribute.hasId()) return false;
         for (Annotation annotation : attribute.annotations()) {
@@ -350,6 +363,166 @@ final class HibernateRuleModelSupport {
             }
         }
         return false;
+    }
+
+    static boolean hasExplicitNonOrdinalEnumMapping(HibernateEntityModel entity, HibernateAttributeModel attribute) {
+        Annotation jdbcTypeCode = attribute.annotation("org.hibernate.annotations.JdbcTypeCode");
+        if (jdbcTypeCode != null) {
+            Integer code = attribute.annotationIntValue(jdbcTypeCode, "value");
+            if (code != null && NON_ORDINAL_ENUM_JDBC_TYPES.contains(code)) {
+                return true;
+            }
+        }
+        if (attribute.annotation("org.hibernate.annotations.JdbcType") != null
+                || attribute.annotation("org.hibernate.annotations.Type") != null) {
+            return true;
+        }
+        return hasActiveConversion(entity, attribute);
+    }
+
+    private static boolean hasActiveConversion(HibernateEntityModel entity, HibernateAttributeModel attribute) {
+        for (Annotation annotation : attribute.annotations()) {
+            String typeName = annotation.annotationType().getName();
+            if ("jakarta.persistence.Convert".equals(typeName)) {
+                return !Boolean.TRUE.equals(attribute.annotationBooleanValue(annotation, "disableConversion"));
+            }
+            if ("jakarta.persistence.Converts".equals(typeName)) {
+                Boolean decision = evaluateConvertsDecision(annotation, attribute, true);
+                if (decision != null) {
+                    return decision;
+                }
+            }
+        }
+        if (entity != null && entity.javaType() != null) {
+            for (Class<?> current = entity.javaType();
+                    current != null && current != Object.class;
+                    current = current.getSuperclass()) {
+                for (Annotation annotation : current.getDeclaredAnnotations()) {
+                    String typeName = annotation.annotationType().getName();
+                    if ("jakarta.persistence.Convert".equals(typeName)
+                            && matchesClassLevelConvertPath(annotation, attribute)) {
+                        return !Boolean.TRUE.equals(attribute.annotationBooleanValue(annotation, "disableConversion"));
+                    }
+                    if ("jakarta.persistence.Converts".equals(typeName)) {
+                        Boolean decision = evaluateConvertsDecision(annotation, attribute, false);
+                        if (decision != null) {
+                            return decision;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static Boolean evaluateConvertsDecision(
+            Annotation converts, HibernateAttributeModel attribute, boolean alreadyScopedToAttribute) {
+        try {
+            Object value = converts.annotationType().getMethod("value").invoke(converts);
+            if (value instanceof Annotation[] array) {
+                for (Annotation convert : array) {
+                    if (alreadyScopedToAttribute || matchesClassLevelConvertPath(convert, attribute)) {
+                        return !Boolean.TRUE.equals(attribute.annotationBooleanValue(convert, "disableConversion"));
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return null;
+        }
+        return null;
+    }
+
+    private static boolean matchesClassLevelConvertPath(Annotation convert, HibernateAttributeModel attribute) {
+        String attributeName = attribute.annotationStringValue(convert, "attributeName");
+        if (attributeName == null || attributeName.isBlank()) {
+            return true;
+        }
+        String trimmed = attributeName.trim();
+        return trimmed.equals(attribute.name()) || trimmed.equals(attribute.propertyName());
+    }
+
+    static boolean isSingleRowKeyDelete(
+            HibernateContext context, HibernateRepositoryModel repository, HibernateRepositoryMethodModel method) {
+        if (method == null
+                || method.hasCollectionParameter()
+                || method.parameterTypes().isEmpty()
+                || method.methodName() == null) {
+            return false;
+        }
+        String suffix;
+        if (method.methodName().startsWith("deleteBy")) {
+            suffix = method.methodName().substring("deleteBy".length());
+        } else if (method.methodName().startsWith("removeBy")) {
+            suffix = method.methodName().substring("removeBy".length());
+        } else {
+            return false;
+        }
+        if (suffix.isBlank()) {
+            return false;
+        }
+        String[] rawTerms = suffix.split("And(?=[A-Z])", -1);
+        if (rawTerms.length != method.parameterTypes().size()) {
+            return false;
+        }
+        Set<String> terms = new LinkedHashSet<>();
+        for (String rawTerm : rawTerms) {
+            String normalized = normalizeEqualityTerm(rawTerm);
+            if (normalized == null || normalized.isEmpty()) {
+                return false;
+            }
+            terms.add(normalized);
+        }
+        if (terms.size() != method.parameterTypes().size()) {
+            return false;
+        }
+        Class<?> domainType = method.domainType() != null ? method.domainType() : repository.domainType();
+        HibernateEntityModel entity = null;
+        if (domainType != null) {
+            entity = entitiesByJavaType(context.entities()).get(domainType.getName());
+            if (entity == null) {
+                entity = HibernateEntityModel.fromClass(domainType);
+            }
+        }
+        Set<String> idProperties = new LinkedHashSet<>();
+        Set<String> naturalIdProperties = new LinkedHashSet<>();
+        if (entity != null) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                String cap = capitalize(attribute.propertyName());
+                if (cap == null) {
+                    continue;
+                }
+                if (attribute.hasId() || attribute.annotation("jakarta.persistence.EmbeddedId") != null) {
+                    idProperties.add(cap);
+                }
+                if (attribute.annotation("org.hibernate.annotations.NaturalId") != null) {
+                    naturalIdProperties.add(cap);
+                }
+            }
+        }
+        if (!idProperties.isEmpty() && terms.equals(idProperties)) {
+            return true;
+        }
+        return !naturalIdProperties.isEmpty() && terms.equals(naturalIdProperties);
+    }
+
+    private static String normalizeEqualityTerm(String term) {
+        if (term == null || term.isEmpty() || !Character.isUpperCase(term.charAt(0))) {
+            return null;
+        }
+        if (term.endsWith("Equals") && term.length() > "Equals".length()) {
+            return term.substring(0, term.length() - "Equals".length());
+        }
+        if (term.endsWith("Is") && term.length() > "Is".length()) {
+            return term.substring(0, term.length() - "Is".length());
+        }
+        return term;
+    }
+
+    private static String capitalize(String propertyName) {
+        if (propertyName == null || propertyName.isBlank() || propertyName.contains(".")) {
+            return null;
+        }
+        return Character.toUpperCase(propertyName.charAt(0)) + propertyName.substring(1);
     }
 }
 
@@ -910,11 +1083,8 @@ final class OrdinalEnumRule extends AbstractHibernateRule {
                     continue;
                 }
                 Annotation enumerated = attribute.enumeratedAnnotation();
-                Annotation convert = attribute.annotation("jakarta.persistence.Convert");
-                boolean activeConverter = convert != null
-                        && !Boolean.TRUE.equals(attribute.annotationBooleanValue(convert, "disableConversion"));
                 if (enumerated == null
-                        && !activeConverter
+                        && !HibernateRuleModelSupport.hasExplicitNonOrdinalEnumMapping(entity, attribute)
                         && !HibernateRuleModelSupport.hasEnumeratedValue(attribute)) {
                     details.add(
                             attribute.description()
@@ -952,6 +1122,7 @@ final class ExplicitOrdinalEnumRule extends AbstractHibernateRule {
                 Annotation enumerated = attribute.enumeratedAnnotation();
                 if (attribute.isEnumAttribute()
                         && enumerated != null
+                        && !HibernateRuleModelSupport.hasExplicitNonOrdinalEnumMapping(entity, attribute)
                         && !HibernateRuleModelSupport.hasEnumeratedValue(attribute)
                         && "ORDINAL".equals(attribute.annotationValueName(enumerated, "value"))) {
                     details.add(
@@ -1926,11 +2097,12 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
                         "Review generated UUID strategy when index locality matters",
                         HibernateCategory.IDENTIFIERS,
                         "LOW",
-                        "Detects UUID identifiers that rely on @GeneratedValue without the Hibernate @UuidGenerator"
-                                + " strategy.",
-                        "JPA-generated UUIDs are supported. Review the selected generator and benchmark index locality"
-                                + " only when relevant; a proprietary annotation is not required and its presence does not"
-                                + " prove ordering.",
+                        "Detects UUID identifiers that rely on @GeneratedValue without a monotonic @UuidGenerator"
+                                + " style (VERSION_7 or VERSION_6) or declare non-monotonic @UuidGenerator styles"
+                                + " (AUTO, RANDOM, or TIME).",
+                        "JPA-generated UUIDs are supported. Prefer @UuidGenerator(style = VERSION_7) (or VERSION_6)"
+                                + " when B-tree index locality matters; AUTO, RANDOM, and RFC 4122 v1 TIME styles are"
+                                + " not monotonic.",
                         "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-uuid"));
     }
 
@@ -1943,17 +2115,49 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
                 if (!attribute.hasId() || !attribute.isUuidType()) {
                     continue;
                 }
-                if (attribute.hasGeneratedValue() && !attribute.hasUuidGenerator()) {
+                if (attribute.hasUuidGenerator()) {
+                    Annotation uuidGenerator = attribute.annotation("org.hibernate.annotations.UuidGenerator");
+                    if (hasCustomUuidAlgorithm(uuidGenerator)) {
+                        continue;
+                    }
+                    String style = attribute.annotationValueName(uuidGenerator, "style");
+                    if (!"VERSION_7".equals(style) && !"VERSION_6".equals(style)) {
+                        String effectiveStyle = style == null ? "AUTO" : style;
+                        details.add(
+                                attribute.description()
+                                        + " uses @UuidGenerator(style = "
+                                        + effectiveStyle
+                                        + "), which is not monotonic; prefer VERSION_7 or VERSION_6 when index"
+                                        + " locality matters.",
+                                HibernateLocations.of(attribute),
+                                HibernateIdentities.of(context, entity, attribute));
+                    }
+                } else if (attribute.hasGeneratedValue()) {
                     details.add(
                             attribute.description()
-                                    + " uses a supported generated UUID without a declared Hibernate generator style;"
-                                    + " effective style and index locality are not observed.",
+                                    + " uses a supported generated UUID without a declared Hibernate generator"
+                                    + " style; effective style and index locality are not observed.",
                             HibernateLocations.of(attribute),
                             HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
         return violation(context, details);
+    }
+
+    private static boolean hasCustomUuidAlgorithm(Annotation uuidGenerator) {
+        if (uuidGenerator == null) {
+            return false;
+        }
+        try {
+            Object algorithm =
+                    uuidGenerator.annotationType().getMethod("algorithm").invoke(uuidGenerator);
+            return algorithm instanceof Class<?> type
+                    && type != void.class
+                    && !"org.hibernate.id.uuid.UuidValueGenerator".equals(type.getName());
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return false;
+        }
     }
 }
 
@@ -2246,21 +2450,31 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
      */
     private static boolean isKotlinPropertyBackingField(
             HibernateEntityModel entity, HibernateAttributeModel attribute) {
-        return KotlinReflection.isAccessorBackedProperty(declaringClass(entity, attribute), attribute.name());
+        String memberName = attribute.javaMemberName() != null ? attribute.javaMemberName() : attribute.name();
+        return KotlinReflection.isAccessorBackedProperty(declaringClass(entity, attribute), memberName);
     }
 
     /**
-     * The class that declares this attribute, found by walking the entity hierarchy for the name the
-     * attribute records. Null when the model carries no Java type, as hand-built models in tests do.
+     * The class that declares this attribute, found by walking the entity hierarchy or loading the declaring
+     * embeddable class from the entity's class loader. Null when the model carries no Java type, as hand-built
+     * models in tests do.
      */
     private static Class<?> declaringClass(HibernateEntityModel entity, HibernateAttributeModel attribute) {
+        if (entity.javaType() == null) {
+            return null;
+        }
         for (Class<?> current = entity.javaType(); current != null && current != Object.class; ) {
             if (current.getName().equals(attribute.entityName())) {
                 return current;
             }
             current = current.getSuperclass();
         }
-        return null;
+        try {
+            return Class.forName(
+                    attribute.entityName(), false, entity.javaType().getClassLoader());
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return null;
+        }
     }
 }
 
@@ -2425,6 +2639,9 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
                     context.evidence().markApplicable(true);
+                    if (HibernateRuleModelSupport.isSingleRowKeyDelete(context, repository, method)) {
+                        continue;
+                    }
                     if (context.observed() && !method.evidence().derivedQueryVerified()) {
                         context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY, method);
                         continue;
@@ -2524,9 +2741,9 @@ final class SqlLoggingInProductionRule extends AbstractHibernateRule {
                 "SQL logging should be off when a production profile is active",
                 HibernateCategory.CONFIGURATION,
                 "MEDIUM",
-                "Detects show-sql or DEBUG/TRACE logging for Hibernate SQL/binder categories while a production-like"
+                "Detects show-sql or DEBUG/TRACE logging for Hibernate SQL categories while a production-like"
                         + " profile (prod, production, staging) is active.",
-                "Review statement and parameter logging exposure in production-like profiles; performance cost depends"
+                "Review statement logging exposure in production-like profiles; performance cost depends"
                         + " on workload and logging configuration and is not measured here.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
@@ -2538,10 +2755,7 @@ final class SqlLoggingInProductionRule extends AbstractHibernateRule {
         }
         if (context.observed()
                 ? context.required(
-                                context.applicationFacts().sqlLoggerEnabled(), HibernateEvidenceGap.APPLICATION_SETTING)
-                        || context.required(
-                                context.applicationFacts().bindLoggerEnabled(),
-                                HibernateEvidenceGap.APPLICATION_SETTING)
+                        context.applicationFacts().sqlLoggerEnabled(), HibernateEvidenceGap.APPLICATION_SETTING)
                 : context.isSqlLoggingEnabled()) {
             return settingViolation(
                     context, "hibernate.show_sql", "SQL logging is enabled while a production profile is active.");
@@ -2825,7 +3039,12 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        context.evidence().markApplicable(!context.entities().isEmpty());
+        boolean hasCollections = context.entities().stream()
+                .anyMatch(entity -> !entity.collectionAttributes().isEmpty());
+        context.evidence().markApplicable(hasCollections);
+        if (!hasCollections) {
+            return skipped("No collection associations are mapped in this persistence unit.");
+        }
         if (context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
                 "hibernate.query.fail_on_pagination_over_collection_fetch")) {
@@ -3144,7 +3363,8 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                 continue;
             }
             context.evidence().markApplicable(true);
-            boolean hasGeneratedId = entity.attributes().stream().anyMatch(a -> a.generatedValueAnnotation() != null);
+            boolean hasGeneratedId = entity.attributes().stream()
+                    .anyMatch(a -> a.generatedValueAnnotation() != null || a.hasUuidGenerator());
             boolean hasVersion = entity.attributes().stream()
                     .anyMatch(attribute ->
                             attribute.hasVersion() && !attribute.rawType().isPrimitive());

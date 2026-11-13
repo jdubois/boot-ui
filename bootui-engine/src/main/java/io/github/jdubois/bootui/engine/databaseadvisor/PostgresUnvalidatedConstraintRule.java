@@ -12,7 +12,7 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
                 "Unvalidated PostgreSQL constraints",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.MEDIUM,
-                "Detects foreign key and check constraints with pg_constraint.convalidated = false, excluding "
+                "Detects foreign key, check and not-null constraints with pg_constraint.convalidated = false, excluding "
                         + "system and extension-owned objects.",
                 "Review whether validation is intentionally pending. For an enforced constraint, plan "
                         + "VALIDATE CONSTRAINT after checking data and operational impact; validation scans "

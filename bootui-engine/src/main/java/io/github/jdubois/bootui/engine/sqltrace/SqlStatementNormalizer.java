@@ -239,16 +239,52 @@ public final class SqlStatementNormalizer {
     }
 
     /**
-     * {@code sql} with only its {@code IN (?, ?, ...)} placeholder lists folded, the way the fingerprint folds
-     * them, leaving every other character as executed. Two executions that differ only in how many placeholders a
-     * bound collection expanded to therefore yield the same text.
+     * {@code sql} with SQL comments stripped, unquoted whitespace collapsed, and its {@code IN (?, ?, ...)}
+     * placeholder lists folded the way the fingerprint folds them, leaving literals and identifiers as executed.
+     * Two executions that differ only in SQL comments, whitespace formatting, or how many placeholders a bound
+     * collection expanded to therefore yield the same text.
      */
     public static String foldPlaceholderLists(String sql) {
         if (sql == null) {
             return "";
         }
         String source = sql.length() > MAX_SCAN_LENGTH ? sql.substring(0, MAX_SCAN_LENGTH) : sql;
-        return collapsePlaceholderLists(source);
+        return collapsePlaceholderLists(stripCommentsAndCollapseWhitespace(source));
+    }
+
+    private static String stripCommentsAndCollapseWhitespace(String source) {
+        StringBuilder out = new StringBuilder(source.length());
+        int index = 0;
+        int length = source.length();
+        while (index < length) {
+            char c = source.charAt(index);
+            int dollarEnd = c == '$' ? dollarQuoteEnd(source, index) : -1;
+            if (isLineCommentStart(source, index)) {
+                index = skipLineComment(source, index);
+                appendSpace(out);
+            } else if (isBlockCommentStart(source, index)) {
+                index = skipBlockComment(source, index);
+                appendSpace(out);
+            } else if (c == '\'') {
+                int end = skipQuoted(source, index, '\'');
+                out.append(source, index, end);
+                index = end;
+            } else if (dollarEnd > 0) {
+                out.append(source, index, dollarEnd);
+                index = dollarEnd;
+            } else if (c == '"' || c == '`' || c == '[') {
+                int end = skipQuoted(source, index, c == '[' ? ']' : c);
+                out.append(source, index, end);
+                index = end;
+            } else if (Character.isWhitespace(c)) {
+                appendSpace(out);
+                index++;
+            } else {
+                out.append(c);
+                index++;
+            }
+        }
+        return out.toString().trim();
     }
 
     /** The short, stable, opaque identifier of a fingerprint, as the Database advisor reports it. */
@@ -294,6 +330,24 @@ public final class SqlStatementNormalizer {
         int length = normalized.length();
         while (index < length) {
             char c = normalized.charAt(index);
+            int dollarEnd = c == '$' ? dollarQuoteEnd(normalized, index) : -1;
+            if (c == '\'') {
+                int end = skipQuoted(normalized, index, '\'');
+                out.append(normalized, index, end);
+                index = end;
+                continue;
+            }
+            if (dollarEnd > 0) {
+                out.append(normalized, index, dollarEnd);
+                index = dollarEnd;
+                continue;
+            }
+            if (c == '"' || c == '`' || c == '[') {
+                int end = skipQuoted(normalized, index, c == '[' ? ']' : c);
+                out.append(normalized, index, end);
+                index = end;
+                continue;
+            }
             if (c != '?' || !insideInList(out)) {
                 out.append(c);
                 index++;
@@ -303,12 +357,12 @@ public final class SqlStatementNormalizer {
             int lastPlaceholder = index;
             while (true) {
                 int next = cursor + 1;
-                while (next < length && normalized.charAt(next) == ' ') {
+                while (next < length && Character.isWhitespace(normalized.charAt(next))) {
                     next++;
                 }
                 if (next < length && normalized.charAt(next) == ',') {
                     next++;
-                    while (next < length && normalized.charAt(next) == ' ') {
+                    while (next < length && Character.isWhitespace(normalized.charAt(next))) {
                         next++;
                     }
                     if (next < length && normalized.charAt(next) == '?') {
@@ -319,8 +373,15 @@ public final class SqlStatementNormalizer {
                 }
                 break;
             }
+            while (out.length() >= 2 && out.charAt(out.length() - 1) == ' ' && out.charAt(out.length() - 2) == '(') {
+                out.setLength(out.length() - 1);
+            }
             out.append('?');
-            index = lastPlaceholder + 1;
+            int after = lastPlaceholder + 1;
+            while (after < length && Character.isWhitespace(normalized.charAt(after))) {
+                after++;
+            }
+            index = after < length && normalized.charAt(after) == ')' ? after : lastPlaceholder + 1;
         }
         return out.toString();
     }
