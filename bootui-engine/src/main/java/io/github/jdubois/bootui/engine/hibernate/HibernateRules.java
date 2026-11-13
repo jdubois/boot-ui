@@ -1388,31 +1388,6 @@ final class SlowQueryLogRule extends AbstractHibernateRule {
     }
 }
 
-final class HibernateStatisticsRule extends AbstractHibernateRule {
-
-    HibernateStatisticsRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-CONFIG-007",
-                "Hibernate statistics should be enabled when tuning",
-                HibernateCategory.CONFIGURATION,
-                "INFO",
-                "Detects hibernate.generate_statistics not being enabled for the current environment.",
-                "Enable statistics in development or performance-test profiles when investigating query"
-                        + " counts, cache efficiency, and fetch plans.",
-                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#statistics"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.isPropertyTrue(
-                "spring.jpa.properties.hibernate.generate_statistics", "hibernate.generate_statistics")) {
-            return pass();
-        }
-        return settingViolation(
-                context, "hibernate.generate_statistics", "hibernate.generate_statistics is not enabled.");
-    }
-}
-
 /**
  * What an observed, resource-local persistence unit says about auto-commit: Hibernate's effective belief that its
  * connection provider disables it, and the auto-commit default of the pool the unit was attributed to. Anything
@@ -1681,61 +1656,6 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
                     "Query cache is enabled without an effective second-level cache region factory.");
         }
         return pass();
-    }
-}
-
-final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
-
-    CacheableWithoutCacheStrategyRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-CONFIG-011",
-                "Review effective cache concurrency strategy",
-                HibernateCategory.CONFIGURATION,
-                "MEDIUM",
-                "Provider defaults can supply a valid access strategy without @Cache. This check skips when"
-                        + " effective eligibility/access strategy is unavailable and never requires an annotation"
-                        + " solely for explicitness.",
-                "Review provider-selected entity eligibility, access strategy and data mutability before"
-                        + " adding annotations or changing cache use.",
-                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.entities().stream()
-                .noneMatch(entity -> entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation())) return pass();
-        if (context.observed()) {
-            if (!context.required(context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
-                return skipped("Unit cache is disabled.");
-            context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY_BY_DESIGN);
-            return skipped(
-                    "Provider-selected access strategy and entity eligibility are not observed; explicit @Cache is not"
-                            + " required.");
-        }
-        String regionFactory = context.firstProperty(
-                "spring.jpa.properties.hibernate.cache.region.factory_class", "hibernate.cache.region.factory_class");
-        if (regionFactory == null
-                && !context.isPropertyTrue(
-                        "spring.jpa.properties.hibernate.cache.use_second_level_cache",
-                        "hibernate.cache.use_second_level_cache")) {
-            return skipped("Second-level caching is not configured.");
-        }
-        if (hasDefaultCacheStrategy(context)) return pass();
-        context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY);
-        return skipped("Provider-selected cache strategy is unknown.");
-    }
-
-    private boolean hasDefaultCacheStrategy(HibernateContext context) {
-        String value = context.firstProperty(
-                "spring.jpa.properties.hibernate.cache.default_cache_concurrency_strategy",
-                "hibernate.cache.default_cache_concurrency_strategy");
-        if (value == null) {
-            return false;
-        }
-        return switch (value.trim().toUpperCase(Locale.ROOT).replace('-', '_')) {
-            case "READ_ONLY", "NONSTRICT_READ_WRITE", "READ_WRITE", "TRANSACTIONAL" -> true;
-            default -> false;
-        };
     }
 }
 
@@ -3479,57 +3399,6 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
             }
         }
         return fetched;
-    }
-}
-
-final class EntityProjectionQueryRule extends AbstractHibernateRule {
-
-    EntityProjectionQueryRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-QUERY-006",
-                "Paged or streamed reads should prefer DTO projections over whole entities",
-                HibernateCategory.QUERY,
-                "INFO",
-                "Detects paged or streamed Spring Data JPQL @Query methods (Pageable parameter, or Page/Slice/Stream"
-                        + " return) that select whole entities instead of a constructor expression or interface/DTO"
-                        + " projection.",
-                "Consider an explicit DTO or closed projection when only part of an entity is needed, and verify the"
-                        + " selected columns. Whole-entity reads remain valid when the use case needs managed state; not"
-                        + " every projection avoids entity loading.",
-                "https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.repositories().isEmpty()) {
-            return skipped("No repository metadata was detected.");
-        }
-        AdvisorFindings details = new AdvisorFindings();
-        for (HibernateRepositoryModel repository : context.repositories()) {
-            for (HibernateRepositoryMethodModel method : repository.methods()) {
-                if (method.nativeQuery() || !method.hasQuery()) {
-                    continue;
-                }
-                boolean pagedOrStreamed = method.hasPageableParameter()
-                        || method.returnsPage()
-                        || method.returnsSlice()
-                        || method.returnsStream();
-                if (!pagedOrStreamed) {
-                    continue;
-                }
-                context.evidence().markApplicable(true);
-                if (HibernateRuleModelSupport.selectsWholeRootEntity(method.query())
-                        && HibernateQueryShape.entityRoot(context, method) != null) {
-                    details.add(
-                            method.description()
-                                    + " returns whole entities from a paged/streamed @Query; consider a DTO/interface"
-                                    + " projection.",
-                            HibernateLocations.of(method),
-                            HibernateIdentities.of(context, repository, method));
-                }
-            }
-        }
-        return violation(context, details);
     }
 }
 
