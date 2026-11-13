@@ -162,6 +162,40 @@ class CiSarifTests {
                 .isTrue();
     }
 
+    @Test
+    void gateRulesCarryTheirCweAndOwaspClassification() {
+        JsonValue bundle = JsonValue.parseStrict("""
+                {"schemaVersion":2,"assessmentId":"a-4","status":"VIOLATION","bootUiVersion":"2.4.1","policySha256":"s",
+                 "runtimeContext":{"gate":[
+                   {"kind":"anonymous-success-on-restricted-route","result":"VIOLATION","reason":"-","affected":1,"callSites":[]},
+                   {"kind":"anonymous-data-reach","result":"VIOLATION","reason":"-","affected":1,"callSites":[]},
+                   {"kind":"request-input-in-sink","result":"VIOLATION","reason":"-","affected":1,"callSites":[]}]},
+                 "advisors":[],"errors":[]}
+                """);
+
+        List<JsonValue> rules = run(CiSarif.from(bundle, null))
+                .get("tool")
+                .get("driver")
+                .get("rules")
+                .values();
+
+        assertThat(rules)
+                .extracting(rule ->
+                        rule.get("id").asString(null) + " " + strings(rule, "cwe") + " " + strings(rule, "owasp"))
+                .containsExactly(
+                        "anonymous-success-on-restricted-route [CWE-862] [A01:2021-Broken Access Control]",
+                        "anonymous-data-reach [CWE-306, CWE-862] [A01:2021-Broken Access Control]",
+                        "request-input-in-sink [CWE-74] [A03:2021-Injection]");
+        assertThat(tags(rules.get(2)))
+                .containsExactly("security-sinks", "security", "external/cwe/cwe-74", "external/owasp/owasp-a03");
+    }
+
+    private static List<String> strings(JsonValue rule, String property) {
+        return rule.get("properties").get(property).values().stream()
+                .map(value -> value.asString(null))
+                .toList();
+    }
+
     private static JsonValue run(JsonValue sarif) {
         return sarif.get("runs").get(0);
     }

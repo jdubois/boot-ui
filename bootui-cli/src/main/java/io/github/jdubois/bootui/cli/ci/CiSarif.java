@@ -164,9 +164,20 @@ final class CiSarif {
 
     private static JsonValue gateRule(String kind) {
         String source = sink(kind) ? "security-sinks" : "runtime-insights";
+        CiRuntimeGate.Classification classification = CiRuntimeGate.classification(kind);
+        List<JsonValue> tags = new ArrayList<>(List.of(JsonValue.of(source), JsonValue.of("security")));
+        for (String cwe : classification.cwe()) {
+            tags.add(JsonValue.of("external/cwe/" + cwe.toLowerCase(java.util.Locale.ROOT)));
+        }
+        tags.add(JsonValue.of(
+                "external/owasp/owasp-" + classification.owasp().substring(0, 3).toLowerCase(java.util.Locale.ROOT)));
         Map<String, JsonValue> properties = new LinkedHashMap<>();
-        properties.put("tags", JsonValue.array(List.of(JsonValue.of(source), JsonValue.of("security"))));
+        properties.put("tags", JsonValue.array(tags));
         properties.put("security-severity", JsonValue.of(securitySeverity(CiPolicy.Severity.HIGH)));
+        properties.put(
+                "cwe",
+                JsonValue.array(classification.cwe().stream().map(JsonValue::of).toList()));
+        properties.put("owasp", JsonValue.array(List.of(JsonValue.of(classification.owasp()))));
         Map<String, JsonValue> rule = new LinkedHashMap<>();
         rule.put("id", JsonValue.of(kind));
         rule.put("name", JsonValue.of(kind));

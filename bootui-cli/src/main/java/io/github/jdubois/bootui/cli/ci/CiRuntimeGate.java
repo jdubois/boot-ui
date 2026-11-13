@@ -50,6 +50,18 @@ final class CiRuntimeGate {
         return SINK_KIND.equals(kind) ? SINKS_SENSOR : kind;
     }
 
+    /** A gated kind's weakness classes and OWASP Top 10 (2021) category. */
+    record Classification(List<String> cwe, String owasp) {}
+
+    static Classification classification(String kind) {
+        return switch (kind) {
+            case SINK_KIND -> new Classification(List.of("CWE-74"), "A03:2021-Injection");
+            case "anonymous-data-reach" ->
+                new Classification(List.of("CWE-306", "CWE-862"), "A01:2021-Broken Access Control");
+            default -> new Classification(List.of("CWE-862"), "A01:2021-Broken Access Control");
+        };
+    }
+
     private CiRuntimeGate() {}
 
     /** The most call sites a violation keeps. */

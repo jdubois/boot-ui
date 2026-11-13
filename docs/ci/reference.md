@@ -128,7 +128,9 @@ Security-advisor rules also carry a GitHub `security-severity`. A skipped option
 tool execution notifications, and a NOT_ASSESSED report is an unsuccessful run, so an empty result list never reads as a
 pass. The bundle retains no source files, routes, or finding text, so results have no physical location; viewers that
 require one, such as GitHub code scanning, may not display them as file annotations. A runtime-gate violation of
-`request-input-in-sink` names up to five call sites (`Class#method`) as SARIF logical locations.
+`request-input-in-sink` names up to five call sites (`Class#method`) as SARIF logical locations, and every runtime-gate
+rule carries its CWE and OWASP Top 10 category (`cwe`, `owasp`, and `external/cwe/...` tags). Advisor findings carry no
+CWE or OWASP mapping, because advisor reports do not provide one.
 
 If attachment failed, pass its original result to assess. Assessment then avoids scans and stale witnesses and writes
 a minimal `ATTACH_FAILED` report. CLI setup/report failures use a separate fresh `<output-dir>.action-error` directory,
