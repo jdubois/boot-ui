@@ -121,7 +121,7 @@ final class SpringScanner {
         inspected.add("Unevaluated rules (inapplicable or required evidence unavailable): " + skipped + ".");
         results.stream()
                 .filter(result -> SpringRuleSupport.SKIPPED.equals(result.status()))
-                .limit(38)
+                .limit(44)
                 .forEach(result -> inspected.add(
                         result.id() + ": " + result.sampleViolations().get(0)));
         inspected.addAll(context.observations().incomplete());
