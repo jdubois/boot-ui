@@ -988,8 +988,9 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
   methods (directly or through a composed meta-annotation such as `@ApplicationModuleListener`). Spring only; skipped on
   Quarkus, where ArC automatically treats `@Scheduled` and `@Observes` as bean-defining annotations.
 - **Fires when**: the declaring class is not annotated or meta-annotated with `@Component` / `@Configuration` (or
-  `@ConfigurationProperties` / `@Named` / `@ManagedBean`), not returned or constructed by any `@Bean` factory method, and
-  not registered via `@Import` or `@EnableConfigurationProperties`.
+  `jakarta.inject.Named`, or `@ConfigurationProperties` when `@ConfigurationPropertiesScan` is active), not returned by a
+  `@Bean` factory method (including as a subtype constructed inside the `@Bean` method), and not registered via `@Import`
+  or `@EnableConfigurationProperties`.
 - **Why it matters**: in Spring, `@Scheduled` and `@EventListener` are method-level annotations that do not register
   their declaring class in the `ApplicationContext`. Without bean registration, the application starts cleanly and the
   scheduled task or event listener silently never runs.

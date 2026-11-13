@@ -1266,7 +1266,10 @@ class ArchitectureRulesTests {
                 .noneSatisfy(sample -> assertThat(sample).contains("evictOnly"))
                 .noneSatisfy(sample -> assertThat(sample).contains("cachingEvictOnly"))
                 .noneSatisfy(sample -> assertThat(sample).contains("valuedCacheable"))
+                .noneSatisfy(sample -> assertThat(sample).contains("privateMethodCacheable"))
+                .noneSatisfy(sample -> assertThat(sample).contains("javaContinuationValued"))
                 .noneSatisfy(sample -> assertThat(sample).contains("classLevelEvictOverride"))
+                .noneSatisfy(sample -> assertThat(sample).contains("classLevelPostConstruct"))
                 .noneSatisfy(sample -> assertThat(sample).contains("privateHelper"));
 
         assertThat(evaluate(new CacheableAndCachePutMethodsShouldNotReturnVoidRule(), ValidCacheableComponent.class)
@@ -1279,19 +1282,24 @@ class ArchitectureRulesTests {
         ArchitectureRuleResultDto violation = evaluate(
                 new ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule(),
                 TopLevelUnmanagedScheduledTask.class,
-                TopLevelUnmanagedEventListener.class);
+                TopLevelUnmanagedEventListener.class,
+                TopLevelUnmanagedRunnableScheduledTask.class,
+                TopLevelSchedulerConfiguration.class);
 
         assertThat(violation.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(violation.id()).isEqualTo("ARCH-SPRING-031");
         assertThat(violation.severity()).isEqualTo("MEDIUM");
-        assertThat(violation.violationCount()).isEqualTo(2);
+        assertThat(violation.violationCount()).isEqualTo(3);
         assertThat(violation.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample)
                         .contains("TopLevelUnmanagedScheduledTask")
                         .contains("runTask"))
                 .anySatisfy(sample -> assertThat(sample)
                         .contains("TopLevelUnmanagedEventListener")
-                        .contains("onEvent"));
+                        .contains("onEvent"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("TopLevelUnmanagedRunnableScheduledTask")
+                        .contains("runTask"));
 
         ArchitectureRuleResultDto pass = evaluate(
                 new ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule(),
@@ -1300,6 +1308,7 @@ class ArchitectureRulesTests {
                 TopLevelScheduledBaseWithSubclass.class,
                 TopLevelScheduledSubclassBean.class,
                 TopLevelBeanFactoryScheduledTask.class,
+                TopLevelInterfaceScheduledTaskImpl.class,
                 TopLevelImportedEventListener.class,
                 TopLevelSchedulerConfiguration.class);
         assertThat(pass.status()).isEqualTo(ArchitectureRuleSupport.PASS);
@@ -1335,11 +1344,24 @@ class ArchitectureRulesTests {
                 .anySatisfy(sample -> assertThat(sample).contains("transformer"))
                 .anySatisfy(sample -> assertThat(sample).contains("xmlValidator"));
 
+        ArchitectureRuleResultDto inheritedAndRefreshViolation = evaluate(
+                new NoSharedStatefulJdkFormattersAndParsersRule(),
+                RefreshScopedFormatterBean.class,
+                BaseClassWithFormatterField.class,
+                SharedSubclassInheritingFormatterField.class);
+        assertThat(inheritedAndRefreshViolation.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(inheritedAndRefreshViolation.violationCount()).isEqualTo(2);
+        assertThat(inheritedAndRefreshViolation.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("refreshDateFormat"))
+                .anySatisfy(sample -> assertThat(sample).contains("inheritedDateFormat"));
+
         ArchitectureRuleResultDto pass = evaluate(
                 new NoSharedStatefulJdkFormattersAndParsersRule(),
                 SafeFormatterAndValidatorBean.class,
                 PrototypeFormatterBean.class,
                 RequestScopedFormatterBean.class,
+                UnscopedCdiProducerHolder.class,
+                UnscopedProducedFormatterHolder.class,
                 PlainUnmanagedFormatterDto.class);
         assertThat(pass.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
@@ -2388,6 +2410,14 @@ class ArchitectureRulesTests {
         public String valuedCacheable(String id) {
             return id;
         }
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        private void privateMethodCacheable(String id) {}
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        public Object javaContinuationValued(kotlin.coroutines.Continuation<? super kotlin.Unit> continuation) {
+            return "not-a-kotlin-class";
+        }
     }
 
     @Service
@@ -2398,6 +2428,9 @@ class ArchitectureRulesTests {
 
         @CacheEvict("class-items")
         public void classLevelEvictOverride(String id) {}
+
+        @PostConstruct
+        public void classLevelPostConstruct() {}
 
         private void privateHelper(String id) {}
     }
@@ -2458,6 +2491,34 @@ class ArchitectureRulesTests {
         private final java.text.DecimalFormat decimalFormat = new java.text.DecimalFormat("#0.00");
     }
 
+    @Component
+    @org.springframework.context.annotation.Scope("refresh")
+    private static class RefreshScopedFormatterBean {
+
+        private java.text.SimpleDateFormat refreshDateFormat;
+    }
+
+    private static class BaseClassWithFormatterField {
+
+        protected java.text.SimpleDateFormat inheritedDateFormat;
+    }
+
+    @Service
+    private static class SharedSubclassInheritingFormatterField extends BaseClassWithFormatterField {}
+
+    private static class UnscopedProducedFormatterHolder {
+
+        private java.text.SimpleDateFormat dateFormat;
+    }
+
+    private static class UnscopedCdiProducerHolder {
+
+        @jakarta.enterprise.inject.Produces
+        UnscopedProducedFormatterHolder produceDependent() {
+            return new UnscopedProducedFormatterHolder();
+        }
+    }
+
     private static class PlainUnmanagedFormatterDto {
 
         private java.text.SimpleDateFormat dateFormat;
@@ -2474,6 +2535,15 @@ class TopLevelUnmanagedEventListener {
 
     @EventListener
     void onEvent(String event) {}
+}
+
+class TopLevelUnmanagedRunnableScheduledTask implements Runnable {
+
+    @Override
+    public void run() {}
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
 }
 
 @Component
@@ -2504,6 +2574,14 @@ class TopLevelBeanFactoryScheduledTask {
     void runTask() {}
 }
 
+interface TopLevelScheduledTaskContract {}
+
+class TopLevelInterfaceScheduledTaskImpl implements TopLevelScheduledTaskContract {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
 class TopLevelImportedEventListener {
 
     @TransactionalEventListener
@@ -2517,5 +2595,15 @@ class TopLevelSchedulerConfiguration {
     @Bean
     TopLevelBeanFactoryScheduledTask scheduledTask() {
         return new TopLevelBeanFactoryScheduledTask();
+    }
+
+    @Bean
+    TopLevelScheduledTaskContract scheduledContractTask() {
+        return new TopLevelInterfaceScheduledTaskImpl();
+    }
+
+    @Bean
+    Runnable unrelatedRunnableBean() {
+        return () -> {};
     }
 }

@@ -3265,21 +3265,24 @@ final class CacheableAndCachePutMethodsShouldNotReturnVoidRule extends AbstractA
                                 && hasSpringCachePopulatingAnnotation(javaClass.getAnnotations(), new HashSet<>());
                         boolean kotlinClass = KotlinBytecode.isKotlinClass(javaClass);
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                            boolean springCachePopulating = springPlatform
-                                    && (hasSpringCachePopulatingAnnotation(method.getAnnotations(), new HashSet<>())
-                                            || (classLevelSpringCachePopulating
-                                                    && AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(
-                                                            method)
-                                                    && !hasAnySpringCacheOperationAnnotation(
-                                                            method.getAnnotations(), new HashSet<>())));
+                            boolean methodSpringAnnotated = springPlatform
+                                    && hasSpringCachePopulatingAnnotation(method.getAnnotations(), new HashSet<>());
+                            boolean inheritedClassSpringAnnotated = springPlatform
+                                    && !methodSpringAnnotated
+                                    && classLevelSpringCachePopulating
+                                    && !SpringStereotypes.LIFECYCLE_CALLBACK_ANNOTATED.test(method)
+                                    && !hasAnySpringCacheOperationAnnotation(method.getAnnotations(), new HashSet<>());
+                            boolean springCachePopulating = (methodSpringAnnotated || inheritedClassSpringAnnotated)
+                                    && AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(method);
                             boolean quarkusCacheResult =
                                     hasAnnotation(method.getAnnotations(), QUARKUS_CACHE_RESULT, new HashSet<>());
                             if (!springCachePopulating && !quarkusCacheResult) {
                                 continue;
                             }
                             context.evidence().observed();
-                            Optional<String> effectiveReturn = effectiveReturnTypeName(method);
+                            Optional<String> effectiveReturn = effectiveReturnTypeName(method, kotlinClass);
                             if (effectiveReturn.isEmpty()) {
+                                context.evidence().markRequiredUnknown();
                                 continue;
                             }
                             String returnType = effectiveReturn.get();
@@ -3301,8 +3304,10 @@ final class CacheableAndCachePutMethodsShouldNotReturnVoidRule extends AbstractA
                 .as("@Cacheable and @CachePut methods should not return void");
     }
 
-    private static Optional<String> effectiveReturnTypeName(JavaMethod method) {
-        if (KotlinBytecode.isSuspendFunction(method)) {
+    private static Optional<String> effectiveReturnTypeName(JavaMethod method, boolean kotlinClass) {
+        if (kotlinClass
+                && method.getRawReturnType().isEquivalentTo(Object.class)
+                && KotlinBytecode.isSuspendFunction(method)) {
             return KotlinBytecode.suspendResultType(method)
                     .map(type -> type.toErasure().getName());
         }
@@ -3383,10 +3388,9 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
     private static final String IMPORT = "org.springframework.context.annotation.Import";
     private static final String ENABLE_CONFIGURATION_PROPERTIES =
             "org.springframework.boot.context.properties.EnableConfigurationProperties";
+    private static final String CONFIGURATION_PROPERTIES_SCAN =
+            "org.springframework.boot.context.properties.ConfigurationPropertiesScan";
     private static final String JAKARTA_NAMED = "jakarta.inject.Named";
-    private static final String JAVAX_NAMED = "javax.inject.Named";
-    private static final String JAKARTA_MANAGED_BEAN = "jakarta.annotation.ManagedBean";
-    private static final String JAVAX_MANAGED_BEAN = "javax.annotation.ManagedBean";
 
     ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule() {
         super(new ArchitectureRuleDefinition(
@@ -3408,10 +3412,9 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
         if (context.platform() != ArchitecturePlatform.SPRING) {
             return null;
         }
-        ContainerBeans beans = new ContainerBeans(context.classes());
-        Set<JavaClass> beanReturnTypes = new HashSet<>();
         Set<String> explicitlyRegisteredTypes = new HashSet<>();
-        collectFactoryAndImportedTypes(context.classes(), beanReturnTypes, explicitlyRegisteredTypes);
+        boolean configurationPropertiesScanEnabled =
+                collectFactoryAndImportedTypes(context.classes(), explicitlyRegisteredTypes);
         return classes()
                 .should(
                         new ArchCondition<JavaClass>(
@@ -3431,7 +3434,8 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
                                     return;
                                 }
                                 context.evidence().observed();
-                                if (isManagedSpringBean(javaClass, beans, beanReturnTypes, explicitlyRegisteredTypes)) {
+                                if (isManagedSpringBean(
+                                        javaClass, explicitlyRegisteredTypes, configurationPropertiesScanEnabled)) {
                                     return;
                                 }
                                 events.add(SimpleConditionEvent.violated(
@@ -3480,63 +3484,59 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
     }
 
     private static boolean isManagedSpringBean(
-            JavaClass javaClass,
-            ContainerBeans beans,
-            Set<JavaClass> beanReturnTypes,
-            Set<String> explicitlyRegisteredTypes) {
-        if (beans.isManaged(javaClass)
-                || explicitlyRegisteredTypes.contains(javaClass.getName())
-                || ContainerBeans.declaresFactoryMethods(javaClass)
-                || javaClass.isAnnotatedWith(SpringStereotypes.CONFIGURATION_PROPERTIES)
-                || javaClass.isMetaAnnotatedWith(SpringStereotypes.CONFIGURATION_PROPERTIES)
+            JavaClass javaClass, Set<String> explicitlyRegisteredTypes, boolean configurationPropertiesScanEnabled) {
+        return javaClass.isAnnotatedWith(SpringStereotypes.COMPONENT)
+                || javaClass.isMetaAnnotatedWith(SpringStereotypes.COMPONENT)
                 || javaClass.isAnnotatedWith(JAKARTA_NAMED)
                 || javaClass.isMetaAnnotatedWith(JAKARTA_NAMED)
-                || javaClass.isAnnotatedWith(JAVAX_NAMED)
-                || javaClass.isMetaAnnotatedWith(JAVAX_NAMED)
-                || javaClass.isAnnotatedWith(JAKARTA_MANAGED_BEAN)
-                || javaClass.isMetaAnnotatedWith(JAKARTA_MANAGED_BEAN)
-                || javaClass.isAnnotatedWith(JAVAX_MANAGED_BEAN)
-                || javaClass.isMetaAnnotatedWith(JAVAX_MANAGED_BEAN)) {
-            return true;
-        }
-        for (JavaClass returnType : beanReturnTypes) {
-            if (javaClass.isAssignableTo(returnType.getName()) || returnType.isAssignableTo(javaClass.getName())) {
-                return true;
-            }
-        }
-        return false;
+                || explicitlyRegisteredTypes.contains(javaClass.getName())
+                || (configurationPropertiesScanEnabled
+                        && (javaClass.isAnnotatedWith(SpringStereotypes.CONFIGURATION_PROPERTIES)
+                                || javaClass.isMetaAnnotatedWith(SpringStereotypes.CONFIGURATION_PROPERTIES)));
     }
 
-    private static void collectFactoryAndImportedTypes(
-            JavaClasses classes, Set<JavaClass> beanReturnTypes, Set<String> explicitlyRegisteredTypes) {
+    private static boolean collectFactoryAndImportedTypes(JavaClasses classes, Set<String> explicitlyRegisteredTypes) {
+        boolean configurationPropertiesScanEnabled = false;
         for (JavaClass javaClass : classes) {
-            collectImportedClasses(javaClass.getAnnotations(), explicitlyRegisteredTypes, new HashSet<>());
+            if (collectImportedClasses(javaClass.getAnnotations(), explicitlyRegisteredTypes, new HashSet<>())) {
+                configurationPropertiesScanEnabled = true;
+            }
             for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                 if (!SpringStereotypes.BEAN_ANNOTATED.test(method)) {
                     continue;
                 }
                 JavaClass returnType = method.getRawReturnType();
                 if (!returnType.isPrimitive() && !returnType.isEquivalentTo(Object.class)) {
-                    beanReturnTypes.add(returnType);
-                }
-                for (JavaConstructorCall call : method.getConstructorCallsFromSelf()) {
-                    explicitlyRegisteredTypes.add(call.getTargetOwner().getName());
+                    explicitlyRegisteredTypes.add(returnType.getName());
+                    for (JavaConstructorCall call : method.getConstructorCallsFromSelf()) {
+                        JavaClass constructed = call.getTargetOwner();
+                        if (constructed.isAssignableTo(returnType.getName())) {
+                            explicitlyRegisteredTypes.add(constructed.getName());
+                        }
+                    }
                 }
             }
         }
+        return configurationPropertiesScanEnabled;
     }
 
-    private static void collectImportedClasses(
+    private static boolean collectImportedClasses(
             Iterable<? extends JavaAnnotation<?>> annotations, Set<String> target, Set<String> visited) {
+        boolean configPropsScan = false;
         for (JavaAnnotation<?> annotation : annotations) {
             String name = annotation.getRawType().getName();
             if (IMPORT.equals(name) || ENABLE_CONFIGURATION_PROPERTIES.equals(name)) {
                 collectClassArrayAttribute(annotation, "value", target);
             }
-            if (visited.add(name)) {
-                collectImportedClasses(annotation.getRawType().getAnnotations(), target, visited);
+            if (CONFIGURATION_PROPERTIES_SCAN.equals(name)) {
+                configPropsScan = true;
+            }
+            if (visited.add(name)
+                    && collectImportedClasses(annotation.getRawType().getAnnotations(), target, visited)) {
+                configPropsScan = true;
             }
         }
+        return configPropsScan;
     }
 
     private static void collectClassArrayAttribute(JavaAnnotation<?> annotation, String attribute, Set<String> target) {
@@ -3580,8 +3580,16 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
             "org.springframework.batch.core.configuration.annotation.StepScope",
             "org.springframework.batch.core.configuration.annotation.JobScope");
 
+    private static final Set<String> NON_SHARED_SPRING_SCOPE_NAMES =
+            Set.of("prototype", "request", "session", "websocket", "step", "job", "thread");
+
+    private static final Set<String> SHARED_CDI_SCOPE_ANNOTATIONS =
+            Set.of("jakarta.enterprise.context.ApplicationScoped", "jakarta.inject.Singleton");
+
     private static final String SPRING_SCOPE = "org.springframework.context.annotation.Scope";
     private static final String PRODUCES = "jakarta.enterprise.inject.Produces";
+    private static final String JAX_RS_PATH = "jakarta.ws.rs.Path";
+    private static final String JAX_RS_PROVIDER = "jakarta.ws.rs.ext.Provider";
 
     NoSharedStatefulJdkFormattersAndParsersRule() {
         super(new ArchitectureRuleDefinition(
@@ -3610,7 +3618,8 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
                             public boolean test(JavaField field) {
                                 return !ArchitectureRuleSupport.isCompilerGenerated(field)
                                         && (field.getModifiers().contains(JavaModifier.STATIC)
-                                                || isSharedScopeBean(field.getOwner(), sharedProducedTypes));
+                                                || isSharedScopeBeanOrInheritedByOne(
+                                                        field.getOwner(), sharedProducedTypes, context.platform()));
                             }
                         })
                 .and(observed(DescribedPredicate.alwaysTrue(), context))
@@ -3640,20 +3649,76 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
         Set<String> produced = new HashSet<>();
         for (JavaClass javaClass : classes) {
             for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                if ((method.isAnnotatedWith(SpringStereotypes.BEAN) || method.isAnnotatedWith(PRODUCES))
-                        && !hasNonSharedScope(method.getAnnotations(), new HashSet<>())) {
-                    produced.add(method.getRawReturnType().getName());
+                boolean springSharedBean = method.isAnnotatedWith(SpringStereotypes.BEAN)
+                        && !hasNonSharedScope(method.getAnnotations(), new HashSet<>());
+                boolean cdiSharedProducer = method.isAnnotatedWith(PRODUCES)
+                        && hasExplicitSharedCdiScope(method.getAnnotations(), new HashSet<>());
+                if (!springSharedBean && !cdiSharedProducer) {
+                    continue;
+                }
+                JavaClass returnType = method.getRawReturnType();
+                if (returnType.isPrimitive() || returnType.isEquivalentTo(Object.class)) {
+                    continue;
+                }
+                produced.add(returnType.getName());
+                for (JavaConstructorCall call : method.getConstructorCallsFromSelf()) {
+                    JavaClass constructed = call.getTargetOwner();
+                    if (constructed.isAssignableTo(returnType.getName())) {
+                        produced.add(constructed.getName());
+                    }
                 }
             }
         }
         return produced;
     }
 
-    private static boolean isSharedScopeBean(JavaClass javaClass, Set<String> sharedProducedTypes) {
+    private static boolean isSharedScopeBeanOrInheritedByOne(
+            JavaClass javaClass, Set<String> sharedProducedTypes, ArchitecturePlatform platform) {
+        if (isDirectSharedScopeBean(javaClass, sharedProducedTypes, platform)) {
+            return true;
+        }
+        for (JavaClass subclass : javaClass.getSubclasses()) {
+            if (isDirectSharedScopeBean(subclass, sharedProducedTypes, platform)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isDirectSharedScopeBean(
+            JavaClass javaClass, Set<String> sharedProducedTypes, ArchitecturePlatform platform) {
         if (hasNonSharedScope(javaClass.getAnnotations(), new HashSet<>())) {
             return false;
         }
-        return sharedProducedTypes.contains(javaClass.getName()) || ContainerBeans.isAnnotatedBean(javaClass);
+        if (sharedProducedTypes.contains(javaClass.getName())) {
+            return true;
+        }
+        if (platform == ArchitecturePlatform.SPRING
+                && (javaClass.isAnnotatedWith(JAX_RS_PATH) || javaClass.isAnnotatedWith(JAX_RS_PROVIDER))
+                && !javaClass.isAnnotatedWith(SpringStereotypes.COMPONENT)
+                && !javaClass.isMetaAnnotatedWith(SpringStereotypes.COMPONENT)
+                && !hasExplicitSharedCdiScope(javaClass.getAnnotations(), new HashSet<>())) {
+            return false;
+        }
+        return ContainerBeans.isAnnotatedBean(javaClass);
+    }
+
+    private static boolean hasExplicitSharedCdiScope(
+            Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (NON_SHARED_SCOPE_ANNOTATIONS.contains(name)) {
+                return false;
+            }
+            if (SHARED_CDI_SCOPE_ANNOTATIONS.contains(name)) {
+                return true;
+            }
+            if (visited.add(name)
+                    && hasExplicitSharedCdiScope(annotation.getRawType().getAnnotations(), visited)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasNonSharedScope(Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
@@ -3676,7 +3741,7 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
         for (String attribute : List.of("value", "scopeName")) {
             Object raw = scopeAnnotation.get(attribute).orElse(null);
             if (raw instanceof String scopeName && !scopeName.isBlank()) {
-                return !"singleton".equals(scopeName) && !"application".equals(scopeName);
+                return NON_SHARED_SPRING_SCOPE_NAMES.contains(scopeName);
             }
         }
         return false;
