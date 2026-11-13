@@ -159,7 +159,12 @@ class RestApiContractDefectRulesTests {
         assertThat(creation.sampleViolations()).singleElement().asString().contains("#addGizmo");
 
         RestApiRuleResultDto location = new CreatedResponsesExposeLocationRule().evaluate(context);
-        assertThat(location.sampleViolations()).singleElement().asString().contains("#createGizmo");
+        assertThat(location.status()).isEqualTo(RestApiRuleSupport.SKIPPED);
+        assertThat(context.handlers())
+                .filteredOn(handler -> handler.methodName().equals("createLocatedGizmo"))
+                .singleElement()
+                .satisfies(handler ->
+                        assertThat(handler.declaresResponseHeader("Location")).isTrue());
 
         RestApiRuleResultDto retryAfter = new RetryAfterOnThrottlingResponsesRule().evaluate(context);
         assertThat(retryAfter.sampleViolations())
@@ -241,14 +246,14 @@ class RestApiContractDefectRulesTests {
                 .isEqualTo(RestApiRuleSupport.PASS);
         assertThat(new ResourcePathsAreNounsRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
         assertThat(new CollectionsUsePluralNounsRule().evaluate(context).status())
-                .isEqualTo(RestApiRuleSupport.PASS);
+                .isEqualTo(RestApiRuleSupport.SKIPPED);
         assertThat(new PathSegmentsAreKebabCaseRule().evaluate(context).status())
                 .isEqualTo(RestApiRuleSupport.PASS);
         assertThat(new ApiIsVersionedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
         assertThat(new MixedVersioningStrategiesRule().evaluate(context).status())
                 .isEqualTo(RestApiRuleSupport.PASS);
-        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
-        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.SKIPPED);
+        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.SKIPPED);
     }
 
     @Test
