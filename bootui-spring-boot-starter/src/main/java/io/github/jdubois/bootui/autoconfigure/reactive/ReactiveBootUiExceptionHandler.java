@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
+import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import org.springframework.core.Ordered;
@@ -57,6 +58,8 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
     @Override
     public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
         try {
+            Object rawHandler = exchange.getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE);
+            String handlerDescription = describeHandler(rawHandler);
             store.record(
                     ex,
                     Thread.currentThread().getName(),
@@ -64,9 +67,10 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
                             ? exchange.getRequest().getMethod().name()
                             : null,
                     exchange.getRequest().getURI().getRawPath(),
-                    describeHandler(exchange.getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE)),
+                    handlerDescription,
                     "web",
-                    currentTraceId());
+                    currentTraceId(),
+                    ExceptionsControllerSupport.extractBindingDiagnostics(ex, rawHandler, handlerDescription));
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's error handling.
         }

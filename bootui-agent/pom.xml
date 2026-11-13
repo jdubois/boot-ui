@@ -301,7 +301,8 @@
                                     </patternset>
                                 </unzip>
                                 <delete file="${bootui.agent.jar}"/>
-                                <jar destfile="${bootui.agent.jar}">
+                                <!-- Preserve the full payload while keeping the Central bundle below its size cap. -->
+                                <jar destfile="${bootui.agent.jar}" level="9">
                                     <manifest>
                                         <attribute name="Premain-Class" value="io.github.jdubois.bootui.agent.AgentLauncher"/>
                                         <attribute name="Agent-Class" value="io.github.jdubois.bootui.agent.AgentLauncher"/>

@@ -1066,8 +1066,17 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.applies(
-                c.observations().yes(HTTP_CLIENT_DEFAULTS) || c.observations().yes(HTTP_SERVICE_GROUPS)))
+                c.observations().yes(HTTP_CLIENT_DEFAULTS) || c.observations().yes(HTTP_SERVICE_GROUPS))) {
+            if (c.observations().yes(HTTP_CLIENTS_ABSENT)
+                    && c.observations().inventoryAvailable()
+                    && c.observations().incomplete().isEmpty()
+                    && !c.restClientBeanPresent()
+                    && !c.webClientBeanPresent()
+                    && c.restTemplates().isEmpty()) {
+                return skipped("No managed HTTP-client, builder, or service-group configuration was observed.");
+            }
             return unknown(c);
+        }
         Duration connect = c.bind("spring.http.clients.connect-timeout", Duration.class);
         Duration read = c.bind("spring.http.clients.read-timeout", Duration.class);
         Map<String, Map<String, Object>> groups = c.bind(

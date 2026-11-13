@@ -471,7 +471,9 @@ public final class ExecutionProfileAssembler {
                                 occurrence.thread(),
                                 occurrence.handler(),
                                 occurrence.source(),
-                                group.id()));
+                                group.id(),
+                                occurrence.bindingDiagnostics(),
+                                occurrence.bindingDiagnosticsTruncated()));
             }
         }
         return section.sorted(RequestProfileExceptionDto::timestamp);

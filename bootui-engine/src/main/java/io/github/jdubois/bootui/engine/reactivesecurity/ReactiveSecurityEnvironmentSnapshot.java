@@ -48,6 +48,8 @@ import java.util.Set;
  *     settings make the {@code configprops} endpoint web-accessible
  * @param oauth2ClientPlainHttpEndpoints property names (never values) of registration-linked OAuth2
  *     client provider authorization, token, JWK-set or user-info endpoints configured with plain HTTP
+ * @param oauth2JwtAudiencesConfigured whether {@code spring.security.oauth2.resourceserver.jwt.audiences}
+ *     is configured with at least one non-blank audience value
  */
 public record ReactiveSecurityEnvironmentSnapshot(
         boolean globalTlsConfigured,
@@ -71,7 +73,58 @@ public record ReactiveSecurityEnvironmentSnapshot(
         Map<String, String> analysisFailures,
         Set<String> incompleteRules,
         boolean globalTlsObserved,
-        Set<String> oauth2ClientPlainHttpEndpoints) {
+        Set<String> oauth2ClientPlainHttpEndpoints,
+        boolean oauth2JwtAudiencesConfigured) {
+
+    /** Compatibility constructor for snapshots created before reactive JWT audience signals. */
+    public ReactiveSecurityEnvironmentSnapshot(
+            boolean globalTlsConfigured,
+            String managementExposureInclude,
+            String managementExposureExclude,
+            boolean managementServerPortConfigured,
+            List<String> activeProfiles,
+            boolean securityDebugEnabled,
+            boolean oauth2JwtStaticPublicKeyConfigured,
+            boolean oauth2JwtIssuerUsesPlainHttp,
+            boolean oauth2JwtJwkSetUsesPlainHttp,
+            String securityLoggingLevel,
+            Set<String> suspectedHardcodedSecretKeys,
+            boolean oauth2OpaqueTokenIntrospectionUsesPlainHttp,
+            boolean managementEnvShowValuesAlways,
+            boolean managementConfigPropsShowValuesAlways,
+            boolean managementEnvWebExposed,
+            boolean managementConfigPropsWebExposed,
+            Set<String> effectiveActuatorEndpoints,
+            boolean actuatorObservationComplete,
+            Map<String, String> analysisFailures,
+            Set<String> incompleteRules,
+            boolean globalTlsObserved,
+            Set<String> oauth2ClientPlainHttpEndpoints) {
+        this(
+                globalTlsConfigured,
+                managementExposureInclude,
+                managementExposureExclude,
+                managementServerPortConfigured,
+                activeProfiles,
+                securityDebugEnabled,
+                oauth2JwtStaticPublicKeyConfigured,
+                oauth2JwtIssuerUsesPlainHttp,
+                oauth2JwtJwkSetUsesPlainHttp,
+                securityLoggingLevel,
+                suspectedHardcodedSecretKeys,
+                oauth2OpaqueTokenIntrospectionUsesPlainHttp,
+                managementEnvShowValuesAlways,
+                managementConfigPropsShowValuesAlways,
+                managementEnvWebExposed,
+                managementConfigPropsWebExposed,
+                effectiveActuatorEndpoints,
+                actuatorObservationComplete,
+                analysisFailures,
+                incompleteRules,
+                globalTlsObserved,
+                oauth2ClientPlainHttpEndpoints,
+                false);
+    }
 
     /** Compatibility constructor for snapshots created before OAuth2 client provider endpoint signals. */
     public ReactiveSecurityEnvironmentSnapshot(

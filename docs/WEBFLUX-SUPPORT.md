@@ -394,11 +394,13 @@ JDBC-only, matched by the begin thread and time window; they do not capture R2DB
 another thread. Zero counts therefore do not prove that a reactive transaction performed no database work.
 
 **Exceptions.** *Known fidelity gap, accepted, documented in code (`ReactiveBootUiExceptionHandler`'s Javadoc):* a
-`@RestController`'s own local `@ExceptionHandler` method consumes an exception *inside* the WebFlux dispatch pipeline,
+`@RestController`'s own local `@ExceptionHandler` method or `@ControllerAdvice` (`ResponseEntityExceptionHandler`)
+consumes an exception (including `WebExchangeBindException`) *inside* the WebFlux dispatch pipeline,
 before any `WebExceptionHandler` sees it. This is narrower capture than the servlet adapter's resolver-chain approach,
 where `BootUiExceptionHandlerResolver` runs at `HIGHEST_PRECEDENCE` in the same chain `@ExceptionHandler` resolution
 uses. An application-level `@ExceptionHandler` will suppress BootUI's capture on WebFlux where it would not on servlet.
-Unhandled exceptions (the common case) are captured identically on both stacks.
+Unhandled exceptions (including `WebExchangeBindException` and `ServerWebInputException` that reach
+`WebExceptionHandler`, with their per-occurrence `bindingDiagnostics`) are captured identically on both stacks.
 
 **REST Client.** Availability is gated on `RestClientTraceRecorder#hasInstrumentedClient()` (a `WebClient.Builder`
 auto-configured with the BootUI customizer must have been built). The `RestClient`/`RestTemplate` interceptors are not
@@ -579,12 +581,12 @@ Platform-aware fidelity notes:
 
 ### 6.6 Security advisor (`security`) — live on WebFlux
 
-The advisor uses a dedicated 26-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
+The advisor uses a dedicated 32-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
 the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel: the
 raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
-deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
-reactive session policy. BootUI's own permit-all chain is excluded from runtime analysis. See
-`docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
+deterministic findings across authentication, authorization, CSRF, CORS, headers, method security, Actuator exposure,
+OAuth2/JWT, configuration, and reactive session policy. BootUI's own permit-all chain is excluded from runtime analysis.
+See `docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
 
 The advisor remains available without Spring Security for the shared `SEC-STATIC-001` configuration check. An explicit
 scan inspects bounded local declarations for SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL; it never runs an
@@ -625,8 +627,10 @@ Basic/browser credentials from header-only bearer APIs, OAuth client grants from
 access from inclusion settings. Unknown observations remain incomplete rather than becoming missing-control findings.
 
 The Spring Security 7.1 audit then added `SEC-RXF-OAUTH2-005` (plain-HTTP OAuth2 client provider endpoints), bringing the
-catalogue to 26 rules. It also recognizes one-time-token login as interactive browser login and limits the framing and
-CSP reviews to chains with an observed browser login, so bearer-only API chains no longer receive a CSP finding.
+catalogue to 26 rules, followed by six WebFlux parity rules (`SEC-RXF-AUTH-001`, `SEC-RXF-AUTH-002`, `SEC-RXF-AUTH-003`,
+`SEC-RXF-HEAD-007`, `SEC-RXF-METHOD-001`, and `SEC-RXF-OAUTH2-006`), bringing the catalogue to 32 rules. It also
+recognizes one-time-token login as interactive browser login and limits the framing and CSP reviews to chains with an
+observed browser login, so bearer-only API chains no longer receive a CSP finding.
 
 :::
 

@@ -18,14 +18,54 @@ record ReactiveSecurityContext(
         boolean corsObservationComplete,
         ReactiveSecurityEnvironmentSnapshot environment,
         SecurityEvaluation evaluation,
-        AdvisorViolationCollector violationCollector) {
+        AdvisorViolationCollector violationCollector,
+        List<ReactiveSecurityObservation.PasswordEncoderObservation> passwordEncoders,
+        boolean passwordEncodersObserved,
+        List<String> reactiveJwtDecoderTypes,
+        Set<String> enabledMethodFamilies,
+        Set<String> usedMethodFamilies,
+        boolean methodFamiliesKnown) {
 
     ReactiveSecurityContext(
             List<WebFilterChainObservation> chains,
             List<CorsConfigObservation> corsConfigs,
             boolean corsObservationComplete,
             ReactiveSecurityEnvironmentSnapshot environment) {
-        this(chains, corsConfigs, corsObservationComplete, environment, new SecurityEvaluation(), null);
+        this(
+                chains,
+                corsConfigs,
+                corsObservationComplete,
+                environment,
+                new SecurityEvaluation(),
+                null,
+                List.of(),
+                true,
+                List.of(),
+                Set.of(),
+                Set.of(),
+                true);
+    }
+
+    ReactiveSecurityContext(
+            List<WebFilterChainObservation> chains,
+            List<CorsConfigObservation> corsConfigs,
+            boolean corsObservationComplete,
+            ReactiveSecurityEnvironmentSnapshot environment,
+            SecurityEvaluation evaluation,
+            AdvisorViolationCollector violationCollector) {
+        this(
+                chains,
+                corsConfigs,
+                corsObservationComplete,
+                environment,
+                evaluation,
+                violationCollector,
+                List.of(),
+                true,
+                List.of(),
+                Set.of(),
+                Set.of(),
+                true);
     }
 
     boolean applies(boolean applicable) {
@@ -54,6 +94,10 @@ record ReactiveSecurityContext(
         chains = List.copyOf(chains);
         corsConfigs = List.copyOf(corsConfigs);
         environment = environment == null ? ReactiveSecurityEnvironmentSnapshot.empty() : environment;
+        passwordEncoders = passwordEncoders == null ? List.of() : List.copyOf(passwordEncoders);
+        reactiveJwtDecoderTypes = reactiveJwtDecoderTypes == null ? List.of() : List.copyOf(reactiveJwtDecoderTypes);
+        enabledMethodFamilies = enabledMethodFamilies == null ? Set.of() : Set.copyOf(enabledMethodFamilies);
+        usedMethodFamilies = usedMethodFamilies == null ? Set.of() : Set.copyOf(usedMethodFamilies);
     }
 
     static ReactiveSecurityContext from(ReactiveSecurityObservation observation) {
@@ -67,7 +111,13 @@ record ReactiveSecurityContext(
                 observation.corsObservationComplete(),
                 observation.environment(),
                 new SecurityEvaluation(),
-                collector);
+                collector,
+                observation.passwordEncoders(),
+                observation.passwordEncodersObserved(),
+                observation.reactiveJwtDecoderTypes(),
+                observation.enabledMethodFamilies(),
+                observation.usedMethodFamilies(),
+                observation.methodFamiliesKnown());
     }
 
     boolean isTlsConfigured() {

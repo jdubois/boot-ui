@@ -154,10 +154,15 @@
             <artifactId>jakarta.servlet-api</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          jakarta.validation is a neutral Jakarta EE standard (same API on Spring Boot and Quarkus). Optional so
+          it is not forced on the engine's downstream consumers; ConstraintViolationReader is the sole importer
+          and is only loaded when a captured throwable is an instance of jakarta.validation.ConstraintViolationException.
+        -->
         <dependency>
             <groupId>jakarta.validation</groupId>
             <artifactId>jakarta.validation-api</artifactId>
-            <scope>test</scope>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>jakarta.annotation</groupId>

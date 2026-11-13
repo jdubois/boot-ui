@@ -221,7 +221,9 @@ stream in either era (`405`). See [Protocol eras](#protocol-eras) for the detail
    (`/bootui/#/mcp-server`). The panel toggle overrides the property at runtime for the life of the process, so you can
    turn the server on only while you are pairing with an agent.
 3. **Point your agent at the endpoint.** The MCP Server panel shows a ready-to-copy client configuration, with one tab
-   per client because they do not agree on a shape. Replace `8080` with your application's port.
+   per client because they do not agree on a shape. Replace `8080` with your application's port, or run
+   `bootui init --vscode`, `bootui init --cursor`, or `bootui init --claude` (with `--url` or `--app <name>`) to
+   preview or idempotently merge the local configuration without writing credentials.
 
    VS Code (`.vscode/mcp.json`) uses a `servers` block:
 

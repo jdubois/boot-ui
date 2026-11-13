@@ -666,7 +666,7 @@ class HibernateAdvisorObservationTests {
 
     @Test
     void retiredIdsAreNotRegisteredOrReported() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(69);
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(76);
         assertThat(HibernateRuleRegistry.RETIRED_RULE_IDS).containsExactlyInAnyOrder(RETIRED_IDS);
         assertThat(HibernateRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())

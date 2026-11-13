@@ -42,6 +42,35 @@ public final class KotlinReflection {
     }
 
     /**
+     * Whether this Kotlin class is a {@code data class}, recognized by the {@code copy$default} bridge and
+     * {@code component1()} destructuring accessor the compiler emits for every {@code data class}.
+     */
+    public static boolean isDataClass(Class<?> type) {
+        if (!isKotlinClass(type)) {
+            return false;
+        }
+        try {
+            boolean hasCopyDefault = false;
+            boolean hasComponent1 = false;
+            for (Method method : type.getDeclaredMethods()) {
+                String name = method.getName();
+                if ((name.startsWith("copy$default") || (name.startsWith("copy-") && name.contains("$default")))
+                        && Modifier.isStatic(method.getModifiers())
+                        && method.isSynthetic()) {
+                    hasCopyDefault = true;
+                } else if (("component1".equals(name) || name.startsWith("component1-"))
+                        && method.getParameterCount() == 0
+                        && !Modifier.isStatic(method.getModifiers())) {
+                    hasComponent1 = true;
+                }
+            }
+            return hasCopyDefault && hasComponent1;
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    /**
      * Whether the named field is the backing field of a Kotlin property rather than a field the author
      * exposed, recognised by the accessor pair the compiler generates alongside it.
      *

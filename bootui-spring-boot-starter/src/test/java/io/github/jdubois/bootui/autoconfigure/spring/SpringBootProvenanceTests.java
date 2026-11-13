@@ -397,6 +397,208 @@ class SpringBootProvenanceTests {
     }
 
     @Test
+    void confirmedManagedClientAbsenceIsNeutral() {
+        for (boolean integrationsAbsent : new boolean[] {false, true}) {
+            var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+            if (integrationsAbsent) {
+                factory.setBeanClassLoader(new FilteredClassLoader(
+                        "org.springframework.web.client",
+                        "org.springframework.web.reactive.function.client",
+                        "org.springframework.boot.restclient",
+                        "org.springframework.boot.http.client.autoconfigure.service"));
+            }
+            var snapshot = SpringInventory.discover(factory, new org.springframework.mock.env.MockEnvironment(), false);
+            assertThat(new HttpClientTimeoutsUnsetRule().evaluate(snapshot).status())
+                    .isEqualTo("SKIPPED");
+            var evidence = SpringScanner.evidence(snapshot);
+            assertThat(evidence.coverageComplete()).isTrue();
+            assertThat(evidence.limitations()).isEmpty();
+            assertThat(evidence.usable()).isFalse();
+        }
+    }
+
+    @Test
+    void inheritedAndOpaqueClientsDoNotBecomeConfirmedAbsence() {
+        var parent = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        parent.registerSingleton("client", RestClient.create());
+        var child = new org.springframework.beans.factory.support.DefaultListableBeanFactory(parent);
+        assertUnknownClientScope(child);
+
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var creations = new AtomicInteger();
+        var definition = new org.springframework.beans.factory.support.RootBeanDefinition(Object.class);
+        definition.setLazyInit(true);
+        definition.setInstanceSupplier(() -> {
+            creations.incrementAndGet();
+            return RestClient.create();
+        });
+        factory.registerBeanDefinition("opaqueClient", definition);
+        assertUnknownClientScope(factory);
+        assertThat(creations).hasValue(0);
+    }
+
+    @Test
+    void lazyCustomBuilderAndCustomServicePropertiesRemainUnknown() {
+        var creations = new AtomicInteger();
+        for (boolean filtered : new boolean[] {false, true}) {
+            var runner = new ApplicationContextRunner();
+            if (filtered) runner = runner.withClassLoader(new FilteredClassLoader(RestClient.Builder.class));
+            runner.withBean(
+                            "builder",
+                            RestClient.Builder.class,
+                            () -> {
+                                creations.incrementAndGet();
+                                return RestClient.builder();
+                            },
+                            definition -> definition.setLazyInit(true))
+                    .run(context -> assertUnknownClientScope(context.getBeanFactory()));
+        }
+        assertThat(creations).hasValue(0);
+        // A metadata-only lazy subtype avoids changing Mockito's JVM-wide mock-maker registry.
+        Class<?> properties = new net.bytebuddy.ByteBuddy()
+                .subclass(
+                        org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties.class,
+                        net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy.Default.NO_CONSTRUCTORS)
+                .name("app.advisoraudit.CustomServiceProperties")
+                .make()
+                .load(getClass().getClassLoader())
+                .getLoaded();
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var definition = new org.springframework.beans.factory.support.RootBeanDefinition(properties);
+        definition.setLazyInit(true);
+        factory.registerBeanDefinition("customProperties", definition);
+        assertUnknownClientScope(factory);
+        assertThat(factory.containsSingleton("customProperties")).isFalse();
+    }
+
+    @Test
+    void lazyBroaderHttpClientDeclarationsRemainUnknown() {
+        var creations = new AtomicInteger();
+        for (Class<?> declaration : java.util.List.of(
+                org.springframework.web.client.RestOperations.class,
+                org.springframework.http.client.support.HttpAccessor.class,
+                org.springframework.http.client.support.InterceptingHttpAccessor.class)) {
+            var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+            var definition = new org.springframework.beans.factory.support.RootBeanDefinition(declaration);
+            definition.setLazyInit(true);
+            definition.setInstanceSupplier(() -> {
+                creations.incrementAndGet();
+                return new org.springframework.web.client.RestTemplate();
+            });
+            factory.registerBeanDefinition("client", definition);
+            assertUnknownClientScope(factory);
+        }
+        assertThat(creations).hasValue(0);
+    }
+
+    @Test
+    void positiveBootClientEvidenceDoesNotProbeForAbsence() {
+        var lookups = new AtomicInteger();
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(RestClientAutoConfiguration.class))
+                .withPropertyValues("spring.http.clients.connect-timeout=1s", "spring.http.clients.read-timeout=2s")
+                .run(context -> {
+                    var factory = context.getBeanFactory();
+                    ClassLoader original = factory.getBeanClassLoader();
+                    factory.setBeanClassLoader(new ClassLoader(original) {
+                        @Override
+                        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                            if (name.equals("org.springframework.web.client.RestClient")) {
+                                lookups.incrementAndGet();
+                                throw new IllegalStateException("Unnecessary absence probe");
+                            }
+                            return super.loadClass(name, resolve);
+                        }
+                    });
+                    try {
+                        var snapshot = SpringInventory.discover(factory, context.getEnvironment(), false);
+                        assertThat(snapshot.observations().yes(HTTP_CLIENT_DEFAULTS))
+                                .isTrue();
+                        assertThat(new HttpClientTimeoutsUnsetRule()
+                                        .evaluate(snapshot)
+                                        .status())
+                                .isEqualTo("PASS");
+                        assertThat(lookups).hasValue(0);
+                    } finally {
+                        factory.setBeanClassLoader(original);
+                    }
+                });
+    }
+
+    @Test
+    void uncheckedLoaderFailureIsReportedWithoutDisablingOtherRules() {
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.setBeanClassLoader(new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (name.equals("org.springframework.web.client.RestClient")) {
+                    throw new IllegalStateException("private-loader-failure");
+                }
+                return super.loadClass(name, resolve);
+            }
+        });
+        var report = new SpringScanner(
+                        factory, new org.springframework.mock.env.MockEnvironment(), false, Clock.systemUTC())
+                .scan();
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).anyMatch(reason -> reason.startsWith("SPRING-WEB-005:"));
+        assertThat(report.toString()).doesNotContain("private-loader-failure");
+    }
+
+    @Test
+    void clientContractInAnIsolatedBeanClassLoaderIsNotConfirmedAbsent() throws Exception {
+        Class<?> contract = new net.bytebuddy.ByteBuddy()
+                .makeInterface()
+                .name("org.springframework.web.client.RestClient$Builder")
+                .make()
+                .load(new java.net.URLClassLoader(new java.net.URL[0], null))
+                .getLoaded();
+        Object client = java.lang.reflect.Proxy.newProxyInstance(
+                contract.getClassLoader(), new Class<?>[] {contract}, (proxy, method, args) -> {
+                    throw new AssertionError("Discovery must not invoke isolated client callbacks");
+                });
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.registerSingleton("isolatedBuilder", client);
+        assertUnknownClientScope(factory);
+    }
+
+    @Test
+    void uninstantiatedFactoryAndBrokenOptionalContractRemainUnknown() {
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var definition =
+                new org.springframework.beans.factory.support.RootBeanDefinition(SpringInventoryTests.Factory.class);
+        definition.setLazyInit(true);
+        factory.registerBeanDefinition("factory", definition);
+        assertUnknownClientScope(factory);
+        assertThat(factory.containsSingleton("factory")).isFalse();
+
+        var broken = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        broken.setBeanClassLoader(new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (name.equals("org.springframework.web.client.RestClient")) {
+                    throw new NoClassDefFoundError("private-contract-linkage-failure");
+                }
+                return super.loadClass(name, resolve);
+            }
+        });
+        assertUnknownClientScope(broken);
+    }
+
+    private static void assertUnknownClientScope(
+            org.springframework.beans.factory.config.ConfigurableListableBeanFactory factory) {
+        var snapshot = SpringInventory.discover(factory, new org.springframework.mock.env.MockEnvironment(), false);
+        assertThat(new HttpClientTimeoutsUnsetRule().evaluate(snapshot).status())
+                .isEqualTo("SKIPPED");
+        var evidence = SpringScanner.evidence(snapshot);
+        assertThat(evidence.coverageComplete()).isFalse();
+        assertThat(evidence.usable()).isFalse();
+        assertThat(evidence.limitations()).anyMatch(reason -> reason.startsWith("SPRING-WEB-005:"));
+        assertThat(evidence.toString()).doesNotContain("private-contract-linkage-failure");
+    }
+
+    @Test
     void optionalIntegrationAbsenceKeepsScanningAvailable() {
         new ApplicationContextRunner()
                 .withClassLoader(new FilteredClassLoader(
