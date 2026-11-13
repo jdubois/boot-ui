@@ -41,6 +41,9 @@ framework-neutral engine. The same diagnostics are reachable without a browser t
 ## Delivery workflow
 
 - Make focused changes and update directly coupled tests and documentation.
+- For dependency upgrades, follow [Maintaining compatibility during upgrades](docs/FRAMEWORK-SUPPORT.md#maintaining-compatibility-during-upgrades).
+  The build baseline is not the supported-version range: do not introduce exact-patch allowlists, silently raise
+  minimums, or weaken compatibility checks to make an upgrade pass.
 - Before accepting any npm package version, direct or transitive, verify that it has been published on npm for at
   least seven full days. This supply-chain waiting period also applies to lockfile-only and Dependabot updates;
   Dependabot's configured cooldown is not sufficient evidence for transitive packages.

@@ -9,6 +9,59 @@ engine, the same console, and the same JSON contract, so what you learn on one c
 | Spring WebFlux | Every panel except **HTTP Sessions**.               | [WebFlux setup](./setup/webflux.md) |
 | Quarkus        | Most panels — see [below](#what-is-not-on-quarkus). | [Quarkus setup](./setup/quarkus.md) |
 
+## Startup compatibility
+
+BootUI targets **Spring Boot 4.0+ within the 4.x line** with Spring Framework 7, and **Quarkus 3.33+ within
+the 3.x line**. The build baseline and older LTS coverage are recorded in [Repository and documentation](REPOSITORY.md).
+Supported patches do not need to equal BootUI's build patch.
+
+Startup diagnostics use stable `BOOTUI-COMPAT-*` identifiers:
+
+- **A proven incompatible platform stops startup.** Spring Boot 3 is not supported. The diagnostic applies even with
+  `bootui.enabled=OFF`: that flag cannot repair the starter's incompatible transitive framework dependencies. Remove
+  the starter or upgrade the application platform.
+- **Broken required security-chain APIs stop startup rather than weakening the chain.** MVC and WebFlux use separate
+  checks. An application without Spring Security remains supported.
+- **Unknown version metadata is not an incompatibility.** A newer framework generation outside the declared target
+  produces a warning; a different supported patch does not.
+- **Expected missing integrations do not stop startup.** No Kafka, Hibernate, JDBC datasource or agent simply means
+  the corresponding evidence is unavailable. An incompatible attached agent remains unused with a warning.
+- **Reactive SQL capture is incomplete.** Startup warns for configured reactive database clients, including hybrid
+  applications whose JDBC datasource is used only for migrations. JDBC observations never establish what reactive
+  queries ran.
+
+Warnings are independent of the startup URL banner. Checks use local version/API/bean metadata, not network requests,
+database connections, broker probes or whole-classpath scans. AOT/native builds evaluate registration checks while
+generating their bean definitions; native startup does not repeat arbitrary library reflection.
+
+This is not certification of every transitive library version. BootUI does not automatically disable itself, rewrite
+dependencies, or impose exact CLI/server version equality. Some invalid dependency graphs fail in the framework or
+resolver before BootUI's diagnostic can run. Java versions below 17 can likewise be rejected by the JVM before any
+BootUI code executes.
+
+Bytecode advisors validate application class-file headers only during an explicit scan. Unsupported or unreadable
+headers yield an error/incomplete result rather than a clean assessment of a silently imported subset. Header
+validation does not certify every class body, dependency resolution, or classpath-discovery result.
+
+### Maintaining compatibility during upgrades
+
+The root `spring-boot.version` and `quarkus.platform.version` properties select the **build baseline**, not an
+exact-version allowlist. For a dependency upgrade:
+
+- Keep the declared support range unless changing it is an explicit, reviewed decision. Ordinary supported
+  patch/minor upgrades do not require widening the runtime rules.
+- Run the current-baseline conformance checks and retain older supported consumer coverage: the Spring Boot 4.0
+  fixture in `.github/scripts/consumer-smoke-tests.sh` and the older Quarkus LTS lane in `build.yml`.
+- Preserve the rejected-platform consumer cases and their actionable diagnostics. Fix API incompatibilities rather
+  than weakening checks or removing assertions to make a bump pass.
+- For an intentional generation or minimum-support change, update `PlatformCompatibility`, the affected adapter API
+  checks, this support documentation, consumer fixtures, and Quarkus descriptor range where applicable together.
+  A future-generation warning does not automatically declare that generation supported.
+
+The shared policy lives in `bootui-engine` under `engine/compatibility`; Spring's early listener and security API
+checks live under `autoconfigure/compatibility`. Quarkus checks the platform in its deployment module. Keep AOT/native
+registration semantics intact when changing these checks.
+
 ## Your app is the real answer
 
 This page describes the stacks. **BootUI describes your application**, which is what you actually need, because most
