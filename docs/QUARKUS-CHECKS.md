@@ -281,7 +281,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### QS-TLS-002 - No TLS configured for the main HTTP listener
 
-**Retired.** Duplicate of `QS-TLS-001` (`LOW`, `quarkus.http.insecure-requests=enabled`) whenever listener SSL is absent, and fires on every local Quarkus dev/test run. Listener TLS material detection (legacy keystore, paired certificate/key lists, and TLS-registry JKS/P12 or paired PEM entries selected by `quarkus.http.tls-configuration-name`) continues to gate `QS-HDR-003`. The ID remains reserved in `QuarkusSecurityChecks.RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals stay valid.
+**Retired.** Duplicate of `QS-TLS-001` (`LOW`, `quarkus.http.insecure-requests=enabled`) in the default `insecure-requests` posture when listener SSL is absent, and fires on every local Quarkus dev/test run. Listener TLS material detection (legacy keystore, paired certificate/key lists, and TLS-registry JKS/P12 or paired PEM entries selected by `quarkus.http.tls-configuration-name`) continues to gate `QS-HDR-003`. The ID remains reserved in `QuarkusSecurityChecks.RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### QS-TLS-003 - TLS certificate validation disabled
 

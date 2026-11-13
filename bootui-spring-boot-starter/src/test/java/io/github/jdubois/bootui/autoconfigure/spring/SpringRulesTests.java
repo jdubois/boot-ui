@@ -931,6 +931,14 @@ class SpringRulesTests {
         var config = env("management.endpoints.web.exposure.include", "")
                 .withProperty("management.endpoint.health.show-details", "always");
         assertThat(evaluate(show, config, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        var componentsOnly = env("management.endpoints.web.exposure.include", "")
+                .withProperty("management.endpoint.health.show-details", "never")
+                .withProperty("management.endpoint.health.show-components", "always");
+        assertThat(evaluate(show, componentsOnly, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        assertThat(evaluate(show, componentsOnly, ENDPOINT_EVIDENCE).sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("management.endpoint.health.show-components=always");
         config.withProperty("management.endpoints.web.exposure.exclude", "*");
         assertThat(evaluate(show, config, ENDPOINT_EVIDENCE).status()).isEqualTo("PASS");
         assertThat(evaluate(show, env("management.endpoint.health.show-details", "always"), Map.of(ENDPOINTS, Set.of()))

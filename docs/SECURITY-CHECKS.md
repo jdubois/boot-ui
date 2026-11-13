@@ -20,7 +20,8 @@ security evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](fea
 Actuator exposure checks ignore BootUI's own low-priority local actuator defaults. Those defaults are merged into
 Spring Boot's shared `defaultProperties` source (only for keys the host has not set) so local panels can read Actuator
 data, and host `management.*` settings always win. If the host application explicitly configures actuator exposure
-or health detail properties, the checks continue to evaluate those values.
+or sanitization (`show-values`) properties, the checks continue to evaluate those values; health detail/component
+settings are evaluated by the Spring Advisor's `SPRING-MGMT-003`.
 
 ## Availability and bounds
 
@@ -436,7 +437,7 @@ separate management-context authorization remain unknown. No endpoint discoverer
 
 ### SEC-ACT-004 - Actuator health details/components should not be exposed unconditionally
 
-**Retired.** Duplicate of the Spring Advisor's `SPRING-MGMT-003` (`MEDIUM`), which remains always active across Spring MVC and WebFlux (with or without Spring Security) and covers `management.endpoint.health.show-details=always` alongside `show-values=always`. `SEC-ACT-004` also fired even when `/actuator/health` required authentication in `SecurityFilterChain`. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
+**Retired.** Duplicate of the Spring Advisor's `SPRING-MGMT-003` (`MEDIUM`), which remains always active across Spring MVC and WebFlux (with or without Spring Security) and covers `management.endpoint.health.show-details=always` and `show-components=always` alongside `show-values=always`. `SEC-ACT-004` also fired even when `/actuator/health` required authentication in `SecurityFilterChain`. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-ACT-005 - The actuator shutdown endpoint should not be enabled
 

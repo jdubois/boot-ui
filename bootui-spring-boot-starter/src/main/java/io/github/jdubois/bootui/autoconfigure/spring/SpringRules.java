@@ -1132,8 +1132,13 @@ final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         List<String> details = new ArrayList<>();
-        for (String id : List.of("env", "configprops", "health")) {
-            String key = "management.endpoint." + id + (id.equals("health") ? ".show-details" : ".show-values");
+        for (var entry : List.of(
+                Map.entry("env", "management.endpoint.env.show-values"),
+                Map.entry("configprops", "management.endpoint.configprops.show-values"),
+                Map.entry("health", "management.endpoint.health.show-details"),
+                Map.entry("health", "management.endpoint.health.show-components"))) {
+            String id = entry.getKey();
+            String key = entry.getValue();
             String value = c.firstHostProperty(key);
             if (value == null) continue;
             String normalized = value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
