@@ -259,6 +259,21 @@ public final class AgentRequestValues {
             return this;
         }
 
+        /** Adds every value of a servlet request's parameter map, whose form values a body carried. */
+        public Values addForm(Map<String, String[]> parameters) {
+            if (parameters != null) {
+                for (Map.Entry<String, String[]> entry : parameters.entrySet()) {
+                    String[] array = entry.getValue();
+                    if (array != null) {
+                        for (String value : array) {
+                            add(entry.getKey(), value);
+                        }
+                    }
+                }
+            }
+            return this;
+        }
+
         /** Adds every value of a single-valued map's entries, such as path variables. */
         public Values addSingle(Map<?, ?> parameters) {
             if (parameters != null) {

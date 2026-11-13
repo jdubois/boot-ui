@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.LongAdder;
 
 /**
  * The request value holder of the {@code security-sinks} sensor's request-value matching (PLAN-v2 §5.16, M5-6b): the
- * query and path parameter values of the requests running now (form values are planned: no adapter pushes them yet),
+ * query, path, and (on Spring MVC) form parameter values of the requests running now,
  * held only so a sink reached by the request (SQL text, a command, a file path, an outbound URL) can be checked for one
  * of them appearing verbatim, then forgotten when the response completes. Opt-in (D37): an adapter pushes nothing unless {@code
  * bootui.agent.security-sinks.request-values} is on and {@link #active()} answers true.

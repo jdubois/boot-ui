@@ -239,8 +239,9 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final String LIMITATION_SECURITY_SINKS = "Security sinks: request input is matched only while"
             + " bootui.agent.security-sinks.request-values is on, against the current request's query and path parameter"
-            + " values of 4 to 256 characters (from 1 on a request tagged with the X-BootUI-Assessment-Id header, whose"
-            + " value is never read), at most 32 of them, never form values, other headers, or bodies, and only"
+            + " values, and on Spring MVC the form values of a handler that binds them as parameters, of 4 to 256"
+            + " characters (from 1 on a request tagged with the X-BootUI-Assessment-Id header, whose value is never"
+            + " read), at most 32 of them, never other headers or bodies, and only"
             + " verbatim: a value encoded, trimmed, or changed in case is not seen. The values are compared, never stored,"
             + " and forgotten when the response completes. SQL text is checked where SQL Trace captures a statement,"
             + " never with R2DBC; a command where the processes sensor sees it start; a file path only with the files"

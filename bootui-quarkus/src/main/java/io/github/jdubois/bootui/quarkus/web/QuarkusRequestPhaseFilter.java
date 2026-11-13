@@ -58,7 +58,8 @@ public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, Contai
     /**
      * Hands the request's query and path parameter values to the BootUI agent's request value holder
      * ({@code docs/PLAN-v2.md} §5.16, M5-6b), only while request-value matching is on: the query parameters decoded from
-     * the URI and the path parameters RESTEasy Reactive matched, never a body. The values are removed when the
+     * the URI and the path parameters RESTEasy Reactive matched, never a body, and whether
+     * {@link AgentRequestValues#ASSESSMENT_HEADER} tags the request. The values are removed when the
      * response ends, or the connection closes, on Vert.x's end handler, whichever thread pushed them, so none
      * outlives the response. Observes only, and never fails the request.
      */
@@ -82,6 +83,7 @@ public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, Contai
             }
             UriInfo uri = request.getUriInfo();
             AgentRequestValues.Values values = new AgentRequestValues.Values()
+                    .assessment(request.getHeaderString(AgentRequestValues.ASSESSMENT_HEADER))
                     .addAll(uri.getPathParameters())
                     .addAll(uri.getQueryParameters());
             if (values.isEmpty()) {

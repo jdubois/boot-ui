@@ -117,6 +117,18 @@ class AgentRequestValuesTests {
     }
 
     @Test
+    void aServletParameterMapIsFlattened() {
+        Map<String, String[]> form = new LinkedHashMap<>();
+        form.put("q", new String[] {"bar'", null, "baz"});
+        form.put("empty", null);
+        AgentRequestValues.Values values =
+                new AgentRequestValues.Values().addForm(form).addForm(null);
+
+        assertThat(List.of(values.names())).containsExactly("q", "q");
+        assertThat(List.of(values.values())).containsExactly("bar'", "baz");
+    }
+
+    @Test
     void queryStringsAreDecodedAsFormsAndBadPairsSkipped() {
         AgentRequestValues.Values values =
                 new AgentRequestValues.Values().addQuery("a=hello+world&b=%E2%82%AC100&bad=%zz&flag&=anon&c=x%26y&&d=");

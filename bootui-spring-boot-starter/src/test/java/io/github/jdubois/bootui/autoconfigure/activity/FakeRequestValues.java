@@ -13,6 +13,7 @@ public final class FakeRequestValues {
     public static final Map<String, String> PUSHED = new LinkedHashMap<>();
     public static volatile Map<?, ?> late;
     public static volatile String[] lateKeys;
+    public static volatile boolean assessment;
 
     private FakeRequestValues() {}
 
@@ -22,6 +23,7 @@ public final class FakeRequestValues {
         PUSHED.clear();
         late = null;
         lateKeys = null;
+        assessment = false;
     }
 
     public static boolean active() {
@@ -29,8 +31,14 @@ public final class FakeRequestValues {
     }
 
     public static synchronized int begin(
-            String requestId, String[] names, String[] values, Map<?, ?> lateSource, String[] keys) {
+            String requestId,
+            String[] names,
+            String[] values,
+            Map<?, ?> lateSource,
+            String[] keys,
+            boolean assessmentRequest) {
         CALLS.add("begin " + requestId);
+        assessment |= assessmentRequest;
         for (int i = 0; i < values.length; i++) {
             PUSHED.put(names[i], values[i]);
         }

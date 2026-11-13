@@ -70,6 +70,22 @@ class QuarkusRequestValuesTest {
     }
 
     @Test
+    void anAssessmentHeaderMarksTheRequestAndItsAbsenceDoesNot() {
+        ResteasyReactiveContainerRequestContext untagged = request(routing(false), "name", "bar");
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(REQUEST))) {
+            QuarkusRequestPhaseFilter.pushRequestValues(untagged);
+        }
+        assertThat(FakeRequestValues.assessment).isFalse();
+
+        ResteasyReactiveContainerRequestContext tagged = request(routing(false), "name", "bar");
+        when(tagged.getHeaderString(AgentRequestValues.ASSESSMENT_HEADER)).thenReturn("zap-scan-1");
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(REQUEST))) {
+            QuarkusRequestPhaseFilter.pushRequestValues(tagged);
+        }
+        assertThat(FakeRequestValues.assessment).isTrue();
+    }
+
+    @Test
     void aConnectionThatClosedBeforeTheEndHandlerWasAddedRemovesTheValuesAtOnce() {
         RoutingContext routing = routing(true);
 

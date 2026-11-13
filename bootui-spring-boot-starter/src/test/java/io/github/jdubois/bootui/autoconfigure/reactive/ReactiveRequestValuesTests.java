@@ -73,6 +73,17 @@ class ReactiveRequestValuesTests {
     }
 
     @Test
+    void anAssessmentHeaderMarksTheRequestAndItsAbsenceDoesNot() {
+        filter.filter(exchange(), served -> Mono.empty()).block(Duration.ofSeconds(5));
+        assertThat(FakeRequestValues.assessment).isFalse();
+
+        MockServerWebExchange tagged = MockServerWebExchange.from(MockServerHttpRequest.get("/api/search?name=bar")
+                .header(AgentRequestValues.ASSESSMENT_HEADER, "zap-scan-1"));
+        filter.filter(tagged, served -> Mono.empty()).block(Duration.ofSeconds(5));
+        assertThat(FakeRequestValues.assessment).isTrue();
+    }
+
+    @Test
     void aFailedOrCancelledChainEndsItsValuesToo() {
         filter.filter(exchange(), served -> Mono.error(new IllegalStateException("boom")))
                 .onErrorResume(ex -> Mono.empty())
