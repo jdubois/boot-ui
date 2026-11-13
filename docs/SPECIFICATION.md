@@ -2572,8 +2572,8 @@ Features:
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
 - Judge the JDBC driver settings (nine `DB-DRIVER-*` rules: batching rewrite, prepared-statement caches, savepoints,
   diagnostic settings, socket timeout and application name), compare the connection pool with the server's limits
-  (four `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
-  need (seven `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
+  (three `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
+  need (five `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
   Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since the verdict belongs to the scored advisor.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
   `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a

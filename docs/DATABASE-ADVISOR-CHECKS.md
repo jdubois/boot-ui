@@ -1,6 +1,6 @@
 # Database checks
 
-The Database advisor runs **48 fixed, on-demand checks** over the physical schema reported by the application's
+The Database advisor runs **45 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations, already-retained SQL Trace
 observations, the JDBC driver settings configured in the URL and the connection pool, the connection pool compared with
 the server's limits, and a few of the database server's own settings. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
@@ -86,8 +86,8 @@ percent-encoded parts joined with `|`, derived from the physical object and neve
 | A mapped entity with no table     | `ds=<datasource>`, then `entity=<entity>`, then `relation=` or `secondary=`      |
 | A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
 | A JDBC driver setting (DB-DRIVER-001..009) | `ds=<datasource>`, then `setting=<setting name>` (`setting=cachePrepStmts` for DB-DRIVER-004); never a value |
-| A connection-pool setting (DB-POOL-001..004) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
-| A database-server setting (DB-SERVER-001..007) | `ds=<datasource>`, then `server=<setting name>` (`server=pg_stat_statements` for DB-SERVER-004); never a value |
+| A connection-pool setting (DB-POOL-001..003) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
+| A database-server setting (DB-SERVER-001, 003..005, 007) | `ds=<datasource>`, then `server=<setting name>` (`server=pg_stat_statements` for DB-SERVER-004); never a value |
 
 Catalog, schema and table are separate parts, so a table named `a.b` cannot alias table `b` of schema `a`. A comparison
 never claims a finding is resolved for DB-RUNTIME-001, because its evidence is the SQL Trace window, or for a rule or
@@ -676,7 +676,6 @@ application, and changes the meaning of both server limits; dismiss the rule whe
 | `DB-POOL-001` | MEDIUM | the pool can hold an idle connection longer than the server allows |
 | `DB-POOL-002` | MEDIUM | the pool's maximum size exceeds the connections the server lets an ordinary role hold |
 | `DB-POOL-003` | LOW | `maxLifetime` is `0` (no limit) and `DB-POOL-001` does not report the datasource |
-| `DB-POOL-004` | LOW | the pool fits but takes more than 50 % of the usable connections (heuristic) |
 
 ### DB-POOL-001 - Connection pool can keep a connection idle longer than the server allows
 
@@ -729,14 +728,10 @@ ownership cannot drift.
 
 ### DB-POOL-004 - Connection pool leaves no headroom for a second instance
 
-**LOW.** Fires when the pool fits (`maximumPoolSize` is not above the usable connections) but is more than
-`POOL_SHARE_PERCENT = 50` percent of them, compared with exact integer arithmetic (`size * 100 > usable * 50`). It is a
-heuristic that assumes a second instance of the application, as in a rolling deploy or a scale-out, opens a pool of the
-same size on the same server, and it knows nothing about other clients. It is a rule of its own, not a tier of
-`DB-POOL-002`, because a rule has one severity, which is what the report's counts, the score and the CLI's `--fail-on`
-gate use; and it is quiet when `DB-POOL-002` reports the datasource. The Agroal default maximum size of 50 is above the
-threshold for a stock PostgreSQL server (97 usable connections), so a default Quarkus application on PostgreSQL gets this
-finding; dismiss it when the application never runs more than one instance on the server.
+**Retired.** Assumes a multi-instance deployment against a single database without a connection proxy, cites an
+inaccurate Quarkus default (`50`, whereas `quarkus.datasource.jdbc.max-size` defaults to `20`), and shares the exact
+same finding identity (`ds=<datasource>|pool=maximum-size`) as `DB-POOL-002`. `DB-POOL-002` remains the check for a
+pool whose maximum size exceeds the server's usable connections.
 
 ## Server
 
@@ -761,11 +756,9 @@ the datasource and the setting, never on the value.
 | Rule | Server | Severity | Fires when |
 | ---- | ------ | -------- | ---------- |
 | `DB-SERVER-001` | PostgreSQL | LOW | `idle_in_transaction_session_timeout = 0` |
-| `DB-SERVER-002` | PostgreSQL | LOW | `statement_timeout = 0` |
 | `DB-SERVER-003` | PostgreSQL | MEDIUM | `autovacuum = off` |
 | `DB-SERVER-004` | PostgreSQL | LOW | `pg_stat_statements` is not in `shared_preload_libraries`, or its extension is not created in the connected database |
 | `DB-SERVER-005` | PostgreSQL | LOW | `track_io_timing = off` |
-| `DB-SERVER-006` | PostgreSQL | LOW | `log_min_duration_statement = -1` |
 | `DB-SERVER-007` | MySQL | LOW | `performance_schema = OFF` |
 
 ### DB-SERVER-001 - PostgreSQL does not end sessions that are idle in a transaction
@@ -780,11 +773,9 @@ transaction right now. See
 
 ### DB-SERVER-002 - PostgreSQL has no statement timeout
 
-**LOW.** Fires when `statement_timeout` is `0` (the default), so the server never aborts a runaway statement. The advisor's
-own scan connection does not pin it (BootUI's PostgreSQL panel does, for its own read, and for that reason leaves it out of
-its notable settings), so the value is the server's, the role's or the pool's. A role that runs long reports or migrations
-needs no limit; the usual remedy is a limit on the role the application's requests use. See
-[`statement_timeout`](https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-STATEMENT-TIMEOUT).
+**Retired.** Fires on stock PostgreSQL installations (`statement_timeout = 0`) and recommends setting a role or
+database `statement_timeout` on the application's `DataSource` role, which aborts Flyway or Liquibase DDL migrations
+(`CREATE INDEX`, `ALTER TABLE`) running over the same `DataSource` at startup.
 
 ### DB-SERVER-003 - PostgreSQL autovacuum is disabled
 
@@ -822,10 +813,9 @@ systems; the manual points to `pg_test_timing` to check it. See
 
 ### DB-SERVER-006 - PostgreSQL does not log slow statements
 
-**LOW.** Fires when `log_min_duration_statement` is `-1` (the default), so no statement is logged for its duration. `0`
-logs every statement and any other value is a threshold, so only `-1` is reported. `auto_explain` or a managed service's
-slow-query log can cover the same need: dismiss the finding then. See
-[`log_min_duration_statement`](https://www.postgresql.org/docs/current/runtime-config-logging.html#GUC-LOG-MIN-DURATION-STATEMENT).
+**Retired.** Fires on stock PostgreSQL installations (`log_min_duration_statement = -1`), is redundant with BootUI's
+SQL Trace panel, `DB-SERVER-004` (`pg_stat_statements`), and `HIB-CONFIG-006`, and logs bound parameter literals into
+server logs in plaintext by default when enabled.
 
 ### DB-SERVER-007 - MySQL Performance Schema is disabled
 
@@ -838,7 +828,8 @@ best effort. The variable exists from MySQL 5.5; below that the rule is `SKIPPED
 
 ## Retired rules
 
-These IDs remain reserved so old dismissals stay harmless and are never applied to unrelated future checks.
+These IDs (along with `DB-POOL-004`, `DB-SERVER-002`, and `DB-SERVER-006` above) remain reserved so old dismissals stay
+harmless and are never applied to unrelated future checks.
 
 ### DB-SCHEMA-008 - Composite foreign key with partially nullable columns
 

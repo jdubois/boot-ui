@@ -1,8 +1,22 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import java.util.List;
+import java.util.Set;
 
 final class DatabaseAdvisorRuleRegistry {
+
+    /**
+     * Rule IDs that were removed from the catalogue. They stay reserved so existing dismissals never silently apply
+     * to a different check; see the "Retired rules" section of docs/DATABASE-ADVISOR-CHECKS.md.
+     */
+    static final Set<String> RETIRED_RULE_IDS = Set.of(
+            "DB-SCHEMA-008",
+            "DB-SCHEMA-009",
+            "DB-HIB-001",
+            "DB-HIB-008",
+            "DB-POOL-004",
+            "DB-SERVER-002",
+            "DB-SERVER-006");
 
     private static final List<DatabaseAdvisorRule> ACTIVE_RULES = List.of(
             // Schema (generic, all dialects)
@@ -51,14 +65,11 @@ final class DatabaseAdvisorRuleRegistry {
             new PoolIdleLimitRule(),
             new PoolExceedsServerConnectionsRule(),
             new PoolUnlimitedLifetimeRule(),
-            new PoolServerShareRule(),
             // Database-server settings as the scan connection sees them
             new PostgresIdleInTransactionTimeoutRule(),
-            new PostgresStatementTimeoutRule(),
             new PostgresAutovacuumDisabledRule(),
             new PostgresStatStatementsRule(),
             new PostgresTrackIoTimingRule(),
-            new PostgresSlowStatementLogRule(),
             new MySqlPerformanceSchemaDisabledRule());
 
     private DatabaseAdvisorRuleRegistry() {}

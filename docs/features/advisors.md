@@ -489,13 +489,12 @@ or unknown (batching rules only), or the evidence could not be settled. See
 
 ::: details What the connection-pool checks add
 
-Four rules compare the HikariCP or Agroal pool behind a PostgreSQL, MySQL or MariaDB datasource with the server's own
+Three rules compare the HikariCP or Agroal pool behind a PostgreSQL, MySQL or MariaDB datasource with the server's own
 limits. The pool's numbers are read without borrowing a connection; the server's `wait_timeout`/`idle_session_timeout`
 and connection limits are read in the same bounded scan, as the scan connection's session sees them.
 
 - A pool that can hold an idle connection longer than the server allows (HikariCP only).
-- A pool larger than the connections the server lets an ordinary role hold, and (as a LOW heuristic) one that leaves no
-  room for a second instance.
+- A pool larger than the connections the server lets an ordinary role hold.
 - A pool whose connections are never retired for age (`maxLifetime` of `0`).
 
 A pool that cannot be attributed, another pool library, or a server value that could not be read leaves the rule
@@ -504,13 +503,13 @@ A pool that cannot be attributed, another pool library, or a server value that c
 
 ::: details What the database-server checks add
 
-Seven rules read a few settings of the PostgreSQL or MySQL server in the same bounded scan, as the scan connection's own
+Five rules read a few settings of the PostgreSQL or MySQL server in the same bounded scan, as the scan connection's own
 session sees them, and flag the values that remove a safety net or the data the
 [PostgreSQL and MySQL panels](database.md) need. The panels stay neutral; the verdict is here, where it is scored and can
 be dismissed.
 
-- PostgreSQL: no `idle_in_transaction_session_timeout`, no `statement_timeout`, `autovacuum` off, `pg_stat_statements` not
-  loaded or not created, `track_io_timing` off, and no slow-statement log (`log_min_duration_statement = -1`).
+- PostgreSQL: no `idle_in_transaction_session_timeout`, `autovacuum` off, `pg_stat_statements` not loaded or not
+  created, and `track_io_timing` off.
 - MySQL: `performance_schema` off (skipped on MariaDB).
 
 A setting the server did not report, one this version lacks, or a read that failed leaves the rule `SKIPPED` with the
