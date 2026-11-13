@@ -32,7 +32,23 @@ abstract class AbstractServerSettingRule extends AbstractDriverRule {
             String setting,
             int sinceMajor,
             int sinceMinor) {
-        super(definition, postgres ? "No PostgreSQL datasource was detected." : "No MySQL datasource was detected.");
+        this(
+                definition,
+                postgres,
+                setting,
+                sinceMajor,
+                sinceMinor,
+                postgres ? "No PostgreSQL datasource was detected." : "No MySQL datasource was detected.");
+    }
+
+    AbstractServerSettingRule(
+            DatabaseAdvisorRuleDefinition definition,
+            boolean postgres,
+            String setting,
+            int sinceMajor,
+            int sinceMinor,
+            String noDatasourceReason) {
+        super(definition, noDatasourceReason);
         this.postgres = postgres;
         this.setting = setting;
         this.sinceMajor = sinceMajor;

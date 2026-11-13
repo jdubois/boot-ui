@@ -780,6 +780,8 @@ class DatabaseAdvisorDriverSettingsRulesTests {
     void everyJudgedSettingIsAllowListedUnderItsCanonicalSpelling() {
         assertThat(DriverSettingCatalog.NAMES)
                 .contains(
+                        "autoReconnect",
+                        "autoReconnectForPools",
                         "cachePrepStmts",
                         "prepStmtCacheSize",
                         "prepStmtCacheSqlLimit",
@@ -833,10 +835,12 @@ class DatabaseAdvisorDriverSettingsRulesTests {
                         "DB-DRIVER-006",
                         "DB-DRIVER-007",
                         "DB-DRIVER-008",
-                        "DB-DRIVER-009");
-        assertThat(driverRules.stream().skip(3))
+                        "DB-DRIVER-009",
+                        "DB-DRIVER-010");
+        assertThat(driverRules.subList(3, 9))
                 .extracting(rule -> rule.definition().severity())
                 .containsOnly("LOW");
+        assertThat(driverRules.get(9).definition().severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -847,5 +851,33 @@ class DatabaseAdvisorDriverSettingsRulesTests {
         DatabaseAdvisorRuleResultDto result = statementCache.evaluate(mysql(connectorJ(Map.of())));
         assertThat(result.description()).contains("2048", "250", "256", "25");
         assertThat(result.learnMoreUrl()).contains("HikariCP");
+    }
+
+    // --- DB-DRIVER-010 -------------------------------------------------------------------------------------------
+
+    @Test
+    void autoReconnectFiresWhenAutoReconnectOrAutoReconnectForPoolsIsEnabled() {
+        DatabaseAdvisorRule autoReconnect = new MySqlAutoReconnectRule();
+        DatabaseAdvisorRuleResultDto urlFired =
+                autoReconnect.evaluate(mysql(connectorJ(urlSettings("autoReconnect", "true"))));
+        assertThat(urlFired.status()).isEqualTo("VIOLATION");
+        assertThat(urlFired.id()).isEqualTo("DB-DRIVER-010");
+        assertThat(urlFired.severity()).isEqualTo("MEDIUM");
+        assertThat(urlFired.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("ordersDb", "`autoReconnect` is `true`", "JDBC URL", "Evidence: configured");
+
+        DatabaseAdvisorRuleResultDto bothFired = autoReconnect.evaluate(
+                mysql(connectorJ(poolSettings("autoReconnect", "yes", "autoReconnectForPools", "true"))));
+        assertThat(bothFired.status()).isEqualTo("VIOLATION");
+        assertThat(bothFired.violationCount()).isEqualTo(2);
+
+        assertThat(autoReconnect.evaluate(mysql(connectorJ(Map.of()))).status()).isEqualTo("PASS");
+        assertThat(autoReconnect
+                        .evaluate(
+                                mysql(connectorJ(urlSettings("autoReconnect", "false", "autoReconnectForPools", "no"))))
+                        .status())
+                .isEqualTo("PASS");
     }
 }

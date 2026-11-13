@@ -2549,8 +2549,8 @@ Data sources:
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no
   application-row query, no database link, and no production `ojdbc` dependency.
 - The Hibernate/JPA metamodel, when available, for cross-referencing explicitly named entity tables (including
-  `@SecondaryTable`), columns, foreign keys, unique constraints, numeric precision/scale and `IDENTITY` key generation
-  with observed schema metadata.
+  `@SecondaryTable`), columns, foreign keys, unique constraints, `@Index` declarations, `@Enumerated(STRING)` lengths,
+  `@SequenceGenerator` names, numeric precision/scale and `IDENTITY` key generation with observed schema metadata.
 - The JDBC driver settings the scan connection's URL reports and the pool's driver properties carry (a short
   allow-list of non-secret names, everything else discarded unread), and the sanitized sizing of the HikariCP or Agroal
   pool attributed to the datasource, read without borrowing a connection.
@@ -2562,21 +2562,23 @@ Features:
 
 - Run an explicit, read-only scan over a fixed generic ruleset covering missing primary keys, foreign-key columns
   without known supporting access paths, exact index-definition overlap, foreign-key/referenced-column domain
-  discrepancies, redundant unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys and
-  MySQL/MariaDB/Oracle invisible or ignored indexes.
+  discrepancies, redundant unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys,
+  MySQL/MariaDB/Oracle invisible or ignored indexes, and `SET NULL` foreign keys on `NOT NULL` columns.
   These are contextual structural reviews, not workload or business-intent verdicts.
 - Augment the generic scan for PostgreSQL with invalid-index (excluding an index still building `CONCURRENTLY`),
-  sequence-exhaustion, `NOT VALID` constraint, missing-replica-identity and unlogged-table checks; for MySQL/MariaDB with
-  non-InnoDB-engine, non-`utf8mb4`, and `AUTO_INCREMENT`-exhaustion checks; and for Oracle with unusable-index,
-  disabled/unvalidated-constraint, and sequence/identity-exhaustion checks. A driver-reported "Oracle" product name is
+  sequence-exhaustion, `NOT VALID` constraint, missing-replica-identity, unlogged-table and empty-partitioned-table
+  checks; for MySQL/MariaDB with non-InnoDB-engine, non-`utf8mb4`, `AUTO_INCREMENT`-exhaustion, and MySQL 8.0.16+
+  unenforced-check-constraint checks; and for Oracle with unusable-index, disabled/unvalidated-constraint,
+  sequence/identity-exhaustion, and global-index `ORPHANED_ENTRIES` checks. A driver-reported "Oracle" product name is
   confirmed against the server's version banner before Oracle augmentation runs, since some Oracle-compatible
   databases report the same product name; Tibero, OceanBase, EDB Postgres Advanced Server, and H2's Oracle
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
-- Judge the JDBC driver settings (nine `DB-DRIVER-*` rules: batching rewrite, prepared-statement caches, savepoints,
-  diagnostic settings, socket timeout and application name), compare the connection pool with the server's limits
-  (three `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
-  need (five `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
-  Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since the verdict belongs to the scored advisor.
+- Judge the JDBC driver settings (ten `DB-DRIVER-*` rules: batching rewrite, `autoReconnect`, prepared-statement caches,
+  savepoints, diagnostic settings, socket timeout and application name), check connection-pool timeouts and compare the
+  connection pool with the server's limits (four `DB-POOL-*` rules) and flag server settings that remove a safety net or
+  the data the PostgreSQL and MySQL panels need (six `DB-SERVER-*` rules). These rules never run on missing evidence:
+  they are `SKIPPED` with a reason, and the Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since
+  the verdict belongs to the scored advisor.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
   `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a
   physical naming strategy; discrepancies do not establish broken effective runtime mappings. Composite
@@ -2614,7 +2616,7 @@ Out of scope for the current release surface:
 - Executing DDL, querying application data, changing schema objects, or changing Hibernate mappings.
 - Workload or query-plan analysis, partition management, and index suggestions derived from observed query usage.
 - Guessing effective physical names or sequence optimizer contracts from annotations alone.
-- Oracle orphaned-entry, chained-row, unused-index, fragmentation, and sequence-gap warnings, and any AWR/ASH-derived
+- Oracle chained-row, unused-index, fragmentation, and sequence-gap warnings, and any AWR/ASH-derived
   finding, none of which can be evaluated from `ALL_*` views alone without an elevated role or workload assumptions
   this advisor does not make.
 

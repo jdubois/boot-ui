@@ -466,6 +466,32 @@ class HibernateSchemaBridgeTests {
     }
 
     @Test
+    void tableIndexesJoinNullabilityEnumLengthAndClassLevelSequenceGeneratorsAreExtracted() {
+        MappedEntityFacts indexed = factsFor(IndexedOrder.class);
+        assertThat(indexed.indexes())
+                .containsExactly(new HibernateSchemaBridge.MappedIndexFacts(
+                        IndexedOrder.class.getName() + " @Table @Index(ix_order_customer_created)",
+                        "ix_order_customer_created",
+                        List.of(
+                                new HibernateSchemaBridge.MappedIndexColumn("customer_id", null),
+                                new HibernateSchemaBridge.MappedIndexColumn("created_at", false)),
+                        false,
+                        null));
+        assertThat(indexed.foreignKeys())
+                .singleElement()
+                .satisfies(fk -> assertThat(fk.nonNullColumns()).containsExactly("customer_id"));
+        assertThat(indexed.sequenceGenerators())
+                .containsExactly(new MappedSequenceGeneratorFacts(
+                        IndexedOrder.class.getName() + "#id", "orders_seq", 50, "sales", null));
+
+        MappedColumnFacts statusCol = column(factsFor(Columns.class), "status");
+        assertThat(statusCol.maxEnumConstantName()).isEqualTo("SHIPPED");
+        assertThat(statusCol.maxEnumConstantLength()).isEqualTo(7);
+        assertThat(column(factsFor(EnumColumns.class), "ordinal_status").maxEnumConstantLength())
+                .isNull();
+    }
+
+    @Test
     void ambiguousOrIncompleteSequenceGeneratorsAreNotResolved() {
         assertThat(factsFor(MismatchedGeneratorName.class).sequenceGenerators()).isEmpty();
         assertThat(factsFor(NoSequenceName.class).sequenceGenerators()).isEmpty();
@@ -959,6 +985,26 @@ class HibernateSchemaBridgeTests {
             @JoinColumn(name = "a", referencedColumnName = "a"),
             @JoinColumn(name = "b", referencedColumnName = "b", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
         })
+        Customer customer;
+    }
+
+    @Entity
+    @Table(
+            name = "indexed_orders",
+            indexes = {
+                @jakarta.persistence.Index(
+                        name = "ix_order_customer_created",
+                        columnList = "customer_id, created_at DESC"),
+                @jakarta.persistence.Index(name = "ix_expr_ignored", columnList = "lower(code)")
+            })
+    @SequenceGenerator(name = "class_seq_gen", sequenceName = "orders_seq", schema = "sales", allocationSize = 50)
+    static class IndexedOrder {
+        @Id
+        @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "class_seq_gen")
+        Long id;
+
+        @ManyToOne(optional = false)
+        @JoinColumn(name = "customer_id", referencedColumnName = "id")
         Customer customer;
     }
 }

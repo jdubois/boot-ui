@@ -569,14 +569,20 @@ class DatabaseAdvisorServerRulesTests {
 
         assertThat(server)
                 .extracting(rule -> rule.definition().id())
-                .containsExactly("DB-SERVER-001", "DB-SERVER-003", "DB-SERVER-004", "DB-SERVER-005", "DB-SERVER-007");
+                .containsExactly(
+                        "DB-SERVER-001",
+                        "DB-SERVER-003",
+                        "DB-SERVER-004",
+                        "DB-SERVER-005",
+                        "DB-SERVER-007",
+                        "DB-SERVER-008");
         assertThat(server).allSatisfy(rule -> {
             assertThat(rule.definition().category()).isEqualTo(DatabaseAdvisorCategory.SERVER);
             assertThat(rule.definition().learnMoreUrl()).startsWith("https://");
         });
         assertThat(server)
                 .extracting(rule -> rule.definition().severity())
-                .containsExactly("LOW", "MEDIUM", "LOW", "LOW", "LOW");
+                .containsExactly("LOW", "MEDIUM", "LOW", "LOW", "LOW", "MEDIUM");
     }
 
     @Test
@@ -637,5 +643,36 @@ class DatabaseAdvisorServerRulesTests {
         assertThat(reason(incomplete)).contains("Coverage is incomplete");
         assertThat(gap.evaluationDiagnostics())
                 .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("did not report"));
+    }
+
+    // --- DB-SERVER-008: MySQL/MariaDB strict sql_mode ---------------------------------------------------------------
+
+    @Test
+    void strictSqlModeFiresWhenNeitherStrictTransTablesNorStrictAllTablesIsPresent() {
+        DatabaseAdvisorRule strictRule = new MySqlStrictSqlModeRule();
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            DatabaseAdvisorRuleResultDto empty = run(strictRule, mysql(dialect, 8, setting("sql_mode", "")));
+            assertThat(empty.status()).isEqualTo("VIOLATION");
+            assertThat(empty.id()).isEqualTo("DB-SERVER-008");
+            assertThat(empty.severity()).isEqualTo("MEDIUM");
+            assertThat(reason(empty))
+                    .contains("ordersDb", "`sql_mode` is empty", "STRICT_TRANS_TABLES", EVIDENCE)
+                    .hasSizeLessThanOrEqualTo(DetailText.DEFAULT_MAX_CHARS);
+
+            DatabaseAdvisorRuleResultDto nonStrict = run(
+                    strictRule, mysql(dialect, 8, setting("sql_mode", "ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION")));
+            assertThat(nonStrict.status()).isEqualTo("VIOLATION");
+            assertThat(reason(nonStrict)).contains("`ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION`");
+
+            assertThat(run(strictRule, mysql(dialect, 8, setting("sql_mode", "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES")))
+                            .status())
+                    .isEqualTo("PASS");
+            assertThat(run(strictRule, mysql(dialect, 8, setting("sql_mode", "STRICT_ALL_TABLES")))
+                            .status())
+                    .isEqualTo("PASS");
+        }
+        assertThat(run(strictRule, mysql(Dialect.MYSQL, 8, setting("sql_mode", "bad token")))
+                        .status())
+                .isEqualTo("SKIPPED");
     }
 }

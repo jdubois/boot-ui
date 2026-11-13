@@ -77,6 +77,8 @@ public final class HibernateSchemaBridge {
             return new MappedEntityFacts(entity.name(), null, List.of(), List.of());
         }
         uniqueConstraints.addAll(secondaryTableUniqueConstraints(entity.javaType(), entity.name()));
+        List<MappedIndexFacts> indexes = new ArrayList<>(tableIndexes(table, entity.name(), null));
+        indexes.addAll(secondaryTableIndexes(entity.javaType(), entity.name()));
         List<MappedSequenceGeneratorFacts> sequenceGenerators = new ArrayList<>();
         for (HibernateAttributeModel attribute : entity.attributes()) {
             if (attribute.isTransient() || unsupportedPlacement(attribute)) {
@@ -90,7 +92,7 @@ public final class HibernateSchemaBridge {
                 continue;
             }
             addColumn(attribute, entity.javaType(), columns, uniqueConstraints);
-            addSequenceGenerator(attribute, sequenceGenerators);
+            addSequenceGenerator(attribute, entity.javaType(), sequenceGenerators);
         }
         return new MappedEntityFacts(
                 entity.name(),
@@ -101,7 +103,8 @@ public final class HibernateSchemaBridge {
                 columns,
                 uniqueConstraints,
                 secondaryTables,
-                sequenceGenerators);
+                sequenceGenerators,
+                indexes);
     }
 
     /**
@@ -115,7 +118,9 @@ public final class HibernateSchemaBridge {
      * comparing the wrong sequence's {@code INCREMENT BY} entirely.</p>
      */
     private static void addSequenceGenerator(
-            HibernateAttributeModel attribute, List<MappedSequenceGeneratorFacts> sequenceGenerators) {
+            HibernateAttributeModel attribute,
+            Class<?> entityType,
+            List<MappedSequenceGeneratorFacts> sequenceGenerators) {
         if (!attribute.hasId()) {
             return;
         }
@@ -123,21 +128,63 @@ public final class HibernateSchemaBridge {
         if (generatedValue == null || !"SEQUENCE".equals(attribute.annotationValueName(generatedValue, "strategy"))) {
             return;
         }
+        String generatorName = attribute.annotationStringValue(generatedValue, "generator");
+        if (generatorName == null || generatorName.isBlank()) {
+            return;
+        }
         Annotation sequenceGenerator = attribute.sequenceGeneratorAnnotation();
+        if (sequenceGenerator == null) {
+            sequenceGenerator = classSequenceGenerator(entityType, generatorName);
+        }
         if (sequenceGenerator == null) {
             return;
         }
-        String generatorName = attribute.annotationStringValue(generatedValue, "generator");
-        String declaredGeneratorName = attribute.annotationStringValue(sequenceGenerator, "name");
-        if (generatorName == null || !generatorName.equals(declaredGeneratorName)) {
+        String declaredGeneratorName = annotationString(sequenceGenerator, "name");
+        if (!generatorName.equals(declaredGeneratorName)) {
             return;
         }
-        String sequenceName = attribute.annotationStringValue(sequenceGenerator, "sequenceName");
-        Integer allocationSize = attribute.annotationIntValue(sequenceGenerator, "allocationSize");
+        String sequenceName = annotationString(sequenceGenerator, "sequenceName");
+        Object rawAllocationSize = annotationValue(sequenceGenerator, "allocationSize");
+        Integer allocationSize = rawAllocationSize instanceof Integer size ? size : null;
         if (sequenceName == null || sequenceName.isBlank() || allocationSize == null) {
             return;
         }
-        sequenceGenerators.add(new MappedSequenceGeneratorFacts(attribute.description(), sequenceName, allocationSize));
+        sequenceGenerators.add(new MappedSequenceGeneratorFacts(
+                attribute.description(),
+                sequenceName,
+                allocationSize,
+                annotationString(sequenceGenerator, "schema"),
+                annotationString(sequenceGenerator, "catalog")));
+    }
+
+    private static Annotation classSequenceGenerator(Class<?> entityType, String generatorName) {
+        if (entityType == null) {
+            return null;
+        }
+        List<Annotation> matches = new ArrayList<>();
+        for (Class<?> current = entityType;
+                current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                String typeName = annotation.annotationType().getName();
+                if ("jakarta.persistence.SequenceGenerator".equals(typeName)) {
+                    if (generatorName.equals(annotationString(annotation, "name"))) {
+                        matches.add(annotation);
+                    }
+                } else if ("jakarta.persistence.SequenceGenerators".equals(typeName)) {
+                    Object value = annotationValue(annotation, "value");
+                    if (value instanceof Object[] members) {
+                        for (Object member : members) {
+                            if (member instanceof Annotation candidate
+                                    && generatorName.equals(annotationString(candidate, "name"))) {
+                                matches.add(candidate);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return matches.size() == 1 ? matches.get(0) : null;
     }
 
     /**
@@ -250,6 +297,22 @@ public final class HibernateSchemaBridge {
                 || ambiguousEnum(attribute)
                 || attribute.isLob();
         String tableName = attribute.annotationStringValue(column, "table");
+        String maxEnumConstantName = null;
+        Integer maxEnumConstantLength = null;
+        if (!ambiguousType && attribute.isEnumAttribute() && attribute.rawType() != null) {
+            Object[] constants = attribute.rawType().getEnumConstants();
+            if (constants != null) {
+                for (Object constant : constants) {
+                    if (constant instanceof Enum<?> enumConstant) {
+                        String constantName = enumConstant.name();
+                        if (maxEnumConstantLength == null || constantName.length() > maxEnumConstantLength) {
+                            maxEnumConstantName = constantName;
+                            maxEnumConstantLength = constantName.length();
+                        }
+                    }
+                }
+            }
+        }
         columns.add(new MappedColumnFacts(
                 attribute.description(),
                 columnName,
@@ -262,7 +325,9 @@ public final class HibernateSchemaBridge {
                 blankToNull(tableName),
                 declaredPrecision,
                 declaredScale,
-                identityGenerated(attribute)));
+                identityGenerated(attribute),
+                maxEnumConstantName,
+                maxEnumConstantLength));
         if (Boolean.TRUE.equals(attribute.annotationBooleanValue(column, "unique"))) {
             uniqueConstraints.add(new MappedUniqueConstraintFacts(
                     attribute.description(), List.of(columnName), blankToNull(tableName)));
@@ -338,6 +403,14 @@ public final class HibernateSchemaBridge {
                 .findFirst()
                 .orElse(null);
         boolean constraintExpected = joinColumns.stream().noneMatch(JoinColumnFact::noConstraint);
+        Annotation association = attribute.manyToOneAnnotation() != null
+                ? attribute.manyToOneAnnotation()
+                : attribute.oneToOneAnnotation();
+        boolean optionalFalse = Boolean.FALSE.equals(attribute.annotationBooleanValue(association, "optional"));
+        List<String> nonNullColumns = joinColumns.stream()
+                .filter(column -> optionalFalse || column.nonNull())
+                .map(JoinColumnFact::name)
+                .toList();
         TargetTable target = targetTable(attribute, unresolvedTypes);
         foreignKeys.add(new MappedForeignKeyFacts(
                 attribute.description(),
@@ -348,7 +421,8 @@ public final class HibernateSchemaBridge {
                 target.name(),
                 target.schema(),
                 target.catalog(),
-                target.identifierColumn()));
+                target.identifierColumn(),
+                nonNullColumns));
     }
 
     private static boolean isOwningToOne(HibernateAttributeModel attribute) {
@@ -458,7 +532,8 @@ public final class HibernateSchemaBridge {
     }
 
     /** One {@code @JoinColumn}'s resolved facts, before they are split across {@link MappedForeignKeyFacts}. */
-    private record JoinColumnFact(String name, String referencedColumnName, String table, boolean noConstraint) {}
+    private record JoinColumnFact(
+            String name, String referencedColumnName, String table, boolean noConstraint, boolean nonNull) {}
 
     /**
      * The owning side's join columns in declaration order: a single {@code @JoinColumn}, or every
@@ -483,7 +558,8 @@ public final class HibernateSchemaBridge {
                 name,
                 blankToNull(attribute.annotationStringValue(joinColumn, "referencedColumnName")),
                 attribute.annotationStringValue(joinColumn, "table"),
-                isNoConstraint(annotationValue(joinColumn, "foreignKey"))));
+                isNoConstraint(annotationValue(joinColumn, "foreignKey")),
+                Boolean.FALSE.equals(attribute.annotationBooleanValue(joinColumn, "nullable"))));
     }
 
     private static List<JoinColumnFact> compositeJoinColumns(
@@ -509,7 +585,8 @@ public final class HibernateSchemaBridge {
                     name,
                     blankToNull(attribute.annotationStringValue(joinColumn, "referencedColumnName")),
                     attribute.annotationStringValue(joinColumn, "table"),
-                    groupNoConstraint || isNoConstraint(annotationValue(joinColumn, "foreignKey"))));
+                    groupNoConstraint || isNoConstraint(annotationValue(joinColumn, "foreignKey")),
+                    Boolean.FALSE.equals(attribute.annotationBooleanValue(joinColumn, "nullable"))));
         }
         return List.copyOf(columns);
     }
@@ -544,6 +621,124 @@ public final class HibernateSchemaBridge {
             }
         }
         return facts;
+    }
+
+    private static List<MappedIndexFacts> secondaryTableIndexes(Class<?> javaType, String entityName) {
+        List<MappedIndexFacts> facts = new ArrayList<>();
+        if (javaType != null) {
+            for (Annotation annotation : javaType.getDeclaredAnnotations()) {
+                String typeName = annotation.annotationType().getName();
+                if (SECONDARY_TABLE_ANNOTATION.equals(typeName)) {
+                    String tableName = annotationString(annotation, "name");
+                    if (tableName != null) {
+                        facts.addAll(tableIndexes(annotation, entityName, tableName));
+                    }
+                } else if (SECONDARY_TABLES_ANNOTATION.equals(typeName)) {
+                    Object value = annotationValue(annotation, "value");
+                    if (value instanceof Object[] members) {
+                        for (Object member : members) {
+                            if (member instanceof Annotation secondaryTable) {
+                                String tableName = annotationString(secondaryTable, "name");
+                                if (tableName != null) {
+                                    facts.addAll(tableIndexes(secondaryTable, entityName, tableName));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return facts;
+    }
+
+    private static List<MappedIndexFacts> tableIndexes(
+            Annotation tableOrSecondary, String entityName, String secondaryTableName) {
+        if (tableOrSecondary == null) {
+            return List.of();
+        }
+        Object value = annotationValue(tableOrSecondary, "indexes");
+        if (!(value instanceof Object[] indexes)) {
+            return List.of();
+        }
+        List<MappedIndexFacts> facts = new ArrayList<>();
+        String ownerLabel = secondaryTableName == null
+                ? entityName + " @Table"
+                : entityName + " @SecondaryTable(" + secondaryTableName + ")";
+        for (Object index : indexes) {
+            if (!(index instanceof Annotation indexAnnotation)) {
+                continue;
+            }
+            String indexName = annotationString(indexAnnotation, "name");
+            String columnList = annotationString(indexAnnotation, "columnList");
+            boolean unique = Boolean.TRUE.equals(annotationValue(indexAnnotation, "unique"));
+            List<MappedIndexColumn> parsedColumns = parseIndexColumnList(columnList);
+            if (parsedColumns.isEmpty()) {
+                continue;
+            }
+            String description = indexName == null ? ownerLabel + " @Index" : ownerLabel + " @Index(" + indexName + ")";
+            facts.add(new MappedIndexFacts(description, indexName, parsedColumns, unique, secondaryTableName));
+        }
+        return facts;
+    }
+
+    private static List<MappedIndexColumn> parseIndexColumnList(String columnList) {
+        if (columnList == null
+                || columnList.isBlank()
+                || columnList.indexOf('(') >= 0
+                || columnList.indexOf(')') >= 0) {
+            return List.of();
+        }
+        String[] rawParts = columnList.split(",", -1);
+        List<MappedIndexColumn> columns = new ArrayList<>(rawParts.length);
+        for (String rawPart : rawParts) {
+            String trimmed = rawPart.trim();
+            if (trimmed.isEmpty()) {
+                return List.of();
+            }
+            Boolean ascending = null;
+            String columnToken = trimmed;
+            int lastSpace = lastUnquotedWhitespace(trimmed);
+            if (lastSpace > 0) {
+                String suffix = trimmed.substring(lastSpace + 1).trim();
+                if ("ASC".equalsIgnoreCase(suffix)) {
+                    ascending = Boolean.TRUE;
+                    columnToken = trimmed.substring(0, lastSpace).trim();
+                } else if ("DESC".equalsIgnoreCase(suffix)) {
+                    ascending = Boolean.FALSE;
+                    columnToken = trimmed.substring(0, lastSpace).trim();
+                } else {
+                    return List.of();
+                }
+            }
+            if (columnToken.isEmpty() || lastUnquotedWhitespace(columnToken) >= 0) {
+                return List.of();
+            }
+            columns.add(new MappedIndexColumn(columnToken, ascending));
+        }
+        return List.copyOf(columns);
+    }
+
+    private static int lastUnquotedWhitespace(String value) {
+        if (value.length() >= 2
+                && ((value.startsWith("\"") && value.endsWith("\""))
+                        || (value.startsWith("`") && value.endsWith("`")))) {
+            return -1;
+        }
+        int quoteEnd = -1;
+        if (value.startsWith("\"")) {
+            quoteEnd = value.lastIndexOf('"');
+        } else if (value.startsWith("`")) {
+            quoteEnd = value.lastIndexOf('`');
+        }
+        for (int i = value.length() - 1; i >= 0; i--) {
+            if (i <= quoteEnd) {
+                break;
+            }
+            if (Character.isWhitespace(value.charAt(i))) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static Annotation tableAnnotation(Class<?> javaType) {
@@ -669,7 +864,8 @@ public final class HibernateSchemaBridge {
             List<MappedColumnFacts> columns,
             List<MappedUniqueConstraintFacts> uniqueConstraints,
             List<MappedSecondaryTableFacts> secondaryTables,
-            List<MappedSequenceGeneratorFacts> sequenceGenerators) {
+            List<MappedSequenceGeneratorFacts> sequenceGenerators,
+            List<MappedIndexFacts> indexes) {
 
         public MappedEntityFacts {
             foreignKeys = List.copyOf(foreignKeys);
@@ -677,6 +873,30 @@ public final class HibernateSchemaBridge {
             uniqueConstraints = List.copyOf(uniqueConstraints);
             secondaryTables = List.copyOf(secondaryTables);
             sequenceGenerators = List.copyOf(sequenceGenerators);
+            indexes = indexes == null ? List.of() : List.copyOf(indexes);
+        }
+
+        public MappedEntityFacts(
+                String entityName,
+                String explicitTableName,
+                String explicitSchema,
+                String explicitCatalog,
+                List<MappedForeignKeyFacts> foreignKeys,
+                List<MappedColumnFacts> columns,
+                List<MappedUniqueConstraintFacts> uniqueConstraints,
+                List<MappedSecondaryTableFacts> secondaryTables,
+                List<MappedSequenceGeneratorFacts> sequenceGenerators) {
+            this(
+                    entityName,
+                    explicitTableName,
+                    explicitSchema,
+                    explicitCatalog,
+                    foreignKeys,
+                    columns,
+                    uniqueConstraints,
+                    secondaryTables,
+                    sequenceGenerators,
+                    List.of());
         }
 
         /** Convenience constructor for callers with no explicit schema/catalog and no unique constraints. */
@@ -782,7 +1002,38 @@ public final class HibernateSchemaBridge {
      * @param sequenceName the explicit {@code @SequenceGenerator(sequenceName = ...)} value
      * @param allocationSize the declared {@code @SequenceGenerator(allocationSize = ...)}
      */
-    public record MappedSequenceGeneratorFacts(String attributeDescription, String sequenceName, int allocationSize) {}
+    public record MappedSequenceGeneratorFacts(
+            String attributeDescription, String sequenceName, int allocationSize, String schema, String catalog) {
+
+        public MappedSequenceGeneratorFacts(String attributeDescription, String sequenceName, int allocationSize) {
+            this(attributeDescription, sequenceName, allocationSize, null, null);
+        }
+    }
+
+    /**
+     * One column entry of a JPA {@code @Index(columnList = ...)} declaration.
+     *
+     * @param columnName the declared column name
+     * @param ascending {@code true} for explicit {@code ASC}, {@code false} for explicit {@code DESC}, or
+     *     {@code null} when direction was omitted
+     */
+    public record MappedIndexColumn(String columnName, Boolean ascending) {}
+
+    /**
+     * An explicit JPA {@code @Table(indexes = @Index(...))} or {@code @SecondaryTable(indexes = @Index(...))}
+     * declaration.
+     */
+    public record MappedIndexFacts(
+            String description, String indexName, List<MappedIndexColumn> columns, boolean unique, String tableName) {
+
+        public MappedIndexFacts {
+            columns = List.copyOf(columns);
+        }
+
+        public List<String> columnNames() {
+            return columns.stream().map(MappedIndexColumn::columnName).toList();
+        }
+    }
 
     /**
      * @param attributeDescription a human-readable "Entity.attribute" description for finding details
@@ -812,13 +1063,38 @@ public final class HibernateSchemaBridge {
             String targetTableName,
             String targetSchema,
             String targetCatalog,
-            String targetIdentifierColumn) {
+            String targetIdentifierColumn,
+            List<String> nonNullColumns) {
 
         public MappedForeignKeyFacts {
             columns = List.copyOf(columns);
             // referencedColumns legitimately contains null entries (an unspecified referencedColumnName), so
             // it cannot use List.copyOf, which rejects null elements outright.
             referencedColumns = Collections.unmodifiableList(new ArrayList<>(referencedColumns));
+            nonNullColumns = nonNullColumns == null ? List.of() : List.copyOf(nonNullColumns);
+        }
+
+        public MappedForeignKeyFacts(
+                String attributeDescription,
+                List<String> columns,
+                List<String> referencedColumns,
+                String tableName,
+                boolean constraintExpected,
+                String targetTableName,
+                String targetSchema,
+                String targetCatalog,
+                String targetIdentifierColumn) {
+            this(
+                    attributeDescription,
+                    columns,
+                    referencedColumns,
+                    tableName,
+                    constraintExpected,
+                    targetTableName,
+                    targetSchema,
+                    targetCatalog,
+                    targetIdentifierColumn,
+                    List.of());
         }
 
         /** Constructor for callers with no target identifier information. */
@@ -897,7 +1173,39 @@ public final class HibernateSchemaBridge {
             String tableName,
             Integer declaredPrecision,
             Integer declaredScale,
-            boolean identityGenerated) {
+            boolean identityGenerated,
+            String maxEnumConstantName,
+            Integer maxEnumConstantLength) {
+
+        public MappedColumnFacts(
+                String attributeDescription,
+                String columnName,
+                Boolean nullable,
+                String javaTypeSimpleName,
+                Integer declaredLength,
+                boolean lob,
+                boolean ambiguousType,
+                boolean identifier,
+                String tableName,
+                Integer declaredPrecision,
+                Integer declaredScale,
+                boolean identityGenerated) {
+            this(
+                    attributeDescription,
+                    columnName,
+                    nullable,
+                    javaTypeSimpleName,
+                    declaredLength,
+                    lob,
+                    ambiguousType,
+                    identifier,
+                    tableName,
+                    declaredPrecision,
+                    declaredScale,
+                    identityGenerated,
+                    null,
+                    null);
+        }
 
         /** Constructor for callers with no numeric precision/scale information. */
         public MappedColumnFacts(

@@ -724,7 +724,7 @@ class VendorCatalogReaderTests {
                             new ServerSetting("wait_timeout", "28800", null));
             assertThat(queries.get(0))
                     .isEqualTo("show session variables where Variable_name in"
-                            + " ('wait_timeout', 'max_connections', 'performance_schema')");
+                            + " ('wait_timeout', 'max_connections', 'performance_schema', 'sql_mode')");
             PreparedStatement statement = statements.get(0);
             verify(statement).setQueryTimeout(5);
             verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);

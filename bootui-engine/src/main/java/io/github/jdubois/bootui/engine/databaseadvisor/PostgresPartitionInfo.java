@@ -6,4 +6,18 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  * returns under the {@code PARTITIONED TABLE} type), a child partition ({@code relispartition}), or both for
  * a sub-partitioned level.
  */
-record PostgresPartitionInfo(String schema, String table, boolean partitionedParent, boolean partitionChild) {}
+record PostgresPartitionInfo(
+        String schema,
+        String table,
+        boolean partitionedParent,
+        boolean partitionChild,
+        boolean emptyPartitionedParent) {
+
+    PostgresPartitionInfo(String schema, String table, boolean partitionedParent, boolean partitionChild) {
+        this(schema, table, partitionedParent, partitionChild, false);
+    }
+
+    String qualifiedTable() {
+        return schema == null || schema.isBlank() ? table : schema + "." + table;
+    }
+}

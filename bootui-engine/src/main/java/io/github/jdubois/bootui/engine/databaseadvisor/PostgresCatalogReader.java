@@ -79,7 +79,14 @@ final class PostgresCatalogReader {
     private static final String PARTITIONS_SQL = """
             select n.nspname as schema_name, c.relname as table_name,
                    (c.relkind = 'p') as is_partitioned_parent,
-                   c.relispartition as is_partition_child
+                   c.relispartition as is_partition_child,
+                   (c.relkind = 'p'
+                       and not exists (select 1 from pg_inherits inh where inh.inhparent = c.oid)
+                       and not exists (
+                             select 1 from pg_depend d
+                             where d.classid = 'pg_class'::regclass and d.objid = c.oid
+                               and d.refclassid = 'pg_extension'::regclass and d.deptype = 'e'))
+                       as is_empty_partitioned_parent
             from pg_class c
             join pg_namespace n on n.oid = c.relnamespace
             where c.relkind in ('r', 'p')
@@ -506,7 +513,8 @@ final class PostgresCatalogReader {
                 rs.getString("schema_name"),
                 rs.getString("table_name"),
                 rs.getBoolean("is_partitioned_parent"),
-                rs.getBoolean("is_partition_child"));
+                rs.getBoolean("is_partition_child"),
+                rs.getBoolean("is_empty_partitioned_parent"));
     }
 
     private static PostgresUnloggedTable readUnloggedTable(ResultSet rs) throws SQLException {

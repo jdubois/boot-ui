@@ -54,6 +54,19 @@ final class MySqlCatalogReader {
             limit ?
             """;
 
+    private static final String UNENFORCED_CHECK_CONSTRAINTS_SQL = """
+            select tc.table_schema, tc.table_name, tc.constraint_name
+            from information_schema.table_constraints tc
+            join information_schema.tables t
+              on t.table_schema = tc.table_schema and t.table_name = tc.table_name
+            where tc.table_schema = database()
+              and t.table_type = 'BASE TABLE'
+              and tc.constraint_type = 'CHECK'
+              and tc.enforced = 'NO'
+            order by tc.table_name, tc.constraint_name
+            limit ?
+            """;
+
     /**
      * {@code SHOW ... WHERE Variable_name IN (...)} rather than the panel's {@code UNION} over
      * {@code performance_schema}: a name this server does not know is just an absent row instead of failing the whole
@@ -61,7 +74,7 @@ final class MySqlCatalogReader {
      * is fixed and takes no bind parameter.
      */
     static final String SERVER_SETTINGS_SQL =
-            "show session variables where Variable_name in ('wait_timeout', 'max_connections', 'performance_schema')";
+            "show session variables where Variable_name in ('wait_timeout', 'max_connections', 'performance_schema', 'sql_mode')";
 
     private MySqlCatalogReader() {}
 
@@ -110,6 +123,23 @@ final class MySqlCatalogReader {
                 budget,
                 limits,
                 resultSet -> readIndexDetail(resultSet, dialect, capabilities))));
+        if (dialect == Dialect.MARIADB) {
+            findings.add(VendorAugmentation.notApplicable(
+                    VendorFindingKinds.MYSQL_UNENFORCED_CHECK_CONSTRAINTS,
+                    "Not applicable: MariaDB does not support NOT ENFORCED check constraints."));
+        } else if (capabilities.checkConstraintEnforcement()) {
+            findings.add(CatalogQuery.read(
+                    connection,
+                    VendorFindingKinds.MYSQL_UNENFORCED_CHECK_CONSTRAINTS,
+                    UNENFORCED_CHECK_CONSTRAINTS_SQL,
+                    budget,
+                    limits,
+                    MySqlCatalogReader::readUnenforcedCheckConstraint));
+        } else {
+            findings.add(VendorAugmentation.notApplicable(
+                    VendorFindingKinds.MYSQL_UNENFORCED_CHECK_CONSTRAINTS,
+                    "Check constraint enforcement metadata requires MySQL 8.0.16 or later."));
+        }
     }
 
     private static VendorAugmentation<MySqlIndexDetail> consistentIndexRows(
@@ -206,6 +236,11 @@ final class MySqlCatalogReader {
                 rs.getString("column_name"),
                 rs.getString("data_type"),
                 rs.getString("column_type"));
+    }
+
+    private static MySqlUnenforcedCheckConstraint readUnenforcedCheckConstraint(ResultSet rs) throws SQLException {
+        return new MySqlUnenforcedCheckConstraint(
+                rs.getString("table_schema"), rs.getString("table_name"), rs.getString("constraint_name"));
     }
 
     private static MySqlIndexDetail readIndexDetail(ResultSet rs, Dialect dialect, DialectCapabilities capabilities)
