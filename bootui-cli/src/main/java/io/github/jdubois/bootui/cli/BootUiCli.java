@@ -37,7 +37,7 @@ public final class BootUiCli {
      */
     public static int run(
             String[] args, Map<String, String> environment, boolean terminal, PrintWriter out, PrintWriter err) {
-        return run(args, environment, terminal, out, err, BootUiClient::new);
+        return run(args, environment, terminal, out, err, BootUiClient::new, BootUiClient::direct);
     }
 
     static int run(
@@ -47,7 +47,19 @@ public final class BootUiCli {
             PrintWriter out,
             PrintWriter err,
             Function<BootUiClientOptions, BootUiClient> clients) {
-        CliContext context = new CliContext(ToolManifest.bundled(), environment, terminal, out, err, clients);
+        return run(args, environment, terminal, out, err, clients, clients);
+    }
+
+    static int run(
+            String[] args,
+            Map<String, String> environment,
+            boolean terminal,
+            PrintWriter out,
+            PrintWriter err,
+            Function<BootUiClientOptions, BootUiClient> clients,
+            Function<BootUiClientOptions, BootUiClient> directClients) {
+        CliContext context =
+                new CliContext(ToolManifest.bundled(), environment, terminal, out, err, clients, directClients);
         CommandSpec root = CommandTree.build(context);
         root.version("bootui " + version());
 

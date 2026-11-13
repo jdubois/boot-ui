@@ -3607,6 +3607,8 @@ Initial properties:
 | `bootui.cli.max-results`                     | `200`                                   | Maximum items returned by paginated command-line read tools, tracked separately from the MCP cap. |
 | `bootui.cli.max-concurrent-calls`            | `20`                                    | Maximum concurrent command-line tool calls; additional calls are refused with `429`. |
 | `bootui.cli.execution-timeout`               | `30s`                                   | Maximum wall-clock duration of a command-line tool call; timeouts return `504`. |
+| `bootui.cli.instance-discovery.enabled`      | `true` in dev, `false` in tests         | Write an atomic `0600` local discovery lease file (`<instanceId>.json`) after port binding, and delete it on shutdown. |
+| `bootui.cli.instances-dir`                   | `~/.bootui/instances`                   | Directory where local instance discovery lease files are written (also overridable via `BOOTUI_HOME`). |
 
 Every visible panel must support `bootui.panels.<panel-id>.enabled`; panels with mutating browser actions must also
 support `bootui.panels.<panel-id>.read-only`. These properties are specified panel-by-panel in

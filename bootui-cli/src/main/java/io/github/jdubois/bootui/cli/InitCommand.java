@@ -173,15 +173,13 @@ final class InitCommand implements Callable<Integer> {
         GlobalOptions options = context.options();
         String baseUrl;
         String apiPath;
-        if (options.app() != null && !options.app().isBlank()) {
-            if (options.hasExplicitUrl()) {
-                throw new BootUiClientException("Choose --app or --url, not both.");
+        if (options.app() != null) {
+            if (options.hasExplicitUrl() || options.hasExplicitApiPath()) {
+                throw new BootUiClientException("Choose --app or --url/--api-path, not both.");
             }
             BootUiInstance instance = context.resolveTargetInstance();
             baseUrl = instance.baseUrl();
-            apiPath = options.hasExplicitApiPath()
-                    ? options.toClientOptions(context.environment()).apiPath()
-                    : instance.apiPath();
+            apiPath = instance.apiPath();
         } else {
             // Deliberately ignore any token from --token or $BOOTUI_TOKEN so credentials are never written.
             BootUiClientOptions resolved = options.toClientOptions(context.environment());

@@ -149,10 +149,10 @@ class BootUiInstanceLeaseLifecycleTests {
                         "bootui.enabled=ON",
                         "bootui.cli.instance-discovery.enabled=true",
                         "bootui.cli.instances-dir=" + tempDir.toString(),
-                        "spring.application.name=early-web-service")
+                        "spring.application.name=early-web-service",
+                        "server.ssl.bundle=dev-tls")
                 .run(context -> {
                     BootUiInstanceLeaseLifecycle lifecycle = context.getBean(BootUiInstanceLeaseLifecycle.class);
-                    ConfigurableApplicationContext source = context.getSourceApplicationContext();
                     WebServer webServer = new WebServer() {
                         @Override
                         public void start() {}
@@ -173,10 +173,9 @@ class BootUiInstanceLeaseLifecycleTests {
                     });
                     assertThat(lifecycle.leaseFile()).isNull();
 
-                    // Simulate WebServerInitializedEvent matching this context via registerIfEligible(18099)
                     Path written = lifecycle.registerIfEligible(18099);
                     assertThat(written).isNotNull().exists();
-                    assertThat(Files.readString(written)).contains("\"baseUrl\": \"http://localhost:18099\"");
+                    assertThat(Files.readString(written)).contains("\"baseUrl\": \"https://localhost:18099\"");
                 });
     }
 }

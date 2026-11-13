@@ -78,7 +78,7 @@ public final class BootUiInstanceLeaseLifecycle implements ApplicationListener<A
         if (port <= 0 || port > 65535) {
             return null;
         }
-        boolean sslEnabled = environment.getProperty("server.ssl.enabled", Boolean.class, false);
+        boolean sslEnabled = isSslEnabled(environment);
         String baseUrl = (sslEnabled ? "https" : "http") + "://localhost:" + port;
         String apiPath = resolveEffectiveApiPath(environment);
         String appName = environment.getProperty("spring.application.name", "application");
@@ -136,14 +136,30 @@ public final class BootUiInstanceLeaseLifecycle implements ApplicationListener<A
         return InstanceLeaseManager.resolveInstancesDir(configured);
     }
 
+    private static boolean isSslEnabled(Environment environment) {
+        if (environment == null) {
+            return false;
+        }
+        Boolean explicit = environment.getProperty("server.ssl.enabled", Boolean.class);
+        if (explicit != null) {
+            return explicit;
+        }
+        String bundle = environment.getProperty("server.ssl.bundle");
+        String keyStore = environment.getProperty("server.ssl.key-store");
+        return (bundle != null && !bundle.isBlank()) || (keyStore != null && !keyStore.isBlank());
+    }
+
     private static int resolvePort(Environment environment, Integer boundPort) {
         if (boundPort != null && boundPort > 0) {
             return boundPort;
         }
         if (environment == null) {
-            return 8080;
+            return -1;
         }
-        String raw = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
+        String raw = environment.getProperty("local.server.port");
+        if (raw == null || raw.isBlank()) {
+            return -1;
+        }
         try {
             return Integer.parseInt(raw.trim());
         } catch (NumberFormatException invalid) {

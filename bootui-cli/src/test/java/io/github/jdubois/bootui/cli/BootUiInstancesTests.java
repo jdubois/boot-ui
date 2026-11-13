@@ -218,15 +218,47 @@ class BootUiInstancesTests {
     }
 
     @Test
-    void rejectsCombiningAppAndUrlOptions() throws IOException {
+    void rejectsCombiningAppAndUrlOptionsOrBlankAppSelector() throws IOException {
         Path instancesDir = tempDir.resolve("instances");
         writeCurrentProcessLease(instancesDir, "a1b2c3d4", "order-service", "/bootui/api");
 
         CliResult result =
                 runCli(instancesDir, true, "--app", "order-service", "--url", "http://localhost:8080", "beans");
         assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
-        assertThat(result.err).contains("Choose --app or --url, not both.");
+        assertThat(result.err).contains("Choose --app or --url/--api-path, not both.");
         assertThat(requests).isEmpty();
+
+        CliResult apiPathOverride =
+                runCli(instancesDir, true, "--app", "order-service", "--api-path", "/other/api", "beans");
+        assertThat(apiPathOverride.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(apiPathOverride.err).contains("Choose --app or --url/--api-path, not both.");
+        assertThat(requests).isEmpty();
+
+        CliResult blankApp = runCli(instancesDir, true, "--app", "", "beans");
+        assertThat(blankApp.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(blankApp.err).contains("--app must not be blank.");
+        assertThat(requests).isEmpty();
+
+        // Bypass ambient HTTP proxy when --app is used
+        String oldProxyHost = System.getProperty("http.proxyHost");
+        String oldProxyPort = System.getProperty("http.proxyPort");
+        try {
+            System.setProperty("http.proxyHost", "127.0.0.1");
+            System.setProperty("http.proxyPort", "1");
+            CliResult proxied = runCli(instancesDir, true, "--app", "order-service", "beans");
+            assertThat(proxied.exitCode).isZero();
+        } finally {
+            if (oldProxyHost == null) {
+                System.clearProperty("http.proxyHost");
+            } else {
+                System.setProperty("http.proxyHost", oldProxyHost);
+            }
+            if (oldProxyPort == null) {
+                System.clearProperty("http.proxyPort");
+            } else {
+                System.setProperty("http.proxyPort", oldProxyPort);
+            }
+        }
     }
 
     @Test

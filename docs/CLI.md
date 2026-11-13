@@ -209,8 +209,9 @@ See [Properties](PROPERTIES.md) for `bootui.cli.max-results`, `bootui.cli.execut
 ## Local instance discovery (`bootui instances` and `--app`)
 
 Active development-mode BootUI instances on Spring MVC, Spring WebFlux, and Quarkus write an owner-only (`0600`)
-lease file `~/.bootui/instances/<instanceId>.json` (inside an `0700` directory, overridable via `BOOTUI_HOME` or
-`bootui.cli.instances-dir`) once the web server port is bound, and delete it on shutdown. Instance discovery is gated
+lease file `~/.bootui/instances/<instanceId>.json` (inside an `0700` directory, overridable via `BOOTUI_HOME` on both
+the application and CLI, `bootui.cli.instances-dir` on the application, or `BOOTUI_INSTANCES_DIR` on the CLI) once the
+web server port is bound, and delete it on shutdown. Instance discovery is gated
 by `bootui.cli.instance-discovery.enabled` (off in tests by default unless explicitly set to `true`, and off when
 `bootui.cli.enabled=false`). Lease files record `{instanceId, runId, pid, processStartEpochMillis, appName, framework,
 baseUrl, apiPath, startedAt}` and never store tokens or secrets.

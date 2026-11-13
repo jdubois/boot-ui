@@ -38,6 +38,7 @@ final class CliContext {
     private final PrintWriter out;
     private final PrintWriter err;
     private final Function<BootUiClientOptions, BootUiClient> clientFactory;
+    private final Function<BootUiClientOptions, BootUiClient> directClientFactory;
 
     CliContext(
             ToolManifest manifest,
@@ -46,12 +47,24 @@ final class CliContext {
             PrintWriter out,
             PrintWriter err,
             Function<BootUiClientOptions, BootUiClient> clientFactory) {
+        this(manifest, environment, terminal, out, err, clientFactory, clientFactory);
+    }
+
+    CliContext(
+            ToolManifest manifest,
+            Map<String, String> environment,
+            boolean terminal,
+            PrintWriter out,
+            PrintWriter err,
+            Function<BootUiClientOptions, BootUiClient> clientFactory,
+            Function<BootUiClientOptions, BootUiClient> directClientFactory) {
         this.manifest = manifest;
         this.environment = Map.copyOf(environment);
         this.terminal = terminal;
         this.out = out;
         this.err = err;
         this.clientFactory = clientFactory;
+        this.directClientFactory = directClientFactory;
     }
 
     GlobalOptions options() {
@@ -95,23 +108,23 @@ final class CliContext {
     }
 
     private BootUiClient newClient() {
-        if (options.app() != null && !options.app().isBlank()) {
-            if (options.hasExplicitUrl()) {
-                throw new BootUiClientException("Choose --app or --url, not both.");
+        if (options.app() != null) {
+            if (options.hasExplicitUrl() || options.hasExplicitApiPath()) {
+                throw new BootUiClientException("Choose --app or --url/--api-path, not both.");
             }
             BootUiInstance instance = resolveTargetInstance();
-            String effectiveApiPath = options.hasExplicitApiPath()
-                    ? options.toClientOptions(environment).apiPath()
-                    : instance.apiPath();
-            return clientFactory.apply(new BootUiClientOptions(
-                    instance.baseUrl(), effectiveApiPath, options.resolvedToken(environment), options.timeout()));
+            return directClientFactory.apply(new BootUiClientOptions(
+                    instance.baseUrl(), instance.apiPath(), options.resolvedToken(environment), options.timeout()));
         }
         return clientFactory.apply(options.toClientOptions(environment));
     }
 
     BootUiInstance resolveTargetInstance() {
         return BootUiInstances.resolve(
-                BootUiInstances.resolveInstancesDir(environment), options.app(), options.timeout(), clientFactory);
+                BootUiInstances.resolveInstancesDir(environment),
+                options.app(),
+                options.timeout(),
+                directClientFactory);
     }
 
     /** Lists running local BootUI instances discovered in {@code ~/.bootui/instances/}. */

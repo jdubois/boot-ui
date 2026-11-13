@@ -169,6 +169,10 @@ class InitCommandTests {
         CliResult malformed = run("init", "--vscode");
         assertThat(malformed.exitCode).isEqualTo(ExitCodes.ERROR);
         assertThat(malformed.err).contains("not valid JSON");
+
+        CliResult blankApp = run("init", "--vscode", "--app", "");
+        assertThat(blankApp.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(blankApp.err).contains("--app must not be blank.");
     }
 
     private CliResult run(String... args) {

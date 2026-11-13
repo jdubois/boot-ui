@@ -130,12 +130,12 @@ public final class InstanceLeaseManager implements AutoCloseable {
         return target;
     }
 
-    /** Writes {@code lease} best-effort, logging at FINE/WARNING without failing application startup. */
+    /** Writes {@code lease} best-effort, logging at WARNING without failing application startup. */
     public Path writeQuietly(InstanceLease lease) {
         try {
             return write(lease);
         } catch (IOException | RuntimeException ex) {
-            log.log(Level.FINE, "Could not write BootUI instance lease file", ex);
+            log.log(Level.WARNING, "Could not write BootUI instance lease file", ex);
             return null;
         }
     }
