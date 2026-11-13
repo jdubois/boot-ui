@@ -9,6 +9,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+final class SecurityRules {
+
+    static final Set<String> RETIRED_RULE_IDS = SecurityRuleRegistry.RETIRED_RULE_IDS;
+    static final Set<String> RETIRED_RULES = RETIRED_RULE_IDS;
+
+    private SecurityRules() {}
+}
+
 abstract class AbstractSecurityRule implements SecurityRule {
 
     private final SecurityRuleDefinition definition;
@@ -53,15 +61,17 @@ abstract class AbstractSecurityRule implements SecurityRule {
                 return skipped("Custom, conditional or multiple header writers leave delivered policy unknown.");
             }
             // Property, method, provider and header-writer observations are not invalidated by an
-            // unrelated custom filter. Chain-dependent absence still needs a complete inventory.
-            boolean filtersKnown = !context.evidence().evaluation().hasApplicableTargets()
+            // unrelated custom filter. Chain-dependent absence still needs a supported chain inventory.
+            boolean chainsSupported = !context.evidence().evaluation().hasApplicableTargets()
+                    || Set.of("SEC-SESSION-002", "SEC-SESSION-003", "SEC-SESSION-004")
+                            .contains(definition.id())
                     || switch (definition.category()) {
                         case AUTHORIZATION, CSRF, SESSION ->
                             context.required(context.chains().stream()
-                                    .allMatch(chain -> chain.details().filtersKnown()));
+                                    .allMatch(chain -> chain.details().chainSupported()));
                         default -> true;
                     };
-            if (SecurityRuleSupport.PASS.equals(result.status()) && !filtersKnown) {
+            if (SecurityRuleSupport.PASS.equals(result.status()) && !chainsSupported) {
                 return skipped("Some ordered chains are unsupported; absence cannot be established.");
             }
             return result;
@@ -371,10 +381,20 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
+        boolean unknown = false;
         for (FilterChainModel chain : context.chains()) {
-            if (context.applies(chain.details().filtersKnown()) && !chain.hasAuthorizationFilter()) {
+            if (chain.hasAuthorizationFilter()) {
+                context.applies(true);
+            } else if (context.applies(chain.details().filtersKnown())) {
                 details.add(chain.describe() + " installs no authorization filter.");
+            } else {
+                context.applies(true);
+                unknown = true;
             }
+        }
+        context.required(!unknown);
+        if (details.isEmpty() && unknown) {
+            return skipped("Some ordered chains are unsupported; absence cannot be established.");
         }
         return violation(context, details);
     }
@@ -429,13 +449,20 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityRule {
         if (chains.isEmpty()) {
             return pass();
         }
+        boolean allChainsSupported =
+                chains.stream().allMatch(chain -> chain.details().chainSupported());
+        boolean anyRestricted = chains.stream().anyMatch(chain -> Boolean.FALSE.equals(chain.permitsAllAnonymous()));
+        boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasRealAuthenticationFilter);
+        if (allChainsSupported && (anyRestricted || anyAuthentication)) {
+            return pass();
+        }
         if (chains.stream()
                 .anyMatch(chain ->
                         chain.permitsAllAnonymous() == null || !chain.details().filtersKnown())) {
+            context.required(false);
             return skipped("Complete structural authorization coverage is unavailable.");
         }
         boolean allOpen = chains.stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
-        boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasRealAuthenticationFilter);
         if (allOpen && !anyAuthentication && chains.stream().anyMatch(FilterChainModel::matchesAnyRequest)) {
             return violation(
                     context,
@@ -470,7 +497,9 @@ final class CatchAllChainOrderingRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         for (int i = 0; i < chains.size() - 1; i++) {
             FilterChainModel chain = chains.get(i);
-            context.required(chain.details().unconditional() || chain.details().matcher() != null);
+            context.required(chain.details().unconditional()
+                    || (chain.details().matcher() != null
+                            && chain.details().matcher().complete()));
             if (chain.matchesAnyRequest()) {
                 details.add(chain.describe()
                         + " matches any request but is not the last chain; later chains are unreachable.");
@@ -507,10 +536,13 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
                 for (int index = 0; index < mappings.size() - 1; index++) {
                     var mapping = mappings.get(index);
                     if (!mapping.matcher().unconditional()) continue;
-                    decision = Boolean.TRUE.equals(mapping.grant())
-                            ? "an unconditional grant"
-                            : Boolean.FALSE.equals(mapping.grant()) ? "an unconditional denial" : decision;
-                    permissiveShadow |= Boolean.TRUE.equals(mapping.grant())
+                    decision = switch (mapping.state()) {
+                        case PERMIT_ALL -> "an unconditional grant";
+                        case DENY_ALL -> "an unconditional denial";
+                        case RESTRICTED_NON_ANONYMOUS -> "an authenticated or authority restriction";
+                        case UNKNOWN -> decision;
+                    };
+                    permissiveShadow |= mapping.state() == SecurityModel.GrantState.PERMIT_ALL
                             && mappings.subList(index + 1, mappings.size()).stream()
                                     .anyMatch(later -> Boolean.FALSE.equals(later.grant()));
                     break;
@@ -749,36 +781,6 @@ final class BearerTokenStatefulRule extends AbstractSecurityRule {
                         && chain.details().bearerSavesSession() == null));
         if (details.isEmpty() && !known) {
             return skipped("Bearer filter save repository is unsupported.");
-        }
-        return violation(context, details);
-    }
-}
-
-final class ConcurrentSessionControlRule extends AbstractSecurityRule {
-
-    ConcurrentSessionControlRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-SESSION-007",
-                        "Consider configuring concurrent session control",
-                        SecurityCategory.SESSION,
-                        "INFO",
-                        "Detects an interactive form-login chain that maintains sessions but installs no ConcurrentSessionFilter (no maximumSessions limit).",
-                        "Consider sessionManagement().maximumSessions(n) if concurrency limits fit the application. This optional review does not make a maximum mandatory or prove misuse.",
-                        "https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            boolean interactiveLogin = chain.hasFilter("UsernamePasswordAuthenticationFilter")
-                    || chain.hasFilter("DefaultLoginPageGeneratingFilter");
-            if (context.applies(interactiveLogin && chain.isStateful())
-                    && !chain.hasFilterContaining("ConcurrentSession")) {
-                details.add(chain.describe()
-                        + " maintains sessions for an interactive login but configures no concurrent-session control.");
-            }
         }
         return violation(context, details);
     }
@@ -1030,36 +1032,6 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
             }
             if (Boolean.TRUE.equals(weak)) {
                 details.add(chain.describe() + " configures an enforcing CSP with permissive script execution.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class CrossOriginIsolationHeadersRule extends AbstractSecurityRule {
-
-    CrossOriginIsolationHeadersRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-HEAD-010",
-                "Cross-origin isolation headers should be considered",
-                SecurityCategory.HEADERS,
-                "INFO",
-                "Reviews browser-credential chains with neither opener nor embedder policy in supported header configuration. Cross-origin isolation is capability-specific and optional, not a universal requirement.",
-                "Add CrossOriginOpenerPolicyHeaderWriter / CrossOriginEmbedderPolicyHeaderWriter via headers().crossOriginOpenerPolicy(...) / .crossOriginEmbedderPolicy(...) if the application needs cross-origin isolation (e.g. for SharedArrayBuffer) or Spectre-style side-channel hardening.",
-                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            if (context.applies(chain.browserCredentials() && chain.headerWriterFilterPresent())
-                    && chain.details().headersKnown()
-                    && (!chain.hasHeaderWriterContaining("CrossOriginOpenerPolicy")
-                            || !chain.hasHeaderWriterContaining("CrossOriginEmbedderPolicy"))) {
-                details.add(
-                        chain.describe()
-                                + " lacks a recognized COOP/COEP pair; consider it only for features requiring cross-origin isolation.");
             }
         }
         return violation(context, details);
@@ -1319,7 +1291,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
         }
         if (context.actuator().separateManagementPort())
             return skipped("Separate management context authorization is not observed.");
-        List<String> details = new ArrayList<>();
+        Set<String> details = new java.util.LinkedHashSet<>();
         boolean unknown = !context.evidence().operationsKnown();
         for (SecurityContext.Operation operation : context.evidence().operations()) {
             if (operation.endpoint().equals("health")
@@ -1352,48 +1324,10 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
             if (!matched) unknown = true;
         }
         context.required(!unknown);
-        if (!details.isEmpty()) return violation(context, details);
+        if (!details.isEmpty()) return violation(context, List.copyOf(details));
         return unknown
                 ? skipped("Exact operation or ordered authorization metadata is incomplete; no callback was executed.")
                 : pass();
-    }
-}
-
-final class HealthDetailsExposureRule extends AbstractSecurityRule {
-
-    HealthDetailsExposureRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-ACT-004",
-                        "Actuator health details/components should not be exposed unconditionally",
-                        SecurityCategory.ACTUATOR,
-                        "LOW",
-                        "Detects management.endpoint.health.show-details=always or show-components=always, either of"
-                                + " which includes component details for callers authorized to reach an observed health operation."
-                                + " Neither setting bypasses endpoint authorization; show-components may inherit show-details.",
-                        "Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized'"
-                                + " and require authentication for the health endpoint.",
-                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.actuator().exposed("health")) return pass();
-        context.applies(context.observedEndpoint("health"));
-        List<String> details = new ArrayList<>();
-        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-details"))) {
-            details.add("management.endpoint.health.show-details is set to 'always'.");
-        }
-        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.health.show-components"))) {
-            details.add("management.endpoint.health.show-components is set to 'always'.");
-        }
-        if (!details.isEmpty()) {
-            if (!context.observedEndpoint("health"))
-                return context.evidence().operationsKnown()
-                        ? pass()
-                        : skipped("Actual health operation metadata is unavailable.");
-        }
-        return violation(context, details);
     }
 }
 
@@ -1717,35 +1651,6 @@ final class H2ConsoleFrameOptionsRule extends AbstractSecurityRule {
             return violation(context, List.of("spring.h2.console.enabled=true while a production profile is active."));
         }
         return pass();
-    }
-}
-
-final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
-
-    ErrorResponseDisclosureRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-CONFIG-005",
-                "Error responses should not leak stack traces or internal messages",
-                SecurityCategory.CONFIGURATION,
-                "MEDIUM",
-                "Reviews application-configured Boot 4 spring.web.error inclusion settings that are unconditional or caller-enabled. DevTools' development-only defaults are ignored; custom error responses are not observed.",
-                "Use 'never' for sensitive error details. The 'on-param' mode is caller-controlled, not a confidentiality boundary.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        context.applies(!context.chains().isEmpty());
-        for (String suffix : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
-            String key = "spring.web.error." + suffix;
-            String value = context.applicationProperty(key);
-            if (value != null && Set.of("always", "on-param", "on_param").contains(value.toLowerCase(Locale.ROOT))) {
-                details.add(
-                        key + " permits inclusion of internal error details, unconditionally or by caller request.");
-            }
-        }
-        return violation(context, details);
     }
 }
 

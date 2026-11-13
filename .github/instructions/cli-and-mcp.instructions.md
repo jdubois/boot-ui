@@ -7,7 +7,8 @@ applyTo: "bootui-cli/**,bootui-engine/**/mcp/**,bootui-engine/**/cli/**,docs/AI-
 - `McpToolCatalog` is the single registry of BootUI diagnostics. The CLI is a mechanical projection of that catalog, not
   a hand-maintained copy: it must never offer a command the MCP server does not expose, nor lack one it does.
 - The parity rule covers diagnostics. `docs` (offline bundled documentation), `update` (explicit installation
-  management), and `ci` (client-side orchestration) are deliberate local exceptions outside the tool manifest.
+  management), `ci` (client-side orchestration), `init` (local MCP configuration setup), and `instances` (local
+  instance discovery) are deliberate local exceptions outside the tool manifest.
   Keep local output/exit contracts documented and never start the passive update check for them or help/version.
 - Every new tool needs a `CliCommandPaths` entry and a regenerated `bootui-cli/src/main/resources/bootui-tools.json`.
   Regenerate with `-Dbootui.manifest.write=true` instead of editing the manifest by hand; `ToolManifestGeneratorTests`

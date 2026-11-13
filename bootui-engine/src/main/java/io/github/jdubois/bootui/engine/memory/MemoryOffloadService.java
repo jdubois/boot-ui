@@ -42,6 +42,7 @@ public final class MemoryOffloadService {
     private final Runnable gc;
     private final BooleanSupplier explicitGcDisabled;
     private final LongSupplier nanoTime;
+    private final BootUiDiagnosticGcTracker diagnosticGcTracker;
 
     /**
      * @param candidates the live singletons the adapter holds, re-read on every call; only {@link MemoryOffloadable}
@@ -53,7 +54,8 @@ public final class MemoryOffloadService {
                 () -> ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed(),
                 System::gc,
                 () -> explicitGcDisabled(ManagementFactory.getRuntimeMXBean().getInputArguments()),
-                System::nanoTime);
+                System::nanoTime,
+                BootUiDiagnosticGcTracker.SHARED);
     }
 
     MemoryOffloadService(
@@ -62,11 +64,22 @@ public final class MemoryOffloadService {
             Runnable gc,
             BooleanSupplier explicitGcDisabled,
             LongSupplier nanoTime) {
+        this(candidates, heapUsed, gc, explicitGcDisabled, nanoTime, new BootUiDiagnosticGcTracker());
+    }
+
+    MemoryOffloadService(
+            Supplier<? extends Collection<?>> candidates,
+            LongSupplier heapUsed,
+            Runnable gc,
+            BooleanSupplier explicitGcDisabled,
+            LongSupplier nanoTime,
+            BootUiDiagnosticGcTracker diagnosticGcTracker) {
         this.candidates = Objects.requireNonNull(candidates, "candidates");
         this.heapUsed = heapUsed;
         this.gc = gc;
         this.explicitGcDisabled = explicitGcDisabled;
         this.nanoTime = nanoTime;
+        this.diagnosticGcTracker = Objects.requireNonNull(diagnosticGcTracker, "diagnosticGcTracker");
     }
 
     /** Empties every offloadable store, requests a garbage collection, and reports what changed. */
@@ -80,7 +93,7 @@ public final class MemoryOffloadService {
             total += result.entriesCleared();
             stores.add(result);
         }
-        gc.run();
+        diagnosticGcTracker.run(gc);
         long after = heapUsed.getAsLong();
         long durationMillis = Math.max(0L, (nanoTime.getAsLong() - start) / 1_000_000L);
         return new MemoryOffloadReport(

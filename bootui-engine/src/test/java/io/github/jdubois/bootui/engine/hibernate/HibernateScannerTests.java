@@ -57,7 +57,7 @@ import org.springframework.data.domain.Page;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 72;
+    private static final int RULE_COUNT = 76;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
@@ -225,7 +225,6 @@ class HibernateScannerTests {
                         "HIB-CONFIG-003",
                         "HIB-CONFIG-005",
                         "HIB-CONFIG-006",
-                        "HIB-CONFIG-007",
                         "HIB-CONFIG-009",
                         "HIB-CONFIG-012",
                         "HIB-CONFIG-013",
@@ -266,7 +265,9 @@ class HibernateScannerTests {
                         "HIB-MAP-017",
                         "HIB-MAP-019",
                         "HIB-MAP-021",
+                        "HIB-QUERY-006",
                         "HIB-CONFIG-001",
+                        "HIB-CONFIG-007",
                         "HIB-CONFIG-008",
                         "HIB-CONFIG-010",
                         "HIB-CONFIG-011",
@@ -477,40 +478,6 @@ class HibernateScannerTests {
         HibernateRuleResultDto result = new EagerToOneFetchJoinRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-    }
-
-    @Test
-    void entityProjectionQueryRuleFlagsPagedAndStreamedWholeEntitySelects() {
-        HibernateRepositoryModel repository = new HibernateRepositoryModel(
-                "com.example.ProblemOrderRepository",
-                ProblemOrder.class,
-                List.of(
-                        queryMethod("findPage", List.class, "select o from ProblemOrder o", false, true),
-                        queryMethod("streamAll", Stream.class, "select o from ProblemOrder o", false, false),
-                        queryMethod(
-                                "findPageDto",
-                                List.class,
-                                "select new com.example.OrderView(o.id, o.status) from ProblemOrder o",
-                                false,
-                                true),
-                        queryMethod("findIdsPage", List.class, "select o.id from ProblemOrder o", false, true),
-                        queryMethod("findAll", List.class, "select o from ProblemOrder o", false, false)));
-        HibernateContext context = new HibernateContext(
-                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
-                List.of(repository),
-                new TestEnvironment().lookup(),
-                List.of());
-
-        HibernateRuleResultDto result = new EntityProjectionQueryRule().evaluate(context);
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("findPage"));
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("streamAll"));
-        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findPageDto"));
-        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findIdsPage"));
-        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findAll "));
     }
 
     @Test

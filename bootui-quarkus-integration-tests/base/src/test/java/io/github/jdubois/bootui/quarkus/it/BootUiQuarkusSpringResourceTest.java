@@ -43,7 +43,7 @@ class BootUiQuarkusSpringResourceTest {
         assertThat(scan.status()).isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
-        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(10);
+        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(20);
         assertThat(scanned.path("analysisErrors")).isEmpty();
         assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
         assertThat(ruleIds(scanned))

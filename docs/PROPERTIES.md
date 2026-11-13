@@ -376,8 +376,7 @@ remain gated. Retrieval completeness does not affect evidence coverage or scores
 application configuration or reset existing counters, and it does not require confirmation. The action is blocked when
 either `bootui.read-only=true` or `bootui.panels.hibernate-statistics.read-only=true`. To enable collection persistently
 from startup, set `spring.jpa.properties.hibernate.generate_statistics=true` on Spring or
-`quarkus.hibernate-orm.statistics=true` on Quarkus, as recommended by
-[HIB-CONFIG-007](HIBERNATE-CHECKS.md#hib-config-007-hibernate-statistics-should-be-enabled-when-tuning).
+`quarkus.hibernate-orm.statistics=true` on Quarkus.
 
 ### Database
 
@@ -846,6 +845,7 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 | `bootui.panels.vulnerabilities.read-only` | `false` | Disable on-demand OSV scan requests.                    |
 | `bootui.vulnerabilities.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
 | `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
+| `bootui.vulnerabilities.scan-timeout`        | `60s`   | Whole-scan deadline budget across OSV batch queries, advisory-detail fetches, and EPSS enrichment; when exceeded, the scan degrades to `PARTIAL` while retaining advisories fetched so far. |
 | `bootui.vulnerabilities.max-packages`        | `500`   | Maximum packages included in one OSV batch query; the excess is reported as `scan.packagesSkipped`. |
 | `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
 | `bootui.vulnerabilities.osv-base-uri`        | `https://api.osv.dev` | Base URI of the OSV.dev API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |
@@ -1088,6 +1088,8 @@ panel keeps reporting only what agents did.
 | `bootui.cli.max-results`          | `200`   | Maximum number of items returned by paginated read tools per call, tracked separately from `bootui.mcp.max-results`.     |
 | `bootui.cli.max-concurrent-calls` | `20`    | Maximum number of concurrent tool invocations; excess calls are refused with `429`.                                      |
 | `bootui.cli.execution-timeout`    | `30s`   | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return `504`. A scan that reports progress stops at its next step and keeps its previous report. |
+| `bootui.cli.instance-discovery.enabled` | `true` in dev, `false` in tests | Write an atomic `0600` local discovery lease file (`<instanceId>.json`) after the web server port is bound, and delete it on shutdown. |
+| `bootui.cli.instances-dir`        | `~/.bootui/instances` | Directory where local instance discovery lease files are written (also overridable via `BOOTUI_HOME`). |
 
 
 

@@ -43,15 +43,23 @@ class SecurityScanWiringTest {
                 .as("Native headers: %s", admin.headerWriterNames())
                 .isTrue();
         assertThat(admin.details().csrfKnown()).isTrue();
+        assertThat(admin.permitsAllAnonymous()).isFalse();
 
         var report = controller.scan();
         assertThat(report.filterChainsAnalyzed()).isEqualTo(3);
         assertThat(report.evidence().usable()).isTrue();
         assertThat(report.analysisErrors()).isEmpty();
-        // The custom filter, role authorization and parameterized Actuator operations remain unobserved.
+        assertThat(report.results())
+                .extracting(io.github.jdubois.bootui.core.dto.SecurityRuleResultDto::id)
+                .doesNotContain("SEC-HEAD-010", "SEC-SESSION-007", "SEC-CONFIG-005", "SEC-ACT-004");
+        // The custom filter and custom CSRF request matchers remain unobserved.
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.evidence().limitations()).isNotEmpty();
-        assertThat(report.evidence().limitations()).noneMatch(reason -> reason.startsWith("SEC-OAUTH"));
+        assertThat(report.evidence().limitations())
+                .noneMatch(reason -> reason.startsWith("SEC-OAUTH")
+                        || reason.startsWith("SEC-CONFIG-007")
+                        || reason.contains("Actuator operation inventory")
+                        || reason.contains("authorization is not a supported constant grant"));
     }
 }

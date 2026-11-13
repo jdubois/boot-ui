@@ -479,7 +479,10 @@ public final class McpAgentViews {
     private static DependencyVulnerabilityDto compact(DependencyVulnerabilityDto advisory) {
         return new DependencyVulnerabilityDto(
                 advisory.id(),
-                advisory.summary(),
+                io.github.jdubois.bootui.engine.vulnerabilities.OsvAdvisoryInterpreter.summary(
+                        io.github.jdubois.bootui.engine.vulnerabilities.OsvAdvisoryInterpreter.maliciousPackage(
+                                advisory.id()),
+                        advisory.summary()),
                 null,
                 advisory.severity(),
                 advisory.score(),

@@ -28,10 +28,32 @@ record DialectCapabilities(
         boolean indexIncludeColumns,
         boolean nullsNotDistinct,
         boolean indexBuildProgressView,
-        boolean oracleCatalog) {
+        boolean oracleCatalog,
+        boolean checkConstraintEnforcement) {
+
+    DialectCapabilities(
+            boolean indexVisibility,
+            boolean indexExpression,
+            boolean sequencesView,
+            boolean declarativePartitioning,
+            boolean indexIncludeColumns,
+            boolean nullsNotDistinct,
+            boolean indexBuildProgressView,
+            boolean oracleCatalog) {
+        this(
+                indexVisibility,
+                indexExpression,
+                sequencesView,
+                declarativePartitioning,
+                indexIncludeColumns,
+                nullsNotDistinct,
+                indexBuildProgressView,
+                oracleCatalog,
+                false);
+    }
 
     static final DialectCapabilities NONE =
-            new DialectCapabilities(false, false, false, false, false, false, false, false);
+            new DialectCapabilities(false, false, false, false, false, false, false, false, false);
 
     static DialectCapabilities of(Dialect dialect, DatabaseVersion version) {
         return switch (dialect) {
@@ -44,21 +66,31 @@ record DialectCapabilities(
                         version.atLeast(11, 0),
                         version.atLeast(15, 0),
                         version.atLeast(12, 0),
+                        false,
                         false);
             // MySQL 8.0 added invisible indexes (information_schema.statistics.IS_VISIBLE); 8.0.13 added
-            // functional key parts and the EXPRESSION column that describes them.
+            // functional key parts and the EXPRESSION column that describes them; 8.0.16 added CHECK
+            // constraint enforcement and information_schema.table_constraints.ENFORCED.
             case MYSQL ->
                 new DialectCapabilities(
-                        version.atLeast(8, 0), version.atLeast(8, 0, 13), false, false, false, false, false, false);
+                        version.atLeast(8, 0),
+                        version.atLeast(8, 0, 13),
+                        false,
+                        false,
+                        false,
+                        false,
+                        false,
+                        false,
+                        version.atLeast(8, 0, 16));
             // MariaDB 10.6 added "ignored" indexes (information_schema.statistics.IGNORED). MariaDB has no
-            // EXPRESSION column in information_schema.statistics.
+            // EXPRESSION column in information_schema.statistics and no ENFORCED column in table_constraints.
             case MARIADB ->
-                new DialectCapabilities(version.atLeast(10, 6), false, false, false, false, false, false, false);
+                new DialectCapabilities(version.atLeast(10, 6), false, false, false, false, false, false, false, false);
             // 19c is Oracle's long-term support release and the floor this advisor is written and verified
             // against; older confirmed-Oracle servers still get the full generic JDBC ruleset, just not the
             // ALL_*/SYS_CONTEXT augmentation.
             case ORACLE ->
-                new DialectCapabilities(false, false, false, false, false, false, false, version.atLeast(19, 0));
+                new DialectCapabilities(false, false, false, false, false, false, false, version.atLeast(19, 0), false);
             case GENERIC -> NONE;
         };
     }

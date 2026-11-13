@@ -159,6 +159,110 @@ class SecurityAuditAccuracyTests {
             calls.incrementAndGet();
             return "fixture";
         }
+
+        @ReadOperation
+        public String readFormat(@org.springframework.boot.actuate.endpoint.annotation.Selector String format) {
+            calls.incrementAndGet();
+            return format;
+        }
+    }
+
+    @Test
+    void authenticatedAndAuthorityAuthorizationManagersProduceRestrictedNonAnonymousState() throws Exception {
+        var manager = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/admin/**"),
+                        org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole("ADMIN"))
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/ops/**"),
+                        org.springframework.security.authorization.AllAuthoritiesAuthorizationManager.hasAllRoles(
+                                "ADMIN", "OPS"))
+                .add(
+                        AnyRequestMatcher.INSTANCE,
+                        org.springframework.security.authorization.AuthenticatedAuthorizationManager.authenticated())
+                .build();
+        FilterChainModel chain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new UsernamePasswordAuthenticationFilter(),
+                new AuthorizationFilter(manager)));
+        assertThat(chain.permitsAllAnonymous()).isFalse();
+        assertThat(chain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS,
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS,
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS);
+        assertThat(SecurityScanner.grantFor(chain.details().mappings(), "GET", "/actuator/env/{toMatch}"))
+                .isFalse();
+
+        var anonymousRole = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        AnyRequestMatcher.INSTANCE,
+                        org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole("ANONYMOUS"))
+                .build();
+        FilterChainModel anonymousRoleChain = model(
+                new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new AuthorizationFilter(anonymousRole)));
+        assertThat(anonymousRoleChain.permitsAllAnonymous()).isNull();
+        assertThat(anonymousRoleChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        var customHierarchyManager = org.springframework.security.authorization.AuthorityAuthorizationManager
+                .<org.springframework.security.web.access.intercept.RequestAuthorizationContext>hasRole("ADMIN");
+        customHierarchyManager.setRoleHierarchy(authorities -> {
+            throw new AssertionError("Custom RoleHierarchy must not be invoked");
+        });
+        FilterChainModel customHierarchyChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(AnyRequestMatcher.INSTANCE, customHierarchyManager)
+                        .build())));
+        assertThat(customHierarchyChain.permitsAllAnonymous()).isNull();
+        assertThat(customHierarchyChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        var customTrustManager = org.springframework.security.authorization.AuthenticatedAuthorizationManager
+                .<org.springframework.security.web.access.intercept.RequestAuthorizationContext>rememberMe();
+        var resolver = new org.springframework.security.authentication.AuthenticationTrustResolverImpl();
+        resolver.setRememberMeClass(org.springframework.security.authentication.AnonymousAuthenticationToken.class);
+        customTrustManager.setTrustResolver(resolver);
+        FilterChainModel customTrustChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(AnyRequestMatcher.INSTANCE, customTrustManager)
+                        .build())));
+        assertThat(customTrustChain.permitsAllAnonymous()).isNull();
+        assertThat(customTrustChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        FilterChainModel customAnonymousAuthorityChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new org.springframework.security.web.authentication.AnonymousAuthenticationFilter(
+                        "key",
+                        "anonymousUser",
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_GUEST"))),
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(
+                                AnyRequestMatcher.INSTANCE,
+                                org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole(
+                                        "GUEST"))
+                        .build())));
+        assertThat(customAnonymousAuthorityChain.permitsAllAnonymous()).isNull();
+
+        var exactBeforeCaptureTheRest = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/actuator/custom"),
+                        SingleResultAuthorizationManager.permitAll())
+                .add(AnyRequestMatcher.INSTANCE, SingleResultAuthorizationManager.denyAll())
+                .build();
+        FilterChainModel captureRestChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE, new AuthorizationFilter(exactBeforeCaptureTheRest)));
+        assertThat(SecurityScanner.grantFor(captureRestChain.details().mappings(), "GET", "/actuator/custom/{*path}"))
+                .isNull();
+        assertThat(SecurityScanner.grantFor(captureRestChain.details().mappings(), "GET", "/actuator/custom/{name}"))
+                .isFalse();
     }
 
     @Test
@@ -1358,25 +1462,6 @@ class SecurityAuditAccuracyTests {
     }
 
     @Test
-    void boot4CallerControlledErrorDetailsAreReviewedAndObsoleteNamespaceIgnored() {
-        var environment = new MockEnvironment().withProperty("server.error.include-message", "always");
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
-                        .status())
-                .isEqualTo("PASS");
-        environment.setProperty("spring.web.error.include-message", "on-param");
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
-                        .status())
-                .isEqualTo("VIOLATION");
-        environment.setProperty("spring.web.error.include-message", "never");
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
-                        .status())
-                .isEqualTo("PASS");
-    }
-
-    @Test
     void verboseChildLoggerIsNotHiddenByInfoParent() {
         var environment = new MockEnvironment()
                 .withProperty("logging.level.org.springframework.security", "INFO")
@@ -1447,12 +1532,13 @@ class SecurityAuditAccuracyTests {
         };
         for (var source : List.of(opaque, overridden)) {
             MockEnvironment environment = new MockEnvironment()
-                    .withProperty("spring.web.error.include-message", "always")
+                    .withProperty("spring.h2.console.enabled", "true")
                     .withProperty("management.endpoints.web.exposure.include", "*");
+            environment.setActiveProfiles("prod");
             environment.getPropertySources().addFirst(source);
             assertIndependentFindingAndIncompleteConfiguration(environment);
-            assertThat(new ErrorResponseDisclosureRule()
-                            .evaluate(context(null, environment))
+            assertThat(new H2ConsoleFrameOptionsRule()
+                            .evaluate(context(null, SecurityEnvironmentSnapshot.capture(environment)))
                             .status())
                     .isEqualTo("SKIPPED");
         }
@@ -1521,10 +1607,11 @@ class SecurityAuditAccuracyTests {
     void configurationPlaceholdersRemainUnknownWithoutRecursiveResolutionOrFakeAbsence() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("management.endpoints.web.exposure.include", "${external.selection}")
-                .withProperty("spring.web.error.include-message", "${external.policy}");
+                .withProperty("spring.h2.console.enabled", "${external.policy}");
+        environment.setActiveProfiles("prod");
         assertIndependentFindingAndIncompleteConfiguration(environment);
-        assertThat(new ErrorResponseDisclosureRule()
-                        .evaluate(context(null, environment))
+        assertThat(new H2ConsoleFrameOptionsRule()
+                        .evaluate(context(null, SecurityEnvironmentSnapshot.capture(environment)))
                         .status())
                 .isEqualTo("SKIPPED");
     }
@@ -1550,17 +1637,28 @@ class SecurityAuditAccuracyTests {
 
     @Test
     void approvedRetiredIdsStayAbsentAndStaticKeyIsInfo() {
-        assertThat(SecurityRuleRegistry.activeRules()).hasSize(54);
-        assertThat(SecurityRuleRegistry.activeRules())
-                .extracting(rule -> rule.definition().id())
-                .doesNotContain(
+        assertThat(SecurityRuleRegistry.activeRules()).hasSize(50);
+        assertThat(SecurityRules.RETIRED_RULE_IDS)
+                .isEqualTo(SecurityRuleRegistry.RETIRED_RULE_IDS)
+                .containsExactlyInAnyOrder(
                         "SEC-AUTH-003",
                         "SEC-AUTH-005",
                         "SEC-SESSION-005",
+                        "SEC-SESSION-007",
                         "SEC-SESSION-009",
                         "SEC-HEAD-005",
                         "SEC-HEAD-006",
-                        "SEC-CORS-004");
+                        "SEC-HEAD-010",
+                        "SEC-CORS-003",
+                        "SEC-CORS-004",
+                        "SEC-ACT-004",
+                        "SEC-OAUTH-001",
+                        "SEC-CONFIG-003",
+                        "SEC-CONFIG-004",
+                        "SEC-CONFIG-005");
+        assertThat(SecurityRuleRegistry.activeRules())
+                .extracting(rule -> rule.definition().id())
+                .doesNotContainAnyElementsOf(SecurityRuleRegistry.RETIRED_RULE_IDS);
         assertThat(new JwtStaticKeyRule().definition().severity()).isEqualTo("INFO");
     }
 
@@ -1589,7 +1687,7 @@ class SecurityAuditAccuracyTests {
         return new SecurityScanner(proxies, factories, environment, Clock.systemUTC()).scan();
     }
 
-    private static SecurityContext context(FilterChainModel chain, MockEnvironment environment) {
+    private static SecurityContext context(FilterChainModel chain, Environment environment) {
         return new SecurityContext(
                 chain == null ? List.of() : List.of(chain),
                 List.of(),

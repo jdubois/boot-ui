@@ -4,6 +4,8 @@ import io.github.jdubois.bootui.engine.journal.GcPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker;
 import io.github.jdubois.bootui.engine.memory.GcCollectorKinds;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.management.GarbageCollectorMXBean;
@@ -40,7 +42,11 @@ public final class GcEventSource implements AutoCloseable {
     private final List<NotificationEmitter> emitters = new ArrayList<>();
     private final NotificationListener listener;
 
-    private GcEventSource(RuntimeEventSink sink, long jvmStartEpochMillis, Set<String> heapPools) {
+    private GcEventSource(
+            RuntimeEventSink sink,
+            long jvmStartEpochMillis,
+            Set<String> heapPools,
+            BootUiDiagnosticGcTracker diagnosticGcTracker) {
         Set<String> oldPools = new HashSet<>();
         for (String pool : heapPools) {
             if (isOldGeneration(pool)) {
@@ -48,7 +54,7 @@ public final class GcEventSource implements AutoCloseable {
             }
         }
         this.listener = (notification, handback) ->
-                publish(sink, notification, jvmStartEpochMillis, heapPools, Set.copyOf(oldPools));
+                publish(sink, notification, jvmStartEpochMillis, heapPools, Set.copyOf(oldPools), diagnosticGcTracker);
     }
 
     /**
@@ -59,8 +65,25 @@ public final class GcEventSource implements AutoCloseable {
         return pool != null && (pool.contains("Old Gen") || pool.contains("Tenured"));
     }
 
+    /**
+     * Whether a GC notification represents an external application or library {@code System.gc()} stop-the-world full
+     * collection (excluding {@code Heap Inspection Initiated GC}, {@code Heap Dump Initiated GC}, and concurrent GC
+     * cycles).
+     */
+    public static boolean isExternalExplicitFullGc(String collector, String action, String cause) {
+        return GcCollectorKinds.isExternalExplicitFullGc(collector, action, cause);
+    }
+
     /** Starts listening to every collector, publishing to {@code sink}; listens to none when the JVM offers none. */
     public static GcEventSource start(RuntimeEventSink sink) {
+        return start(sink, sink instanceof RuntimeJournal ? BootUiDiagnosticGcTracker.SHARED : null);
+    }
+
+    /**
+     * Starts listening to every collector, publishing to {@code sink} and forwarding GC cause observations to
+     * {@code diagnosticGcTracker}.
+     */
+    public static GcEventSource start(RuntimeEventSink sink, BootUiDiagnosticGcTracker diagnosticGcTracker) {
         long jvmStart;
         Set<String> heapPools = new HashSet<>();
         List<GarbageCollectorMXBean> collectors;
@@ -73,9 +96,9 @@ public final class GcEventSource implements AutoCloseable {
             }
             collectors = ManagementFactory.getGarbageCollectorMXBeans();
         } catch (RuntimeException | LinkageError ex) {
-            return new GcEventSource(sink, 0, heapPools);
+            return new GcEventSource(sink, 0, heapPools, diagnosticGcTracker);
         }
-        GcEventSource source = new GcEventSource(sink, jvmStart, heapPools);
+        GcEventSource source = new GcEventSource(sink, jvmStart, heapPools, diagnosticGcTracker);
         for (GarbageCollectorMXBean collector : collectors) {
             if (collector instanceof NotificationEmitter emitter) {
                 try {
@@ -85,6 +108,9 @@ public final class GcEventSource implements AutoCloseable {
                     log.log(Level.FINE, "BootUI could not listen to GC notifications of " + collector.getName(), ex);
                 }
             }
+        }
+        if (diagnosticGcTracker != null && !source.emitters.isEmpty()) {
+            diagnosticGcTracker.setNotificationsObserved(true);
         }
         return source;
     }
@@ -111,13 +137,15 @@ public final class GcEventSource implements AutoCloseable {
             Notification notification,
             long jvmStartEpochMillis,
             Set<String> heapPools,
-            Set<String> oldPools) {
+            Set<String> oldPools,
+            BootUiDiagnosticGcTracker diagnosticGcTracker) {
         try {
             if (!Notifications.isGc(notification)) {
                 return;
             }
-            RuntimeEvent event = Notifications.event(notification, jvmStartEpochMillis, heapPools, oldPools);
-            if (event != null) {
+            RuntimeEvent event =
+                    Notifications.event(notification, jvmStartEpochMillis, heapPools, oldPools, diagnosticGcTracker);
+            if (event != null && sink != null) {
                 sink.offer(event);
             }
         } catch (RuntimeException | LinkageError ex) {
@@ -191,13 +219,26 @@ public final class GcEventSource implements AutoCloseable {
         }
 
         static RuntimeEvent event(
-                Notification notification, long jvmStartEpochMillis, Set<String> heapPools, Set<String> oldPools) {
+                Notification notification,
+                long jvmStartEpochMillis,
+                Set<String> heapPools,
+                Set<String> oldPools,
+                BootUiDiagnosticGcTracker diagnosticGcTracker) {
             com.sun.management.GarbageCollectionNotificationInfo info =
                     com.sun.management.GarbageCollectionNotificationInfo.from(
                             (CompositeData) notification.getUserData());
             com.sun.management.GcInfo gc = info.getGcInfo();
             if (gc == null) {
                 return null;
+            }
+            if (diagnosticGcTracker != null) {
+                diagnosticGcTracker.recordGcNotification(
+                        info.getGcName(),
+                        gc.getId(),
+                        info.getGcAction(),
+                        info.getGcCause(),
+                        gc.getEndTime(),
+                        gc.getDuration());
             }
             return GcEventSource.event(
                     info.getGcName(),

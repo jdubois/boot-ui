@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -70,6 +71,152 @@ class SpringNativeObservationTests {
                             .isEqualTo("VIOLATION");
                     assertThat(SpringScanner.evidence(snapshot).coverageComplete())
                             .isTrue();
+                });
+    }
+
+    @Test
+    @Tag("spring-modulith")
+    void modulithRegistrationOnlyConfigurerPreservesNativeEvidence() throws Exception {
+        SchedulingConfigurer configurer = modulithConfigurer();
+        for (boolean simple : List.of(false, true)) {
+            org.springframework.scheduling.TaskScheduler scheduler =
+                    simple ? new SimpleAsyncTaskScheduler() : new ThreadPoolTaskScheduler();
+            scheduling
+                    .withBean("modulith", SchedulingConfigurer.class, () -> configurer)
+                    .withBean("taskScheduler", org.springframework.scheduling.TaskScheduler.class, () -> scheduler)
+                    .run(context -> {
+                        assertThat(context.getBean("modulith").getClass().getName())
+                                .isEqualTo("org.springframework.modulith.events.config.StalenessMonitorConfiguration");
+                        var snapshot =
+                                SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                        var result = new SchedulerPoolTooSmallRule().evaluate(snapshot);
+                        assertThat(result.status())
+                                .as(
+                                        "Reverify the registration-only integration when the pinned Modulith version changes")
+                                .isEqualTo(simple ? "SKIPPED" : "VIOLATION");
+                        assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                                .isTrue();
+                    });
+        }
+    }
+
+    private static SchedulingConfigurer modulithConfigurer() throws Exception {
+        return modulithConfigurer(false);
+    }
+
+    private static SchedulingConfigurer modulithConfigurer(boolean monitor) throws Exception {
+        Class<?> registry = Class.forName("org.springframework.modulith.events.core.EventPublicationRegistry");
+        Class<?> properties = Class.forName("org.springframework.modulith.events.config.StalenessProperties");
+        Object settings = properties.getField("DEFAULTS").get(null);
+        if (monitor) {
+            var durations = properties.getDeclaredConstructor(
+                    java.time.Duration.class,
+                    java.time.Duration.class,
+                    java.time.Duration.class,
+                    java.time.Duration.class,
+                    java.time.Duration.class,
+                    java.time.Duration.class);
+            durations.setAccessible(true);
+            settings = durations.newInstance(
+                    java.time.Duration.ofHours(1), null, null, null, java.time.Duration.ofHours(1), null);
+        }
+        var constructor = Class.forName("org.springframework.modulith.events.config.StalenessMonitorConfiguration")
+                .getDeclaredConstructor(registry, properties);
+        constructor.setAccessible(true);
+        return (SchedulingConfigurer) constructor.newInstance(org.mockito.Mockito.mock(registry), settings);
+    }
+
+    @Test
+    @Tag("spring-modulith")
+    void activeModulithMonitorDoesNotHideItsUnsupportedRunnable() throws Exception {
+        var configurer = modulithConfigurer(true);
+        scheduling
+                .withBean("modulith", SchedulingConfigurer.class, () -> configurer)
+                .withBean("taskScheduler", SimpleAsyncTaskScheduler.class, SimpleAsyncTaskScheduler::new)
+                .run(context -> {
+                    var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    new SchedulerPoolTooSmallRule().evaluate(snapshot);
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isFalse();
+                });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void taskSubclassGetterIsNotInvokedDuringDiscovery() throws Exception {
+        var reads = new AtomicInteger();
+        var definition =
+                new org.springframework.scheduling.config.CronTask(
+                        () -> {
+                            throw new AssertionError("Must not execute tasks");
+                        },
+                        "0 0 0 * * *") {
+                    @Override
+                    public Runnable getRunnable() {
+                        reads.incrementAndGet();
+                        throw new AssertionError("Must not invoke application task getters");
+                    }
+                };
+        var constructor = org.springframework.scheduling.config.ScheduledTask.class.getDeclaredConstructor(
+                org.springframework.scheduling.config.Task.class);
+        constructor.setAccessible(true);
+        var registrar = new org.springframework.scheduling.config.ScheduledTaskRegistrar();
+        var tasks = registrar.getClass().getDeclaredField("scheduledTasks");
+        tasks.setAccessible(true);
+        ((java.util.Set<org.springframework.scheduling.config.ScheduledTask>) tasks.get(registrar))
+                .add(constructor.newInstance(definition));
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.registerSingleton(
+                "org.springframework.scheduling.config.internalScheduledAnnotationProcessor",
+                new org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor(registrar));
+        var snapshot = SpringInventory.discover(factory, new org.springframework.mock.env.MockEnvironment(), false);
+        new SchedulerPoolTooSmallRule().evaluate(snapshot);
+        assertThat(reads).hasValue(0);
+        assertThat(SpringScanner.evidence(snapshot).coverageComplete()).isFalse();
+    }
+
+    @Test
+    @Tag("spring-modulith")
+    void advisedModulithConfigurerRemainsUnknown() throws Exception {
+        var proxyFactory = new org.springframework.aop.framework.ProxyFactory(modulithConfigurer());
+        proxyFactory.setProxyTargetClass(true);
+        var proxy = (SchedulingConfigurer) proxyFactory.getProxy();
+        scheduling
+                .withBean("modulith", SchedulingConfigurer.class, () -> proxy)
+                .withBean("taskScheduler", SimpleAsyncTaskScheduler.class, SimpleAsyncTaskScheduler::new)
+                .run(context -> {
+                    var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    new SchedulerPoolTooSmallRule().evaluate(snapshot);
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isFalse();
+                });
+    }
+
+    @Test
+    void changingTheRegistrarSchedulerDoesNotProvePreviouslyRegisteredTaskRouting() {
+        var original = new ThreadPoolTaskScheduler();
+        var replacement = new SimpleAsyncTaskScheduler();
+        var registrar = new java.util.concurrent.atomic.AtomicReference<
+                org.springframework.scheduling.config.ScheduledTaskRegistrar>();
+        scheduling
+                .withBean("original", ThreadPoolTaskScheduler.class, () -> original)
+                .withBean(
+                        "taskScheduler",
+                        SimpleAsyncTaskScheduler.class,
+                        () -> replacement,
+                        definition -> definition.setPrimary(true))
+                .withBean("switcher", SchedulingConfigurer.class, () -> tasks -> {
+                    registrar.set(tasks);
+                    tasks.setTaskScheduler(original);
+                })
+                .run(context -> {
+                    assertThat(original.getScheduledThreadPoolExecutor().getQueue())
+                            .hasSize(2);
+                    registrar.get().setTaskScheduler(replacement);
+                    var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    new SchedulerPoolTooSmallRule().evaluate(snapshot);
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isFalse();
                 });
     }
 

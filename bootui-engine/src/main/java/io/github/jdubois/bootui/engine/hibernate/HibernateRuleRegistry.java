@@ -1,8 +1,27 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import java.util.List;
+import java.util.Set;
 
 final class HibernateRuleRegistry {
+
+    /**
+     * Rule IDs that were removed from the catalogue. They stay reserved so existing dismissals never silently apply
+     * to a different check; see docs/HIBERNATE-CHECKS.md.
+     */
+    static final Set<String> RETIRED_RULE_IDS = Set.of(
+            "HIB-FETCH-004",
+            "HIB-MAP-012",
+            "HIB-MAP-017",
+            "HIB-MAP-019",
+            "HIB-MAP-021",
+            "HIB-ENTITY-002",
+            "HIB-ENTITY-003",
+            "HIB-ENTITY-004",
+            "HIB-QUERY-006",
+            "HIB-CONFIG-001",
+            "HIB-CONFIG-007",
+            "HIB-CONFIG-011");
 
     private static final List<HibernateRule> ACTIVE_RULES = List.of(
             // Fetching
@@ -13,6 +32,7 @@ final class HibernateRuleRegistry {
             new LazyBasicWithoutEnhancementRule(),
             new CollectionFetchJoinAnnotationRule(),
             new SubselectCollectionFetchRule(),
+            new MultipleLazyLobSameGroupRule(),
             // Identifiers
             new IdentityIdentifierRule(),
             new TableIdentifierRule(),
@@ -42,6 +62,8 @@ final class HibernateRuleRegistry {
             new UnidirectionalOneToManyJoinColumnRule(),
             new EmbeddableSetEqualityRule(),
             new PostgresLobRule(),
+            new MismatchedAccessPlacementRule(),
+            new DeprecatedGenericGeneratorRule(),
 
             // Entity design
             new EqualsHashCodePairRule(),
@@ -51,6 +73,8 @@ final class HibernateRuleRegistry {
             new MissingVersionRule(),
             new NaturalIdCandidateRule(),
             new TemporalVersionRule(),
+            new KotlinDataClassEntityRule(),
+            new PanacheEntityIdShadowingRule(),
 
             // Query
             new ModifyingClearAutomaticallyRule(),
@@ -58,20 +82,18 @@ final class HibernateRuleRegistry {
             new NativePagedQueryCountRule(),
             new DerivedDeleteByQueryRule(),
             new EagerToOneFetchJoinRule(),
-            new EntityProjectionQueryRule(),
             new MultipleCollectionJoinFetchRule(),
             new BulkUpdateVersionRule(),
+            new OpenProjectionValueRule(),
             // Configuration
             new LazyLoadNoTransRule(),
             new JdbcBatchSizeRule(),
             new OrderedBatchingRule(),
             new SlowQueryLogRule(),
-            new HibernateStatisticsRule(),
             new ProviderDisablesAutocommitRule(),
             new ProviderAutoCommitContradictionRule(),
             new InClausePaddingRule(),
             new QueryCacheRegionFactoryRule(),
-            new CacheableWithoutCacheStrategyRule(),
             new RiskyDdlAutoRule(),
             new SqlLoggingInProductionRule(),
             new JdbcTimeZoneRule(),
@@ -86,7 +108,8 @@ final class HibernateRuleRegistry {
             // Caching
             new CacheAssociationCoverageRule(),
             new ReadOnlyCacheOnWritableEntityRule(),
-            new ImmutableEntityCacheStrategyRule());
+            new ImmutableEntityCacheStrategyRule(),
+            new NaturalIdCacheWithoutEntityCacheRule());
 
     private HibernateRuleRegistry() {}
 

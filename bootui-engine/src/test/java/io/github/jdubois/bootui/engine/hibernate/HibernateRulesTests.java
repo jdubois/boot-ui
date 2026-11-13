@@ -7,7 +7,6 @@ import io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinJvmFieldEn
 import io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinLateinitEntity;
 import io.github.jdubois.bootui.engine.support.KotlinReflection;
 import jakarta.persistence.Basic;
-import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -963,20 +962,6 @@ class HibernateRulesTests {
 
         HibernateRuleResultDto result = new InClausePaddingRule()
                 .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    // --- HIB-CONFIG-011 -----------------------------------------------------
-
-    @Test
-    void cacheableWithoutCacheStrategyRuleHonorsConfiguredDefaultStrategy() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty("hibernate.cache.use_second_level_cache", "true")
-                .withProperty("hibernate.cache.default_cache_concurrency_strategy", "read-write");
-
-        HibernateRuleResultDto result = new CacheableWithoutCacheStrategyRule()
-                .evaluate(context(environment, CacheableDefaultStrategyEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -2047,13 +2032,6 @@ class HibernateRulesTests {
     }
 
     @Entity
-    @Cacheable
-    static class CacheableDefaultStrategyEntity {
-        @Id
-        Long id;
-    }
-
-    @Entity
     static class OrderColumnElementCollectionEntity {
         @Id
         Long id;
@@ -2621,5 +2599,522 @@ class HibernateRulesTests {
         String code;
 
         String status;
+    }
+
+    // --- HIB-MAP-025 --------------------------------------------------------
+
+    @Test
+    void mismatchedAccessPlacementFlagsGetterAnnotationsOnFieldAccessAndFieldAnnotationsOnPropertyAccess() {
+        HibernateRuleResultDto result = new MismatchedAccessPlacementRule()
+                .evaluate(context(
+                        new TestEnvironment(),
+                        FieldAccessWithGetterColumnEntity.class,
+                        PropertyAccessWithFieldColumnEntity.class,
+                        FieldAccessWithEmbeddedGetterColumnEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.violationCount()).isEqualTo(4);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("FieldAccessWithGetterColumnEntity#getName() places @Column on a getter"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("FieldAccessWithGetterColumnEntity#getAuditLabel() places @Formula on a getter"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("PropertyAccessWithFieldColumnEntity#status places @Enumerated on a field"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("FieldAccessWithEmbeddedGetterColumnEntity#address.getCity() places @Column"));
+    }
+
+    @Test
+    void mismatchedAccessPlacementIgnoresLifecycleCallbacksAndRespectsExplicitAccess() {
+        HibernateRuleResultDto result = new MismatchedAccessPlacementRule()
+                .evaluate(context(
+                        new TestEnvironment(),
+                        FieldAccessWithLifecycleAndExplicitPropertyAccessEntity.class,
+                        PropertyAccessWithExplicitFieldAccessEntity.class,
+                        FieldAccessSubclassOfExplicitFieldBaseWithOwnPropertyMappings.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void mismatchedAccessPlacementFlagsBackingFieldTransientMismatchAndDeduplicatesEmbeddedGetter() {
+        HibernateRuleResultDto result = new MismatchedAccessPlacementRule()
+                .evaluate(context(new TestEnvironment(), FieldAccessWithBackingFieldTransientOnGetterEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("FieldAccessWithBackingFieldTransientOnGetterEntity#getSecret() places @Transient");
+    }
+
+    // --- HIB-MAP-027 --------------------------------------------------------
+
+    @Test
+    void deprecatedGenericGeneratorRuleFlagsClassAndAttributeDeclarations() {
+        HibernateRuleResultDto result = new DeprecatedGenericGeneratorRule()
+                .evaluate(context(
+                        new TestEnvironment(),
+                        FieldGenericGeneratorEntity.class,
+                        ClassGenericGeneratorsEntity.class,
+                        SequenceEntity.class,
+                        Version7UuidEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.LOW);
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("FieldGenericGeneratorEntity#id"))
+                .anySatisfy(sample -> assertThat(sample).contains("ClassGenericGeneratorsEntity declares deprecated"));
+    }
+
+    // --- HIB-ENTITY-011 -----------------------------------------------------
+
+    @Test
+    void kotlinDataClassEntityRuleFlagsOnlyDataClasses() {
+        HibernateRuleResultDto result = new KotlinDataClassEntityRule()
+                .evaluate(context(
+                        new TestEnvironment(),
+                        io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinConstructorAssociationEntity
+                                .class,
+                        io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinBodyAssociationEntity.class,
+                        io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinValueClassPropertyDataEntity
+                                .class,
+                        KotlinLateinitEntity.class,
+                        io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinNullableVersionEntity.class,
+                        SequenceEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("KotlinConstructorAssociationEntity"))
+                .anySatisfy(sample -> assertThat(sample).contains("KotlinBodyAssociationEntity"))
+                .anySatisfy(sample -> assertThat(sample).contains("KotlinValueClassPropertyDataEntity"));
+    }
+
+    // --- HIB-ENTITY-012 -----------------------------------------------------
+
+    @Test
+    void panacheEntityIdShadowingRuleFlagsShadowedIdAndCustomIdButPassesCleanSubclass() throws NoSuchFieldException {
+        HibernateAttributeModel template =
+                HibernateAttributeModel.from(AutoGeneratedValueEntity.class.getDeclaredField("id"));
+        HibernateAttributeModel panacheFrameworkId =
+                withEntityName(template, "io.quarkus.hibernate.orm.panache.PanacheEntity");
+        HibernateAttributeModel shadowedId = withEntityName(template, "com.example.ShadowedPanacheProduct");
+        HibernateAttributeModel customUuid = new HibernateAttributeModel(
+                "com.example.CustomIdPanacheProduct",
+                "customId",
+                UUID.class,
+                UUID.class,
+                null,
+                true,
+                true,
+                template.annotations());
+
+        HibernateEntityModel cleanPanache =
+                new HibernateEntityModel("com.example.CleanPanacheProduct", null, List.of(panacheFrameworkId));
+        HibernateEntityModel shadowedPanache = new HibernateEntityModel(
+                "com.example.ShadowedPanacheProduct", null, List.of(panacheFrameworkId, shadowedId));
+        HibernateEntityModel customIdPanache = new HibernateEntityModel(
+                "com.example.CustomIdPanacheProduct", null, List.of(panacheFrameworkId, customUuid));
+
+        HibernateContext context = new HibernateContext(
+                List.of(cleanPanache, shadowedPanache, customIdPanache),
+                List.of(),
+                new TestEnvironment().lookup(),
+                List.of(),
+                "7.4.5.Final");
+
+        HibernateRuleResultDto result = new PanacheEntityIdShadowingRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("ShadowedPanacheProduct", "PanacheEntityBase"))
+                .anySatisfy(sample -> assertThat(sample).contains("CustomIdPanacheProduct", "customId"));
+    }
+
+    // --- HIB-FETCH-009 ------------------------------------------------------
+
+    @Test
+    void multipleLazyLobSameGroupRuleFlagsSharedGroupOnEnhancedEntityAndPassesDistinctGroups() {
+        TestEnvironment enhanced =
+                new TestEnvironment().withProperty(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY, "true");
+
+        HibernateRuleResultDto violation = new MultipleLazyLobSameGroupRule()
+                .evaluate(context(
+                        enhanced,
+                        SharedDefaultLazyLobGroupEntity.class,
+                        DistinctLazyLobGroupsEntity.class,
+                        LazyBlobLocatorsEntity.class,
+                        LazyLobEntity.class));
+
+        assertThat(violation.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(violation.severity()).isEqualTo(HibernateRuleSupport.LOW);
+        assertThat(violation.violationCount()).isEqualTo(1);
+        assertThat(violation.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("SharedDefaultLazyLobGroupEntity", "summary, body", "@LazyGroup \"DEFAULT\"");
+
+        HibernateRuleResultDto unenhanced = new MultipleLazyLobSameGroupRule()
+                .evaluate(context(new TestEnvironment(), SharedDefaultLazyLobGroupEntity.class));
+        assertThat(unenhanced.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    // --- HIB-QUERY-009 ------------------------------------------------------
+
+    @Test
+    void openProjectionValueRuleFlagsSpelValueProjectionAndPassesClosedAndScalarQueryProjections() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.OrderProjectionRepository",
+                SequenceEntity.class,
+                List.of(
+                        new HibernateRepositoryMethodModel(
+                                "com.example.OrderProjectionRepository",
+                                "findOpenById",
+                                SequenceEntity.class,
+                                RedeclaredChildOpenOrderProjection.class,
+                                null,
+                                false,
+                                null,
+                                false,
+                                false,
+                                false,
+                                false,
+                                List.of(Long.class)),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.OrderProjectionRepository",
+                                "findScalarOpenById",
+                                SequenceEntity.class,
+                                OpenOrderProjection.class,
+                                "select s.id as id from SequenceEntity s where s.id = :id",
+                                false,
+                                null,
+                                false,
+                                false,
+                                false,
+                                false,
+                                List.of(Long.class)),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.OrderProjectionRepository",
+                                "findClosedById",
+                                SequenceEntity.class,
+                                ClosedOrderProjection.class,
+                                null,
+                                false,
+                                null,
+                                false,
+                                false,
+                                false,
+                                false,
+                                List.of(Long.class))));
+
+        HibernateRuleResultDto result = new OpenProjectionValueRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), SequenceEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("findOpenById", "RedeclaredChildOpenOrderProjection", "@Value on getDisplayLabel()");
+    }
+
+    // --- HIB-CACHE-004 ------------------------------------------------------
+
+    @Test
+    void naturalIdCacheRuleFlagsUncachedEntityAndPassesWhenEntityCachedOrUnitCacheDisabled() {
+        HibernateRuleResultDto result = new NaturalIdCacheWithoutEntityCacheRule()
+                .evaluate(context(
+                        new TestEnvironment(),
+                        UncachedNaturalIdCacheEntity.class,
+                        ExplicitlyUncachedNaturalIdCacheEntity.class,
+                        JpaCachedNaturalIdCacheEntity.class,
+                        HibernateCachedNaturalIdCacheEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("UncachedNaturalIdCacheEntity"))
+                .anySatisfy(sample -> assertThat(sample).contains("ExplicitlyUncachedNaturalIdCacheEntity"));
+
+        TestEnvironment cacheDisabled =
+                new TestEnvironment().withProperty("hibernate.cache.use_second_level_cache", "false");
+        HibernateRuleResultDto skipped = new NaturalIdCacheWithoutEntityCacheRule()
+                .evaluate(context(cacheDisabled, UncachedNaturalIdCacheEntity.class));
+        assertThat(skipped.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+    }
+
+    @jakarta.persistence.MappedSuperclass
+    abstract static class FieldAccessMappedSuperclass {
+        @Id
+        Long id;
+
+        private String auditLabel;
+
+        @org.hibernate.annotations.Formula("upper(name)")
+        public String getAuditLabel() {
+            return auditLabel;
+        }
+    }
+
+    @Entity
+    static class FieldAccessWithGetterColumnEntity extends FieldAccessMappedSuperclass {
+        private String name;
+
+        @Column(nullable = false)
+        public String getName() {
+            return name;
+        }
+    }
+
+    @Entity
+    static class PropertyAccessWithFieldColumnEntity {
+        private Long id;
+
+        @Enumerated(EnumType.STRING)
+        private Status status;
+
+        @Id
+        public Long getId() {
+            return id;
+        }
+
+        public Status getStatus() {
+            return status;
+        }
+    }
+
+    @jakarta.persistence.Embeddable
+    static class MismatchedAddressEmbeddable {
+        private String city;
+
+        @Column(length = 80)
+        public String getCity() {
+            return city;
+        }
+    }
+
+    @jakarta.persistence.Embeddable
+    record RecordZipEmbeddable(@Column(length = 16) String zip) {}
+
+    @Entity
+    static class FieldAccessWithEmbeddedGetterColumnEntity {
+        @Id
+        Long id;
+
+        @jakarta.persistence.Embedded
+        MismatchedAddressEmbeddable address;
+
+        public MismatchedAddressEmbeddable getAddress() {
+            return address;
+        }
+    }
+
+    @Entity
+    static class FieldAccessWithBackingFieldTransientOnGetterEntity {
+        @Id
+        Long id;
+
+        private String secret;
+
+        @Transient
+        public String getSecret() {
+            return secret;
+        }
+    }
+
+    @jakarta.persistence.MappedSuperclass
+    @jakarta.persistence.Access(jakarta.persistence.AccessType.FIELD)
+    abstract static class ExplicitFieldBaseSuperclass {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class FieldAccessSubclassOfExplicitFieldBaseWithOwnPropertyMappings extends ExplicitFieldBaseSuperclass {
+        private String extra;
+
+        @Column(name = "extra_col")
+        public String getExtra() {
+            return extra;
+        }
+    }
+
+    @Entity
+    static class FieldAccessWithLifecycleAndExplicitPropertyAccessEntity {
+        @Id
+        Long id;
+
+        @Transient
+        private String rawCode;
+
+        @jakarta.persistence.Embedded
+        RecordZipEmbeddable zip;
+
+        @jakarta.persistence.Access(jakarta.persistence.AccessType.PROPERTY)
+        @Column(name = "code", nullable = false)
+        public String getCode() {
+            return rawCode;
+        }
+
+        @Transient
+        public boolean isNew() {
+            return id == null;
+        }
+
+        @jakarta.persistence.PrePersist
+        public void onPrePersist() {}
+
+        @jakarta.persistence.PostLoad
+        public String afterLoadSummary() {
+            return "loaded";
+        }
+    }
+
+    @Entity
+    @jakarta.persistence.Access(jakarta.persistence.AccessType.PROPERTY)
+    static class PropertyAccessWithExplicitFieldAccessEntity {
+        private Long id;
+
+        @jakarta.persistence.Access(jakarta.persistence.AccessType.FIELD)
+        @Column(nullable = false)
+        private String internalCode;
+
+        @Id
+        public Long getId() {
+            return id;
+        }
+    }
+
+    @Entity
+    static class FieldGenericGeneratorEntity {
+        @Id
+        @GeneratedValue(generator = "legacy-uuid")
+        @org.hibernate.annotations.GenericGenerator(name = "legacy-uuid", strategy = "uuid2")
+        String id;
+    }
+
+    @Entity
+    @org.hibernate.annotations.GenericGenerators(
+            @org.hibernate.annotations.GenericGenerator(name = "legacy-seq", strategy = "sequence"))
+    static class ClassGenericGeneratorsEntity {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class SharedDefaultLazyLobGroupEntity {
+        @Id
+        Long id;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        String summary;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        byte[] body;
+    }
+
+    @Entity
+    static class DistinctLazyLobGroupsEntity {
+        @Id
+        Long id;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        @org.hibernate.annotations.LazyGroup("summary")
+        String summary;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        @org.hibernate.annotations.LazyGroup("body")
+        byte[] body;
+    }
+
+    @Entity
+    static class LazyBlobLocatorsEntity {
+        @Id
+        Long id;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        java.sql.Blob firstBlob;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        java.sql.Clob secondClob;
+    }
+
+    interface OpenOrderProjection {
+        Long getId();
+
+        @org.springframework.beans.factory.annotation.Value("#{target.id + '-' + target.name}")
+        String getDisplayLabel();
+    }
+
+    interface RedeclaredChildOpenOrderProjection extends OpenOrderProjection {
+        @Override
+        String getDisplayLabel();
+    }
+
+    interface ClosedOrderProjection {
+        Long getId();
+
+        default String getDisplayLabel() {
+            return String.valueOf(getId());
+        }
+    }
+
+    @Entity
+    @org.hibernate.annotations.NaturalIdCache
+    static class UncachedNaturalIdCacheEntity {
+        @Id
+        Long id;
+
+        @NaturalId
+        String code;
+    }
+
+    @Entity
+    @jakarta.persistence.Cacheable(false)
+    @org.hibernate.annotations.NaturalIdCache
+    static class ExplicitlyUncachedNaturalIdCacheEntity {
+        @Id
+        Long id;
+
+        @NaturalId
+        String code;
+    }
+
+    @Entity
+    @jakarta.persistence.Cacheable
+    @org.hibernate.annotations.NaturalIdCache
+    static class JpaCachedNaturalIdCacheEntity {
+        @Id
+        Long id;
+
+        @NaturalId
+        String code;
+    }
+
+    @Entity
+    @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+    @org.hibernate.annotations.NaturalIdCache
+    static class HibernateCachedNaturalIdCacheEntity {
+        @Id
+        Long id;
+
+        @NaturalId
+        String code;
     }
 }

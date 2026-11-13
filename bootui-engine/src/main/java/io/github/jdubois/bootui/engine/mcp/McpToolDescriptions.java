@@ -209,7 +209,8 @@ public final class McpToolDescriptions {
                             + "propertySuggestions, the browser's completion list, is always empty here."),
             Map.entry(
                     "get_mappings",
-                    "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler "
+                    "Search request routes and handlers and return a bounded result, including the application's "
+                            + "effective `basePath` prefix when configured. Use a path, HTTP concept, or handler "
                             + "name as the query when locating an endpoint."),
             Map.entry(
                     "vulnerabilities_scan",

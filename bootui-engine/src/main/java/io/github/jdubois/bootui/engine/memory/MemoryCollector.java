@@ -87,7 +87,7 @@ final class MemoryCollector {
         GcEvent postHistogramGcEvent = readLastGcEvent().asGcEvent();
         PostGcHeapData postGcHeap = collectPostGcHeap(heapContent.available());
         ClassLoadingData classLoading = collectClassLoading();
-        RuntimeData runtime = collectRuntime(preHistogramGcEvent);
+        RuntimeData runtime = collectRuntime(preHistogramGc, preHistogramGcEvent);
         return new MemoryContext(
                 memory,
                 threads,
@@ -99,9 +99,7 @@ final class MemoryCollector {
                 postHistogramGc,
                 preHistogramGcEvent,
                 postHistogramGcEvent,
-                GcTrend.unavailable(),
-                null,
-                null);
+                GcTrend.unavailable());
     }
 
     /**
@@ -128,7 +126,7 @@ final class MemoryCollector {
         return new PostGcHeapData(true, heap.getUsed(), oldGenAvailable, oldGenUsed, heap.getCommitted());
     }
 
-    private GcSample currentGcSample() {
+    static GcSample currentGcSample() {
         return gcSample(
                 ManagementFactory.getRuntimeMXBean().getUptime(), ManagementFactory.getGarbageCollectorMXBeans());
     }
@@ -176,8 +174,10 @@ final class MemoryCollector {
         for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
             MemoryUsage usage = pool.getUsage();
             if (usage != null) {
-                pools.add(
-                        new MemoryPoolSnapshot(pool.getName(), usage.getUsed(), usage.getCommitted(), usage.getMax()));
+                MemoryUsage collectionUsage = safeCollectionUsage(pool);
+                long collectionUsed = collectionUsage != null ? collectionUsage.getUsed() : -1;
+                pools.add(new MemoryPoolSnapshot(
+                        pool.getName(), usage.getUsed(), usage.getCommitted(), usage.getMax(), collectionUsed));
             }
         }
 
@@ -200,6 +200,14 @@ final class MemoryCollector {
         Long containerCurrent = containerCurrentValue.isPresent() ? containerCurrentValue.getAsLong() : null;
         OptionalLong containerWorkingSetValue = containerMemory.workingSet();
         Long containerWorkingSet = containerWorkingSetValue.isPresent() ? containerWorkingSetValue.getAsLong() : null;
+        OptionalLong containerHighValue = containerMemory.high();
+        Long containerHigh = containerHighValue.isPresent() ? containerHighValue.getAsLong() : null;
+        OptionalLong containerHighCurrentValue = containerMemory.highCurrent();
+        Long containerHighCurrent =
+                containerHighCurrentValue.isPresent() ? containerHighCurrentValue.getAsLong() : null;
+        OptionalLong containerHighWorkingSetValue = containerMemory.highWorkingSet();
+        Long containerHighWorkingSet =
+                containerHighWorkingSetValue.isPresent() ? containerHighWorkingSetValue.getAsLong() : null;
 
         return new MemoryData(
                 heap.getUsed(),
@@ -218,7 +226,11 @@ final class MemoryCollector {
                 containerLimit,
                 containerCurrent,
                 containerWorkingSet,
-                bufferPools);
+                bufferPools,
+                containerHigh,
+                containerMemory.events(),
+                containerHighCurrent,
+                containerHighWorkingSet);
     }
 
     private ThreadData collectThreads() {
@@ -274,8 +286,8 @@ final class MemoryCollector {
         if (entries.isEmpty()) {
             return HeapContentData.failed();
         }
-        // Totals cover every histogram row so percentage-of-heap rules are not skewed by the
-        // top-N truncation applied to the entries surfaced for display.
+        // Totals and ClassLoader/proxy summaries cover every histogram row so rules are not skewed
+        // by the top-N truncation applied to the entries surfaced for display.
         long totalInstances = 0;
         long totalBytes = 0;
         for (HeapClassHistogramEntryDto entry : entries) {
@@ -285,7 +297,19 @@ final class MemoryCollector {
                 return HeapContentData.failed();
             }
         }
-        return new HeapContentData(true, topEntries(entries), totalInstances, totalBytes);
+        MemoryContext.HistogramClassSummary summary = MemoryContext.HistogramClassSummary.from(entries);
+        return new HeapContentData(
+                true,
+                topEntries(entries),
+                totalInstances,
+                totalBytes,
+                null,
+                summary.classLoaderEntries(),
+                summary.dynamicClassLoaderClassCount(),
+                summary.dynamicClassLoaderInstances(),
+                summary.generatedProxyClassCount(),
+                summary.generatedProxyInstances(),
+                summary.generatedProxyBytes());
     }
 
     private ClassLoadingData collectClassLoading() {
@@ -294,8 +318,15 @@ final class MemoryCollector {
                 bean.getLoadedClassCount(), bean.getTotalLoadedClassCount(), bean.getUnloadedClassCount());
     }
 
-    private RuntimeData collectRuntime(GcEvent latestGcEvent) {
-        GcSample gc = currentGcSample();
+    static MemoryUsage safeCollectionUsage(MemoryPoolMXBean pool) {
+        try {
+            return pool.getCollectionUsage();
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private RuntimeData collectRuntime(GcSample preHistogramGc, GcEvent latestGcEvent) {
         int pendingFinalization = ManagementFactory.getMemoryMXBean().getObjectPendingFinalizationCount();
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
 
@@ -309,11 +340,12 @@ final class MemoryCollector {
         long objectAlignment = readVmOptionLong("ObjectAlignmentInBytes");
         // Readable only on JDK 21-23; absent before JDK 21 and obsolete (unreadable) from JDK 24.
         Boolean zGenerational = readVmOptionBoolean("ZGenerational");
+        Boolean useCompactObjectHeaders = readVmOptionBoolean("UseCompactObjectHeaders");
 
         return new RuntimeData(
-                gc.uptimeMillis(),
-                gc.gcTimeMillis(),
-                gc.gcCount(),
+                preHistogramGc.uptimeMillis(),
+                preHistogramGc.gcTimeMillis(),
+                preHistogramGc.gcCount(),
                 pendingFinalization,
                 initialHeap(),
                 parseThreadStackBytes(inputArgs),
@@ -327,7 +359,8 @@ final class MemoryCollector {
                 freePhysicalMemory,
                 maxHeapSizeOption,
                 objectAlignment,
-                zGenerational);
+                zGenerational,
+                useCompactObjectHeaders);
     }
 
     /**
@@ -360,7 +393,7 @@ final class MemoryCollector {
      * time base is shared across beans. Comparing durations would select the longest historical event,
      * not the event that actually completed most recently.
      */
-    private static LastGcEvent readLastGcEvent() {
+    static LastGcEvent readLastGcEvent() {
         try {
             List<LastGcEventCandidate> candidates = new ArrayList<>();
             for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
@@ -532,40 +565,51 @@ final class MemoryCollector {
     }
 
     private static long parseThreadStackBytes(List<String> inputArgs) {
-        for (String arg : inputArgs) {
-            if (arg == null) {
-                continue;
-            }
-            if (arg.startsWith("-Xss")) {
-                long parsed = parseMemorySize(arg.substring("-Xss".length()));
-                if (parsed > 0) {
-                    return parsed;
-                }
-            } else if (arg.startsWith("-XX:ThreadStackSize=")) {
-                // -XX:ThreadStackSize is expressed in kilobytes, unlike the suffix-aware -Xss form.
-                try {
-                    long kb = Long.parseLong(
-                            arg.substring("-XX:ThreadStackSize=".length()).trim());
-                    if (kb > 0) {
-                        return MemoryFormat.product(kb, 1024L);
+        return parseThreadStackBytes(inputArgs, readVmOption("ThreadStackSize"));
+    }
+
+    static long parseThreadStackBytes(List<String> inputArgs, String liveOption) {
+        if (liveOption != null) {
+            try {
+                long kb = Long.parseLong(liveOption.trim());
+                if (kb > 0) {
+                    long bytes = MemoryFormat.product(kb, 1024L);
+                    if (bytes > 0) {
+                        return bytes;
                     }
-                } catch (NumberFormatException ignored) {
-                    // fall through
+                }
+            } catch (NumberFormatException ignored) {
+                // fall through to input arguments
+            }
+        }
+        long explicit = -1;
+        if (inputArgs != null) {
+            for (String arg : inputArgs) {
+                if (arg == null) {
+                    continue;
+                }
+                if (arg.startsWith("-Xss")) {
+                    long parsed = parseMemorySize(arg.substring("-Xss".length()));
+                    if (parsed > 0) {
+                        explicit = parsed;
+                    }
+                } else if (arg.startsWith("-XX:ThreadStackSize=")) {
+                    // -XX:ThreadStackSize is expressed in kilobytes, unlike the suffix-aware -Xss form.
+                    try {
+                        long kb = Long.parseLong(
+                                arg.substring("-XX:ThreadStackSize=".length()).trim());
+                        long parsed = MemoryFormat.product(kb, 1024L);
+                        if (parsed > 0) {
+                            explicit = parsed;
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // ignore malformed argument
+                    }
                 }
             }
         }
-        // Neither -Xss nor -XX:ThreadStackSize was set; try the live VM option so we get the
-        // ergonomic default (which varies by OS and JVM version) rather than always guessing 1 MiB.
-        String vmValue = readVmOption("ThreadStackSize");
-        if (vmValue != null) {
-            try {
-                long kb = Long.parseLong(vmValue.trim());
-                if (kb > 0) {
-                    return MemoryFormat.product(kb, 1024L);
-                }
-            } catch (NumberFormatException ignored) {
-                // fall through to the compile-time default
-            }
+        if (explicit > 0) {
+            return explicit;
         }
         return RuntimeData.DEFAULT_THREAD_STACK_BYTES;
     }

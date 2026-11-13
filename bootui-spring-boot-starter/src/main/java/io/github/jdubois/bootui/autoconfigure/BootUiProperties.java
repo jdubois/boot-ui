@@ -895,6 +895,13 @@ public class BootUiProperties {
         private Duration requestTimeout = Duration.ofSeconds(10);
 
         /**
+         * Whole-scan deadline budget applied across OSV batch queries, advisory-detail fetches, and EPSS
+         * enrichment; when exceeded, the scan degrades to {@code PARTIAL} while retaining advisories
+         * fetched so far.
+         */
+        private Duration scanTimeout = Duration.ofSeconds(60);
+
+        /**
          * Maximum number of dependency packages included in one OSV batch query. Packages beyond this bound
          * are reported as {@code scan.packagesSkipped} rather than silently dropped. The default is sized to
          * cover a typical Spring Boot application's full JAR set, which commonly exceeds 300 dependencies.
@@ -941,6 +948,16 @@ public class BootUiProperties {
 
         public void setRequestTimeout(Duration requestTimeout) {
             this.requestTimeout = requestTimeout;
+        }
+
+        public Duration getScanTimeout() {
+            return scanTimeout;
+        }
+
+        public void setScanTimeout(Duration scanTimeout) {
+            this.scanTimeout = scanTimeout == null || scanTimeout.isNegative() || scanTimeout.isZero()
+                    ? Duration.ofSeconds(60)
+                    : scanTimeout;
         }
 
         public int getMaxPackages() {
@@ -2727,6 +2744,12 @@ public class BootUiProperties {
         /** Maximum wall-clock duration of one command-line tool invocation; default 30 seconds (504 on expiry). */
         private Duration executionTimeout = Duration.ofMillis(McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS);
 
+        /**
+         * Directory where local instance discovery lease files ({@code <instanceId>.json}) are written.
+         * Defaults to {@code ~/.bootui/instances} (or {@code $BOOTUI_HOME/instances}).
+         */
+        private String instancesDir;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -2759,6 +2782,14 @@ public class BootUiProperties {
             this.executionTimeout = executionTimeout == null
                     ? Duration.ofMillis(McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS)
                     : executionTimeout;
+        }
+
+        public String getInstancesDir() {
+            return instancesDir;
+        }
+
+        public void setInstancesDir(String instancesDir) {
+            this.instancesDir = instancesDir;
         }
     }
 

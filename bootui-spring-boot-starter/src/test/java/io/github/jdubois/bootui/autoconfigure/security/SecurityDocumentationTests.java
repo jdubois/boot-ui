@@ -14,14 +14,26 @@ import org.junit.jupiter.api.Test;
 class SecurityDocumentationTests {
 
     private static final Pattern SERVLET_RULE_HEADING = Pattern.compile("(?m)^### (SEC-(?!RXF-)[A-Z0-9-]+) - ");
+    private static final Pattern NEXT_HEADING = Pattern.compile("(?m)^#{2,3} ");
+    private static final Pattern RETIRED_SECTION = Pattern.compile("(?m)^\\*\\*Retired\\.\\*\\*\\s+");
 
     @Test
     void servletCatalogDocumentsEveryActiveRuleWithMatchingTitleAndSeverity() throws IOException {
         String documentation = Files.readString(securityChecksDocumentation());
         Set<String> documentedRuleIds = new LinkedHashSet<>();
+        Set<String> documentedRetiredHeadingIds = new LinkedHashSet<>();
         Matcher headings = SERVLET_RULE_HEADING.matcher(documentation);
         while (headings.find()) {
-            documentedRuleIds.add(headings.group(1));
+            String ruleId = headings.group(1);
+            String section = sectionAt(documentation, headings.start(), headings.end());
+            if (RETIRED_SECTION.matcher(section).find()) {
+                assertThat(section)
+                        .as("retired rule section for %s must not declare an active severity bullet", ruleId)
+                        .doesNotContain("- **Severity**:");
+                documentedRetiredHeadingIds.add(ruleId);
+            } else {
+                documentedRuleIds.add(ruleId);
+            }
         }
 
         Set<String> activeRuleIds = new LinkedHashSet<>();
@@ -34,9 +46,7 @@ class SecurityDocumentationTests {
             assertThat(sectionStart)
                     .as("documentation heading for %s", definition.id())
                     .isNotNegative();
-            int nextSection = documentation.indexOf("\n### ", sectionStart + heading.length());
-            String section =
-                    documentation.substring(sectionStart, nextSection < 0 ? documentation.length() : nextSection);
+            String section = sectionAt(documentation, sectionStart, sectionStart + heading.length());
             assertThat(section)
                     .as("documented title for %s", definition.id())
                     .startsWith(heading + definition.name() + "\n");
@@ -46,6 +56,16 @@ class SecurityDocumentationTests {
         }
 
         assertThat(documentedRuleIds).containsExactlyInAnyOrderElementsOf(activeRuleIds);
+        assertThat(documentedRetiredHeadingIds)
+                .containsExactlyInAnyOrder("SEC-SESSION-007", "SEC-HEAD-010", "SEC-ACT-004", "SEC-CONFIG-005")
+                .isSubsetOf(SecurityRuleRegistry.RETIRED_RULE_IDS)
+                .doesNotContainAnyElementsOf(activeRuleIds);
+    }
+
+    private static String sectionAt(String documentation, int sectionStart, int searchFrom) {
+        Matcher next = NEXT_HEADING.matcher(documentation);
+        int sectionEnd = next.find(searchFrom) ? next.start() : documentation.length();
+        return documentation.substring(sectionStart, sectionEnd);
     }
 
     private static Path securityChecksDocumentation() {

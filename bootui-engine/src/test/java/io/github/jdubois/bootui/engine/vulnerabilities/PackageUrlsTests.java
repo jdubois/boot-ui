@@ -48,11 +48,14 @@ class PackageUrlsTests {
     }
 
     @Test
-    void decodesPercentEncodedSegments() {
-        MavenCoordinates coordinates = PackageUrls.mavenCoordinates("pkg:maven/org.example/sample@1.0.0%2Bbuild.7");
+    void decodesPercentEncodedSegmentsAndPreservesLiteralPlusInVersions() {
+        MavenCoordinates encoded = PackageUrls.mavenCoordinates("pkg:maven/org.example/sample@1.0.0%2Bbuild.7");
+        MavenCoordinates literal = PackageUrls.mavenCoordinates("pkg:maven/org.example/sample@1.0.0+build.7");
 
-        assertThat(coordinates).isNotNull();
-        assertThat(coordinates.version()).isEqualTo("1.0.0+build.7");
+        assertThat(encoded).isNotNull();
+        assertThat(encoded.version()).isEqualTo("1.0.0+build.7");
+        assertThat(literal).isNotNull();
+        assertThat(literal.version()).isEqualTo("1.0.0+build.7");
     }
 
     @Test
@@ -79,6 +82,8 @@ class PackageUrlsTests {
                 "pkg:maven/sample@1.0.0",
                 "pkg:maven/org.example/@1.0.0",
                 "pkg:maven//sample@1.0.0",
+                "pkg:maven/org.example//sample@1.0.0",
+                "pkg:maven/org.example/bad%3Aname@1.0.0",
                 "pkg:maven/org.example/sample@",
                 "pkg:maven/",
                 "not a purl"

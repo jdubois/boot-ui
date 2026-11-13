@@ -30,7 +30,8 @@ public final class AdvisorySymbols {
     static final int MAX_TEXT = 20_000;
 
     private static final Pattern QUALIFIED = Pattern.compile("(?<![\\w.$/\\\\\\-])((?:[a-z_][a-z0-9_]*\\.){2,}"
-            + "[A-Z][A-Za-z0-9_]*(?:[.$][A-Z][A-Za-z0-9_]*)*)(?:(?:#|::|\\.)([a-z_][A-Za-z0-9_]*)\\s*\\()?");
+            + "[A-Z][A-Za-z0-9_]*(?:[.$][A-Z][A-Za-z0-9_]*)*)"
+            + "(?:(?:#|::)([a-z_][A-Za-z0-9_]*)(?:\\s*\\()?|\\.([a-z_][A-Za-z0-9_]*)\\s*\\()?");
 
     private AdvisorySymbols() {}
 
@@ -161,7 +162,8 @@ public final class AdvisorySymbols {
         }
         Matcher matcher = QUALIFIED.matcher(text.length() > MAX_TEXT ? text.substring(0, MAX_TEXT) : text);
         while (matcher.find()) {
-            String raw = matcher.group(2) == null ? matcher.group(1) : matcher.group(1) + "#" + matcher.group(2);
+            String method = matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+            String raw = method == null ? matcher.group(1) : matcher.group(1) + "#" + method;
             String symbol = normalize(raw);
             if (symbol != null) {
                 symbols.add(symbol);
@@ -186,11 +188,11 @@ public final class AdvisorySymbols {
     }
 
     private static boolean isType(String segment) {
-        if (segment.isEmpty() || !Character.isUpperCase(segment.charAt(0))) {
+        if (segment.isEmpty()) {
             return false;
         }
         for (String part : segment.split("\\$", -1)) {
-            if (!isIdentifier(part)) {
+            if (part.isEmpty() || !Character.isUpperCase(part.charAt(0)) || !isIdentifier(part)) {
                 return false;
             }
         }

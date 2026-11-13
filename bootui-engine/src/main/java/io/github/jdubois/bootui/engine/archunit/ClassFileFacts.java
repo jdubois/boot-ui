@@ -1,17 +1,22 @@
 package io.github.jdubois.bootui.engine.archunit;
 
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.AnnotationVisitor;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.FieldVisitor;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.MethodVisitor;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.TypePath;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The debug facts of one class file that neither ArchUnit's domain model nor reflection expose: the recorded
@@ -135,5 +140,73 @@ public record ClassFileFacts(String sourceFile, String sourceMap) {
             }
         }
         return true;
+    }
+
+    /**
+     * Reads {@code TYPE_USE} annotations on fields and zero-argument methods of {@code classFile}, keyed by
+     * {@code "field:" + fieldName} and {@code "method:" + methodName}, with binary class names as values.
+     */
+    public static Map<String, Set<String>> memberTypeAnnotations(URI classFile) {
+        if (classFile == null) return Map.of();
+        try {
+            java.net.URLConnection connection = classFile.toURL().openConnection();
+            connection.setUseCaches(false);
+            try (InputStream input = connection.getInputStream()) {
+                byte[] bytes = input.readNBytes(MAX_CLASS_BYTES + 1);
+                if (bytes.length > MAX_CLASS_BYTES) return Map.of();
+                return parseMemberTypeAnnotations(bytes);
+            }
+        } catch (IOException | RuntimeException | LinkageError ex) {
+            return Map.of();
+        }
+    }
+
+    static Map<String, Set<String>> parseMemberTypeAnnotations(byte[] bytes) {
+        Map<String, Set<String>> annotations = new LinkedHashMap<>();
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public FieldVisitor visitField(
+                                    int access, String name, String descriptor, String signature, Object value) {
+                                return new FieldVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public AnnotationVisitor visitTypeAnnotation(
+                                            int typeRef, TypePath typePath, String desc, boolean visible) {
+                                        recordTypeAnnotation(annotations, "field:" + name, typePath, desc);
+                                        return null;
+                                    }
+                                };
+                            }
+
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                if (descriptor == null || !descriptor.startsWith("()")) {
+                                    return null;
+                                }
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public AnnotationVisitor visitTypeAnnotation(
+                                            int typeRef, TypePath typePath, String desc, boolean visible) {
+                                        recordTypeAnnotation(annotations, "method:" + name, typePath, desc);
+                                        return null;
+                                    }
+                                };
+                            }
+                        },
+                        ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES);
+        return Map.copyOf(annotations);
+    }
+
+    private static void recordTypeAnnotation(
+            Map<String, Set<String>> target, String key, TypePath typePath, String descriptor) {
+        if (descriptor != null && descriptor.length() > 2 && descriptor.startsWith("L") && descriptor.endsWith(";")) {
+            String className = descriptor.substring(1, descriptor.length() - 1).replace('/', '.');
+            target.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(className);
+            String pathSuffix = typePath == null ? "root" : typePath.toString();
+            target.computeIfAbsent(key + ":" + pathSuffix, ignored -> new LinkedHashSet<>())
+                    .add(className);
+        }
     }
 }

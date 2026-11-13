@@ -487,6 +487,29 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('No fixed version reported by OSV')
   })
 
+  it('surfaces malicious-package removal guidance instead of saying no fixed version was reported', async () => {
+    const malicious = dependency(
+      'org.mvnpm:posthog-node',
+      '4.18.1',
+      [
+        vulnerability('MAL-2025-191470', 'CRITICAL', false, {
+          summary:
+            'Known malicious package: remove this dependency rather than upgrading it, and treat any machine that installed or ran it, and the credentials available there, as compromised. Malicious code in org.mvnpm:posthog-node (Maven)',
+          details:
+            'Known malicious package: remove this dependency rather than upgrading it.\n\nThis package contains malware.',
+          fixedVersions: [],
+          fixAvailable: false
+        })
+      ],
+      'CRITICAL'
+    )
+    const {wrapper} = await mountWithReports([report([malicious])])
+
+    expect(wrapper.text()).toContain('Malicious package — remove dependency; do not upgrade')
+    expect(wrapper.text()).toContain('Known malicious package: remove this dependency rather than upgrading it')
+    expect(wrapper.text()).not.toContain('No fixed version reported by OSV')
+  })
+
   it('shows the upgrade target when a newer fixed version is available', async () => {
     const fixable = dependency(
       'org.example:fixable',

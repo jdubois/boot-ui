@@ -127,25 +127,30 @@ republished through mvnpm). These records carry no severity and no `database_spe
 as `UNKNOWN` with no score penalty.
 
 An advisory whose **own** ID starts with `MAL-` is reported as `CRITICAL` with a null score, never a synthesized 10.0,
-and its details lead with BootUI's removal guidance: remove the dependency rather than upgrading it, and treat any
-machine that installed or ran it, and its credentials, as compromised. An alias naming a `MAL-` ID does not trigger this.
-Package/version interpretation, unresolved evidence, `PARTIAL` status, and withdrawal exclusion are unchanged, so a
-withdrawn false-positive report is still excluded. The override is a BootUI priority policy, not a CVSS assessment.
+and both its summary and details lead with BootUI's removal guidance: remove the dependency rather than upgrading it,
+and treat any machine that installed or ran it, and its credentials, as compromised. The browser UI renders a dedicated
+`Malicious package — remove dependency; do not upgrade` badge in place of `No fixed version reported by OSV`, and the
+compact MCP view preserves the removal guidance in `summary` even when `details` is omitted. An alias naming a `MAL-`
+ID does not trigger this. Package/version interpretation, unresolved evidence, `PARTIAL` status, and withdrawal
+exclusion are unchanged, so a withdrawn false-positive report is still excluded. The override is a BootUI priority
+policy, not a CVSS assessment.
 
 ## Fix candidates: relevant interval and evidence-backed target
 
 `fixedVersions` is a bounded list of **reported upgrade candidates**, not a promise of compatibility, artifact
 publication, reachability remediation, or an automated upgrade.
 
-- A candidate must come from a `fixed` event closing a supported affected interval containing the installed version.
-  A fix from an unrelated branch or an open-ended installed interval is not enough.
+- A candidate must come from a `fixed` event closing a supported affected interval containing the installed version,
+  or—when the installed version's matched `ECOSYSTEM` interval ends with `last_affected` or a finite `limit` and has no
+  verified same-branch fix—from a sibling `Maven` `affected[]` entry (or range) of the same `groupId:artifactId` in the
+  same advisory. A fix from an open-ended installed interval or a wildcard/other-package entry is not enough.
 - The target must be positively comparable and newer under Maven ordering. An inconclusive comparison is not evidence
   that a fix is available.
 - Recheck each target against **all matching affected entries**, including explicit versions, overlapping intervals,
   and reintroductions. A candidate still affected anywhere, or unresolved under any relevant evidence, is not a
   verified target.
-- Neither `last_affected` nor `limit` identifies an upgrade; Git hashes, SEMVER ranges, and arbitrary range types do
-  not become Maven fixes.
+- Neither `last_affected` nor `limit` is itself an upgrade target; Git hashes, SEMVER ranges, and arbitrary range types
+  do not become Maven fixes.
 - Filter relevant newer targets before de-duplication, Maven ordering, and the ten-candidate display limit. Unrelated
   old fixes must not crowd out a useful candidate.
 
@@ -153,8 +158,10 @@ publication, reachability remediation, or an automated upgrade.
 not mean the installed dependency is safe, no upstream fix exists, or every upstream fixed event was absent.
 
 For example, installed `1.5` with affected branches `[1.0,1.9)` LOW and `[2.0,2.4)` CRITICAL uses the first branch's
-severity and closing fix, not the second branch's assessment. If another matching entry explicitly lists `1.9` as
-affected, `1.9` cannot be presented as a verified upgrade.
+severity and closing fix, not the second branch's assessment. If the first branch is EOL and bounded as `[1.0,1.9]`
+(`last_affected: 1.9`) or `[1.0,2.0)` (`limit: 2.0`), `2.4` from the maintained sibling branch is verified against all
+matching entries and reported as an upgrade candidate while keeping the installed branch's LOW severity. If another
+matching entry explicitly lists `1.9` or `2.4` as affected, that version cannot be presented as a verified upgrade.
 
 ## OSV queries, details, and partial completion
 
@@ -184,10 +191,13 @@ mismatched detail IDs count as failed fetches. Successful details survive other 
 records are excluded at the detail stage because a detail GET can still return a withdrawn advisory.
 
 Existing streaming response caps remain **5 MiB** for querybatch and **1 MiB** for details/EPSS, with configured
-per-request timeouts and no automatic redirect following. Configurable service bases remain supported, including
-loopback fixtures; this change adds no external destination. A per-request timeout is **not a whole-scan deadline**.
-Whole-scan deadlines, retry/backoff, and a cancellation-preserving redesign are deferred; existing interrupt handling
-and restoration remain the contract.
+per-request timeouts (`bootui.vulnerabilities.request-timeout`, default `10s`), a configurable whole-scan deadline
+budget (`bootui.vulnerabilities.scan-timeout`, default `60s`) shared across `/v1/querybatch` pages, `/v1/vulns/{id}`
+detail waves, and EPSS chunks, and no automatic redirect following. When the whole-scan deadline expires after at least
+one querybatch page has succeeded, the scan degrades to `PARTIAL` while retaining all advisories and EPSS scores
+fetched so far. Configurable service bases remain supported, including loopback fixtures; this change adds no external
+destination. Retry/backoff and a cancellation-preserving redesign remain deferred; existing interrupt handling and
+restoration remain the contract.
 
 ## EPSS: independent, bounded, and explicit
 
@@ -221,9 +231,11 @@ is date-pinned, or demonstrates zero risk.
 ## Advisory symbols and runtime reach
 
 Each interpreted advisory carries the classes or `Class#method` symbols it names (`advisorySymbols`, Java binary names,
-at most 20) and their provenance (`advisorySymbolSource`): `OSV` from the matching `affected[]` entries' structured
-symbol fields, otherwise `ADVISORY_TEXT` from fully qualified class names in its summary and details (which may name a
-proof of concept's or another artifact's classes), otherwise an explicit `NONE`. Symbols are never guessed.
+at most 20) and their provenance (`advisorySymbolSource`): `OSV` from the matched `affected[]` entries' structured
+symbol fields (falling back to unresolved entries only when no entry matched, and never collecting symbols from
+unmatched branches), otherwise `ADVISORY_TEXT` from fully qualified class names (and `#method`, `::method`, or
+`.method(...)` references) in its summary and details (which may name a proof of concept's or another artifact's
+classes), otherwise an explicit `NONE`. Symbols are never guessed.
 
 With the BootUI agent's inventory sensor recording and the Code Inventory panel enabled, reports also carry
 `runtimeReach`: whether a dependency's classes, or a class the advisory names, loaded in this JVM. It is read from the
@@ -268,14 +280,21 @@ index, a library relocated into the application's own package and stripped of it
 apart from application code.
 
 Neither provider supplies a verified runtime graph. Spring's filename census de-duplicates bare filenames and uses
-case-insensitive matching without group identity, so ambiguous classifiers/same-basename archives can overstate
-identified coverage. PURL form decoding can turn literal `+` into a space; malformed escapes and namespace rewriting
-need separate fixes. SBOM traversal caps **resolved distinct coordinates**, not inspected nodes, and parses the whole
-JSON first; it is not a whole-document traversal/memory bound. Components the SBOM declares not shipped (CycloneDX
-`scope: "excluded"`, or the `cdx:maven:package:test=true` property the CycloneDX Gradle plugin sets on test-classpath
-libraries it lists by default), with their nested components, are left out unless the archive census finds their JAR
-([#1177](https://github.com/jdubois/boot-ui/issues/1177)); other components are not rigorously filtered to live runtime
-scope, and conflicting versions can remain.
+case-insensitive matching without group identity, though a shadowed duplicate basename is never marked identified and
+pre-release version qualifiers (`-rc1`, `-alpha1`, `-M1`, `-SNAPSHOT`) are not mistaken for classifiers. PURL decoding
+preserves literal `+` in build metadata (`1.0.0+build.7`) and rejects empty namespace segments or colons. The host
+application's own coordinate (`metadata.component` in the CycloneDX SBOM, `BOOT-INF/classes` / `WEB-INF/classes`
+descriptors, and outer repackaged archive root descriptors) and Quarkus workspace modules (`isWorkspaceModule()`) are
+excluded from third-party dependency inventory and OSV queries. SBOM traversal caps **resolved distinct coordinates**,
+not inspected nodes, and parses the whole JSON first; it is not a whole-document traversal/memory bound. Components the
+SBOM declares not shipped (CycloneDX `scope: "excluded"`, or the `cdx:maven:package:test=true` property the CycloneDX
+Gradle plugin sets on test-classpath libraries it lists by default), with their nested components, are left out unless
+the archive census finds their JAR ([#1177](https://github.com/jdubois/boot-ui/issues/1177)). Strictly when the archive
+census coverage is `COMPLETE`, SBOM-only `scope: "optional"` components (and their nested components) not present in
+the runtime archive census, as well as unshipped SBOM versions of a duplicate `groupId:artifactId` whose shipped
+version is confirmed in the census, are reconciled out ([#1659](https://github.com/jdubois/boot-ui/issues/1659)); when
+coverage is `INCOMPLETE` or `UNAVAILABLE`, nothing is dropped so unidentified or shaded archives never hide a shipped
+component.
 
 Quarkus reports `COMPLETE` only for a wholly decoded build-time model. A missing or blank model key (the build step never
 ran; a real Quarkus application always has runtime JARs), a malformed entry, or a runtime JAR coordinate the build step
@@ -303,17 +322,17 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | --- | --- | --- |
 | INV-01 | KEEP | Merge Spring discovery sources with priority for identical coordinates; source is not dependency-path provenance. |
 | INV-02 | KEEP / DEFER | Coordinate-only Maven PURL lookup ignores qualifiers/subpath; stricter inventory parsing deferred. |
-| INV-03 | DEFER | Literal-plus form decoding, malformed percent escapes, and slash-namespace rewriting can change identity. |
+| INV-03 | UPDATE | Preserve literal `+` in PURL decoding and reject empty dot segments or colons (#1656). |
 | INV-04 | DEFER | SBOM recursion bounds resolved coordinates, not inspected nodes; whole-document parsing remains. |
-| INV-05 | DEFER | SBOM runtime scope/type attribution and conflicting-version precision; only `excluded` and test-only (`cdx:maven:package:test`) components are filtered, unless their JAR is found (#1177). |
-| INV-06 | KEEP / DEFER | Retain readable Maven descriptors when siblings fail; malformed-properties/runtime exceptions and richer diagnostics deferred. |
+| INV-05 | UPDATE | Filter `excluded` and test-only (`cdx:maven:package:test`) SBOM components unless their JAR is found (#1177); reconcile SBOM-only `scope: "optional"` components and duplicate-coordinate version conflicts against the archive census strictly when `coverage.status == COMPLETE` (#1659). |
+| INV-06 | UPDATE | Retain readable Maven descriptors when siblings fail, excluding the host application's own descriptor (`metadata.component`, `BOOT-INF/classes`, outer repackaged root) (#1656). |
 | INV-07 | KEEP | Adjacent POM must match artifact/version; parent group/version allowed; external entities, DTDs, and schema access blocked. |
 | INV-08 | KEEP | Infer group only below literal `repository`; filename must match artifact/version with optional classifier. |
 | INV-09 | KEEP | Census conventional/manifest-selected nested libraries or classpath JARs without extracting nested contents; only still-unidentified archives have their manifest and entry names read. |
-| INV-10 | DEFER | Bare-filename de-duplication, case-insensitive attribution, descriptor-owner attribution, and classifier ambiguity can overclaim coverage. |
+| INV-10 | UPDATE | Reject pre-release qualifiers as classifiers and never mark shadowed duplicate basenames as identified (#1656); bare-filename case-insensitive attribution without group identity remains. |
 | INV-11 | KEEP / DEFER | Preserve unavailable census and unreadable names; repackaged/container/outer-filename fallback precision deferred. |
 | INV-12 | KEEP | Exact reported coverage counts, at most 200 unidentified names, explicit truncation. |
-| INV-13 | KEEP | Quarkus non-production build-time model emits de-duplicated JAR coordinates and excludes malformed entries. |
+| INV-13 | UPDATE | Quarkus non-production build-time model emits de-duplicated third-party JAR coordinates, excluding local workspace modules and malformed entries (#1656). |
 | INV-14 | UPDATE | A missing/blank Quarkus model, a malformed entry, or a build-time-skipped coordinate reports UNAVAILABLE, never COMPLETE (2026 audit). |
 | INV-15 | KEEP | Explicit non-capabilities: dependency paths, static reachability, shaded-content discovery, and hash lookup; the agent's runtime reach is class-load evidence only. |
 | INV-16 | KEEP | Archives whose every class lives in the application's (multi-segment) base packages are first-party, counted and named (at most 200) separately, and never a coverage gap; one foreign class, a `META-INF/maven/` descriptor, a bundled archive, or placement outside (or an unreadable) `layers.idx` `application` layer keeps an archive unidentified. |
@@ -335,12 +354,12 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | QRY-10 | UPDATE | Page-cap accounting counts only exhausted queries; message explains unfinished work. |
 | QRY-11 | KEEP | Token cycles terminate at cap; repeated IDs are de-duplicated before details/report. |
 | QRY-12 | KEEP | Per-request timeout and strict streaming byte budgets: 5 MiB query, 1 MiB detail/EPSS. |
-| QRY-13 | DEFER | No total elapsed scan deadline across chunks/pages/detail waves/enrichment. |
+| QRY-13 | UPDATE | Configurable whole-scan deadline budget (`bootui.vulnerabilities.scan-timeout`, default `60s`) across querybatch pages, detail waves, and EPSS chunks, degrading to `PARTIAL` while retaining fetched findings (#1659). |
 | QRY-14 | KEEP | No automatic redirects; encoded detail IDs; configurable bases; bounded error messages, not response-body dumps. |
 | DET-01 | KEEP | Sorted distinct IDs, configured detail cap, concurrency ten, executor shutdown. |
 | DET-02 | KEEP | Missing/mismatched detail ID is a failed fetch. |
 | DET-03 | KEEP | Retain successful details when other fetches fail; PARTIAL rather than fabricated complete data. |
-| DET-04 | KEEP | Nonblank withdrawal excludes a record; malformed withdrawal-field interpretation remains an upstream-schema limitation. |
+| DET-04 | UPDATE | Valid RFC 3339 withdrawal (`OffsetDateTime.parse`) excludes a record; malformed withdrawal retains the finding as unresolved (`PARTIAL`) (#1656). |
 | DET-05 | UPDATE | Interpret query/detail association without dropping query matches on unsupported local evidence. |
 | DET-06 | UPDATE | Aggregate applicable matching entries, not first severity/all flattened fixes. |
 | DET-07 | UPDATE | Tri-state explicit versions/range union with introduced, fixed, last_affected, and limit semantics. |
@@ -351,7 +370,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | ID | Disposition | Behavior and boundary |
 | --- | --- | --- |
 | FIX-01 | KEEP | Only fixed identifies a target, never last_affected or limit. |
-| FIX-02 | UPDATE | Candidate closes installed affected interval and is unaffected across all matching entries. |
+| FIX-02 | UPDATE | Candidate closes installed affected interval—or comes from a sibling `Maven` `groupId:artifactId` entry when the installed interval is bounded by `last_affected` or finite `limit` (#1659)—and is unaffected across all matching entries. |
 | FIX-03 | UPDATE | Filter applicable/newer targets before de-duplication/order/ten-candidate truncation. |
 | FIX-04 | KEEP | Existing Maven comparator and test-only ComparableVersion oracle; no production Maven dependency. |
 | FIX-05 | UPDATE | Inconclusive comparison no longer establishes fixAvailable; false is not an unaffected verdict. |
@@ -373,9 +392,9 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | EPS-03 | KEEP | Requested IDs only; finite probability/percentile in [0,1]; missing is not zero; defend shared selection. |
 | EPS-04 | UPDATE | Validate root/data and pagination metadata; isolate malformed/empty envelopes as unavailable/incomplete enrichment. |
 | EPS-05 | UPDATE | Maximum AVAILABLE per-CVE probability, same-record percentile, stable tie-break; not combined likelihood. |
-| EPS-06 | UPDATE | Bound pages/progress, retain earlier pages/chunks, append honest requested/available/no-data or failure summary; OSV status unchanged. |
+| EPS-06 | UPDATE | Bound pages/progress, retain earlier pages/chunks, append honest requested/available/no-data or failure summary; OSV status unchanged unless the shared whole-scan deadline itself expired (#1659). |
 | EPS-07 | DEFER | Selected CVE/date/model provenance and cross-request date pinning require separate DTO work. |
-| EPS-08 | KEEP | At most 20 retained aliases bounds enrichment scope; no claim to cover every upstream alias. |
+| EPS-08 | UPDATE | Prioritize canonical `CVE-` and `GHSA-` aliases (plus `upstream` CVEs) before applying the 20-alias cap so `BIT-`/`CGA-` prefixes do not drop CVEs (#1656). |
 
 ### Reports, presentation, and API
 

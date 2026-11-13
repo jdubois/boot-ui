@@ -391,12 +391,12 @@ test.describe('BootUI on Spring WebFlux', () => {
     )
     await page.getByRole('button', {name: 'Run security checks'}).click()
     const report = await (await scanResponse).json()
-    expect(report.rulesEvaluated).toBe(27)
+    expect(report.rulesEvaluated).toBe(33)
     expect(report.results.map((result) => result.id)).not.toContain('SEC-STATIC-001')
     await expect(
       page.locator('.advisor-summary__metric--status').getByText('Results available', {exact: true})
     ).toBeVisible({timeout: 15_000})
-    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('27')
+    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('33')
   })
 
   test('REST Client records WebClient calls, streams updates, and protects actions with CSRF', async ({
@@ -504,6 +504,16 @@ test.describe('BootUI on Spring WebFlux', () => {
     expect(copied).not.toContain('beta')
     expect(copied.toLowerCase()).not.toContain('x-api-key')
     expect(copied).not.toContain('e2e-must-not-be-copied')
+
+    const probeLink = curlAction.locator('.http-exchanges-probe-link')
+    await expect(probeLink).toBeVisible()
+    await probeLink.click()
+    await expect(page).toHaveURL(/#\/http-probe\?/)
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue(
+      '/api/greetings/Ada?curlProbe=VALUE&curlProbe=VALUE'
+    )
+    await expect(page.locator('#http-probe-accept')).toHaveValue('application/json')
+    await expect(page.locator('.http-probe-placeholder-hint')).toContainText('VALUE')
   })
 
   test('HTTP Exchanges ranks routes by their WebFlux template, never by a path value', async ({page, request}) => {

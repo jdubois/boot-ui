@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiPathRewriteFilter;
 import io.github.jdubois.bootui.quarkus.BootUiProdShellGuardFilter;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusAuthenticationFilter;
+import io.github.jdubois.bootui.quarkus.BootUiQuarkusRuntimeDiagnostics;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusStartupBanner;
 import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
@@ -183,7 +184,6 @@ import org.jboss.jandex.Type;
  */
 class BootUiQuarkusProcessor {
 
-    private static final String FEATURE = "bootui";
     private static final DotName JAX_RS_HTTP_METHOD = DotName.createSimple("jakarta.ws.rs.HttpMethod");
     private static final Set<DotName> STANDARD_JAX_RS_HTTP_METHODS = Set.of(
             DotName.createSimple("jakarta.ws.rs.GET"),
@@ -387,11 +387,6 @@ class BootUiQuarkusProcessor {
             "io.github.jdubois.bootui.quarkus.sqltrace.BootUiHibernateStatementInspector";
 
     @BuildStep
-    FeatureBuildItem feature() {
-        return new FeatureBuildItem(FEATURE);
-    }
-
-    @BuildStep
     void registerConsole(
             LaunchModeBuildItem launchMode,
             BuildProducer<IndexDependencyBuildItem> indexDependency,
@@ -461,6 +456,7 @@ class BootUiQuarkusProcessor {
                         BootUiPathRewriteFilter.class,
                         BootUiQuarkusAuthenticationFilter.class,
                         QuarkusPanelAccessFilter.class,
+                        BootUiQuarkusRuntimeDiagnostics.class,
                         BootUiQuarkusStartupBanner.class)
                 .setUnremovable()
                 .build());
@@ -741,6 +737,8 @@ class BootUiQuarkusProcessor {
         Map<String, String> securityFeatures = Map.of(
                 "oidc",
                 "oidc",
+                "oidc-client",
+                "oidc-client",
                 "jwt",
                 "smallrye-jwt",
                 "jdbc",
@@ -758,6 +756,9 @@ class BootUiQuarkusProcessor {
                 ""
                         + features.stream()
                                 .anyMatch(item -> feature.equals(item.getName())
+                                        || ("oidc-client".equals(feature)
+                                                && ("oidc-client-reactive-filter".equals(item.getName())
+                                                        || "oidc-client-filter".equals(item.getName())))
                                         || ("messaging-kafka".equals(feature)
                                                 && "smallrye-reactive-messaging-kafka".equals(item.getName()))))));
     }
@@ -902,9 +903,22 @@ class BootUiQuarkusProcessor {
             return; // production: the console is dark, so nothing reads the key
         }
         Set<String> coordinates = new LinkedHashSet<>();
+        int skipped =
+                collectRuntimeDependencies(curateOutcome.getApplicationModel().getRuntimeDependencies(), coordinates);
+        if (!coordinates.isEmpty()) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusDependencyProvider.DEPENDENCIES_KEY, String.join(",", coordinates)));
+        }
+        if (skipped > 0) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusDependencyProvider.SKIPPED_KEY, Integer.toString(skipped)));
+        }
+    }
+
+    static int collectRuntimeDependencies(Iterable<ResolvedDependency> dependencies, Set<String> coordinates) {
         int skipped = 0;
-        for (ResolvedDependency dependency : curateOutcome.getApplicationModel().getRuntimeDependencies()) {
-            if (!"jar".equals(dependency.getType())) {
+        for (ResolvedDependency dependency : dependencies) {
+            if (!"jar".equals(dependency.getType()) || dependency.isWorkspaceModule()) {
                 continue;
             }
             String coordinate =
@@ -918,14 +932,7 @@ class BootUiQuarkusProcessor {
             }
             coordinates.add(coordinate);
         }
-        if (!coordinates.isEmpty()) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    QuarkusDependencyProvider.DEPENDENCIES_KEY, String.join(",", coordinates)));
-        }
-        if (skipped > 0) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    QuarkusDependencyProvider.SKIPPED_KEY, Integer.toString(skipped)));
-        }
+        return skipped;
     }
 
     /**

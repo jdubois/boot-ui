@@ -6,6 +6,129 @@ import java.util.List;
 import java.util.Set;
 
 // ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+final class ReactiveNoOpPasswordEncoderRule extends AbstractReactiveSecurityRule {
+
+    ReactiveNoOpPasswordEncoderRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-AUTH-001",
+                "Reactive password encoder must not store credentials in plain text",
+                ReactiveSecurityCategory.AUTHENTICATION,
+                "CRITICAL",
+                "Detects a supported active UserDetailsRepositoryReactiveAuthenticationManager selecting NoOpPasswordEncoder for password encoding.",
+                "Use a delegating encoder (PasswordEncoderFactories.createDelegatingPasswordEncoder()) backed by bcrypt, Argon2, or PBKDF2.",
+                "https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        context.applies(!context.passwordEncoders().isEmpty() || !context.passwordEncodersObserved());
+        List<String> details = new ArrayList<>();
+        for (ReactiveSecurityObservation.PasswordEncoderObservation encoder : context.passwordEncoders()) {
+            if (encoder.type().contains("NoOpPasswordEncoder")) {
+                details.add("An active reactive authentication manager selects " + encoder.type()
+                        + " for encoding without hashing.");
+            }
+        }
+        return encoderViolation(context, details);
+    }
+}
+
+final class ReactiveWeakPasswordEncoderRule extends AbstractReactiveSecurityRule {
+
+    private static final List<String> WEAK = List.of(
+            "StandardPasswordEncoder",
+            "MessageDigestPasswordEncoder",
+            "Md4PasswordEncoder",
+            "Md5",
+            "ShaPasswordEncoder",
+            "LdapShaPasswordEncoder");
+
+    ReactiveWeakPasswordEncoderRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-AUTH-002",
+                "Reactive password encoder should not use a weak or legacy algorithm",
+                ReactiveSecurityCategory.AUTHENTICATION,
+                "HIGH",
+                "Detects a supported active UserDetailsRepositoryReactiveAuthenticationManager selecting a legacy encoder for new hashes. A delegating encoder's legacy matching map is not penalized.",
+                "Migrate to bcrypt, Argon2, or PBKDF2 via a DelegatingPasswordEncoder so hashes upgrade over time.",
+                "https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        context.applies(!context.passwordEncoders().isEmpty() || !context.passwordEncodersObserved());
+        List<String> details = new ArrayList<>();
+        for (ReactiveSecurityObservation.PasswordEncoderObservation encoder : context.passwordEncoders()) {
+            String type = encoder.type();
+            if (type.contains("NoOpPasswordEncoder")) {
+                continue;
+            }
+            for (String weak : WEAK) {
+                if (type.contains(weak)) {
+                    details.add(
+                            "An active reactive authentication manager selects " + type + " for weak/legacy hashing.");
+                    break;
+                }
+            }
+        }
+        return encoderViolation(context, details);
+    }
+}
+
+final class ReactiveWeakBcryptStrengthRule extends AbstractReactiveSecurityRule {
+
+    private static final int RECOMMENDED_MINIMUM_STRENGTH = 10;
+
+    ReactiveWeakBcryptStrengthRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-AUTH-003",
+                "Reactive BCrypt password encoder should use an adequate work factor",
+                ReactiveSecurityCategory.AUTHENTICATION,
+                "LOW",
+                "Detects a supported active UserDetailsRepositoryReactiveAuthenticationManager selecting bcrypt with a readable strength below the framework default of 10. Unknown encoder or cost metadata remains incomplete.",
+                "Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.",
+                "https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        List<String> details = new ArrayList<>();
+        boolean missingStrength = false;
+        if (!context.passwordEncodersObserved()) {
+            context.applies(true);
+        }
+        for (ReactiveSecurityObservation.PasswordEncoderObservation encoder : context.passwordEncoders()) {
+            if (encoder.type().startsWith("Unknown")) {
+                context.applies(true);
+                continue;
+            }
+            Integer strength = encoder.bcryptStrength();
+            if (encoder.type().contains("BCryptPasswordEncoder")) {
+                context.applies(true);
+                if (strength == null) {
+                    missingStrength = true;
+                } else if (strength >= 0 && strength < RECOMMENDED_MINIMUM_STRENGTH) {
+                    details.add("PasswordEncoder bean " + encoder.type() + " uses BCrypt strength " + strength
+                            + ", below the recommended minimum of " + RECOMMENDED_MINIMUM_STRENGTH + ".");
+                }
+            } else if (context.applies(strength != null) && strength >= 0 && strength < RECOMMENDED_MINIMUM_STRENGTH) {
+                details.add("PasswordEncoder bean " + encoder.type() + " uses BCrypt strength " + strength
+                        + ", below the recommended minimum of " + RECOMMENDED_MINIMUM_STRENGTH + ".");
+            }
+        }
+        context.required(!missingStrength);
+        if (details.isEmpty() && missingStrength) {
+            return skipped(
+                    "Active reactive password encoder metadata is unavailable; unrelated beans are not evidence.");
+        }
+        return encoderViolation(context, details);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Authorization
 // ---------------------------------------------------------------------------
 
@@ -441,6 +564,71 @@ final class ReactiveWeakHstsPolicyRule extends AbstractReactiveSecurityRule {
     }
 }
 
+final class ReactiveWeakContentSecurityPolicyRule extends AbstractReactiveSecurityRule {
+
+    ReactiveWeakContentSecurityPolicyRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-HEAD-007",
+                "Review permissive CSP script execution in reactive chains",
+                ReactiveSecurityCategory.HEADERS,
+                "MEDIUM",
+                "Inspects a supported single enforcing policy's effective script directives, including nonce/hash and strict-dynamic semantics. Framing is assessed separately.",
+                "Restrict script execution with application-specific nonce/hash or trusted sources and remove unnecessary eval permissions.",
+                "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        List<String> details = new ArrayList<>();
+        boolean complete = true;
+        for (WebFilterChainObservation chain : context.chains()) {
+            Boolean weak = chain.weakCspObservation();
+            if (context.applies(chain.hasCspDeclaration())) {
+                complete &= context.required(weak != null);
+            }
+            if (Boolean.TRUE.equals(weak)) {
+                details.add(chain.describe() + " configures an enforcing CSP with permissive script execution.");
+            }
+        }
+        if (details.isEmpty() && !complete) {
+            return skipped("Header-writer details could not be fully observed.");
+        }
+        return headerViolation(context, details);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Method security
+// ---------------------------------------------------------------------------
+
+final class ReactiveMethodSecurityAnnotationsIgnoredRule extends AbstractReactiveSecurityRule {
+
+    ReactiveMethodSecurityAnnotationsIgnoredRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-METHOD-001",
+                "Method security annotations require reactive method security to be enabled",
+                ReactiveSecurityCategory.METHOD_SECURITY,
+                "HIGH",
+                "Detects method-security annotation families (@PreAuthorize, @PostAuthorize, @PreFilter, @PostFilter, @Secured, @RolesAllowed) on reactive beans without matching recognized reactive method-security activation.",
+                "Enable @EnableReactiveMethodSecurity and use @PreAuthorize/@PostAuthorize/@PreFilter/@PostFilter on reactive publisher methods. Verify proxy boundaries and invocation behavior separately.",
+                "https://docs.spring.io/spring-security/reference/reactive/authorization/method.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        if (!context.required(context.methodFamiliesKnown())) {
+            return skipped("Method-security family metadata is incomplete.");
+        }
+        context.applies(!context.usedMethodFamilies().isEmpty());
+        List<String> disabled = context.usedMethodFamilies().stream()
+                .filter(family -> !context.enabledMethodFamilies().contains(family))
+                .map(family ->
+                        "Method annotations in the " + family + " family are present without recognized activation.")
+                .toList();
+        return violation(context, disabled);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Actuator exposure
 // ---------------------------------------------------------------------------
@@ -721,6 +909,52 @@ final class ReactiveInsecureOAuth2ClientEndpointRule extends AbstractReactiveSec
                         .sorted()
                         .map(key -> key + " uses plain HTTP.")
                         .toList());
+    }
+}
+
+final class ReactiveJwtAudienceValidationRule extends AbstractReactiveSecurityRule {
+
+    ReactiveJwtAudienceValidationRule() {
+        super(
+                new ReactiveSecurityRuleDefinition(
+                        "SEC-RXF-OAUTH2-006",
+                        "Validate the JWT audience claim in reactive resource servers",
+                        ReactiveSecurityCategory.OAUTH2,
+                        "INFO",
+                        "Reviews explicit audience configuration (spring.security.oauth2.resourceserver.jwt.audiences) for an observed NimbusReactiveJwtDecoder or SupplierReactiveJwtDecoder. Custom decoders and unrelated validator beans do not establish audience behavior.",
+                        "For Boot-managed reactive JWT validation configure spring.security.oauth2.resourceserver.jwt.audiences. For a custom ReactiveJwtDecoder attach the appropriate audience OAuth2TokenValidator directly.",
+                        "https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html#webflux-oauth2resourceserver-jwt-validation"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        if (!context.applies(!context.reactiveJwtDecoderTypes().isEmpty())) {
+            return pass();
+        }
+        boolean hasStandardDecoder = context.reactiveJwtDecoderTypes().stream()
+                .anyMatch(ReactiveJwtAudienceValidationRule::isStandardDecoder);
+        boolean allStandard = context.reactiveJwtDecoderTypes().stream()
+                .allMatch(ReactiveJwtAudienceValidationRule::isStandardDecoder);
+        if (!context.required(hasStandardDecoder && allStandard)) {
+            if (!hasStandardDecoder) {
+                return skipped(
+                        "Active standard reactive JWT decoder metadata is unavailable; custom validation remains unknown.");
+            }
+        }
+        if (context.environment().oauth2JwtAudiencesConfigured()) {
+            return pass();
+        }
+        return violation(
+                context,
+                List.of(
+                        "Observed reactive JWT decoder has no explicit audiences setting; review token recipient validation for this API."));
+    }
+
+    private static boolean isStandardDecoder(String type) {
+        return "org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder".equals(type)
+                || "NimbusReactiveJwtDecoder".equals(type)
+                || "org.springframework.security.oauth2.jwt.SupplierReactiveJwtDecoder".equals(type)
+                || "SupplierReactiveJwtDecoder".equals(type);
     }
 }
 

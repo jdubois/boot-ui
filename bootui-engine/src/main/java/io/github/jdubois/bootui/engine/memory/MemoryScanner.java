@@ -39,6 +39,8 @@ import java.util.function.Supplier;
  */
 public final class MemoryScanner {
 
+    static final Set<String> RETIRED_RULE_IDS = MemoryRuleRegistry.RETIRED_RULE_IDS;
+
     private static final String ANALYZER = "BootUI Memory Advisor";
     private static final String DISCLAIMER =
             "Heuristic JVM memory and thread health rules run against this process's live management beans only. "
@@ -52,6 +54,7 @@ public final class MemoryScanner {
 
     private final Supplier<MemoryContext> contextSupplier;
     private final Clock clock;
+    private final BootUiDiagnosticGcTracker diagnosticGcTracker;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<MemoryReport> state = new AdvisorScanState<>(
             MemoryReport::withViolationDetails,
@@ -67,39 +70,49 @@ public final class MemoryScanner {
     /** Post-histogram latest GC event from the previous scan, guarded by single-flight admission. */
     private MemoryContext.GcEvent previousPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
 
-    /**
-     * Cross-scan state for MEM-POOL-007's buffer-pool growth-without-release trend: each pool's used
-     * bytes and consecutive-increase streak as of the previous scan. Guarded by single-flight admission.
-     */
-    private Map<String, Long> previousBufferPoolUsed = Map.of();
+    /** Highest GC event endTimeMillis excluded by prior scans or BootUI diagnostic GCs. */
+    private long previousMaxExcludedGcEndTimeMillis = -1;
 
-    private Map<String, Integer> previousBufferPoolStreaks = Map.of();
-    private boolean previousBufferPoolSampleAvailable;
+    /** Cumulative GC time and count spent in prior scans' own {@code GC.class_histogram} requests. */
+    private long cumulativeHistogramGcTimeMillis;
 
-    /**
-     * Cross-scan state for MEM-HEAP-008's post-histogram old-generation usage trend. Guarded by
-     * single-flight admission.
-     */
-    private long previousOldGenUsedBytes = -1;
+    private long cumulativeHistogramGcCount;
 
-    private int previousOldGenStreak;
-    private boolean previousOldGenSampleAvailable;
+    /** Snapshot of BootUI diagnostic GC activity as of the previous scan. */
+    private BootUiDiagnosticGcTracker.Snapshot previousDiagnosticSnapshot = BootUiDiagnosticGcTracker.Snapshot.empty();
 
     MemoryScanner(MemoryCollector collector, Clock clock) {
-        this(collector::collect, clock);
+        this(collector::collect, clock, BootUiDiagnosticGcTracker.SHARED);
     }
 
     MemoryScanner(Supplier<MemoryContext> contextSupplier, Clock clock) {
+        this(contextSupplier, clock, new BootUiDiagnosticGcTracker());
+    }
+
+    MemoryScanner(Supplier<MemoryContext> contextSupplier, Clock clock, BootUiDiagnosticGcTracker diagnosticGcTracker) {
         this.contextSupplier = contextSupplier;
         this.clock = clock;
+        this.diagnosticGcTracker = diagnosticGcTracker;
+    }
+
+    BootUiDiagnosticGcTracker diagnosticGcTracker() {
+        return diagnosticGcTracker;
+    }
+
+    void recordDiagnosticGc(
+            MemoryContext.GcSample before,
+            MemoryContext.GcSample after,
+            MemoryContext.GcEvent beforeEvent,
+            MemoryContext.GcEvent afterEvent) {
+        diagnosticGcTracker.recordWindow(before, after, beforeEvent, afterEvent);
     }
 
     /**
      * Builds the production scanner over the shared {@link ThreadDumpService} and the
      * {@code GC.class_histogram} diagnostic command, exactly as both adapters did inline before the
-     * extraction. The thread snapshot retains complete summary counts but bounds per-thread detail to
-     * 1,000 rows; the CPU-hot-thread rule skips when that detail is truncated. The histogram and its
-     * GC request can be intrusive, so callers gate the scan accordingly.
+     * extraction. The thread snapshot retains complete summary counts and bounds per-thread detail to
+     * 1,000 rows. The histogram and its GC request can be intrusive, so callers gate the scan
+     * accordingly.
      */
     public static MemoryScanner create(ThreadDumpService threadDumpService, Clock clock) {
         return new MemoryScanner(
@@ -140,6 +153,7 @@ public final class MemoryScanner {
     }
 
     private MemoryReport doScan(AdvisorViolationCollector collector) {
+        BootUiDiagnosticGcTracker.Snapshot preDiagnostic = diagnosticGcTracker.snapshot();
         MemoryContext context;
         try {
             context = contextSupplier.get();
@@ -153,24 +167,74 @@ public final class MemoryScanner {
                     0,
                     List.of());
         }
+        BootUiDiagnosticGcTracker.Snapshot postDiagnostic = diagnosticGcTracker.snapshot();
 
-        MemoryContext.GcSample currentSample = context.postHistogramGc();
-        MemoryContext.GcTrend trend = previousGcSample == null
+        MemoryContext.GcSample preGc = context.preHistogramGc();
+        MemoryContext.GcSample postGc = context.postHistogramGc();
+        boolean counterDiscontinuity =
+                previousGcSample != null && BootUiDiagnosticGcTracker.hasCounterDiscontinuity(previousGcSample, preGc);
+        if (counterDiscontinuity) {
+            diagnosticGcTracker.reset();
+            preDiagnostic = diagnosticGcTracker.snapshot();
+            postDiagnostic = preDiagnostic;
+        }
+        if (counterDiscontinuity
+                || preDiagnostic.epoch() != previousDiagnosticSnapshot.epoch()
+                || postDiagnostic.epoch() != preDiagnostic.epoch()) {
+            cumulativeHistogramGcTimeMillis = 0L;
+            cumulativeHistogramGcCount = 0L;
+            previousMaxExcludedGcEndTimeMillis = -1L;
+        }
+
+        MemoryContext.GcTrend rawTrend = previousGcSample == null
                 ? MemoryContext.GcTrend.unavailable()
-                : MemoryContext.GcTrend.between(previousGcSample, context.preHistogramGc());
-        previousGcSample = currentSample;
-        MemoryContext.GcEvent latestGcEvent = context.latestGcEvent().sameEvent(previousPostHistogramGcEvent)
+                : MemoryContext.GcTrend.between(previousGcSample, preGc);
+        MemoryContext.GcTrend trend = adjustTrendForDiagnosticGcs(rawTrend, previousDiagnosticSnapshot, preDiagnostic);
+        MemoryContext.RuntimeData adjustedRuntime = adjustRuntimeForDiagnosticGcs(
+                context.runtime(), preGc, cumulativeHistogramGcTimeMillis, cumulativeHistogramGcCount, preDiagnostic);
+        MemoryContext.GcEvent latestGcEvent = shouldSuppressGcEvent(
+                        context.latestGcEvent(),
+                        previousPostHistogramGcEvent,
+                        previousMaxExcludedGcEndTimeMillis,
+                        preDiagnostic)
                 ? MemoryContext.GcEvent.unavailable()
                 : context.latestGcEvent();
-        previousPostHistogramGcEvent = context.postHistogramGcEvent();
-        MemoryContext.BufferPoolTrend bufferPoolTrend =
-                computeBufferPoolTrend(context.memory().bufferPools());
-        MemoryContext.OldGenTrend oldGenTrend = computeOldGenTrend(context.postGcHeap());
-        MemoryContext evaluated = context.withGcTrend(trend)
-                .withLatestGcEvent(latestGcEvent)
-                .withBufferPoolTrend(bufferPoolTrend)
-                .withOldGenTrend(oldGenTrend)
-                .withViolationCollector(collector);
+
+        previousGcSample = postGc;
+        if (context.postHistogramGcEvent().available()) {
+            previousPostHistogramGcEvent = context.postHistogramGcEvent();
+        }
+        previousMaxExcludedGcEndTimeMillis = Math.max(
+                Math.max(
+                        previousMaxExcludedGcEndTimeMillis,
+                        context.postHistogramGcEvent().endTimeMillis()),
+                postDiagnostic.maxEndTimeMillis());
+        previousDiagnosticSnapshot = postDiagnostic;
+        long concurrentDiagTime = postDiagnostic.epoch() == preDiagnostic.epoch()
+                ? Math.max(0L, postDiagnostic.gcTimeMillis() - preDiagnostic.gcTimeMillis())
+                : 0L;
+        long concurrentDiagCount = postDiagnostic.epoch() == preDiagnostic.epoch()
+                ? Math.max(0L, postDiagnostic.gcCount() - preDiagnostic.gcCount())
+                : 0L;
+        if (preGc.gcTimeMillis() >= 0 && postGc.gcTimeMillis() >= preGc.gcTimeMillis()) {
+            long histogramOnlyTime = Math.max(0L, (postGc.gcTimeMillis() - preGc.gcTimeMillis()) - concurrentDiagTime);
+            cumulativeHistogramGcTimeMillis =
+                    BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcTimeMillis, histogramOnlyTime);
+        }
+        if (preGc.gcCount() >= 0 && postGc.gcCount() >= preGc.gcCount()) {
+            long histogramOnlyCount = Math.max(0L, (postGc.gcCount() - preGc.gcCount()) - concurrentDiagCount);
+            cumulativeHistogramGcCount =
+                    BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, histogramOnlyCount);
+        }
+
+        MemoryContext withEvent =
+                context.withRuntime(adjustedRuntime).withGcTrend(trend).withLatestGcEvent(latestGcEvent);
+        MemoryContext withExplicitGc = withEvent.explicitGc().count() == 0
+                        && (postDiagnostic.explicitGc().count() > 0
+                                || !postDiagnostic.explicitGc().notificationsObserved())
+                ? withEvent.withExplicitGc(postDiagnostic.explicitGc())
+                : withEvent;
+        MemoryContext evaluated = withExplicitGc.withViolationCollector(collector);
 
         List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluateWithEvidence(evaluated))
@@ -187,84 +251,121 @@ public final class MemoryScanner {
                 status, message, clock.millis(), summary(evaluated), results.size(), results, evidence(evaluations));
     }
 
-    /**
-     * Computes each buffer pool's consecutive-increase streak against the previous scan's readings
-     * (MEM-POOL-007's net-growth signal). A pool's streak grows only when its used-byte
-     * reading strictly increased since the previous scan; a decrease, a plateau, or a pool absent from
-     * the previous scan resets that pool's streak to zero. The very first scan of a new scanner
-     * instance has no previous sample to compare against, so it seeds the baseline and reports
-     * {@link MemoryContext.BufferPoolTrend#unavailable()}.
-     */
-    private MemoryContext.BufferPoolTrend computeBufferPoolTrend(List<MemoryContext.BufferPoolSnapshot> pools) {
-        Map<String, Long> currentUsed = new LinkedHashMap<>();
-        for (MemoryContext.BufferPoolSnapshot pool : pools) {
-            if (pool.used() >= 0) {
-                currentUsed.put(pool.name(), pool.used());
-            }
+    private static MemoryContext.GcTrend adjustTrendForDiagnosticGcs(
+            MemoryContext.GcTrend rawTrend,
+            BootUiDiagnosticGcTracker.Snapshot previousDiagnostic,
+            BootUiDiagnosticGcTracker.Snapshot currentDiagnostic) {
+        if (!rawTrend.available() || currentDiagnostic.epoch() != previousDiagnostic.epoch()) {
+            return rawTrend;
         }
-
-        Map<String, Integer> streaks = new LinkedHashMap<>();
-        for (Map.Entry<String, Long> entry : currentUsed.entrySet()) {
-            String name = entry.getKey();
-            long used = entry.getValue();
-            Long previous = previousBufferPoolUsed.get(name);
-            if (previous == null) {
-                continue;
-            }
-            int streak = used > previous ? incrementStreak(previousBufferPoolStreaks.getOrDefault(name, 0)) : 0;
-            streaks.put(name, streak);
+        long diagTimeDelta = Math.max(0L, currentDiagnostic.gcTimeMillis() - previousDiagnostic.gcTimeMillis());
+        long diagCountDelta = Math.max(0L, currentDiagnostic.gcCount() - previousDiagnostic.gcCount());
+        boolean hasCollectorDiag =
+                !currentDiagnostic.perCollectorCounts().equals(previousDiagnostic.perCollectorCounts());
+        if (diagTimeDelta == 0L && diagCountDelta == 0L && !hasCollectorDiag) {
+            return rawTrend;
         }
-
-        MemoryContext.BufferPoolTrend trend = previousBufferPoolSampleAvailable
-                ? new MemoryContext.BufferPoolTrend(true, streaks)
-                : MemoryContext.BufferPoolTrend.unavailable();
-
-        previousBufferPoolUsed = currentUsed;
-        previousBufferPoolStreaks = streaks;
-        previousBufferPoolSampleAvailable = !currentUsed.isEmpty();
-        return trend;
+        long adjustedTime =
+                rawTrend.deltaGcTimeMillis() < 0 ? -1L : Math.max(0L, rawTrend.deltaGcTimeMillis() - diagTimeDelta);
+        long adjustedCount = rawTrend.deltaGcCount() < 0 ? -1L : Math.max(0L, rawTrend.deltaGcCount() - diagCountDelta);
+        Map<String, Long> adjustedCollectors = new LinkedHashMap<>(rawTrend.perCollectorDeltas());
+        for (Map.Entry<String, Long> entry : rawTrend.perCollectorDeltas().entrySet()) {
+            long prevDiag = previousDiagnostic.perCollectorCounts().getOrDefault(entry.getKey(), 0L);
+            long currDiag = currentDiagnostic.perCollectorCounts().getOrDefault(entry.getKey(), 0L);
+            long diagDelta = Math.max(0L, currDiag - prevDiag);
+            adjustedCollectors.put(entry.getKey(), Math.max(0L, entry.getValue() - diagDelta));
+        }
+        return new MemoryContext.GcTrend(
+                true, adjustedTime, rawTrend.deltaUptimeMillis(), adjustedCount, adjustedCollectors);
     }
 
-    /**
-     * Computes the post-histogram old-generation usage trend against the previous scan (MEM-HEAP-008's
-     * occupancy-growth signal). Missing readings break consecutive evidence. The first valid sample seeds the baseline and
-     * reports {@link MemoryContext.OldGenTrend#unavailable()}.
-     */
-    private MemoryContext.OldGenTrend computeOldGenTrend(MemoryContext.PostGcHeapData postGcHeap) {
-        if (!postGcHeap.oldGenAvailable() || postGcHeap.oldGenUsed() < 0) {
-            previousOldGenUsedBytes = -1;
-            previousOldGenStreak = 0;
-            previousOldGenSampleAvailable = false;
-            return MemoryContext.OldGenTrend.unavailable();
+    private static MemoryContext.RuntimeData adjustRuntimeForDiagnosticGcs(
+            MemoryContext.RuntimeData runtime,
+            MemoryContext.GcSample preGc,
+            long cumulativeHistogramGcTimeMillis,
+            long cumulativeHistogramGcCount,
+            BootUiDiagnosticGcTracker.Snapshot currentDiagnostic) {
+        long baseUptime = preGc.uptimeMillis() > 0 ? preGc.uptimeMillis() : runtime.uptimeMillis();
+        long baseGcTime = preGc.gcTimeMillis() >= 0 ? preGc.gcTimeMillis() : runtime.gcCollectionTimeMillis();
+        long baseGcCount = preGc.gcCount() >= 0 ? preGc.gcCount() : runtime.gcCollectionCount();
+        long totalDiagTime = BootUiDiagnosticGcTracker.saturateAdd(
+                cumulativeHistogramGcTimeMillis, currentDiagnostic.gcTimeMillis());
+        long totalDiagCount =
+                BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, currentDiagnostic.gcCount());
+        long adjustedGcTime = baseGcTime < 0 ? -1L : Math.max(0L, baseGcTime - totalDiagTime);
+        long adjustedGcCount = baseGcCount < 0 ? -1L : Math.max(0L, baseGcCount - totalDiagCount);
+        if (baseUptime == runtime.uptimeMillis()
+                && adjustedGcTime == runtime.gcCollectionTimeMillis()
+                && adjustedGcCount == runtime.gcCollectionCount()) {
+            return runtime;
         }
-        long used = postGcHeap.oldGenUsed();
-        MemoryContext.OldGenTrend trend;
-        if (previousOldGenSampleAvailable) {
-            int streak = used > previousOldGenUsedBytes ? incrementStreak(previousOldGenStreak) : 0;
-            trend = new MemoryContext.OldGenTrend(true, streak, used);
-            previousOldGenStreak = streak;
-        } else {
-            trend = MemoryContext.OldGenTrend.unavailable();
-            previousOldGenStreak = 0;
-        }
-        previousOldGenUsedBytes = used;
-        previousOldGenSampleAvailable = true;
-        return trend;
+        return runtime.withGcCounters(baseUptime, adjustedGcTime, adjustedGcCount);
     }
 
-    private static int incrementStreak(int streak) {
-        return streak == Integer.MAX_VALUE ? streak : streak + 1;
+    private static boolean shouldSuppressGcEvent(
+            MemoryContext.GcEvent candidate,
+            MemoryContext.GcEvent previousHistogramEvent,
+            long previousMaxEndTimeMillis,
+            BootUiDiagnosticGcTracker.Snapshot diagnostic) {
+        if (candidate == null || !candidate.available()) {
+            return true;
+        }
+        if (candidate.sameEvent(previousHistogramEvent) || candidate.sameEvent(diagnostic.latestEvent())) {
+            return true;
+        }
+        if (candidate.id() < 0 && candidate.endTimeMillis() < 0) {
+            return diagnostic.latestEvent().available()
+                    && diagnostic.latestEvent().id() < 0
+                    && diagnostic.latestEvent().endTimeMillis() < 0
+                    && candidate.durationMillis() == diagnostic.latestEvent().durationMillis()
+                    && java.util.Objects.equals(
+                            candidate.collectorName(), diagnostic.latestEvent().collectorName());
+        }
+        long highWaterMark = Math.max(previousMaxEndTimeMillis, diagnostic.maxEndTimeMillis());
+        if (highWaterMark >= 0 && candidate.endTimeMillis() >= 0) {
+            if (candidate.endTimeMillis() < highWaterMark) {
+                return true;
+            }
+            if (candidate.endTimeMillis() == highWaterMark) {
+                return !isStrictlyNewerSameMillisecondEvent(
+                        candidate, previousHistogramEvent, diagnostic.latestEvent(), highWaterMark);
+            }
+        }
+        return false;
+    }
+
+    private static boolean isStrictlyNewerSameMillisecondEvent(
+            MemoryContext.GcEvent candidate,
+            MemoryContext.GcEvent previousHistogramEvent,
+            MemoryContext.GcEvent diagnosticEvent,
+            long highWaterMark) {
+        if (candidate.id() < 0) {
+            return false;
+        }
+        boolean compared = false;
+        if (previousHistogramEvent != null
+                && previousHistogramEvent.available()
+                && previousHistogramEvent.endTimeMillis() == highWaterMark
+                && java.util.Objects.equals(candidate.collectorName(), previousHistogramEvent.collectorName())) {
+            compared = true;
+            if (previousHistogramEvent.id() < 0 || candidate.id() <= previousHistogramEvent.id()) {
+                return false;
+            }
+        }
+        if (diagnosticEvent != null
+                && diagnosticEvent.available()
+                && diagnosticEvent.endTimeMillis() == highWaterMark
+                && java.util.Objects.equals(candidate.collectorName(), diagnosticEvent.collectorName())) {
+            compared = true;
+            if (diagnosticEvent.id() < 0 || candidate.id() <= diagnosticEvent.id()) {
+                return false;
+            }
+        }
+        return compared;
     }
 
     private void resetObservations() {
         previousGcSample = null;
-        previousPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
-        previousBufferPoolUsed = Map.of();
-        previousBufferPoolStreaks = Map.of();
-        previousBufferPoolSampleAvailable = false;
-        previousOldGenUsedBytes = -1;
-        previousOldGenStreak = 0;
-        previousOldGenSampleAvailable = false;
     }
 
     private MemoryReport report(

@@ -1,7 +1,7 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**54 servlet rules** and **26 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
+**50 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
 analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
 execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
 to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
@@ -20,7 +20,8 @@ security evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](fea
 Actuator exposure checks ignore BootUI's own low-priority local actuator defaults. Those defaults are merged into
 Spring Boot's shared `defaultProperties` source (only for keys the host has not set) so local panels can read Actuator
 data, and host `management.*` settings always win. If the host application explicitly configures actuator exposure
-or health detail properties, the checks continue to evaluate those values.
+or sanitization (`show-values`) properties, the checks continue to evaluate those values; health detail/component
+settings are evaluated by the Spring Advisor's `SPRING-MGMT-003`.
 
 ## Availability and bounds
 
@@ -79,12 +80,14 @@ of scope.
 
 For the standard embedded Tomcat servlet context, the passive reader inspects the exact native facade/context
 init-parameter map rather than blocking all lower configuration sources. Custom contexts, subclasses, unsupported
-maps, and callbacks remain opaque. The real Spring sample regression uses embedded Tomcat and the application's
-actual three filter chains. It now retains completed evidence, but deliberately remains partial: the sample's custom
-CSRF-cookie filter is not a supported framework filter, role-based authorization is not a constant grant/denial,
-parameterized Actuator operations are not completely modeled, and credential-source classification remains
-incomplete for native property-source barriers. This last limitation is not a finding of exposed credentials.
-Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
+maps, and callbacks remain opaque. Key-scoped property-source barriers (such as Tomcat's `org.apache.jasper.*`
+container aliases) do not obscure unrelated credential keys. Standard non-anonymous `AuthenticatedAuthorizationManager`,
+`AuthorityAuthorizationManager`, and `AllAuthoritiesAuthorizationManager` instances (excluding `ROLE_ANONYMOUS`) are
+recognized as non-anonymous restrictions without conflating them with `denyAll()`, and standard `@Selector`
+parameterized Actuator sub-operations are evaluated against prefix matchers. The real Spring sample regression uses
+embedded Tomcat and the application's actual three filter chains. It retains completed evidence while remaining
+honestly partial because the sample's custom CSRF-cookie filter and ignored CSRF request matchers are not universal
+framework defaults. Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
 `NoOpPasswordEncoder` bean is not an active-provider finding.
 
 The catalogs were audited against Spring Boot **4.1.1**, which manages Spring Security **7.1.1**.
@@ -207,8 +210,8 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-AUTHZ-005 - Broader authorizeHttpRequests matchers should not shadow narrower ones
 
-- **Severity**: INFO (HIGH for a supported unconditional grant shadowing a later constant denial)
-- **Detects**: An unconditional, method-agnostic matcher precedes later authorization mappings in the same chain. The default is an ordering advisory; grant, denial, and unknown authorization effects are distinguished. Only a known grant hiding a later constant denial raises severity to HIGH. Unsupported matcher/manager structure remains unknown.
+- **Severity**: INFO (HIGH for a supported unconditional grant shadowing a later constant denial or non-anonymous restriction)
+- **Detects**: An unconditional, method-agnostic matcher precedes later authorization mappings in the same chain. The default is an ordering advisory; unconditional grant (`permitAll`), unconditional denial (`denyAll`), non-anonymous restriction (`authenticated`, `fullyAuthenticated`, `rememberMe`, `hasRole`/`hasAuthority`/`hasAllRoles`/`hasAllAuthorities` excluding `ROLE_ANONYMOUS`), and unknown authorization effects are distinguished. A known unconditional grant hiding a later denial or non-anonymous restriction raises severity to HIGH. Unsupported matcher/manager structure remains unknown.
 - **Recommendation**: Register narrower matchers (e.g. requestMatchers("/admin/**").hasRole("ADMIN")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
@@ -270,10 +273,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-SESSION-007 - Consider configuring concurrent session control
 
-- **Severity**: INFO
-- **Detects**: Detects an interactive form-login chain that maintains sessions but installs no ConcurrentSessionFilter (no maximumSessions limit).
-- **Recommendation**: Consider `sessionManagement().maximumSessions(n)` if session concurrency limits fit the application. This optional INFO review does not make a maximum mandatory or prove account/session misuse.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions>
+**Retired.** Fires on every stateful `formLogin()` chain that omits `ConcurrentSessionFilter` (`maximumSessions`). Limiting concurrent sessions per user is a domain-specific product choice that breaks normal multi-device logins rather than a baseline Spring Security hardening requirement. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-SESSION-008 - Remember-me signing key should be sufficiently long
 
@@ -347,10 +347,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-HEAD-010 - Cross-origin isolation headers should be considered
 
-- **Severity**: INFO
-- **Detects**: A browser-credential chain's supported header configuration includes neither cross-origin opener nor embedder policy. Cross-origin isolation is capability-specific and optional, not a universal security requirement; arbitrary API chains and externally delivered headers are not inferred.
-- **Recommendation**: Add CrossOriginOpenerPolicyHeaderWriter / CrossOriginEmbedderPolicyHeaderWriter via headers().crossOriginOpenerPolicy(...) / .crossOriginEmbedderPolicy(...) if the application needs cross-origin isolation (e.g. for SharedArrayBuffer) or Spectre-style side-channel hardening.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html>
+**Retired.** Fires on nearly every browser-credential Spring MVC chain because Spring Security intentionally omits `Cross-Origin-Opener-Policy` (`COOP`) and `Cross-Origin-Embedder-Policy` (`COEP`) by default. Enabling `COOP`/`COEP` breaks OAuth2/OIDC popups, third-party CDNs, and cross-origin embeds unless the application specifically requires cross-origin isolation (for example for `SharedArrayBuffer`). Matches the retirement of `SEC-HEAD-005` (`Referrer-Policy`) and `SEC-HEAD-006` (`Permissions-Policy`). The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ## CORS
 
@@ -413,8 +410,9 @@ the default web include is `health`, and exclusions (including `*`) win. Both `h
 access `NONE`; endpoint/default access and `max-permitted` caps determine which reads and writes are available.
 Invalid settings or native access/enabled conflicts produce analysis errors; unsupported or bounded observations
 remain incomplete. Selection does not establish endpoint existence, network reachability, or anonymous access.
-Exact native operation methods and paths are used where supported; custom mappings, variable paths, and separate
-management-context authorization remain unknown. No endpoint discoverer, operation, matcher, or handler is called.
+Exact native operation methods and paths (including `@Selector` parameterized sub-operations matched against prefix
+matchers) are used where supported; custom mappings, overlapping exact/sub-path matchers on template segments, and
+separate management-context authorization remain unknown. No endpoint discoverer, operation, matcher, or handler is called.
 
 ### SEC-ACT-001 - Actuator endpoints should not all be web-exposed
 
@@ -439,10 +437,7 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 
 ### SEC-ACT-004 - Actuator health details/components should not be exposed unconditionally
 
-- **Severity**: LOW
-- **Detects**: A selected, observed health operation has host `show-details=always` or `show-components=always`. This includes details for callers allowed to reach the operation; neither setting bypasses authorization or proves anonymous disclosure. `show-components` can inherit `show-details`; default detail disclosure is `never`.
-- **Recommendation**: Leave show-details/show-components at 'never' (the default), or set them to 'when-authorized' and require authentication for the health endpoint.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details>
+**Retired.** Duplicate of the Spring Advisor's `SPRING-MGMT-003` (`MEDIUM`), which remains always active across Spring MVC and WebFlux (with or without Spring Security) and covers `management.endpoint.health.show-details=always` and `show-components=always` alongside `show-values=always`. `SEC-ACT-004` also fired even when `/actuator/health` required authentication in `SecurityFilterChain`. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-ACT-005 - The actuator shutdown endpoint should not be enabled
 
@@ -525,11 +520,7 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 
 ### SEC-CONFIG-005 - Error responses should not leak stack traces or internal messages
 
-- **Severity**: MEDIUM
-- **Detects**: Boot 4 `spring.web.error.include-stacktrace`, `include-message`, or `include-binding-errors` is `always` or caller-enabled `on-param`/`on_param` in application configuration. While a DevTools restart is active, DevTools appends a `devtools` source setting all three to `always` for local development; those defaults are not the application's configuration and are ignored, while an application value still wins and is reported (matching the Spring advisor's WEB-004). The obsolete `server.error.*` namespace is not used. Custom error handlers and actual response bodies are outside the observation.
-- **Configuration evidence**: MVC security checks copy bounded native property-source maps and supported value types without invoking custom sources or value conversion. An opaque higher-priority source blocks lower fallback; unsupported backing maps and placeholder expansion remain unknown. Incomplete configuration does not discard independent known filter/provider findings.
-- **Recommendation**: Use `never` for sensitive error details. `on-param` is caller-controlled, not a confidentiality boundary.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling>
+**Retired.** Duplicate of the Spring Advisor's `SPRING-WEB-004` (`MEDIUM`), which remains always active across Spring MVC and WebFlux (with or without Spring Security) and also covers `spring.web.error.include-exception=true` while ignoring DevTools' development-only defaults. The ID remains reserved in `SecurityRuleRegistry.RETIRED_RULE_IDS` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### SEC-CONFIG-006 - Application should enforce HTTPS in production
 
@@ -541,7 +532,7 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 ### SEC-CONFIG-007 - Configuration should not hold literal secret values
 
 - **Severity**: HIGH
-- **Detects**: A bounded, known packaged classpath configuration source contains a literal string under a credential-shaped terminal key such as password, secret, token, api-key, client-secret, or private-key. Lifetime/shape suffixes are excluded. Higher-priority known sources shadow lower literals; unknown provenance cannot establish hardcoding. Arbitrary external, Vault/config-server, remote, dynamic, and config-tree sources are not enumerated to retrieve values. Unresolved references are not findings. Only the key name is reported, never its value; incomplete source coverage remains unknown rather than a complete pass.
+- **Detects**: A bounded, known local application configuration source contains a literal string under a credential-shaped terminal key such as password, secret, token, api-key, client-secret, or private-key. Lifetime/shape suffixes, boolean literals (`true`/`false`), numeric literals, and URLs (`://`) are excluded. Higher-priority known sources shadow lower literals using canonical `[._-]` key normalization, and key-scoped property-source barriers that do not touch secret keys are ignored; unknown provenance cannot establish hardcoding. Arbitrary external, Vault/config-server, remote, dynamic, and config-tree sources are not enumerated to retrieve values. Unresolved references are not findings. Only the key name is reported, never its value; incomplete source coverage remains unknown rather than a complete pass.
 - **Recommendation**: Move the literal value out of the configuration file into an environment variable, a secrets manager, or a mounted config-tree secret, and reference it with ${ENV_VAR_NAME} instead of a hardcoded literal.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/external-config.html>
 
@@ -591,11 +582,34 @@ map is verified; opaque backing maps remain barriers. Random-value sources block
 are never sampled. Unsupported individual values block their own keys rather than unrelated configuration; unknown
 source inventories still make affected checks incomplete.
 
-The current 26-rule catalog removes two duplicate authorization-filter absence checks, adds a structurally
-supported chain-ordering advisory, and adds OAuth2 client provider endpoint transport (`SEC-RXF-OAUTH2-005`). Previously retired `SEC-RXF-OAUTH2-001` (unrelated validator-bean inference) and
+The current 32-rule catalog removes two duplicate authorization-filter absence checks, adds a structurally
+supported chain-ordering advisory, adds OAuth2 client provider endpoint transport (`SEC-RXF-OAUTH2-005`), and adds
+six WebFlux parity rules (`SEC-RXF-AUTH-001`, `SEC-RXF-AUTH-002`, `SEC-RXF-AUTH-003`, `SEC-RXF-HEAD-007`,
+`SEC-RXF-METHOD-001`, and `SEC-RXF-OAUTH2-006`). Previously retired `SEC-RXF-OAUTH2-001` (unrelated validator-bean inference) and
 `SEC-RXF-CONFIG-001` (unsupported `spring.security.debug` property) remain reserved; neither is revived.
 The advisor distinguishes actual reactive form, one-time-token and OAuth2/OIDC login from OAuth client grant machinery, Basic credentials
 from header-only bearer credentials, and observed framework defaults from custom/unknown behavior.
+
+### SEC-RXF-AUTH-001 - Reactive password encoder must not store credentials in plain text
+
+- **Severity**: CRITICAL
+- **Detects**: A supported active `UserDetailsRepositoryReactiveAuthenticationManager` selects `NoOpPasswordEncoder` for password encoding (directly or via `DelegatingPasswordEncoder`). Unused `PasswordEncoder` beans are not evidence of effective storage; custom reactive authentication managers and unreadable encoders remain unknown and are never invoked.
+- **Recommendation**: Use a delegating encoder (`PasswordEncoderFactories.createDelegatingPasswordEncoder()`) backed by bcrypt, Argon2, or PBKDF2.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
+
+### SEC-RXF-AUTH-002 - Reactive password encoder should not use a weak or legacy algorithm
+
+- **Severity**: HIGH
+- **Detects**: A supported active `UserDetailsRepositoryReactiveAuthenticationManager` selects a weak or legacy encoder (`StandardPasswordEncoder`, `MessageDigestPasswordEncoder`, `Md4PasswordEncoder`, `LdapShaPasswordEncoder`) for new hashes. A `DelegatingPasswordEncoder`'s legacy matching map is not penalized.
+- **Recommendation**: Migrate to bcrypt, Argon2, or PBKDF2 via a `DelegatingPasswordEncoder` so hashes upgrade over time.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
+
+### SEC-RXF-AUTH-003 - Reactive BCrypt password encoder should use an adequate work factor
+
+- **Severity**: LOW
+- **Detects**: A supported active `UserDetailsRepositoryReactiveAuthenticationManager` selects `BCryptPasswordEncoder` with a readable strength below the framework default of 10. Unknown encoders or unreadable cost metadata remain incomplete rather than passing.
+- **Recommendation**: Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
 
 ### SEC-RXF-AUTHZ-001 - Every reactive filter chain should enforce authorization
 
@@ -711,6 +725,20 @@ incomplete rather than becoming a scalar last-writer policy or a guessed union.
 - **Recommendation**: Distinguish `max-age=0`, which removes the browser's policy, from a shorter intentional rollout. RFC 6797 mandates no universal one-year minimum; `includeSubDomains` is a separate deployment decision.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-hsts>
 
+### SEC-RXF-HEAD-007 - Review permissive CSP script execution in reactive chains
+
+- **Severity**: MEDIUM
+- **Detects**: A supported single enforcing `Content-Security-Policy` on a reactive chain permits `'unsafe-inline'`, `'unsafe-eval'`, or an unrestricted script source (`*` or scheme-only source) after accounting for `script-src`/`default-src` fallback, `script-src-elem`/`script-src-attr`, first-duplicate-directive precedence, nonce/hash overrides, `'strict-dynamic'`, and `sandbox` without `allow-scripts` via `CspPolicy.analyze`. Report-only policies do not establish enforcement; framing is reviewed separately by `SEC-RXF-HEAD-002`.
+- **Recommendation**: Restrict script execution with application-specific nonces/hashes or explicit trusted origins and remove unnecessary `'unsafe-eval'` permissions.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp>
+
+### SEC-RXF-METHOD-001 - Method security annotations require reactive method security to be enabled
+
+- **Severity**: HIGH
+- **Detects**: Application beans declare method-security annotations (`@PreAuthorize`, `@PostAuthorize`, `@PreFilter`, `@PostFilter`, `@Secured`, `@RolesAllowed`, `@DenyAll`, `@PermitAll`) across bounded class, interface, superclass, and meta-annotation hierarchies without matching recognized reactive method-security activation (`@EnableReactiveMethodSecurity` / `ReactiveAuthorizationManagerMethodSecurityConfiguration` / `ReactiveMethodSecurityConfiguration` or reactive pre/post authorization advisors). Imperative `@EnableMethodSecurity` does not activate reactive publisher authorization, and `@EnableReactiveMethodSecurity` supports only the pre/post annotation family.
+- **Recommendation**: Enable `@EnableReactiveMethodSecurity` and use `@PreAuthorize`, `@PostAuthorize`, `@PreFilter`, and `@PostFilter` on reactive publisher methods. Verify proxy boundaries and invocation behavior separately.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/authorization/method.html>
+
 ### SEC-RXF-ACT-001 - Actuator endpoints should not be exposed with a wildcard
 
 - **Severity**: HIGH
@@ -782,6 +810,13 @@ inconclusive rather than assumed to inherit application-chain policy.
 - **Detects**: A production profile with a registration-linked `spring.security.oauth2.client.provider.<id>` `authorization-uri`, `token-uri`, `jwk-set-uri` or `user-info-uri` using plain HTTP, discovered from bounded native configuration maps like SEC-OAUTH-006. `issuer-uri` belongs to the Pentesting advisor (PT-A07-006). Only property names are reported.
 - **Recommendation**: Use HTTPS for every OAuth2 client provider endpoint and keep certificate validation enabled; reserve HTTP providers for isolated local development.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc6749.html#section-3.2>
+
+### SEC-RXF-OAUTH2-006 - Validate the JWT audience claim in reactive resource servers
+
+- **Severity**: INFO
+- **Detects**: An active `NimbusReactiveJwtDecoder` or `SupplierReactiveJwtDecoder` on a reactive resource-server chain has no explicit `spring.security.oauth2.resourceserver.jwt.audiences` setting. Custom `ReactiveJwtDecoder` implementations remain unknown rather than passing, and unrelated `OAuth2TokenValidator` beans do not establish audience validation.
+- **Recommendation**: Configure `spring.security.oauth2.resourceserver.jwt.audiences` for Boot-managed reactive JWT validation, or attach an audience `OAuth2TokenValidator` directly to a custom `ReactiveJwtDecoder`.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html#webflux-oauth2resourceserver-jwt-validation>
 
 ### SEC-RXF-CONFIG-002 - Review HTTPS enforcement for reactive production applications
 

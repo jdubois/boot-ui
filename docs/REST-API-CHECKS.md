@@ -4,13 +4,13 @@ The REST API panel runs a fixed, zero-config ruleset against the host applicatio
 Spring MVC and Spring WebFlux controllers, or JAX-RS/Quarkus REST resource methods. It reports declaration conflicts
 and conditional design-review prompts, not a verdict on the application's runtime HTTP behavior.
 
-There are **60 stable rule definitions across 8 categories, with 45 potentially emitting rules**. Fifteen definitions
+There are **65 stable rule definitions across 8 categories, with 50 potentially emitting rules**. Fifteen definitions
 (`RAPI-MAP-004`, `RAPI-MAP-008`, `RAPI-NAME-002`, `RAPI-NAME-004`, `RAPI-RESP-004`, `RAPI-RESP-008`, `RAPI-VALID-005`,
 `RAPI-DTO-004`, `RAPI-VER-002`, `RAPI-VER-005`, `RAPI-ERR-002`, `RAPI-ERR-011`, `RAPI-DOC-001`, `RAPI-DOC-002`, and
 `RAPI-DOC-003`) retain their IDs but always return `SKIPPED`: their evidence cannot establish an HTTP contract defect.
 Retired IDs are never reused, so saved dismissals keep their identity. The
 [complete audit disposition ledger](#complete-audit-disposition-ledger) records the original 56 decisions, and the
-[contract-defect audit](#contract-defect-audit-2026) records the later removals, fixes, and four additions.
+[contract-defect audit](#contract-defect-audit-2026) records the later removals, fixes, and additions.
 
 ::: tip Reading more than the preview
 The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
@@ -148,8 +148,8 @@ confidence: a mutation-like method name is weaker evidence than a conflicting re
 
 | Scope | HIGH | MEDIUM | LOW | INFO | Total |
 | --- | --- | --- | --- | --- | --- |
-| Stable definitions, including retired emissions | 9 | 7 | 20 | 24 | 60 |
-| Potentially emitting rules | 8 | 7 | 15 | 15 | 45 |
+| Stable definitions, including retired emissions | 13 | 7 | 21 | 24 | 65 |
+| Potentially emitting rules | 12 | 7 | 16 | 15 | 50 |
 
 The `RAPI-DOC-*` documentation rules are retired and always return `SKIPPED`: Swagger/springdoc on Spring and
 MicroProfile OpenAPI on Quarkus generate OpenAPI documents from controller signatures without requiring explicit
@@ -264,6 +264,34 @@ is a code-layout preference with zero effect on the HTTP contract. The dismissal
 - **Recommendation**: Consider a flatter resource structure if it improves usability. Three levels is this
   heuristic's style threshold, not an HTTP limit; an unknown root cannot establish full nesting depth.
 - **Learn more**: [RFC 9110 resource identification][http-resources] (no three-level requirement).
+
+### RAPI-MAP-012 - Unannotated Spring scalar parameters do not bind path variables
+
+- **Severity**: HIGH
+- **Detects**: A Spring handler whose effective path declares `{token}` while the method declares a same-named
+  unannotated simple/scalar parameter (primitives, primitive wrappers, `String`, `UUID`, `Enum`, temporal, or numeric
+  types, read via `-parameters` bytecode metadata). Unlike Quarkus REST, Spring MVC and WebFlux bind unannotated simple
+  parameters via `RequestParamMethodArgumentResolver` (`@RequestParam`) rather than `@PathVariable`, ignoring the URI
+  path segment and looking for `?token=...`. Complex `@ModelAttribute` objects, aggregate `@PathVariable Map` bindings,
+  and framework context arguments (`ZoneId`, `Locale`, `HttpMethod`, `Principal`) are excluded.
+- **Not evaluated**: JAX-RS / Quarkus REST binds unannotated parameters matching `{token}` as `@RestPath`.
+- **Recommendation**: Annotate the parameter with `@PathVariable` (or `@RequestParam` if a query parameter with the same
+  name is intentional and the path variable is bound elsewhere).
+- **Learn more**: [Spring `PathVariable`][spring-pathvar]; [Spring `RequestParam`][spring-requestparam].
+
+### RAPI-MAP-013 - Do not combine class-level and method-level HTTP method mappings
+
+- **Severity**: HIGH
+- **Detects**: A Spring handler whose controller declares a non-empty class-level `@RequestMapping(method = ...)` and
+  whose method-level mapping also declares HTTP method(s), where their set union adds extra effective HTTP verbs beyond
+  the method-level declaration (accounting for implicit `HEAD` on `GET`). Spring's
+  `RequestMethodsRequestCondition.combine()` unions class-level and method-level HTTP methods rather than overriding, so
+  a class-level `method = RequestMethod.GET` combined with a method-level `@PostMapping` exposes the mutating handler to
+  `GET` as well.
+- **Not evaluated**: JAX-RS `@Path` does not declare HTTP methods at the class level.
+- **Recommendation**: Remove the `method` attribute from the class-level `@RequestMapping` and declare HTTP verbs on
+  handler methods only.
+- **Learn more**: [Spring method-condition union][spring-methods].
 
 ## Naming & resource design
 
@@ -475,6 +503,18 @@ dismissal ID remains reserved.
   `@RequestPart` for multipart requests.
 - **Learn more**: [Spring `@RequestBody`][spring-requestbody].
 
+### RAPI-VALID-007 - Cascade @Valid into constrained nested DTO fields
+
+- **Severity**: HIGH
+- **Detects**: A request body parameter carries `@Valid` or `@Validated`, and its payload DTO has a non-static field
+  whose type (or `Collection`, `Map`, `Optional`, or array element type) in the application's base packages declares
+  `jakarta.validation.constraints.*` (or `@Valid`) while the parent field, accessor, and container type argument omit
+  `@Valid` (up to bounded depth 3). Jakarta Bean Validation silently skips constraints on nested objects unless `@Valid`
+  cascades into them.
+- **Recommendation**: Annotate the parent DTO field or container type argument (for example `List<@Valid LineItemDto>`)
+  with `@Valid` so nested constraints execute during request validation.
+- **Learn more**: [Spring validation][spring-validation]; [Jakarta REST entity validation][jaxrs-validation].
+
 ## DTO & payload contracts
 
 ### RAPI-DTO-001 - Avoid persistence entities in responses
@@ -542,6 +582,20 @@ dismissal ID remains reserved.
 - **Recommendation**: Prefer consistency where workloads are comparable; different pagination strategies can be
   deliberate. HTTP does not mandate one vocabulary.
 - **Learn more**: [Pagination design guidance][pagination-style] (optional style).
+
+### RAPI-PAGE-004 - Avoid direct Spring Data Page serialization without VIA_DTO
+
+- **Severity**: LOW
+- **Detects**: A Spring body-serializing handler returns `org.springframework.data.domain.Page` (or `PageImpl`) directly
+  (or inside `ResponseEntity`/`HttpEntity` or an async wrapper) when no imported class declares
+  `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)` and
+  `spring.data.web.pageable.serialization-mode=via_dto` is not configured. Direct `PageImpl` JSON serialization exposes
+  internal Spring Data structure and logs a runtime warning in Spring Data 3.3+/4.x.
+- **Not evaluated**: JAX-RS has no Spring Data `Page` return representation.
+- **Recommendation**: Wrap the result in `org.springframework.data.web.PagedModel<T>` or configure
+  `@EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO)` /
+  `spring.data.web.pageable.serialization-mode=via_dto`.
+- **Learn more**: [Spring Data stable page representations][spring-paging].
 
 ## Versioning & content negotiation
 
@@ -626,6 +680,18 @@ controller inconsistent. The dismissal ID remains reserved.
 - **Recommendation**: Declare consumes on the methods that read a body (POST/PUT/PATCH) instead of at class level, or
   remove it from GET/HEAD/DELETE handlers.
 - **Learn more**: [Spring consumable media types][spring-consumes]; [MVC consumes matching][spring-consumes-condition].
+
+### RAPI-VER-008 - Multipart and form handlers must allow multipart or form media types
+
+- **Severity**: HIGH
+- **Detects**: A Spring or JAX-RS/Quarkus handler that binds multipart or form parameters (`@RequestPart`,
+  `MultipartFile`, `FilePart`, `@RestForm`, `@FormParam`, `@MultipartForm`, or `FileUpload`) while its non-empty
+  effective `consumes` condition contains no `multipart/*`, `application/x-www-form-urlencoded`, or `*/*` media range
+  (typically because the controller declares a class-level `consumes = "application/json"`). Multipart or form requests
+  are rejected with 415 Unsupported Media Type, while JSON requests fail multipart parameter resolution.
+- **Recommendation**: Override `consumes` on the handler with `multipart/form-data` (or
+  `application/x-www-form-urlencoded`), or remove the restrictive class-level `consumes` declaration.
+- **Learn more**: [Spring consumable media types][spring-consumes]; [Jakarta REST media declarations][jaxrs-media].
 
 ## Error handling & documentation
 
@@ -861,6 +927,11 @@ declarations that break requests deterministically. No ID was reused or repurpos
 | RAPI-VER-007 | **Added**, HIGH | Consumes on a bodyless GET/HEAD/DELETE rejects requests without `Content-Type` with 415 on MVC and WebFlux ([consumes matching][spring-consumes-condition]). |
 | RAPI-RESP-010 | **Added**, HIGH | A `@ResponseStatus` reason discards the returned body on Spring MVC; WebFlux is skipped ([MVC reason handling][spring-reason]). |
 | RAPI-RESP-011 | **Added**, LOW | An empty `Optional` read answers 200 with an empty body, not 404 ([`ResponseEntity.of`][spring-response-entity]). |
+| RAPI-MAP-012 | **Added**, HIGH | Unannotated Spring simple parameters matching `{token}` in the route path are bound as `@RequestParam` rather than `@PathVariable` ([`@PathVariable`][spring-pathvar]). |
+| RAPI-MAP-013 | **Added**, HIGH | Class-level `@RequestMapping(method = ...)` unions with method-level verb mappings, exposing unintended HTTP methods ([method-condition union][spring-methods]). |
+| RAPI-VALID-007 | **Added**, HIGH | Missing `@Valid` on constrained nested DTO fields inside `@Valid`/`@Validated` request payloads silently skips nested Bean Validation ([Spring validation][spring-validation]). |
+| RAPI-VER-008 | **Added**, HIGH | Multipart/form parameters combined with an incompatible `consumes` media type (such as `application/json`) fail every request with 415 ([Spring consumable media types][spring-consumes]). |
+| RAPI-PAGE-004 | **Added**, LOW | Returning `org.springframework.data.domain.Page` directly without `VIA_DTO` or `PagedModel` exposes `PageImpl`'s unstable JSON structure ([Spring Data paging][spring-paging]). |
 | RAPI-MAP-002 | Narrowed; HIGH retained | Identical Spring mappings fail startup, so they only appear for inactive alternatives and are no longer reported; partial overlaps fail at request time and still are ([handler registration][spring-handler-mapping]). |
 | RAPI-RESP-006 | HIGH → MEDIUM | Servers drop 204 content, so clients see a consistent 204; the defect is a contradictory declaration ([RFC 9110 §15.3.5][http-no-content]). |
 | RAPI-VER-002 | Retired | Framework converters/readers already constrain readable media types; class-level `consumes` triggers RAPI-VER-007. |
