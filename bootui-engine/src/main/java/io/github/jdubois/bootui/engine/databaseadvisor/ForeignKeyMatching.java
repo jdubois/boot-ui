@@ -46,8 +46,12 @@ final class ForeignKeyMatching {
                     null,
                     "The composite declaration leaves a referenced column unspecified; pairing is not established.");
         }
+        String attributedDataSource = sourceSchema.dataSourceName() != null
+                        && context.entityDataSources().containsValue(sourceSchema.dataSourceName())
+                ? sourceSchema.dataSourceName()
+                : null;
         MappedTableResolution targetResolution = MappedTableResolution.resolveDeclared(
-                context, mapped.targetCatalog(), mapped.targetSchema(), mapped.targetTableName());
+                context, attributedDataSource, mapped.targetCatalog(), mapped.targetSchema(), mapped.targetTableName());
         if (!targetResolution.resolved()) {
             return unknown(
                     null,

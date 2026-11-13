@@ -28,6 +28,9 @@ test.describe('Quarkus advisor', () => {
     const report = await response.json()
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
+    expect(report.analysisErrors).toEqual([])
+    expect(report.results.map((result) => result.id)).toEqual(expect.arrayContaining(['QA-WEB-001', 'QA-WEB-004']))
+    expect(report.results.map((result) => result.id)).not.toContain('QA-WEB-002')
 
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
     await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))

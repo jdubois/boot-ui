@@ -58,6 +58,10 @@ final class OracleCatalogReader {
             from all_constraints c
             where c.owner = ?
               and c.constraint_type in ('P', 'U', 'R', 'C')
+              and not (c.constraint_type = 'C'
+                       and c.generated = 'GENERATED NAME'
+                       and c.status = 'ENABLED'
+                       and c.validated = 'VALIDATED')
               and c.table_name not like 'BIN$%'
             order by c.table_name, c.constraint_name
             fetch first ? rows only

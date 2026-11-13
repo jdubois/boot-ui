@@ -12,10 +12,12 @@ import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.Dependency;
+import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
+import com.tngtech.archunit.core.domain.JavaCodeUnitAccess;
 import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaEnumConstant;
@@ -40,6 +42,7 @@ import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.source.LocalSourceModule;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -126,6 +129,7 @@ final class SpringStereotypes {
     static final String BEAN = "org.springframework.context.annotation.Bean";
     static final String SPRING_BOOT_APPLICATION = "org.springframework.boot.autoconfigure.SpringBootApplication";
     static final String SPRING_BOOT_CONFIGURATION = "org.springframework.boot.SpringBootConfiguration";
+    static final String AUTO_CONFIGURATION = "org.springframework.boot.autoconfigure.AutoConfiguration";
     static final String POST_CONSTRUCT = "jakarta.annotation.PostConstruct";
     static final String PRE_DESTROY = "jakarta.annotation.PreDestroy";
     static final String BEAN_FACTORY_POST_PROCESSOR =
@@ -377,7 +381,7 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
             List<String> samples = new ArrayList<>();
             List<String> retained = new ArrayList<>();
             int retentionLimit = context.violationCollector().remainingCapacity();
-            for (String basePackage : context.basePackages()) {
+            for (String basePackage : sliceRoots(context.basePackages())) {
                 Set<String> slices = new HashSet<>();
                 for (JavaClass type : context.classes()) {
                     if (type.getPackageName().startsWith(basePackage + ".")) {
@@ -421,6 +425,48 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                     definition(),
                     "Rule could not be evaluated (" + ex.getClass().getSimpleName() + ").");
         }
+    }
+
+    /**
+     * Returns the configured base packages plus any shared multi-segment parent package roots across
+     * clusters of base packages (for example {@code com.acme} when {@code com.acme.inventory} and
+     * {@code com.acme.order} are both roots), never collapsing to a single-segment top-level package
+     * such as {@code com} or {@code org}.
+     */
+    static List<String> sliceRoots(List<String> basePackages) {
+        List<String> roots = new ArrayList<>(basePackages);
+        Set<String> seenParents = new LinkedHashSet<>(basePackages);
+        for (int i = 0; i < basePackages.size(); i++) {
+            String left = basePackages.get(i);
+            for (int j = i + 1; j < basePackages.size(); j++) {
+                String right = basePackages.get(j);
+                String common = commonPackagePrefix(left, right);
+                if (common.indexOf('.') > 0
+                        && !common.equals(left)
+                        && !common.equals(right)
+                        && seenParents.add(common)) {
+                    roots.add(common);
+                }
+            }
+        }
+        return roots;
+    }
+
+    private static String commonPackagePrefix(String left, String right) {
+        String[] leftSegments = left.split("\\.");
+        String[] rightSegments = right.split("\\.");
+        int min = Math.min(leftSegments.length, rightSegments.length);
+        StringBuilder prefix = new StringBuilder();
+        for (int i = 0; i < min; i++) {
+            if (!leftSegments[i].equals(rightSegments[i])) {
+                break;
+            }
+            if (i > 0) {
+                prefix.append('.');
+            }
+            prefix.append(leftSegments[i]);
+        }
+        return prefix.toString();
     }
 }
 
@@ -503,29 +549,6 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
 }
 
 /**
- * Flags use of the legacy Joda-Time library instead of {@code java.time}.
- */
-final class NoJodaTimeRule extends AbstractArchitectureRule {
-
-    NoJodaTimeRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-004",
-                "Classes should not use Joda-Time",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects use of the legacy Joda-Time library instead of the java.time API.",
-                "Migrate Joda-Time usage to the standard java.time API.",
-                "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.NO_CLASSES_SHOULD_USE_JODATIME;
-    }
-}
-
-/**
  * Flags calls that forcibly terminate the JVM ({@code System.exit(int)}, {@code Runtime.exit(int)},
  * or {@code Runtime.halt(int)}), which bypass orderly application and container shutdown.
  *
@@ -548,12 +571,12 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
                 "HIGH",
                 "Detects calls to System.exit(int), Runtime.exit(int), or Runtime.halt(int), which abruptly"
                         + " terminate the JVM and bypass orderly shutdown. Exempts System.exit(int) called directly"
-                        + " from a static main method, which is Spring Boot's documented"
+                        + " from a main entry point, which is Spring Boot's documented"
                         + " System.exit(SpringApplication.exit(context, ...)) exit-code idiom for CLI/batch apps.",
                 "Let the container or application framework manage the lifecycle instead of calling System.exit() or"
                         + " Runtime.exit()/halt(). If you do need to propagate a process exit code from a CLI/batch"
-                        + " application, call System.exit(SpringApplication.exit(context, ...)) from the static main"
-                        + " method only.",
+                        + " application, call System.exit(SpringApplication.exit(context, ...)) from the main"
+                        + " entry point only.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/System.html#exit(int)"));
     }
 
@@ -585,16 +608,18 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
     }
 
     private static boolean isStaticMainMethod(JavaCodeUnit origin) {
-        if (!(origin instanceof JavaMethod method)) {
+        if (!(origin instanceof JavaMethod method) || !method.getName().equals("main")) {
+            return false;
+        }
+        Set<JavaModifier> modifiers = method.getModifiers();
+        if (modifiers.contains(JavaModifier.PRIVATE)
+                || modifiers.contains(JavaModifier.ABSTRACT)
+                || !method.getRawReturnType().isEquivalentTo(void.class)) {
             return false;
         }
         List<JavaClass> parameters = method.getRawParameterTypes();
-        return method.getName().equals("main")
-                && method.getModifiers().contains(JavaModifier.PUBLIC)
-                && method.getModifiers().contains(JavaModifier.STATIC)
-                && method.getRawReturnType().isEquivalentTo(void.class)
-                && parameters.size() == 1
-                && parameters.get(0).isEquivalentTo(String[].class);
+        return parameters.isEmpty()
+                || (parameters.size() == 1 && parameters.get(0).isEquivalentTo(String[].class));
     }
 }
 
@@ -708,21 +733,218 @@ final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
  */
 final class NoDeprecatedApiRule extends AbstractArchitectureRule {
 
+    private static final String KOTLIN_DEPRECATED = "kotlin.Deprecated";
+
     NoDeprecatedApiRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-009",
                 "Classes should not use deprecated APIs",
                 ArchitectureCategory.CODING_PRACTICES,
                 "INFO",
-                "Detects access to members or types annotated with @Deprecated.",
+                "Detects access to members or types annotated with @Deprecated, excluding compiler-generated"
+                        + " dispatch bridges and uses inside a @Deprecated class or member.",
                 "Migrate to the recommended replacement API; deprecated members may be removed in future releases.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Deprecated.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.DEPRECATED_API_SHOULD_NOT_BE_USED;
+        return classes()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
+                .should(
+                        new ArchCondition<JavaClass>(
+                                "not access @Deprecated members or depend on @Deprecated classes") {
+                            @Override
+                            public void check(JavaClass javaClass, ConditionEvents events) {
+                                boolean classDeprecated = isInDeprecatedClassScope(javaClass);
+                                for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
+                                    checkAccess(access, classDeprecated, events);
+                                }
+                                for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
+                                    checkDependency(javaClass, dependency, classDeprecated, events);
+                                }
+                            }
+                        })
+                .as("Classes should not use deprecated APIs");
+    }
+
+    private static void checkAccess(JavaAccess<?> access, boolean classDeprecated, ConditionEvents events) {
+        if (KotlinBytecode.isGeneratedDispatchBridge(access.getOrigin())) {
+            return;
+        }
+        JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
+        Optional<? extends JavaMember> resolved = access.getTarget().resolveMember();
+        JavaMember targetMember = resolved.orElse(null);
+        if (targetMember != null && ArchitectureRuleSupport.isCompilerGenerated(targetMember)) {
+            if (targetMember instanceof JavaMethod targetMethod) {
+                targetMember = KotlinBytecode.defaultArgumentDispatchTarget(targetMethod)
+                        .orElse(null);
+            } else {
+                targetMember = null;
+            }
+            if (targetMember == null) {
+                return;
+            }
+        }
+        CanBeAnnotated target = targetMember != null ? targetMember : access.getTarget();
+        if (!isDeprecated(target)) {
+            return;
+        }
+        if (!isDeprecatedForRemoval(target)
+                && (classDeprecated || isInDeprecatedMemberScope(origin, new HashSet<>()))) {
+            return;
+        }
+        String description = rewriteAccessDescription(
+                access.getDescription(), access.getOrigin(), origin, resolved.orElse(null), targetMember);
+        events.add(SimpleConditionEvent.violated(access, description));
+    }
+
+    private static void checkDependency(
+            JavaClass javaClass, Dependency dependency, boolean classDeprecated, ConditionEvents events) {
+        JavaClass targetClass = dependency.getTargetClass();
+        if (!isDeprecated(targetClass)) {
+            return;
+        }
+        boolean forRemoval = isDeprecatedForRemoval(targetClass);
+        if (!forRemoval && classDeprecated) {
+            return;
+        }
+        Set<JavaAccess> accesses = dependency.convertTo(JavaAccess.class);
+        if (!accesses.isEmpty()) {
+            String description = dependency.getDescription();
+            boolean actionable = false;
+            for (JavaAccess<?> access : accesses) {
+                if (KotlinBytecode.isGeneratedDispatchBridge(access.getOrigin())) {
+                    continue;
+                }
+                JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
+                if (!forRemoval && isInDeprecatedMemberScope(origin, new HashSet<>())) {
+                    continue;
+                }
+                Optional<? extends JavaMember> resolved = access.getTarget().resolveMember();
+                JavaMember targetMember = resolved.orElse(null);
+                if (targetMember != null && ArchitectureRuleSupport.isCompilerGenerated(targetMember)) {
+                    if (targetMember instanceof JavaMethod targetMethod) {
+                        targetMember = KotlinBytecode.defaultArgumentDispatchTarget(targetMethod)
+                                .orElse(null);
+                    } else {
+                        targetMember = null;
+                    }
+                    if (targetMember == null) {
+                        continue;
+                    }
+                }
+                actionable = true;
+                description = rewriteAccessDescription(
+                        description, access.getOrigin(), origin, resolved.orElse(null), targetMember);
+            }
+            if (actionable) {
+                events.add(SimpleConditionEvent.violated(dependency, description));
+            }
+            return;
+        }
+        String description = dependency.getDescription();
+        for (JavaMember member : javaClass.getMembers()) {
+            if (!description.contains(member.getDescription())) {
+                continue;
+            }
+            if (member instanceof JavaMethod method) {
+                Optional<JavaMethod> suspendDeclared = KotlinBytecode.suspendImplDeclaredMethod(method);
+                if (suspendDeclared.isPresent()) {
+                    if (dependency.getSourceCodeLocation().getLineNumber() <= 0
+                            || (!forRemoval && isInDeprecatedMemberScope(suspendDeclared.get(), new HashSet<>()))) {
+                        return;
+                    }
+                    events.add(SimpleConditionEvent.violated(
+                            dependency,
+                            description.replace(
+                                    method.getFullName(), suspendDeclared.get().getFullName())));
+                    return;
+                }
+            }
+            if (ArchitectureRuleSupport.isCompilerGenerated(member)) {
+                return;
+            }
+            if (!forRemoval
+                    && ((member instanceof JavaCodeUnit codeUnit
+                                    && isInDeprecatedMemberScope(codeUnit, new HashSet<>()))
+                            || isDeprecated(member))) {
+                return;
+            }
+        }
+        events.add(SimpleConditionEvent.violated(dependency, description));
+    }
+
+    private static String rewriteAccessDescription(
+            String description,
+            JavaCodeUnit rawOrigin,
+            JavaCodeUnit unwrappedOrigin,
+            JavaMember rawTarget,
+            JavaMember unwrappedTarget) {
+        String updated = description;
+        if (!rawOrigin.equals(unwrappedOrigin)) {
+            updated = updated.replace(rawOrigin.getFullName(), unwrappedOrigin.getFullName());
+        }
+        if (rawTarget != null && unwrappedTarget != null && !rawTarget.equals(unwrappedTarget)) {
+            updated = updated.replace(rawTarget.getFullName(), unwrappedTarget.getFullName());
+        }
+        return updated;
+    }
+
+    private static boolean isInDeprecatedClassScope(JavaClass javaClass) {
+        Optional<JavaClass> current = Optional.of(javaClass);
+        while (current.isPresent()) {
+            JavaClass type = current.get();
+            if (isDeprecated(type)) {
+                return true;
+            }
+            if (type.getEnclosingCodeUnit()
+                    .filter(unit -> isInDeprecatedMemberScope(unit, new HashSet<>()))
+                    .isPresent()) {
+                return true;
+            }
+            current = type.getEnclosingClass();
+        }
+        return false;
+    }
+
+    private static boolean isInDeprecatedMemberScope(JavaCodeUnit origin, Set<JavaMethod> visiting) {
+        origin = KotlinBytecode.unwrapSuspendImplOrigin(origin);
+        if (isDeprecated(origin)) {
+            return true;
+        }
+        if (!(origin instanceof JavaMethod method)
+                || !ArchitectureRuleSupport.isCompilerGenerated(method)
+                || !visiting.add(method)) {
+            return false;
+        }
+        Set<JavaCodeUnitAccess<?>> callers = new HashSet<>(method.getCallsOfSelf());
+        callers.addAll(method.getReferencesToSelf());
+        if (callers.isEmpty()) {
+            return false;
+        }
+        for (JavaCodeUnitAccess<?> caller : callers) {
+            if (!caller.getOriginOwner().equals(method.getOwner())
+                    || !isInDeprecatedMemberScope(caller.getOrigin(), visiting)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isDeprecated(CanBeAnnotated annotated) {
+        return annotated.isAnnotatedWith(Deprecated.class) || annotated.isAnnotatedWith(KOTLIN_DEPRECATED);
+    }
+
+    private static boolean isDeprecatedForRemoval(CanBeAnnotated annotated) {
+        if (!(annotated instanceof com.tngtech.archunit.core.domain.properties.HasAnnotations<?> hasAnnotations)) {
+            return false;
+        }
+        return hasAnnotations
+                .tryGetAnnotationOfType(Deprecated.class.getName())
+                .flatMap(annotation -> annotation.get("forRemoval"))
+                .filter(Boolean.TRUE::equals)
+                .isPresent();
     }
 }
 
@@ -800,10 +1022,18 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
  * {@code @Autowired} / {@code @Value}.
  *
  * <p>The finding is MEDIUM on Spring, matching ARCH-SPRING-001 because the Spring team advocates constructor
- * injection, and LOW on Quarkus, where {@code @Inject} field injection is the idiom of the official guides and
- * Quarkus only advises against {@code private} injected fields.</p>
+ * injection; on Quarkus, where package-private {@code @Inject} field injection is the idiom of the official
+ * guides and Quarkus only advises against {@code private} injected fields, {@code private} injected fields are
+ * reported at LOW and non-private injected fields at INFO.</p>
  */
 final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractArchitectureRule {
+
+    private static final List<String> STANDARD_INJECTION_ANNOTATIONS = List.of(
+            "jakarta.inject.Inject",
+            "javax.inject.Inject",
+            "jakarta.annotation.Resource",
+            "javax.annotation.Resource",
+            "com.google.inject.Inject");
 
     private static final ArchCondition<JavaField> BE_ANNOTATED_WITH_STANDARD_INJECTION_ANNOTATION =
             ArchConditions.<JavaField>beAnnotatedWith("jakarta.inject.Inject")
@@ -813,14 +1043,19 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
                     .or(beAnnotatedWith("com.google.inject.Inject"))
                     .as("be annotated with a standard injection annotation");
 
-    private static final FieldsShouldNotUseStandardInjectionAnnotationsRule QUARKUS =
-            new FieldsShouldNotUseStandardInjectionAnnotationsRule("LOW");
+    private static final FieldsShouldNotUseStandardInjectionAnnotationsRule QUARKUS_LOW =
+            new FieldsShouldNotUseStandardInjectionAnnotationsRule("LOW", true);
+
+    private static final FieldsShouldNotUseStandardInjectionAnnotationsRule QUARKUS_INFO =
+            new FieldsShouldNotUseStandardInjectionAnnotationsRule("INFO", false);
+
+    private final boolean onlyPrivate;
 
     FieldsShouldNotUseStandardInjectionAnnotationsRule() {
-        this("MEDIUM");
+        this("MEDIUM", false);
     }
 
-    private FieldsShouldNotUseStandardInjectionAnnotationsRule(String severity) {
+    private FieldsShouldNotUseStandardInjectionAnnotationsRule(String severity, boolean onlyPrivate) {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-016",
                 "Classes should not use standard-annotation field injection",
@@ -829,18 +1064,27 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
                 "Detects jakarta.inject.Inject, javax.inject.Inject, jakarta.annotation.Resource, "
                         + "javax.annotation.Resource, or com.google.inject.Inject on non-static fields instead of "
                         + "constructor injection. This is the CDI/Quarkus and Guice equivalent of Spring's @Autowired "
-                        + "field injection. MEDIUM on Spring, LOW on Quarkus, where field injection is idiomatic. "
+                        + "field injection. MEDIUM on Spring; on Quarkus, where package-private @Inject field injection "
+                        + "is idiomatic, LOW when a private field is injected and INFO otherwise. "
                         + "Legacy javax annotations that the container ignores are reported by ARCH-SPRING-024 instead.",
                 "Prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers "
                         + "such as Quarkus' Arc inject constructor parameters just as readily as fields. In Kotlin, "
                         + "take the dependency as a constructor val instead of an injected lateinit var.",
                 "https://quarkus.io/guides/cdi"));
+        this.onlyPrivate = onlyPrivate;
     }
 
     @Override
     public ArchitectureRuleResultDto evaluate(ArchitectureContext context) {
-        if (context != null && context.platform() == ArchitecturePlatform.QUARKUS && this != QUARKUS) {
-            return QUARKUS.evaluate(context);
+        if (context != null
+                && context.platform() == ArchitecturePlatform.QUARKUS
+                && this != QUARKUS_LOW
+                && this != QUARKUS_INFO) {
+            ArchitectureContext categoryContext =
+                    context.forCategory(definition().category());
+            ContainerBeans beans = new ContainerBeans(categoryContext.classes());
+            return (hasPrivateStandardInjectedField(categoryContext.classes(), beans) ? QUARKUS_LOW : QUARKUS_INFO)
+                    .evaluate(context);
         }
         return super.evaluate(context);
     }
@@ -849,22 +1093,54 @@ final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractA
     ArchRule rule(ArchitectureContext context) {
         ContainerBeans beans = new ContainerBeans(context.classes());
         return noFields()
-                .that(new DescribedPredicate<JavaField>("are not reported by ARCH-SPRING-023 or ARCH-SPRING-024") {
-                    @Override
-                    public boolean test(JavaField field) {
-                        // A static @Inject field is never injected (ARCH-SPRING-023), and a legacy javax annotation
-                        // on a container bean is ignored altogether (ARCH-SPRING-024): neither is field injection.
-                        if (field.getModifiers().contains(JavaModifier.STATIC)
-                                && field.isAnnotatedWith(SpringStereotypes.JAKARTA_INJECT)) {
-                            return false;
-                        }
-                        return LegacyJavaxInjection.ignoredAnnotation(field, beans)
-                                .isEmpty();
-                    }
-                })
+                .that()
+                .areNotStatic()
+                .and(
+                        new DescribedPredicate<JavaField>(
+                                "are not Kotlin constructor-property backing fields or reported by ARCH-SPRING-023/024") {
+                            @Override
+                            public boolean test(JavaField field) {
+                                if (onlyPrivate && !field.getModifiers().contains(JavaModifier.PRIVATE)) {
+                                    return false;
+                                }
+                                // A static field is never injected (ARCH-SPRING-023), and a legacy javax annotation
+                                // on a container bean is ignored altogether (ARCH-SPRING-024): neither is field
+                                // injection.
+                                return !isConstructorPropertyBackingField(field)
+                                        && LegacyJavaxInjection.ignoredAnnotation(field, beans)
+                                                .isEmpty();
+                            }
+                        })
                 .and(observed(DescribedPredicate.alwaysTrue(), context))
                 .should(BE_ANNOTATED_WITH_STANDARD_INJECTION_ANNOTATION)
                 .as("no classes should use standard-annotation field injection");
+    }
+
+    private static boolean hasPrivateStandardInjectedField(JavaClasses classes, ContainerBeans beans) {
+        for (JavaClass javaClass : classes) {
+            for (JavaField field : javaClass.getFields()) {
+                if (field.getModifiers().contains(JavaModifier.STATIC)
+                        || !field.getModifiers().contains(JavaModifier.PRIVATE)
+                        || isConstructorPropertyBackingField(field)
+                        || LegacyJavaxInjection.ignoredAnnotation(field, beans).isPresent()) {
+                    continue;
+                }
+                if (STANDARD_INJECTION_ANNOTATIONS.stream().anyMatch(field::isAnnotatedWith)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isConstructorPropertyBackingField(JavaField field) {
+        boolean copied = false;
+        for (String annotation : STANDARD_INJECTION_ANNOTATIONS) {
+            if (!field.isAnnotatedWith(annotation)) continue;
+            if (!KotlinBytecode.isConstructorPropertyAnnotation(field, annotation)) return false;
+            copied = true;
+        }
+        return copied;
     }
 }
 
@@ -953,6 +1229,7 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
     ArchRule rule(ArchitectureContext context) {
         // Deliberately not ProxyRules: it only exposes the call target to its predicate, and filters origins
         // by ACC_BRIDGE alone. Kotlin needs both ends of the call examined — see bypassesProxy below.
+        ContainerBeans beans = new ContainerBeans(context.classes());
         return noClasses()
                 .should(
                         new ArchCondition<JavaClass>(
@@ -963,7 +1240,11 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                             public void check(JavaClass javaClass, ConditionEvents events) {
                                 for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
                                     events.add(new SimpleConditionEvent(
-                                            call, bypassesProxy(context, call), describe(call)));
+                                            call, bypassesProxy(context, beans, call), describe(call)));
+                                }
+                                for (JavaMethodReference reference : javaClass.getMethodReferencesFromSelf()) {
+                                    events.add(new SimpleConditionEvent(
+                                            reference, bypassesProxy(context, beans, reference), describe(reference)));
                                 }
                             }
                         })
@@ -988,17 +1269,24 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
      * calling a target whose sole proxy behaviour is a {@code REQUIRED}, {@code SUPPORTS} or {@code MANDATORY}
      * transaction with the same manager, rollback rules, isolation and timeout. See {@link TransactionJoin}.
      */
-    private static boolean bypassesProxy(ArchitectureContext context, JavaMethodCall call) {
+    private static boolean bypassesProxy(
+            ArchitectureContext context, ContainerBeans beans, JavaCodeUnitAccess<?> access) {
         if (context.platform() != ArchitecturePlatform.SPRING
-                || !call.getOriginOwner().equals(call.getTargetOwner())
-                || KotlinBytecode.isGeneratedDispatchBridge(call.getOrigin())) {
+                || !access.getOriginOwner().equals(access.getTargetOwner())
+                || KotlinBytecode.isGeneratedDispatchBridge(access.getOrigin())) {
             return false;
         }
-        MethodCallTarget target = call.getTarget();
+        CodeUnitAccessTarget target = access.getTarget();
         context.evidence().observed();
-        Optional<JavaMethod> resolved = target.resolveMember();
-        if (resolved.isEmpty()) context.evidence().markRequiredUnknown();
-        if (resolved.isPresent() && ArchitectureRuleSupport.isCompilerGenerated(resolved.get())) {
+        Optional<JavaMethod> resolved =
+                target.resolveMember().filter(JavaMethod.class::isInstance).map(JavaMethod.class::cast);
+        if (resolved.isEmpty()) {
+            if (couldBeProxied(access.getTargetOwner(), target, beans)) {
+                context.evidence().markRequiredUnknown();
+            }
+            return SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target);
+        }
+        if (ArchitectureRuleSupport.isCompilerGenerated(resolved.get())) {
             // A $default bridge stands in for a declared function, so resolve through it. Any other
             // compiler-generated target — the $suspendImpl body of an open suspend fun, a javac bridge —
             // is plumbing that merely inherits the annotation, and judging it invents a finding.
@@ -1007,30 +1295,62 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                 return false;
             }
         }
-        CanBeAnnotated proxied = resolved.isPresent() ? resolved.get() : target;
-        if (!SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(proxied)
-                && !SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(call.getTargetOwner())) {
+        JavaMethod resolvedMethod = resolved.get();
+        boolean methodAnnotated = SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(resolvedMethod);
+        boolean classAnnotated = SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(access.getTargetOwner());
+        if (!methodAnnotated && !classAnnotated) {
             return false;
         }
-        return resolved.isEmpty() || !TransactionJoin.joinsCallerTransaction(call, resolved.get());
+        if (!methodAnnotated && !AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(resolvedMethod)) {
+            return false;
+        }
+        return !(access instanceof JavaMethodCall call && TransactionJoin.joinsCallerTransaction(call, resolvedMethod));
+    }
+
+    private static boolean couldBeProxied(JavaClass owner, CodeUnitAccessTarget target, ContainerBeans beans) {
+        if (owner.getModifiers().contains(JavaModifier.FINAL)
+                && owner.getRawInterfaces().isEmpty()) {
+            return false;
+        }
+        if (beans.isManaged(owner)
+                || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(owner)
+                || SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(owner)
+                || SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target)) {
+            return true;
+        }
+        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(owner)) {
+            if (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * The call, described by the function the developer wrote rather than by the {@code $default} bridge
-     * that stands in for it. A finding naming a method that appears in no source file cannot be acted on.
+     * or {@code $suspendImpl} helper that stands in for it. A finding naming a method that appears in no
+     * source file cannot be acted on.
      */
-    private static String describe(JavaMethodCall call) {
-        String description = call.getDescription();
-        if (!call.getOriginOwner().equals(call.getTargetOwner())) {
+    private static String describe(JavaCodeUnitAccess<?> access) {
+        String description = access.getDescription();
+        JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
+        if (!origin.equals(access.getOrigin())) {
+            description = description.replace(access.getOrigin().getFullName(), origin.getFullName());
+        }
+        if (!access.getOriginOwner().equals(access.getTargetOwner())) {
             return description;
         }
-        Optional<JavaMethod> bridge = call.getTarget().resolveMember();
+        Optional<JavaMethod> bridge = access.getTarget()
+                .resolveMember()
+                .filter(JavaMethod.class::isInstance)
+                .map(JavaMethod.class::cast);
         if (bridge.isEmpty()) {
             return description;
         }
+        String current = description;
         return KotlinBytecode.defaultArgumentDispatchTarget(bridge.get())
-                .map(declared -> description.replace(bridge.get().getFullName(), declared.getFullName()))
-                .orElse(description);
+                .map(declared -> current.replace(bridge.get().getFullName(), declared.getFullName()))
+                .orElse(current);
     }
 }
 
@@ -1609,18 +1929,22 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
                 .as("Async methods should return void or Future");
     }
 
-    private static boolean returnsVoidOrFuture(JavaMethod method) {
+    static boolean returnsVoidOrFuture(JavaMethod method) {
         JavaClass returnType = method.getRawReturnType();
         return returnType.isEquivalentTo(void.class)
                 || KotlinBytecode.isUnit(returnType.getName())
                 || returnType.isAssignableTo(java.util.concurrent.Future.class);
     }
 
-    private static boolean isInterceptable(JavaMethod method) {
+    static boolean isInterceptable(JavaMethod method) {
         Set<JavaModifier> modifiers = method.getModifiers();
         return !modifiers.contains(JavaModifier.PRIVATE)
                 && !modifiers.contains(JavaModifier.STATIC)
                 && !modifiers.contains(JavaModifier.FINAL);
+    }
+
+    static boolean isReportedByArchSpring011(JavaMethod method) {
+        return isInterceptable(method) && (KotlinBytecode.isSuspendFunction(method) || !returnsVoidOrFuture(method));
     }
 }
 
@@ -1923,6 +2247,14 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                 || javaClass.getModifiers().contains(JavaModifier.ABSTRACT)) {
             return false;
         }
+        if (!javaClass
+                        .getRawSuperclass()
+                        .map(superclass -> superclass.isEquivalentTo(Object.class))
+                        .orElse(true)
+                || !javaClass.getRawInterfaces().isEmpty()
+                || !javaClass.getSubclasses().isEmpty()) {
+            return false;
+        }
         if (ContainerBeans.isAnnotatedBean(javaClass) || ContainerBeans.declaresFactoryMethods(javaClass)) {
             // Beans and @Bean / CDI producer holders are container infrastructure, not utility classes: the
             // container instantiates them, and @Configuration classes must stay subclassable for CGLIB.
@@ -2003,12 +2335,14 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "HIGH",
                         "Detects direct calls between @Bean methods declared in the same class when that class is not"
-                                + " a full @Configuration(proxyBeanMethods=true). In lite mode the call is a plain Java"
+                                + " a full @Configuration(proxyBeanMethods=true) (including @AutoConfiguration and"
+                                + " composed proxyBeanMethods=false annotations), or when the target sibling @Bean"
+                                + " method is static (which CGLIB cannot intercept). The call is a plain Java"
                                 + " invocation that bypasses the container, so it creates whatever the factory method"
                                 + " returns instead of resolving the managed bean.",
-                        "Declare the class as @Configuration (the default proxyBeanMethods=true), or pass the"
-                                + " dependency as a @Bean method parameter instead of calling the sibling @Bean method"
-                                + " directly.",
+                        "Declare the class as @Configuration (the default proxyBeanMethods=true) with non-static @Bean"
+                                + " methods, or pass the dependency as a @Bean method parameter instead of calling the"
+                                + " sibling @Bean method directly.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html"));
     }
 
@@ -2018,9 +2352,6 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                 .should(new ArchCondition<JavaClass>("not call sibling @Bean methods from lite-mode @Bean methods") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        if (isFullConfiguration(javaClass)) {
-                            return;
-                        }
                         Set<JavaMethod> beanMethods = new HashSet<>();
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (SpringStereotypes.BEAN_ANNOTATED.test(method)) {
@@ -2030,23 +2361,47 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                         if (beanMethods.isEmpty()) {
                             return;
                         }
+                        boolean fullConfiguration = isFullConfiguration(javaClass);
+                        if (fullConfiguration
+                                && beanMethods.stream()
+                                        .noneMatch(
+                                                method -> method.getModifiers().contains(JavaModifier.STATIC))) {
+                            return;
+                        }
                         context.evidence().observed();
                         for (JavaMethod beanMethod : beanMethods) {
                             for (JavaMethodCall call : beanMethod.getMethodCallsFromSelf()) {
+                                if (!call.getOriginOwner().equals(call.getTargetOwner())) {
+                                    continue;
+                                }
                                 Optional<JavaMethod> target = call.getTarget().resolveMember();
                                 if (target.isEmpty()) {
                                     context.evidence().markRequiredUnknown();
                                     continue;
                                 }
                                 JavaMethod targetMethod = target.get();
+                                if (ArchitectureRuleSupport.isCompilerGenerated(targetMethod)) {
+                                    targetMethod = KotlinBytecode.defaultArgumentDispatchTarget(targetMethod)
+                                            .orElse(null);
+                                    if (targetMethod == null) {
+                                        continue;
+                                    }
+                                }
                                 if (targetMethod.equals(beanMethod) || !beanMethods.contains(targetMethod)) {
                                     continue;
                                 }
+                                if (fullConfiguration
+                                        && !targetMethod.getModifiers().contains(JavaModifier.STATIC)) {
+                                    continue;
+                                }
                                 events.add(SimpleConditionEvent.violated(
-                                        beanMethod,
+                                        call,
                                         "@Bean method " + beanMethod.getFullName()
                                                 + " directly calls sibling @Bean method " + targetMethod.getFullName()
-                                                + " in lite mode, bypassing the Spring container"));
+                                                + (fullConfiguration
+                                                        ? " (declared static, which CGLIB cannot intercept)"
+                                                        : " in lite mode")
+                                                + ", bypassing the Spring container"));
                             }
                         }
                     }
@@ -2061,8 +2416,17 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
     }
 
     private static boolean proxyBeanMethodsExplicitlyDisabled(JavaClass javaClass) {
-        for (JavaAnnotation<?> annotation : javaClass.getAnnotations()) {
-            String type = annotation.getRawType().getName();
+        return hasProxyBeanMethodsDisabled(javaClass.getAnnotations(), new HashSet<>());
+    }
+
+    private static boolean hasProxyBeanMethodsDisabled(
+            Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            JavaClass rawType = annotation.getRawType();
+            String type = rawType.getName();
+            if (type.equals(SpringStereotypes.AUTO_CONFIGURATION)) {
+                return true;
+            }
             if (type.equals(SpringStereotypes.CONFIGURATION)
                     || type.equals(SpringStereotypes.SPRING_BOOT_APPLICATION)
                     || type.equals(SpringStereotypes.SPRING_BOOT_CONFIGURATION)) {
@@ -2070,6 +2434,11 @@ final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends Abstr
                 if (Boolean.FALSE.equals(value)) {
                     return true;
                 }
+            } else if (Boolean.FALSE.equals(annotation.get("proxyBeanMethods").orElse(null))) {
+                return true;
+            }
+            if (visited.add(type) && hasProxyBeanMethodsDisabled(rawType.getAnnotations(), visited)) {
+                return true;
             }
         }
         return false;
@@ -2258,8 +2627,9 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
                         "Detects @EventListener methods that run through @Async (on the method or declaring class) and"
-                                + " return a value. Spring cannot publish that value as a follow-up event for an"
-                                + " asynchronous listener.",
+                                + " return a Future (or a non-void value not already reported by ARCH-SPRING-011)."
+                                + " Spring cannot publish that value as a follow-up event for an asynchronous"
+                                + " listener.",
                         "Return void from the asynchronous listener. To publish a follow-up event, inject"
                                 + " ApplicationEventPublisher and publish it explicitly.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/event/EventListener.html"));
@@ -2275,13 +2645,20 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
                             if (method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
                                     && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))) {
+                                if (AsyncMethodsShouldHaveSupportedSignaturesRule.isReportedByArchSpring011(method)) {
+                                    continue;
+                                }
                                 context.evidence().observed();
-                                if (method.getRawReturnType().isEquivalentTo(void.class)) continue;
+                                JavaClass returnType = method.getRawReturnType();
+                                if (returnType.isEquivalentTo(void.class)
+                                        || KotlinBytecode.isUnit(returnType.getName())) {
+                                    continue;
+                                }
                                 events.add(SimpleConditionEvent.violated(
                                         method,
                                         "Asynchronous event listener " + method.getFullName()
                                                 + " returns "
-                                                + method.getRawReturnType().getName()
+                                                + returnType.getName()
                                                 + "; Spring cannot publish return values from asynchronous listeners"));
                             }
                         }
@@ -2435,7 +2812,7 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
                             if (!isUnderBasePackages(targetPackage, basePackages)) {
                                 continue;
                             }
-                            String modulePrefix = owningModulePrefix(targetPackage);
+                            String modulePrefix = owningModulePrefix(targetPackage, basePackages);
                             if (modulePrefix == null) {
                                 continue;
                             }
@@ -2467,13 +2844,31 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
         return false;
     }
 
-    private static String owningModulePrefix(String packageName) {
-        String[] segments = packageName.split("\\.");
-        for (int i = 0; i < segments.length; i++) {
-            if (segments[i].equals("internal")) {
-                if (i == 0) {
-                    return null; // no owning module sits above a leading 'internal' segment
+    private static String owningModulePrefix(String packageName, List<String> basePackages) {
+        String matchedBase = longestMatchingBasePackage(packageName, basePackages);
+        if (!basePackages.isEmpty() && matchedBase == null) {
+            return null;
+        }
+        if (matchedBase != null && !matchedBase.isEmpty()) {
+            if (!packageName.startsWith(matchedBase + ".")) {
+                return null;
+            }
+            String relative = packageName.substring(matchedBase.length() + 1);
+            String[] segments = relative.split("\\.");
+            for (int i = 0; i < segments.length; i++) {
+                if (segments[i].equals("internal")) {
+                    StringBuilder prefix = new StringBuilder(matchedBase);
+                    for (int j = 0; j < i; j++) {
+                        prefix.append('.').append(segments[j]);
+                    }
+                    return prefix.toString();
                 }
+            }
+            return null;
+        }
+        String[] segments = packageName.split("\\.");
+        for (int i = 1; i < segments.length; i++) {
+            if (segments[i].equals("internal")) {
                 StringBuilder prefix = new StringBuilder();
                 for (int j = 0; j < i; j++) {
                     if (j > 0) {
@@ -2485,6 +2880,18 @@ final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractAr
             }
         }
         return null;
+    }
+
+    private static String longestMatchingBasePackage(String packageName, List<String> basePackages) {
+        String longest = null;
+        for (String base : basePackages) {
+            if (packageName.equals(base) || packageName.startsWith(base + ".")) {
+                if (longest == null || base.length() > longest.length()) {
+                    longest = base;
+                }
+            }
+        }
+        return longest;
     }
 }
 
@@ -2534,34 +2941,6 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
                     }
                 })
                 .as("Classes should not directly instantiate Thread");
-    }
-}
-
-/**
- * Flags {@code assert} statements (compiled as a no-arg {@code new AssertionError()}) that have no
- * detail message, which produce near-useless failure diagnostics.
- *
- * <p>Wires in ArchUnit's own ready-made {@code GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE}.
- */
-final class AssertionsShouldHaveDetailMessageRule extends AbstractArchitectureRule {
-
-    AssertionsShouldHaveDetailMessageRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-018",
-                "Assertions should have a detail message",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects assert statements (compiled as new AssertionError() with no arguments) that have no detail"
-                        + " message, which produce near-useless failure diagnostics.",
-                "Add a detail message, e.g. \"assert x > 0 : \\\"x must be positive\\\";\", so a failure explains what"
-                        + " was expected.",
-                "https://docs.oracle.com/javase/8/docs/technotes/guides/language/assert.html"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE;
     }
 }
 
@@ -2716,6 +3095,9 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
     static final String WEB_CLIENT_MODULE_MARKER = "org.springframework.boot.webclient.WebClientCustomizer";
 
     private static final Set<String> FACTORY_METHODS = Set.of("builder", "create");
+    private static final Set<String> REST_CLIENT_BUILDER_CONFIGURERS = Set.of(
+            "org.springframework.boot.restclient.autoconfigure.RestClientBuilderConfigurer",
+            "org.springframework.boot.autoconfigure.web.client.RestClientBuilderConfigurer");
 
     private final java.util.function.Predicate<String> classPresent;
 
@@ -2765,29 +3147,65 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
                 .should(new ArchCondition<JavaClass>("not build HTTP clients from static factories") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
+                        Set<JavaMethodCall> consumedConfigurers = new HashSet<>();
                         for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
-                            report(call, call.getTarget(), events);
+                            report(call, call.getTarget(), consumedConfigurers, events);
                         }
                         for (JavaMethodReference reference : javaClass.getMethodReferencesFromSelf()) {
-                            report(reference, reference.getTarget(), events);
+                            report(reference, reference.getTarget(), consumedConfigurers, events);
                         }
                     }
 
                     private void report(
-                            com.tngtech.archunit.core.domain.JavaCodeUnitAccess<?> access,
+                            JavaCodeUnitAccess<?> access,
                             CodeUnitAccessTarget target,
+                            Set<JavaMethodCall> consumedConfigurers,
                             ConditionEvents events) {
                         String owner = target.getOwner().getName();
                         if (!owners.contains(owner) || !FACTORY_METHODS.contains(target.getName())) return;
+                        if (access instanceof JavaMethodCall call
+                                && REST_CLIENT.equals(owner)
+                                && target.getName().equals("builder")
+                                && target.getRawParameterTypes().isEmpty()
+                                && isConfiguredByRestClientBuilderConfigurer(call, consumedConfigurers)) {
+                            return;
+                        }
+                        JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
                         String client = owner.substring(owner.lastIndexOf('.') + 1);
                         events.add(SimpleConditionEvent.violated(
                                 access,
-                                access.getOrigin().getFullName() + " builds a " + client + " with " + client + "."
+                                origin.getFullName() + " builds a " + client + " with " + client + "."
                                         + target.getName() + "(..) instead of Spring Boot's auto-configured " + client
                                         + ".Builder " + access.getSourceCodeLocation()));
                     }
                 })
                 .as("HTTP clients should be built from Spring Boot's auto-configured builder");
+    }
+
+    private static boolean isConfiguredByRestClientBuilderConfigurer(
+            JavaMethodCall builderCall, Set<JavaMethodCall> consumedConfigurers) {
+        int builderLine = builderCall.getLineNumber();
+        if (builderLine <= 0) {
+            return false;
+        }
+        for (JavaMethodCall call : builderCall.getOrigin().getMethodCallsFromSelf()) {
+            if (call.getLineNumber() == builderLine
+                    && isRestClientConfigurerConfigureTarget(call.getTarget())
+                    && consumedConfigurers.add(call)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRestClientConfigurerConfigureTarget(CodeUnitAccessTarget target) {
+        if (!target.getName().equals("configure")) {
+            return false;
+        }
+        String ownerName = target.getOwner().getName();
+        return REST_CLIENT_BUILDER_CONFIGURERS.contains(ownerName)
+                || ownerName.endsWith(".RestClientBuilderConfigurer")
+                || ownerName.endsWith("$RestClientBuilderConfigurer");
     }
 
     private static boolean isClassPresent(String name) {

@@ -74,6 +74,9 @@ public final class ArchUnitLocations {
             return location(type, null, null);
         }
         if (object instanceof JavaMember member) {
+            if (member instanceof JavaCodeUnit codeUnit) {
+                member = KotlinBytecode.unwrapSuspendImplOrigin(codeUnit);
+            }
             Integer line = member instanceof JavaCodeUnit
                     ? member.getSourceCodeLocation().getLineNumber()
                     : null;
@@ -113,6 +116,9 @@ public final class ArchUnitLocations {
 
     private static AdvisorViolationLocationDto location(JavaClass type, JavaMember member, Integer line) {
         if (type == null) return null;
+        if (member instanceof JavaCodeUnit codeUnit) {
+            member = KotlinBytecode.unwrapSuspendImplOrigin(codeUnit);
+        }
         String memberName = null;
         String kind = AdvisorViolationLocationDto.CLASS;
         if (member != null && !KotlinBytecode.isCompilerGenerated(member)) {

@@ -92,12 +92,7 @@ public final class QuarkusHibernateAdvisorObservationSource implements Hibernate
             diagnostics.add(new HibernateObservationDiagnostic(
                     "application", HibernateObservationDiagnostic.Reason.FACTORY_UNAVAILABLE));
         }
-        List<String> profiles = Arrays.stream(config.getOptionalValue("quarkus.profile", String.class)
-                        .orElse("")
-                        .split(","))
-                .map(String::trim)
-                .filter(value -> !value.isEmpty())
-                .toList();
+        List<String> profiles = resolveProfiles(config);
         HibernateApplicationFacts facts = new HibernateApplicationFacts(
                 profiles,
                 false,
@@ -107,6 +102,27 @@ public final class QuarkusHibernateAdvisorObservationSource implements Hibernate
                 config.getOptionalValue("bootui.internal.hibernate-panache-enhancement", Boolean.class)
                         .orElse(false));
         return new HibernateAdvisorObservation(units, facts, diagnostics);
+    }
+
+    private static List<String> resolveProfiles(Config config) {
+        if (config == null) {
+            return List.of();
+        }
+        try {
+            List<String> profiles =
+                    config.unwrap(io.smallrye.config.SmallRyeConfig.class).getProfiles();
+            if (profiles != null && !profiles.isEmpty()) {
+                return List.copyOf(profiles);
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Fall back to quarkus.profile when Config is a test double that does not unwrap to SmallRyeConfig.
+        }
+        return Arrays.stream(config.getOptionalValue("quarkus.profile", String.class)
+                        .orElse("")
+                        .split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toList();
     }
 
     private ConnectionPoolProvider poolProvider() {

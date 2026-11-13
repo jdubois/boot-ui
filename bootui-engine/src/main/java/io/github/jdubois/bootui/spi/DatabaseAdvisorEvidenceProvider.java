@@ -27,6 +27,14 @@ public interface DatabaseAdvisorEvidenceProvider {
     Map<String, JdbcBatching> jdbcBatching();
 
     /**
+     * The attributed datasource name per Hibernate entity name, derived from persistence-unit pool attribution. An
+     * entity whose persistence unit could not be attributed to a single datasource is absent.
+     */
+    default Map<String, String> entityDataSources() {
+        return Map.of();
+    }
+
+    /**
      * @param dataSourceName the datasource name, equal to {@link NamedDataSource#name()}
      * @param pool the sanitized pool settings, or {@code null} when no pool could be attributed
      * @param driverProperties the driver properties the pool supplies, restricted to allow-listed names with values

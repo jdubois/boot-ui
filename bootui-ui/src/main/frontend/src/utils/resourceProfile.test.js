@@ -5,6 +5,7 @@ import {
   elapsedPercent,
   frameLabel,
   isResourceProfile,
+  pinningSummary,
   profileRows,
   remainingSeconds,
   requestShare,
@@ -58,5 +59,28 @@ describe('resource profile helpers', () => {
     expect(frameLabel('com.example.orders.OrderService.price:42')).toBe('OrderService.price:42')
     expect(frameLabel('com.example.OrderService.price')).toBe('OrderService.price')
     expect(frameLabel('Main.run:3')).toBe('Main.run:3')
+  })
+
+  it('summarizes virtual-thread pinning when the runtime supports jdk.VirtualThreadPinned', () => {
+    expect(pinningSummary({virtualThreadPinningSupported: false, pinnedEvents: 0})).toBeNull()
+    expect(pinningSummary({virtualThreadPinningSupported: true, pinnedEvents: 0, outsidePinnedEvents: 0})).toBe(
+      '0 virtual-thread pinned events (≥ 1 ms threshold).'
+    )
+    expect(
+      pinningSummary({
+        virtualThreadPinningSupported: true,
+        pinnedEvents: 1,
+        outsidePinnedEvents: 0,
+        pinnedDurationMicros: 4_500
+      })
+    ).toBe('1 virtual-thread pinned event (4.5 ms total, 0 outside requests).')
+    expect(
+      pinningSummary({
+        virtualThreadPinningSupported: true,
+        pinnedEvents: 3,
+        outsidePinnedEvents: 1,
+        pinnedDurationMicros: 18_200
+      })
+    ).toBe('3 virtual-thread pinned events (18.2 ms total, 1 outside requests).')
   })
 })

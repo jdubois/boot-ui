@@ -37,7 +37,8 @@ record DatabaseAdvisorContext(
         List<SchemaDiagnostic> evaluationDiagnostics,
         AdvisorViolationCollector violationCollector,
         Map<String, JdbcBatching> jdbcBatching,
-        Map<String, PoolSettings> pools) {
+        Map<String, PoolSettings> pools,
+        Map<String, String> entityDataSources) {
 
     private static final int MAX_EVALUATION_DIAGNOSTICS = 100;
 
@@ -48,6 +49,28 @@ record DatabaseAdvisorContext(
         evaluationDiagnostics = new ArrayList<>(evaluationDiagnostics);
         jdbcBatching = jdbcBatching == null ? Map.of() : Map.copyOf(jdbcBatching);
         pools = pools == null ? Map.of() : Map.copyOf(pools);
+        entityDataSources = entityDataSources == null ? Map.of() : Map.copyOf(entityDataSources);
+    }
+
+    DatabaseAdvisorContext(
+            List<SchemaSnapshot> schemas,
+            boolean hibernateAvailable,
+            List<MappedEntityFacts> hibernateEntities,
+            List<SqlTraceEntryDto> observedStatements,
+            List<SchemaDiagnostic> evaluationDiagnostics,
+            AdvisorViolationCollector violationCollector,
+            Map<String, JdbcBatching> jdbcBatching,
+            Map<String, PoolSettings> pools) {
+        this(
+                schemas,
+                hibernateAvailable,
+                hibernateEntities,
+                observedStatements,
+                evaluationDiagnostics,
+                violationCollector,
+                jdbcBatching,
+                pools,
+                Map.of());
     }
 
     DatabaseAdvisorContext(
@@ -128,6 +151,14 @@ record DatabaseAdvisorContext(
     /** The batching known for {@code dataSourceName}, or {@code null} when it is unknown. */
     JdbcBatching jdbcBatchingOf(String dataSourceName) {
         return jdbcBatching.get(dataSourceName);
+    }
+
+    /**
+     * The attributed datasource name for {@code entityName}, or {@code null} when the entity's persistence unit is not
+     * attributed to a single datasource.
+     */
+    String dataSourceOfEntity(String entityName) {
+        return entityName == null ? null : entityDataSources.get(entityName);
     }
 
     List<SchemaSnapshot> availableSchemas() {

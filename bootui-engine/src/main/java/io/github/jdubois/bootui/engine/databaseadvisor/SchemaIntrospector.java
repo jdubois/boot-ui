@@ -217,7 +217,7 @@ final class SchemaIntrospector {
         for (VendorAugmentation<?> truncation : findings.truncations()) {
             diagnostics.add(SchemaDiagnostic.warning(
                     dataSourceName,
-                    truncation.kind().label() + " was truncated at " + limits.maxVendorFindings()
+                    truncation.kind().label() + " was truncated at " + limits.rowLimit(truncation.kind())
                             + " rows; some findings may be missing."));
         }
 

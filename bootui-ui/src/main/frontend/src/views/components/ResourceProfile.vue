@@ -1,7 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {ApiError, getJson} from '../../api.js'
-import {formatBytes, formatNumber} from '../../utils/format.js'
+import {formatBytes, formatDuration, formatNumber} from '../../utils/format.js'
 import {diagnosticActionError} from '../../utils/diagnosticAcknowledgement.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import {
@@ -9,6 +9,7 @@ import {
   elapsedPercent,
   frameLabel,
   isResourceProfile,
+  pinningSummary,
   profileRows,
   remainingSeconds,
   requestShare,
@@ -59,6 +60,7 @@ const summary = computed(() => {
 const finished = computed(() =>
   profile.value?.finishedAt ? new Date(profile.value.finishedAt).toLocaleTimeString() : null
 )
+const pinning = computed(() => pinningSummary(profile.value))
 
 function show(result) {
   if (
@@ -66,20 +68,32 @@ function show(result) {
     !['IDLE', 'RUNNING', 'COMPLETED', 'FAILED', 'UNAVAILABLE'].includes(result.state) ||
     !['reason', 'sampler'].every((field) => result[field] === null || typeof result[field] === 'string') ||
     !['startedAt', 'endsAt', 'finishedAt'].every((field) => result[field] === null || Number.isFinite(result[field])) ||
+    typeof result.virtualThreadPinningSupported !== 'boolean' ||
     !Array.isArray(result.limitations) ||
     !result.limitations.every((limitation) => typeof limitation === 'string') ||
-    !['maxDurationSeconds', 'cpuSamples', 'outsideSamples', 'requests', 'routesOmitted'].every(
-      (field) => Number.isFinite(result[field]) && result[field] >= 0
-    ) ||
+    ![
+      'maxDurationSeconds',
+      'cpuSamples',
+      'outsideSamples',
+      'requests',
+      'pinnedEvents',
+      'outsidePinnedEvents',
+      'pinnedDurationMicros',
+      'routesOmitted'
+    ].every((field) => Number.isFinite(result[field]) && result[field] >= 0) ||
     !result.routes.every(
       (route) =>
         typeof route?.route === 'string' &&
-        ['requests', 'cpuSamples', 'allocatedBytes'].every(
+        ['requests', 'cpuSamples', 'allocatedBytes', 'pinnedEvents', 'pinnedDurationMicros'].every(
           (field) => Number.isFinite(route[field]) && route[field] >= 0
         ) &&
         typeof route.virtualThreads === 'boolean' &&
         Array.isArray(route.hotFrames) &&
         route.hotFrames.every(
+          (frame) => typeof frame?.frame === 'string' && Number.isFinite(frame.samples) && frame.samples >= 0
+        ) &&
+        Array.isArray(route.pinnedFrames) &&
+        route.pinnedFrames.every(
           (frame) => typeof frame?.frame === 'string' && Number.isFinite(frame.samples) && frame.samples >= 0
         )
     )
@@ -230,7 +244,8 @@ onBeforeUnmount(() => {
           </p>
         </div>
         <template v-else-if="state === 'COMPLETED'">
-          <p class="small mt-3 mb-2 insight-profile-summary">{{ summary }}</p>
+          <p class="small mt-3 mb-1 insight-profile-summary">{{ summary }}</p>
+          <p v-if="pinning" class="small text-muted mb-2 insight-profile-pinning">{{ pinning }}</p>
           <p v-if="!rows.length && !routesHidden" class="small text-muted mb-0">
             No request samples were attributed to listed routes during the session. Click "Profile again" and use the
             application — click through the pages you want measured — while it records.
@@ -243,6 +258,7 @@ onBeforeUnmount(() => {
                   <th scope="col" class="text-end">Requests</th>
                   <th scope="col">CPU samples</th>
                   <th scope="col" class="text-end">Allocated</th>
+                  <th v-if="profile.virtualThreadPinningSupported" scope="col">Virtual-thread pinning</th>
                   <th scope="col">Hottest sampled frame</th>
                 </tr>
               </thead>
@@ -273,6 +289,27 @@ onBeforeUnmount(() => {
                     </span>
                   </td>
                   <td class="text-end insight-profile-number">{{ formatBytes(row.allocatedBytes) }}</td>
+                  <td v-if="profile.virtualThreadPinningSupported" class="insight-profile-pinned">
+                    <template v-if="row.pinnedEvents > 0">
+                      <span class="insight-profile-number"
+                        >{{ formatNumber(row.pinnedEvents) }} {{ row.pinnedEvents === 1 ? 'pin' : 'pins' }} ·
+                        {{ formatDuration(row.pinnedDurationMicros * 1000) }}</span
+                      >
+                      <div v-if="row.pinnedFrames.length" class="small mt-1 insight-profile-pinned-frames">
+                        <code :title="row.pinnedFrames[0].frame">{{ frameLabel(row.pinnedFrames[0].frame) }}</code>
+                        <details v-if="row.pinnedFrames.length > 1">
+                          <summary class="text-muted">{{ row.pinnedFrames.length - 1 }} more</summary>
+                          <ol class="list-unstyled mb-0">
+                            <li v-for="frame in row.pinnedFrames.slice(1)" :key="frame.frame">
+                              <code :title="frame.frame">{{ frameLabel(frame.frame) }}</code>
+                              <span class="text-muted"> · {{ formatNumber(frame.samples) }}</span>
+                            </li>
+                          </ol>
+                        </details>
+                      </div>
+                    </template>
+                    <span v-else class="text-muted small">None</span>
+                  </td>
                   <td class="insight-profile-frame">
                     <template v-if="row.hotFrames.length">
                       <code :title="row.hotFrames[0].frame">{{ frameLabel(row.hotFrames[0].frame) }}</code>
@@ -353,7 +390,8 @@ onBeforeUnmount(() => {
   width: 30%;
 }
 
-.insight-profile-frame {
+.insight-profile-frame,
+.insight-profile-pinned {
   min-width: 12rem;
 }
 

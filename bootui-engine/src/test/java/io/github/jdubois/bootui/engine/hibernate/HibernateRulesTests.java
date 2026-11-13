@@ -182,11 +182,14 @@ class HibernateRulesTests {
     @Test
     void queryShapeGapsNameTheSpecificObstacle() {
         java.util.Map<String, HibernateEvidenceGap> expected = new java.util.LinkedHashMap<>();
-        expected.put("select r from MultiCollectionRoot r join r.firstBag b", HibernateEvidenceGap.QUERY_JOIN_PATH);
+        expected.put(
+                "select r from MultiCollectionRoot r join r.firstBag b join b.items",
+                HibernateEvidenceGap.QUERY_JOIN_PATH);
         expected.put("select r from UnknownEntity r", HibernateEvidenceGap.QUERY_ENTITY);
         expected.put(
                 "select r from MultiCollectionRoot r where r.id in (select 1 from MultiCollectionRoot x)",
                 HibernateEvidenceGap.QUERY_SHAPE);
+        expected.put("select r from MultiCollectionRoot r, UnknownEntity u", HibernateEvidenceGap.QUERY_SHAPE);
         expected.forEach((query, gap) -> {
             HibernateContext context = context(new TestEnvironment(), List.of(), MultiCollectionRoot.class);
             context.evidence().reset();
@@ -865,6 +868,27 @@ class HibernateRulesTests {
                 .anySatisfy(sample -> assertThat(sample).contains("explicitly uses"));
     }
 
+    @Test
+    void enumRulesExemptJdbcTypeCodeNamedEnumVarcharAndClassLevelConvert() {
+        HibernateContext exempted = context(
+                new TestEnvironment(),
+                JdbcTypeCodeEnumEntity.class,
+                ClassConvertedEnumEntity.class,
+                RepeatableClassConvertedEnumEntity.class,
+                NestedEmbeddedConvertedEnumEntity.class);
+        assertThat(new OrdinalEnumRule().evaluate(exempted).status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(new ExplicitOrdinalEnumRule().evaluate(exempted).status()).isEqualTo(HibernateRuleSupport.PASS);
+
+        HibernateContext nonMatching = context(
+                new TestEnvironment(),
+                UnrelatedClassConvertedEnumEntity.class,
+                OrdinalJdbcTypeCodeEnumEntity.class,
+                DisabledEmbeddedConvertedEnumEntity.class);
+        HibernateRuleResultDto ordinalResult = new OrdinalEnumRule().evaluate(nonMatching);
+        assertThat(ordinalResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(ordinalResult.violationCount()).isEqualTo(3);
+    }
+
     // --- HIB-CONFIG-008 -----------------------------------------------------
 
     @Test
@@ -1401,6 +1425,107 @@ class HibernateRulesTests {
                         .doesNotContain("style = TIME")
                         .doesNotContain("VERSION_7")
                         .doesNotContain("VERSION_6"));
+    }
+
+    @Test
+    void uuidIdentifierGeneratorRuleChecksUuidGeneratorStyleForMonotonicOrdering() {
+        HibernateContext monotonicContext = context(
+                new TestEnvironment(),
+                List.of(new HibernateRepositoryModel("Repo", Version7UuidEntity.class, List.of(), true)),
+                Version7UuidEntity.class,
+                Version6UuidEntity.class,
+                CustomAlgorithmUuidEntity.class);
+        HibernateRuleResultDto monotonic = new UuidIdentifierGeneratorRule().evaluate(monotonicContext);
+        assertThat(monotonic.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(new AssignedIdPersistableRule().evaluate(monotonicContext).status())
+                .isEqualTo(HibernateRuleSupport.PASS);
+
+        HibernateRuleResultDto nonMonotonic = new UuidIdentifierGeneratorRule()
+                .evaluate(context(
+                        new TestEnvironment(),
+                        DefaultStyleUuidEntity.class,
+                        RandomStyleUuidEntity.class,
+                        TimeStyleUuidEntity.class));
+        assertThat(nonMonotonic.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(nonMonotonic.violationCount()).isEqualTo(3);
+        assertThat(nonMonotonic.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("DefaultStyleUuidEntity#id", "style = AUTO"))
+                .anySatisfy(sample -> assertThat(sample).contains("RandomStyleUuidEntity#id", "style = RANDOM"))
+                .anySatisfy(sample -> assertThat(sample).contains("TimeStyleUuidEntity#id", "style = TIME"));
+    }
+
+    @Test
+    void derivedDeleteByQueryRuleExcludesSingleRowIdAndNaturalIdDeletes() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.NaturalIdOrderRepository",
+                CompositeNaturalIdEntity.class,
+                List.of(
+                        derivedDeleteMethod(
+                                "removeByOrderIdEquals", CompositeNaturalIdEntity.class, List.of(Long.class), true),
+                        derivedDeleteMethod(
+                                "deleteByTenantAndCode",
+                                CompositeNaturalIdEntity.class,
+                                List.of(String.class, String.class),
+                                true),
+                        derivedDeleteMethod("deleteById", CompositeNaturalIdEntity.class, List.of(String.class), true),
+                        derivedDeleteMethod(
+                                "deleteByTenant", CompositeNaturalIdEntity.class, List.of(String.class), true),
+                        derivedDeleteMethod("deleteByIdIn", CompositeNaturalIdEntity.class, List.of(List.class), true),
+                        derivedDeleteMethod(
+                                "deleteByStatus", CompositeNaturalIdEntity.class, List.of(String.class), true)));
+
+        HibernateRuleResultDto result = new DerivedDeleteByQueryRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), CompositeNaturalIdEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(4);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("#deleteById "))
+                .anySatisfy(sample -> assertThat(sample).contains("#deleteByTenant "))
+                .anySatisfy(sample -> assertThat(sample).contains("#deleteByIdIn "))
+                .anySatisfy(sample -> assertThat(sample).contains("#deleteByStatus "))
+                .noneMatch(sample ->
+                        sample.contains("#removeByOrderIdEquals ") || sample.contains("#deleteByTenantAndCode "));
+    }
+
+    @Test
+    void sqlLoggingInProductionRuleIgnoresBindLoggerAndFlagsOnlyStatementLogging() {
+        TestEnvironment binderOnly =
+                new TestEnvironment().withProperty("logging.level.org.hibernate.orm.jdbc.bind", "TRACE");
+        binderOnly.setActiveProfiles("prod");
+        assertThat(new SqlLoggingInProductionRule()
+                        .evaluate(context(binderOnly))
+                        .status())
+                .isEqualTo(HibernateRuleSupport.PASS);
+
+        HibernatePersistenceUnitObservation unit = new HibernatePersistenceUnitObservation(
+                "orders",
+                "orders",
+                List.of(HibernateEntityModel.fromClass(IdentityEntity.class)),
+                List.of(),
+                "7.4.5.Final",
+                HibernateObservationFixtures.settings(new TestEnvironment()),
+                false);
+        HibernateContext observedBinderOnly = HibernateContext.observed(
+                unit, new HibernateApplicationFacts(List.of("prod"), false, false, true, false));
+        assertThat(new SqlLoggingInProductionRule().evaluate(observedBinderOnly).status())
+                .isEqualTo(HibernateRuleSupport.PASS);
+
+        HibernateContext observedSql = HibernateContext.observed(
+                unit, new HibernateApplicationFacts(List.of("prod"), false, true, false, false));
+        assertThat(new SqlLoggingInProductionRule().evaluate(observedSql).status())
+                .isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void failOnPaginationOverCollectionFetchRuleSkipsWhenUnitHasZeroCollections() {
+        HibernateContext withoutCollections = context(new TestEnvironment(), IdentityEntity.class);
+        HibernateRuleResultDto skipped = new FailOnPaginationOverCollectionFetchRule().evaluate(withoutCollections);
+        assertThat(skipped.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+
+        HibernateContext withCollections = context(new TestEnvironment(), SubselectCollectionEntity.class);
+        HibernateRuleResultDto violation = new FailOnPaginationOverCollectionFetchRule().evaluate(withCollections);
+        assertThat(violation.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
     }
 
     @Test
@@ -2316,5 +2441,185 @@ class HibernateRulesTests {
         public void setLastModified(LocalDateTime lastModified) {
             this.lastModified = lastModified;
         }
+    }
+
+    private static HibernateRepositoryMethodModel derivedDeleteMethod(
+            String name, Class<?> domainType, List<Class<?>> parameters, boolean verified) {
+        return new HibernateRepositoryMethodModel(
+                "com.example.NaturalIdOrderRepository",
+                name,
+                domainType,
+                long.class,
+                null,
+                false,
+                null,
+                false,
+                false,
+                false,
+                false,
+                parameters,
+                new HibernateQueryEvidence(
+                        true, false, verified, false, false, Long.class, false, null, null, List.of()));
+    }
+
+    @Entity
+    static class Version7UuidEntity {
+        @Id
+        @org.hibernate.annotations.UuidGenerator(style = org.hibernate.annotations.UuidGenerator.Style.VERSION_7)
+        UUID id;
+    }
+
+    @Entity
+    static class Version6UuidEntity {
+        @Id
+        @GeneratedValue
+        @org.hibernate.annotations.UuidGenerator(style = org.hibernate.annotations.UuidGenerator.Style.VERSION_6)
+        UUID id;
+    }
+
+    @Entity
+    static class DefaultStyleUuidEntity {
+        @Id
+        @org.hibernate.annotations.UuidGenerator
+        UUID id;
+    }
+
+    @Entity
+    static class RandomStyleUuidEntity {
+        @Id
+        @GeneratedValue
+        @org.hibernate.annotations.UuidGenerator(style = org.hibernate.annotations.UuidGenerator.Style.RANDOM)
+        UUID id;
+    }
+
+    @Entity
+    static class TimeStyleUuidEntity {
+        @Id
+        @GeneratedValue
+        @org.hibernate.annotations.UuidGenerator(style = org.hibernate.annotations.UuidGenerator.Style.TIME)
+        UUID id;
+    }
+
+    enum Status {
+        ACTIVE,
+        INACTIVE
+    }
+
+    @Entity
+    static class JdbcTypeCodeEnumEntity {
+        @Id
+        Long id;
+
+        @org.hibernate.annotations.JdbcTypeCode(6001)
+        Status namedEnumStatus;
+
+        @org.hibernate.annotations.JdbcTypeCode(6000)
+        Status mysqlEnumStatus;
+
+        @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
+        @Enumerated(EnumType.ORDINAL)
+        Status varcharEnumStatus;
+    }
+
+    @Entity
+    @jakarta.persistence.Convert(attributeName = "status", converter = jakarta.persistence.AttributeConverter.class)
+    static class ClassConvertedEnumEntity {
+        @Id
+        Long id;
+
+        Status status;
+    }
+
+    @Entity
+    @jakarta.persistence.Converts(
+            @jakarta.persistence.Convert(
+                    attributeName = "status",
+                    converter = jakarta.persistence.AttributeConverter.class))
+    static class RepeatableClassConvertedEnumEntity {
+        @Id
+        Long id;
+
+        @Enumerated(EnumType.ORDINAL)
+        Status status;
+    }
+
+    @Entity
+    @jakarta.persistence.Convert(attributeName = "other", converter = jakarta.persistence.AttributeConverter.class)
+    static class UnrelatedClassConvertedEnumEntity {
+        @Id
+        Long id;
+
+        Status status;
+    }
+
+    @Entity
+    static class OrdinalJdbcTypeCodeEnumEntity {
+        @Id
+        Long id;
+
+        @org.hibernate.annotations.JdbcTypeCode(6002)
+        Status status;
+    }
+
+    @Entity
+    static class CustomAlgorithmUuidEntity {
+        @Id
+        @org.hibernate.annotations.UuidGenerator(algorithm = String.class)
+        UUID id;
+    }
+
+    @jakarta.persistence.Embeddable
+    static class InnerConvertedEmbeddable {
+        Status status;
+    }
+
+    @jakarta.persistence.Embeddable
+    static class OuterConvertedEmbeddable {
+        @jakarta.persistence.Embedded
+        InnerConvertedEmbeddable inner;
+    }
+
+    @Entity
+    static class NestedEmbeddedConvertedEnumEntity {
+        @Id
+        Long id;
+
+        @jakarta.persistence.Embedded
+        @jakarta.persistence.Convert(
+                attributeName = "inner.status",
+                converter = jakarta.persistence.AttributeConverter.class)
+        OuterConvertedEmbeddable outer;
+    }
+
+    @jakarta.persistence.Embeddable
+    @jakarta.persistence.Convert(attributeName = "status", converter = jakarta.persistence.AttributeConverter.class)
+    static class DefaultConvertedEmbeddable {
+        Status status;
+    }
+
+    @Entity
+    static class DisabledEmbeddedConvertedEnumEntity {
+        @Id
+        Long id;
+
+        @jakarta.persistence.Embedded
+        @jakarta.persistence.Convert(attributeName = "status", disableConversion = true)
+        DefaultConvertedEmbeddable embedded;
+    }
+
+    @Entity
+    static class CompositeNaturalIdEntity {
+        @Id
+        Long orderId;
+
+        String id;
+
+        @NaturalId
+        String tenant;
+
+        @NaturalId
+        String code;
+
+        String status;
     }
 }

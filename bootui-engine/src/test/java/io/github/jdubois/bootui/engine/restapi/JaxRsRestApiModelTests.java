@@ -213,8 +213,8 @@ class JaxRsRestApiModelTests {
         assertThat(controller.hasTag()).isTrue();
 
         RestApiContext context = context(GOOD + ".mpopenapi", true);
-        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
-        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.SKIPPED);
+        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.SKIPPED);
     }
 
     @Test

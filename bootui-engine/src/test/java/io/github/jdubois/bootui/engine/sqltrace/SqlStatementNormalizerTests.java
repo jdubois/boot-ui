@@ -183,6 +183,14 @@ class SqlStatementNormalizerTests {
         assertThat(SqlStatementNormalizer.normalize("select * from t where id in (1, 2, 3)")
                         .sql())
                 .isEqualTo("select * from t where id in (?)");
+        assertThat(SqlStatementNormalizer.normalize("select * from t where id in (\n  1,\n  2,\n  3\n)")
+                        .sql())
+                .isEqualTo("select * from t where id in (?)");
+        assertThat(SqlStatementNormalizer.foldPlaceholderLists(
+                        "/* trace=1 */ select *\nfrom t -- note\nwhere id in (\n  ?,\n  ?\n)"))
+                .isEqualTo("select * from t where id in (?)");
+        assertThat(SqlStatementNormalizer.foldPlaceholderLists("select * from t where txt = 'in ( ? )'"))
+                .isNotEqualTo(SqlStatementNormalizer.foldPlaceholderLists("select * from t where txt = 'in (?)'"));
         assertThat(SqlStatementNormalizer.normalize("select 1, 2 from dual").fingerprint())
                 .isNotEqualTo(
                         SqlStatementNormalizer.normalize("select 1 from dual").fingerprint());

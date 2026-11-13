@@ -26,7 +26,7 @@ export async function assertSpringAdvisorFlow(page, request) {
   expect(response.ok()).toBe(true)
   const report = await response.json()
   expect(report.localOnly).toBe(true)
-  expect(report.rulesEvaluated).toBe(41)
+  expect(report.rulesEvaluated).toBe(39)
   expect(report.scan.scannedAt).toBeGreaterThan(0)
   expect(report.analysisErrors).toEqual([])
   expect(report.inspected.length).toBeGreaterThan(0)
@@ -34,14 +34,16 @@ export async function assertSpringAdvisorFlow(page, request) {
   const retired = [
     'SPRING-PROFILE-001',
     'SPRING-PERF-004',
+    'SPRING-WEB-003',
     'SPRING-WEB-006',
+    'SPRING-REACTIVE-001',
     'SPRING-REACTIVE-002',
     'SPRING-CONFIG-001'
   ]
   for (const result of report.results) {
     expect(retired).not.toContain(result.id)
   }
-  await expect(page.locator('.advisor-summary__metric', {hasText: 'Rules evaluated'}).locator('dd')).toHaveText('41')
+  await expect(page.locator('.advisor-summary__metric', {hasText: 'Rules evaluated'}).locator('dd')).toHaveText('39')
   const cached = await request.get(apiPath)
   expect(cached.ok()).toBe(true)
   expect(await cached.json()).toEqual(report)

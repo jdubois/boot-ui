@@ -12,4 +12,9 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  * @param label a human-readable label for diagnostics
  * @param type the finding record type, which makes {@link VendorFindings} lookups type-safe
  */
-record VendorFindingKind<T>(String id, String label, Class<T> type) {}
+record VendorFindingKind<T>(String id, String label, Class<T> type, boolean enrichment) {
+
+    VendorFindingKind(String id, String label, Class<T> type) {
+        this(id, label, type, false);
+    }
+}

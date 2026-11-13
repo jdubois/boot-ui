@@ -38,8 +38,8 @@ class RestApiEvaluationEvidenceTests {
                 .isEqualTo("SKIPPED");
         assertThat(context.evidence().requiredUnknown()).isTrue();
         assertThat(context.evidence().usable()).isFalse();
-        context.evidence().observations(false, false, true);
-        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        context.evidence().observations(false, true, false);
+        assertThat(new ApiIsVersionedRule().evaluate(context).status()).isEqualTo("SKIPPED");
         assertThat(context.evidence().requiredUnknown()).isTrue();
     }
 

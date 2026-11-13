@@ -126,5 +126,7 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     const profile = page.locator('.insight-profile')
     await expect(profile.getByRole('heading', {name: 'Profile resources'})).toBeVisible()
     await expect(profile.getByRole('button', {name: /Profile (resources|again)/})).toBeEnabled()
+    const profileJson = await (await request.get(`${baseURL}/bootui/api/runtime-insights/resource-profile`)).json()
+    expect(typeof profileJson.virtualThreadPinningSupported).toBe('boolean')
   })
 })

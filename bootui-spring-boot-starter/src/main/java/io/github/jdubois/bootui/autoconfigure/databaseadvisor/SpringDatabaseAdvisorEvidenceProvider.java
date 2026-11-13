@@ -41,4 +41,9 @@ public final class SpringDatabaseAdvisorEvidenceProvider implements DatabaseAdvi
     public Map<String, JdbcBatching> jdbcBatching() {
         return delegate.jdbcBatching();
     }
+
+    @Override
+    public Map<String, String> entityDataSources() {
+        return delegate.entityDataSources();
+    }
 }

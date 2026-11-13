@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
+  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
 - **Per-request authorization decisions in Live Activity and request profiles** surface denied checks in the feed, list
   request and method decisions on the journal profile and timeline, and link `401`/`403` requests to Spring Security
   ([Live Activity](docs/features/live-activity.md#the-per-request-profiler); [#1669](https://github.com/jdubois/boot-ui/issues/1669)).

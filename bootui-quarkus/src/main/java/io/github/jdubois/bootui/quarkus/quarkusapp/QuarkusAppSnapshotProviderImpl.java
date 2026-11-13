@@ -41,7 +41,6 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             "QA-PROD-002",
             "QA-PROD-003",
             "QA-WEB-001",
-            "QA-WEB-002",
             "QA-WEB-003",
             "QA-WEB-004");
     private static final Set<String> PRODUCTION_RULES =
@@ -97,6 +96,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 activeProd = profiles.equals(List.of("prod"));
                 int count = 0;
                 for (ConfigSource source : config.getConfigSources()) {
+                    if (isDefaultConfigSource(source)) {
+                        continue;
+                    }
                     if (sources.size() >= MAX_CONFIG_SOURCES) {
                         unavailable(CONFIG_RULES, "Configuration name discovery reached its inspection limit.");
                         break;
@@ -120,7 +122,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             inspect(Set.of("QA-CFG-004"), this::legacyProperties);
             inspect(productionRules(), this::production);
             inspect(Set.of("QA-WEB-001"), this::compression);
-            inspect(Set.of("QA-WEB-002", "QA-WEB-004"), this::shutdown);
+            inspect(Set.of("QA-WEB-004"), this::shutdown);
             inspect(Set.of("QA-WEB-003"), this::clientTimeouts);
             return new QuarkusAppSnapshot(
                     metadata,
@@ -180,43 +182,54 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     datasources.add(datasource);
                 }
             }
-            for (String unit : units) {
-                if (!applicable.contains("QA-PROD-002")) {
-                    break;
+            if (!activeProd) {
+                // An active production profile is HIB-CONFIG-002 and HIB-CONFIG-012's effective-SessionFactory
+                // evidence; do not charge them twice.
+                for (String unit : units) {
+                    if (applicable.contains("QA-PROD-002")) {
+                        inspect(Set.of("QA-PROD-002"), () -> {
+                            String legacy = raw(source, unit + "database.generation", true);
+                            String strategy =
+                                    legacy != null ? legacy : raw(source, unit + "schema-management.strategy", true);
+                            if (strategy != null) {
+                                String normalized = strategy.trim().toLowerCase(Locale.ROOT);
+                                if (!Set.of("none", "validate", "create", "update", "drop", "drop-and-create")
+                                        .contains(normalized)) {
+                                    unavailable(
+                                            Set.of("QA-PROD-002"), "A schema action could not be classified safely.");
+                                } else {
+                                    add("QA-PROD-002", unit + "schema action", normalized, provenance);
+                                }
+                            }
+                        });
+                    }
+                    if (applicable.contains("QA-CFG-002")) {
+                        inspect(Set.of("QA-CFG-002"), () -> {
+                            String value = raw(source, unit + "log.sql", true);
+                            if (value != null) {
+                                add("QA-CFG-002", unit + "log.sql", booleanValue(value), provenance);
+                            }
+                        });
+                    }
                 }
-                inspect(Set.of("QA-PROD-002"), () -> {
-                    String legacy = raw(source, unit + "database.generation", !activeProd);
-                    String strategy =
-                            legacy != null ? legacy : raw(source, unit + "schema-management.strategy", !activeProd);
-                    if (strategy != null) {
-                        String normalized = strategy.trim().toLowerCase(Locale.ROOT);
-                        if (!Set.of("none", "validate", "create", "update", "drop", "drop-and-create")
-                                .contains(normalized)) {
-                            unavailable(Set.of("QA-PROD-002"), "A schema action could not be classified safely.");
-                        } else {
-                            add("QA-PROD-002", unit + "schema action", normalized, provenance);
-                        }
-                    }
-                });
-                inspect(Set.of("QA-CFG-002"), () -> {
-                    String value = raw(source, unit + "log.sql", !activeProd);
-                    if (value != null) {
-                        add("QA-CFG-002", unit + "log.sql", booleanValue(value), provenance);
-                    }
-                });
             }
             inspect(Set.of("QA-CFG-003"), () -> {
                 String level = raw(source, "quarkus.log.level", !activeProd);
                 if (level != null) {
                     String normalized = level.trim().toUpperCase(Locale.ROOT);
-                    if (!Set.of("ALL", "TRACE", "DEBUG", "INFO", "WARN", "WARNING", "ERROR", "FATAL", "OFF")
+                    if (!Set.of(
+                                    "ALL", "FINEST", "FINER", "TRACE", "DEBUG", "FINE", "CONFIG", "INFO", "WARN",
+                                    "WARNING", "ERROR", "SEVERE", "FATAL", "OFF")
                             .contains(normalized)) {
                         unavailable(Set.of("QA-CFG-003"), "The logging level could not be classified safely.");
                     } else {
                         add(
                                 "QA-CFG-003",
                                 "root logger",
-                                Set.of("ALL", "TRACE", "DEBUG").contains(normalized) ? "verbose" : "normal",
+                                Set.of("ALL", "FINEST", "FINER", "TRACE", "DEBUG", "FINE")
+                                                .contains(normalized)
+                                        ? "verbose"
+                                        : "normal",
                                 provenance);
                     }
                 }
@@ -275,7 +288,19 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
 
         private Config projectProductionDeclarations() {
-            return project((source, name) -> isProductionKey(name) && isProductionSetting(unprofiled(name)));
+            return project((source, name) -> {
+                if (!isProductionSetting(unprofiled(name))) {
+                    return false;
+                }
+                if (isProductionKey(name)) {
+                    return true;
+                }
+                if (!name.startsWith("%") && isBaseApplicationFile(source)) {
+                    String value = source.getValue(name);
+                    return value != null && !value.contains("${");
+                }
+                return false;
+            });
         }
 
         /**
@@ -286,8 +311,17 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         private Config buildTimeBindDeclarations() {
             return project((source, name) -> {
                 String bare = unprofiled(name);
-                return (bare.equals(BIND_PARAMETERS) || bare.equals(LEGACY_BIND_PARAMETERS))
-                        && (isProductionKey(name) || (!name.startsWith("%") && isBaseApplicationFile(source)));
+                if (!bare.equals(BIND_PARAMETERS) && !bare.equals(LEGACY_BIND_PARAMETERS)) {
+                    return false;
+                }
+                if (isProductionKey(name)) {
+                    return true;
+                }
+                if (!name.startsWith("%") && isBaseApplicationFile(source)) {
+                    String value = source.getValue(name);
+                    return value != null && !value.contains("${");
+                }
+                return false;
             });
         }
 
@@ -350,10 +384,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                         DECLARED_PROD);
                 return;
             }
-            ConfigValue value = config.getConfigValue("quarkus.http.enable-compression");
             boolean enabled = config.getOptionalValue("quarkus.http.enable-compression", Boolean.class)
                     .orElse(false);
-            boolean frameworkDefault = value.getRawValue() == null || value.getSourceOrdinal() == Integer.MIN_VALUE;
+            boolean frameworkDefault = !isExplicitlyConfigured("quarkus.http.enable-compression");
             add(
                     "QA-WEB-001",
                     "application HTTP server",
@@ -361,8 +394,33 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     ACTIVE);
         }
 
+        private boolean isExplicitlyConfigured(String key) {
+            ConfigValue value = config.getConfigValue(key);
+            if (value.getRawValue() != null
+                    && !value.getRawValue().isBlank()
+                    && value.getSourceOrdinal() > Integer.MIN_VALUE
+                    && !isDefaultConfigSourceName(value.getSourceName())) {
+                return true;
+            }
+            for (ConfigSource source : sources) {
+                String direct = source.getValue(key);
+                if (direct != null && !direct.isBlank()) {
+                    return true;
+                }
+                for (String name : names) {
+                    if (unprofiled(name).equals(key) && isActiveProfileKey(name, profiles)) {
+                        String profiled = source.getValue(name);
+                        if (profiled != null && !profiled.isBlank()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
         private void shutdown() {
-            String declared = productionIntent(Set.of("QA-WEB-002", "QA-WEB-004"), "quarkus.shutdown.timeout");
+            String declared = productionIntent(Set.of("QA-WEB-004"), "quarkus.shutdown.timeout");
             Duration timeout;
             String provenance = ACTIVE;
             if (declared != null) {
@@ -375,11 +433,22 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                         .orElse(null);
             }
             if (timeout != null && timeout.isNegative()) {
-                unavailable(Set.of("QA-WEB-002", "QA-WEB-004"), "The shutdown duration is invalid.");
+                unavailable(Set.of("QA-WEB-004"), "The shutdown duration is invalid.");
                 return;
             }
-            String value = timeout == null ? "absent" : timeout.isZero() ? "zero" : "positive";
-            add("QA-WEB-002", "HTTP request draining", value, provenance);
+            String value;
+            if (timeout == null) {
+                value = "absent";
+            } else {
+                long millis;
+                try {
+                    millis = timeout.toMillis();
+                } catch (ArithmeticException ex) {
+                    unavailable(Set.of("QA-WEB-004"), "The shutdown duration is invalid.");
+                    return;
+                }
+                value = millis <= 0L ? "zero" : "positive";
+            }
             add("QA-WEB-004", "HTTP request draining", value, provenance);
         }
 
@@ -426,7 +495,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         private void inspect(Set<String> rules, Runnable operation) {
             try {
                 operation.run();
-            } catch (IllegalArgumentException
+            } catch (ArithmeticException
+                    | IllegalArgumentException
                     | IllegalStateException
                     | NoSuchElementException
                     | UnsupportedOperationException ex) {
@@ -465,6 +535,35 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             case "false", "0", "no", "n", "off" -> "false";
             default -> throw new IllegalArgumentException("Unclassified boolean");
         };
+    }
+
+    private static boolean isDefaultConfigSource(ConfigSource source) {
+        return source.getOrdinal() <= Integer.MIN_VALUE || isDefaultConfigSourceName(source.getName());
+    }
+
+    private static boolean isDefaultConfigSourceName(String name) {
+        if (name == null) {
+            return false;
+        }
+        return name.equals("BuildTime RunTime Fixed")
+                || name.contains("BuildTime RunTime Fixed")
+                || name.startsWith("DefaultValuesConfigSource");
+    }
+
+    private static boolean isActiveProfileKey(String name, List<String> activeProfiles) {
+        if (!name.startsWith("%")) {
+            return false;
+        }
+        int separator = name.indexOf('.');
+        if (separator <= 1) {
+            return false;
+        }
+        for (String profile : name.substring(1, separator).split(",")) {
+            if (activeProfiles.contains(profile.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isBaseApplicationFile(ConfigSource source) {
@@ -543,7 +642,27 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         return false;
     }
 
-    private static String namespace(String name, String root, String group) {
+    private static final List<List<String>> ORM_SUFFIXES = List.of(
+            List.of("database", "generation"),
+            List.of("schema-management", "strategy"),
+            List.of("log", "sql"),
+            List.of("packages"),
+            List.of("datasource"));
+    private static final List<List<String>> DATASOURCE_SUFFIXES = List.of(List.of("jdbc", "url"), List.of("db-kind"));
+    private static final Set<String> RESERVED_SUBGROUPS = Set.of(
+            "database",
+            "schema-management",
+            "log",
+            "scripts",
+            "mapping",
+            "fetch",
+            "jdbc",
+            "cache",
+            "multitenant",
+            "validation",
+            "discriminator");
+
+    static String namespace(String name, String root, String group) {
         if (!name.startsWith(root + "." + group + ".")) {
             return null;
         }
@@ -556,15 +675,28 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 return null;
             }
         }
-        if (segments.size() < 4
+        if (segments.size() < 3
                 || !segments.get(0).equals(root)
                 || !segments.get(1).equals(group)) {
             return null;
         }
-        if (segments.size() == 4 || segments.size() == 5) {
-            String suffix = segments.get(segments.size() - 2) + "." + segments.get(segments.size() - 1);
-            if (name.endsWith(suffix)) {
-                return name.substring(0, name.length() - suffix.length());
+        List<String> rest = segments.subList(2, segments.size());
+        List<List<String>> suffixes = group.equals("hibernate-orm")
+                ? ORM_SUFFIXES
+                : group.equals("datasource") ? DATASOURCE_SUFFIXES : List.of();
+        for (List<String> suffix : suffixes) {
+            if (rest.equals(suffix)) {
+                return root + "." + group + ".";
+            }
+        }
+        for (List<String> suffix : suffixes) {
+            if (rest.size() == suffix.size() + 1
+                    && rest.subList(1, rest.size()).equals(suffix)
+                    && (suffix.size() > 1 || !RESERVED_SUBGROUPS.contains(rest.get(0)))) {
+                String suffixText = String.join(".", suffix);
+                if (name.endsWith("." + suffixText)) {
+                    return name.substring(0, name.length() - suffixText.length());
+                }
             }
         }
         return null;
@@ -572,9 +704,12 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
 
     static boolean inMemory(String jdbcUrl) {
         String url = jdbcUrl.trim().toLowerCase(Locale.ROOT);
-        if (url.startsWith("jdbc:h2:mem:")
+        if (url.equals("jdbc:h2:mem")
+                || url.startsWith("jdbc:h2:mem:")
+                || url.startsWith("jdbc:h2:mem;")
                 || url.startsWith("jdbc:hsqldb:mem:")
-                || url.startsWith("jdbc:derby:memory:")) {
+                || url.startsWith("jdbc:derby:memory:")
+                || url.startsWith("jdbc:sqlite::memory:")) {
             return true;
         }
         if (url.startsWith("jdbc:h2:tcp://") || url.startsWith("jdbc:h2:ssl://") || url.startsWith("jdbc:derby://")) {
