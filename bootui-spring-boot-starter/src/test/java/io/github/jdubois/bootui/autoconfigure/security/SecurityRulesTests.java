@@ -666,6 +666,17 @@ class SecurityRulesTests {
     }
 
     @Test
+    void broadCorsOriginPatternFlagsSingleLabelTopLevelDomainWildcards() {
+        CorsConfigModel cors = new CorsConfigModel(
+                "/**", List.of(), List.of("https://*.com"), List.of("GET"), List.of(), Boolean.FALSE);
+
+        SecurityRuleResultDto result = new BroadCorsOriginPatternRule().evaluate(cors(cors));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("LOW");
+    }
+
+    @Test
     void broadCorsOriginPatternDoesNotDuplicateExactWildcard() {
         CorsConfigModel cors =
                 new CorsConfigModel("/**", List.of(), List.of("*"), List.of("GET"), List.of(), Boolean.TRUE);
@@ -855,6 +866,100 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void authorizationRuleShadowedEscalatesToHighWhenPermitAllShadowsRestrictedNonAnonymousMapping() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("AuthorizationFilter"),
+                Boolean.TRUE,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE,
+                null,
+                null,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        true,
+                        true,
+                        true,
+                        true,
+                        new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                        List.of(
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/**", List.of()),
+                                        SecurityModel.GrantState.PERMIT_ALL),
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/admin/**", List.of()),
+                                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS)),
+                        null,
+                        false,
+                        true,
+                        false));
+
+        SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("an unconditional grant")
+                .doesNotContain("an unconditional denial");
+    }
+
+    @Test
+    void authorizationRuleShadowedRendersRestrictedNonAnonymousWithoutCallingItUnconditionalDenial() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("AuthorizationFilter"),
+                Boolean.FALSE,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE,
+                null,
+                null,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        true,
+                        true,
+                        true,
+                        true,
+                        new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                        List.of(
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/**", List.of()),
+                                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS),
+                                new SecurityModel.AuthorizationMapping(
+                                        new SecurityModel.MatcherFacts("path", null, "/admin/**", List.of()),
+                                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS)),
+                        null,
+                        false,
+                        true,
+                        false));
+
+        SecurityRuleResultDto result = new AuthorizationRuleShadowedRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("INFO");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("an authenticated or authority restriction")
+                .doesNotContain("an unconditional denial");
     }
 
     @Test
@@ -1872,6 +1977,84 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void hardcodedSecretPropertyIgnoresNonSecretBarriersHyphenatedEnvShadowsAndNonCredentialLiterals() {
+        MockEnvironment environment = packagedProperties(Map.of(
+                "oauth2.client-secret",
+                "shadowed-by-env",
+                "app.feature.token",
+                "true",
+                "app.limit.secret",
+                "42",
+                "app.endpoint.token",
+                "https://idp.example.com/token",
+                "app.signing.secret-key",
+                "real-hardcoded-secret"));
+        environment
+                .getPropertySources()
+                .addFirst(new org.springframework.core.env.MapPropertySource(
+                        StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                        Map.of("OAUTH2_CLIENT_SECRET", "from-env")));
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("app.signing.secret-key")
+                .doesNotContain("oauth2.client-secret", "real-hardcoded-secret");
+    }
+
+    @Test
+    void customFilterOnSupportedChainDoesNotOverwritePositivelyObservedPassesToSkipped() {
+        FilterChainModel chainWithCustomFilter = new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "CsrfFilter",
+                        "UsernamePasswordAuthenticationFilter",
+                        "AuthorizationFilter",
+                        "Unknown"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Boolean.FALSE,
+                null,
+                Boolean.FALSE,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        true,
+                        false,
+                        true,
+                        true,
+                        new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                        List.of(new SecurityModel.AuthorizationMapping(
+                                new SecurityModel.MatcherFacts("any", null, null, List.of()),
+                                SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS)),
+                        null,
+                        false,
+                        true,
+                        false));
+        SecurityContext ctx = singleChain(chainWithCustomFilter);
+
+        assertThat(new MissingAuthorizationFilterRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new PermitAllCatchAllRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new EffectivelyDisabledSecurityRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new AuthorizationRuleShadowedRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new CsrfDisabledStatefulRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new SessionFixationRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new SessionCookieHttpOnlyRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(new SessionCookieSameSiteRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test

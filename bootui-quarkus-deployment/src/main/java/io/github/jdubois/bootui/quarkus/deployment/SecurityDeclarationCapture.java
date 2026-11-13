@@ -22,10 +22,37 @@ final class SecurityDeclarationCapture {
     private static final DotName HTTP_METHOD = DotName.createSimple("jakarta.ws.rs.HttpMethod");
     private static final DotName REST_CLIENT =
             DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RegisterRestClient");
+    private static final Set<String> BENIGN_JDK_INTERFACES =
+            Set.of("java.io.Serializable", "java.lang.Cloneable", "java.lang.AutoCloseable", "java.lang.Comparable");
+    private static final List<String> INTERCEPTOR_BINDING_SECURITY = List.of(
+            "jakarta.annotation.security.RolesAllowed",
+            "jakarta.annotation.security.PermitAll",
+            "jakarta.annotation.security.DenyAll",
+            "io.quarkus.security.Authenticated",
+            "io.quarkus.security.PermissionsAllowed",
+            "io.quarkus.security.PermissionsAllowed$List",
+            "io.quarkus.vertx.http.security.AuthorizationPolicy");
+    private static final List<String> MECHANISM_ANNOTATIONS = List.of(
+            "io.quarkus.vertx.http.runtime.security.annotation.BasicAuthentication",
+            "io.quarkus.vertx.http.runtime.security.annotation.FormAuthentication",
+            "io.quarkus.vertx.http.runtime.security.annotation.MTLSAuthentication",
+            "io.quarkus.vertx.http.runtime.security.annotation.HttpAuthenticationMechanism",
+            "io.quarkus.oidc.BearerTokenAuthentication",
+            "io.quarkus.oidc.AuthorizationCodeFlow");
     private static final List<String> SECURITY = List.of(
-            "jakarta.annotation.security.RolesAllowed", "jakarta.annotation.security.PermitAll",
-            "jakarta.annotation.security.DenyAll", "io.quarkus.security.Authenticated",
-            "io.quarkus.security.PermissionsAllowed", "io.quarkus.vertx.http.security.AuthorizationPolicy");
+            "jakarta.annotation.security.RolesAllowed",
+            "jakarta.annotation.security.PermitAll",
+            "jakarta.annotation.security.DenyAll",
+            "io.quarkus.security.Authenticated",
+            "io.quarkus.security.PermissionsAllowed",
+            "io.quarkus.security.PermissionsAllowed$List",
+            "io.quarkus.vertx.http.security.AuthorizationPolicy",
+            "io.quarkus.vertx.http.runtime.security.annotation.BasicAuthentication",
+            "io.quarkus.vertx.http.runtime.security.annotation.FormAuthentication",
+            "io.quarkus.vertx.http.runtime.security.annotation.MTLSAuthentication",
+            "io.quarkus.vertx.http.runtime.security.annotation.HttpAuthenticationMechanism",
+            "io.quarkus.oidc.BearerTokenAuthentication",
+            "io.quarkus.oidc.AuthorizationCodeFlow");
 
     record Capture(
             List<QuarkusSecurityEndpoint> endpoints,
@@ -69,8 +96,8 @@ final class SecurityDeclarationCapture {
                 }
                 var declared = rawBindings(method);
                 var actual = bindings.getOrDefault(method, Set.of()).stream()
-                        .filter(annotation ->
-                                SECURITY.contains(annotation.name().toString()))
+                        .filter(annotation -> INTERCEPTOR_BINDING_SECURITY.contains(
+                                annotation.name().toString()))
                         .toList();
                 if (declared.size() != actual.size()
                         || declared.stream()
@@ -87,7 +114,8 @@ final class SecurityDeclarationCapture {
                 if (++methods > LIMIT) {
                     return new Metadata(unknown, true);
                 }
-                if (application.getClassByName(method.declaringClass().name()) != null) {
+                if (application.getClassByName(method.declaringClass().name()) != null
+                        && !(declaration.rolesAllowed.isEmpty() && hasMechanismSelectionAnnotation(method))) {
                     unknown.add(method);
                 }
             }
@@ -152,9 +180,7 @@ final class SecurityDeclarationCapture {
                 }
                 continue;
             }
-            if (!type.interfaceNames().isEmpty()
-                    || (type.superName() != null
-                            && !"java.lang.Object".equals(type.superName().toString()))) {
+            if (hasInheritedJaxRsOrSecurityMetadata(type, annotations)) {
                 incomplete = true;
             }
             for (MethodInfo method : type.methods()) {
@@ -227,12 +253,16 @@ final class SecurityDeclarationCapture {
         if (annotations.isEmpty()) {
             return QuarkusSecurityEndpoint.Access.UNANNOTATED;
         }
-        if (annotations.size() != 1 || annotations.get(0).endsWith(".AuthorizationPolicy")) {
+        if (annotations.stream().anyMatch(name -> name.endsWith(".AuthorizationPolicy"))) {
             return QuarkusSecurityEndpoint.Access.UNKNOWN;
         }
-        return annotations.get(0).endsWith(".PermitAll")
-                ? QuarkusSecurityEndpoint.Access.PERMIT
-                : QuarkusSecurityEndpoint.Access.RESTRICTED;
+        if (annotations.size() == 1 && annotations.get(0).endsWith(".PermitAll")) {
+            return QuarkusSecurityEndpoint.Access.PERMIT;
+        }
+        if (annotations.stream().noneMatch(name -> name.endsWith(".PermitAll"))) {
+            return QuarkusSecurityEndpoint.Access.RESTRICTED;
+        }
+        return QuarkusSecurityEndpoint.Access.UNKNOWN;
     }
 
     private static List<AnnotationInstance> securityAnnotations(MethodInfo method) {
@@ -247,17 +277,78 @@ final class SecurityDeclarationCapture {
                 : annotations;
     }
 
+    private static boolean hasMechanismSelectionAnnotation(MethodInfo method) {
+        return method.declaredAnnotations().stream()
+                        .anyMatch(annotation ->
+                                MECHANISM_ANNOTATIONS.contains(annotation.name().toString()))
+                || method.declaringClass().declaredAnnotations().stream()
+                        .anyMatch(annotation ->
+                                MECHANISM_ANNOTATIONS.contains(annotation.name().toString()));
+    }
+
+    private static boolean hasInheritedJaxRsOrSecurityMetadata(ClassInfo type, IndexView annotations) {
+        List<DotName> queue = new ArrayList<>(type.interfaceNames());
+        if (type.superName() != null) {
+            queue.add(type.superName());
+        }
+        Set<DotName> visited = new LinkedHashSet<>();
+        int index = 0;
+        while (index < queue.size()) {
+            if (visited.size() >= 64) {
+                return true;
+            }
+            DotName parentName = queue.get(index++);
+            if (parentName == null || !visited.add(parentName)) {
+                continue;
+            }
+            String fqcn = parentName.toString();
+            if ("java.lang.Object".equals(fqcn) || BENIGN_JDK_INTERFACES.contains(fqcn)) {
+                continue;
+            }
+            ClassInfo parent = annotations.getClassByName(parentName);
+            if (parent == null || declaresJaxRsOrSecurityMetadata(parent, annotations)) {
+                return true;
+            }
+            queue.addAll(parent.interfaceNames());
+            if (parent.superName() != null) {
+                queue.add(parent.superName());
+            }
+        }
+        return false;
+    }
+
+    private static boolean declaresJaxRsOrSecurityMetadata(ClassInfo parent, IndexView annotations) {
+        for (AnnotationInstance annotation : parent.declaredAnnotations()) {
+            DotName name = annotation.name();
+            if (PATH.equals(name) || PRODUCES.equals(name) || SECURITY.contains(name.toString())) {
+                return true;
+            }
+        }
+        for (MethodInfo method : parent.methods()) {
+            for (AnnotationInstance annotation : method.declaredAnnotations()) {
+                DotName name = annotation.name();
+                if (PATH.equals(name)
+                        || PRODUCES.equals(name)
+                        || SECURITY.contains(name.toString())
+                        || verb(annotations, name) != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static List<AnnotationInstance> rawBindings(MethodInfo method) {
         // Arc materializes interceptor bindings, not Quarkus's effective SecurityCheck. Different class/method
         // binding types can coexist even when Quarkus's method-level authorization overrides the class declaration.
         var bindings = new java.util.LinkedHashMap<DotName, AnnotationInstance>();
         for (AnnotationInstance annotation : method.declaringClass().declaredAnnotations()) {
-            if (SECURITY.contains(annotation.name().toString())) {
+            if (INTERCEPTOR_BINDING_SECURITY.contains(annotation.name().toString())) {
                 bindings.put(annotation.name(), annotation);
             }
         }
         for (AnnotationInstance annotation : method.declaredAnnotations()) {
-            if (SECURITY.contains(annotation.name().toString())) {
+            if (INTERCEPTOR_BINDING_SECURITY.contains(annotation.name().toString())) {
                 bindings.put(annotation.name(), annotation);
             }
         }

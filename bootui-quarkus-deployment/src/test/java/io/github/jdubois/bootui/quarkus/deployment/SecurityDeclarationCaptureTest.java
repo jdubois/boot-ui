@@ -61,6 +61,47 @@ class SecurityDeclarationCaptureTest {
         });
     }
 
+    @Test
+    void benignInterfacesRepeatablePermissionsAndMechanismAnnotationsStayComplete() throws Exception {
+        Indexer indexer = new Indexer();
+        for (Class<?> type : new Class<?>[] {
+            MarkerContract.class,
+            ModernResource.class,
+            io.quarkus.security.PermissionsAllowed.class,
+            io.quarkus.security.PermissionsAllowed.List.class,
+            io.quarkus.vertx.http.runtime.security.annotation.BasicAuthentication.class
+        }) {
+            indexer.indexClass(type);
+        }
+        var index = indexer.complete();
+        var capture = SecurityDeclarationCapture.capture(index, index);
+        assertThat(capture.incomplete()).isFalse();
+        assertThat(capture.endpoints())
+                .hasSize(2)
+                .allSatisfy(
+                        endpoint -> assertThat(endpoint.access()).isEqualTo(QuarkusSecurityEndpoint.Access.RESTRICTED));
+    }
+
+    interface MarkerContract {}
+
+    @Path("/modern")
+    static class ModernResource implements java.io.Serializable, MarkerContract {
+        @GET
+        @Path("/items/{id}")
+        @io.quarkus.security.PermissionsAllowed("items:read")
+        @io.quarkus.security.PermissionsAllowed("items:inspect")
+        public String item() {
+            return "item";
+        }
+
+        @GET
+        @Path("/basic")
+        @io.quarkus.vertx.http.runtime.security.annotation.BasicAuthentication
+        public String basic() {
+            return "basic";
+        }
+    }
+
     @Path("/advisor")
     @DenyAll
     static class Server {

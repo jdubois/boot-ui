@@ -204,6 +204,41 @@ class QuarkusSecurityScannerTest {
         assertThat(unknown.page().hasMore()).isFalse();
     }
 
+    @Test
+    void retainsProvenUncoveredEndpointsWhenAnotherEndpointIsUnknown() {
+        Snap snap = new Snap();
+        snap.denyUnannotated = false;
+        snap.endpoints = 2;
+        snap.secured = 0;
+        snap.evidence = new QuarkusSecurityEvidence(
+                Set.of("QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004"),
+                List.of("unknown endpoint authorization"),
+                List.of(),
+                List.of(
+                        new QuarkusSecurityEndpoint(
+                                "/api/items/{id}", "GET", QuarkusSecurityEndpoint.Access.UNANNOTATED, false),
+                        new QuarkusSecurityEndpoint(
+                                "/api/custom", "POST", QuarkusSecurityEndpoint.Access.UNKNOWN, false)),
+                true);
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK);
+
+        SecurityReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("QS-AUTHZ-004"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.sampleViolations())
+                            .containsExactly("1 declared endpoint(s) without a supported restriction");
+                });
+        var details =
+                scanner.ruleViolations("QS-AUTHZ-004", report.violationDetails().scanId(), 0, null);
+        assertThat(details.violations())
+                .containsExactly("GET /api/items/{id} — declared endpoint without a supported restriction");
+    }
+
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
 
     /**

@@ -82,7 +82,7 @@ final class QuarkusSecurityChecks {
 
     private QuarkusSecurityChecks(AdvisorViolationCollector collector, Set<String> unknownRules) {
         this.collector = collector;
-        this.unknownRules = unknownRules;
+        this.unknownRules = new HashSet<>(unknownRules);
     }
 
     static int ruleCount() {
@@ -125,7 +125,12 @@ final class QuarkusSecurityChecks {
         boolean endpoints(String id, boolean enabled, QuarkusSecuritySnapshot snapshot) {
             boolean targets = snapshot.endpointCount() > 0
                     || !snapshot.evidence().endpoints().isEmpty();
-            check(id, enabled && targets, !targets || snapshot.evidence().endpointMetadata());
+            boolean known = !targets
+                    || (snapshot.evidence().endpointMetadata()
+                            && !snapshot.evidence().incomplete().contains("REST endpoint metadata")
+                            && snapshot.evidence().endpoints().stream()
+                                    .allMatch(endpoint -> endpoint.access() != QuarkusSecurityEndpoint.Access.UNKNOWN));
+            check(id, enabled && targets, known);
             return enabled;
         }
 
@@ -329,6 +334,9 @@ final class QuarkusSecurityChecks {
                 && !s.defaultRolesAllowed()) {
             UncoveredEndpoints uncovered = uncoveredEndpoints(s, observations);
             if (uncovered.count() > 0) {
+                if (!uncovered.details().isEmpty() && canRetainProvenUncoveredEndpoints(s)) {
+                    unknownRules.remove("QS-AUTHZ-004");
+                }
                 v.add(rule(
                         "QS-AUTHZ-004",
                         "No deny-by-default for unannotated endpoints",
@@ -878,6 +886,24 @@ final class QuarkusSecurityChecks {
 
     private record UncoveredEndpoints(int count, List<String> details) {}
 
+    private static boolean canRetainProvenUncoveredEndpoints(QuarkusSecuritySnapshot s) {
+        if (!s.evidence().endpointMetadata()) {
+            return false;
+        }
+        for (String category : s.evidence().incomplete()) {
+            if (Set.of(
+                            "non-default REST listener prefix",
+                            "custom authorization declarations",
+                            "custom configuration source inventory",
+                            "configuration key limit",
+                            "configuration source limit")
+                    .contains(category)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static UncoveredEndpoints uncoveredEndpoints(QuarkusSecuritySnapshot snapshot, Observations observations) {
         for (QuarkusSecurityPermission permission : snapshot.permissions()) {
             observations.check("QS-AUTHZ-004", false, permission.knownPolicy());
@@ -888,14 +914,27 @@ final class QuarkusSecurityChecks {
                     : Math.max(0, snapshot.endpointCount() - snapshot.securedEndpointCount());
             return new UncoveredEndpoints(count, List.of());
         }
-        List<String> details = snapshot.evidence().endpoints().stream()
-                .filter(endpoint -> endpoint.access() == QuarkusSecurityEndpoint.Access.UNANNOTATED)
-                .filter(endpoint -> QuarkusPermissionEvidence.decision(snapshot.permissions(), endpoint)
-                        == QuarkusPermissionEvidence.Decision.PUBLIC)
-                .map(endpoint -> endpoint.method() + " " + endpoint.path()
-                        + " — declared endpoint without a supported restriction")
-                .toList();
-        return new UncoveredEndpoints(details.size(), details);
+        boolean allKnown = true;
+        List<String> details = new ArrayList<>();
+        for (QuarkusSecurityEndpoint endpoint : snapshot.evidence().endpoints()) {
+            if (endpoint.access() == QuarkusSecurityEndpoint.Access.UNKNOWN) {
+                allKnown = false;
+                continue;
+            }
+            if (endpoint.access() != QuarkusSecurityEndpoint.Access.UNANNOTATED) {
+                continue;
+            }
+            QuarkusPermissionEvidence.Decision decision =
+                    QuarkusPermissionEvidence.decision(snapshot.permissions(), endpoint);
+            if (decision == QuarkusPermissionEvidence.Decision.UNKNOWN) {
+                allKnown = false;
+            } else if (decision == QuarkusPermissionEvidence.Decision.PUBLIC) {
+                details.add(endpoint.method() + " " + endpoint.path()
+                        + " — declared endpoint without a supported restriction");
+            }
+        }
+        observations.check("QS-AUTHZ-004", false, allKnown);
+        return new UncoveredEndpoints(details.size(), List.copyOf(details));
     }
 
     private SecurityRuleResultDto rule(

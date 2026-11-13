@@ -79,12 +79,14 @@ of scope.
 
 For the standard embedded Tomcat servlet context, the passive reader inspects the exact native facade/context
 init-parameter map rather than blocking all lower configuration sources. Custom contexts, subclasses, unsupported
-maps, and callbacks remain opaque. The real Spring sample regression uses embedded Tomcat and the application's
-actual three filter chains. It now retains completed evidence, but deliberately remains partial: the sample's custom
-CSRF-cookie filter is not a supported framework filter, role-based authorization is not a constant grant/denial,
-parameterized Actuator operations are not completely modeled, and credential-source classification remains
-incomplete for native property-source barriers. This last limitation is not a finding of exposed credentials.
-Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
+maps, and callbacks remain opaque. Key-scoped property-source barriers (such as Tomcat's `org.apache.jasper.*`
+container aliases) do not obscure unrelated credential keys. Standard non-anonymous `AuthenticatedAuthorizationManager`,
+`AuthorityAuthorizationManager`, and `AllAuthoritiesAuthorizationManager` instances (excluding `ROLE_ANONYMOUS`) are
+recognized as non-anonymous restrictions without conflating them with `denyAll()`, and standard `@Selector`
+parameterized Actuator sub-operations are evaluated against prefix matchers. The real Spring sample regression uses
+embedded Tomcat and the application's actual three filter chains. It retains completed evidence while remaining
+honestly partial because the sample's custom CSRF-cookie filter and ignored CSRF request matchers are not universal
+framework defaults. Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
 `NoOpPasswordEncoder` bean is not an active-provider finding.
 
 The catalogs were audited against Spring Boot **4.1.1**, which manages Spring Security **7.1.1**.
@@ -207,8 +209,8 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-AUTHZ-005 - Broader authorizeHttpRequests matchers should not shadow narrower ones
 
-- **Severity**: INFO (HIGH for a supported unconditional grant shadowing a later constant denial)
-- **Detects**: An unconditional, method-agnostic matcher precedes later authorization mappings in the same chain. The default is an ordering advisory; grant, denial, and unknown authorization effects are distinguished. Only a known grant hiding a later constant denial raises severity to HIGH. Unsupported matcher/manager structure remains unknown.
+- **Severity**: INFO (HIGH for a supported unconditional grant shadowing a later constant denial or non-anonymous restriction)
+- **Detects**: An unconditional, method-agnostic matcher precedes later authorization mappings in the same chain. The default is an ordering advisory; unconditional grant (`permitAll`), unconditional denial (`denyAll`), non-anonymous restriction (`authenticated`, `fullyAuthenticated`, `rememberMe`, `hasRole`/`hasAuthority`/`hasAllRoles`/`hasAllAuthorities` excluding `ROLE_ANONYMOUS`), and unknown authorization effects are distinguished. A known unconditional grant hiding a later denial or non-anonymous restriction raises severity to HIGH. Unsupported matcher/manager structure remains unknown.
 - **Recommendation**: Register narrower matchers (e.g. requestMatchers("/admin/**").hasRole("ADMIN")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
@@ -413,8 +415,9 @@ the default web include is `health`, and exclusions (including `*`) win. Both `h
 access `NONE`; endpoint/default access and `max-permitted` caps determine which reads and writes are available.
 Invalid settings or native access/enabled conflicts produce analysis errors; unsupported or bounded observations
 remain incomplete. Selection does not establish endpoint existence, network reachability, or anonymous access.
-Exact native operation methods and paths are used where supported; custom mappings, variable paths, and separate
-management-context authorization remain unknown. No endpoint discoverer, operation, matcher, or handler is called.
+Exact native operation methods and paths (including `@Selector` parameterized sub-operations matched against prefix
+matchers) are used where supported; custom mappings, overlapping exact/sub-path matchers on template segments, and
+separate management-context authorization remain unknown. No endpoint discoverer, operation, matcher, or handler is called.
 
 ### SEC-ACT-001 - Actuator endpoints should not all be web-exposed
 
@@ -541,7 +544,7 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 ### SEC-CONFIG-007 - Configuration should not hold literal secret values
 
 - **Severity**: HIGH
-- **Detects**: A bounded, known packaged classpath configuration source contains a literal string under a credential-shaped terminal key such as password, secret, token, api-key, client-secret, or private-key. Lifetime/shape suffixes are excluded. Higher-priority known sources shadow lower literals; unknown provenance cannot establish hardcoding. Arbitrary external, Vault/config-server, remote, dynamic, and config-tree sources are not enumerated to retrieve values. Unresolved references are not findings. Only the key name is reported, never its value; incomplete source coverage remains unknown rather than a complete pass.
+- **Detects**: A bounded, known local application configuration source contains a literal string under a credential-shaped terminal key such as password, secret, token, api-key, client-secret, or private-key. Lifetime/shape suffixes, boolean literals (`true`/`false`), numeric literals, and URLs (`://`) are excluded. Higher-priority known sources shadow lower literals using canonical `[._-]` key normalization, and key-scoped property-source barriers that do not touch secret keys are ignored; unknown provenance cannot establish hardcoding. Arbitrary external, Vault/config-server, remote, dynamic, and config-tree sources are not enumerated to retrieve values. Unresolved references are not findings. Only the key name is reported, never its value; incomplete source coverage remains unknown rather than a complete pass.
 - **Recommendation**: Move the literal value out of the configuration file into an environment variable, a secrets manager, or a mounted config-tree secret, and reference it with ${ENV_VAR_NAME} instead of a hardcoded literal.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/external-config.html>
 

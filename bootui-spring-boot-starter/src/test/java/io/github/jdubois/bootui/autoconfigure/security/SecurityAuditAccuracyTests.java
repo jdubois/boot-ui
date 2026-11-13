@@ -159,6 +159,53 @@ class SecurityAuditAccuracyTests {
             calls.incrementAndGet();
             return "fixture";
         }
+
+        @ReadOperation
+        public String readFormat(@org.springframework.boot.actuate.endpoint.annotation.Selector String format) {
+            calls.incrementAndGet();
+            return format;
+        }
+    }
+
+    @Test
+    void authenticatedAndAuthorityAuthorizationManagersProduceRestrictedNonAnonymousState() throws Exception {
+        var manager = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/admin/**"),
+                        org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole("ADMIN"))
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/ops/**"),
+                        org.springframework.security.authorization.AllAuthoritiesAuthorizationManager.hasAllRoles(
+                                "ADMIN", "OPS"))
+                .add(
+                        AnyRequestMatcher.INSTANCE,
+                        org.springframework.security.authorization.AuthenticatedAuthorizationManager.authenticated())
+                .build();
+        FilterChainModel chain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new UsernamePasswordAuthenticationFilter(),
+                new AuthorizationFilter(manager)));
+        assertThat(chain.permitsAllAnonymous()).isFalse();
+        assertThat(chain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS,
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS,
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS);
+        assertThat(SecurityScanner.grantFor(chain.details().mappings(), "GET", "/actuator/env/{toMatch}"))
+                .isFalse();
+
+        var anonymousRole = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        AnyRequestMatcher.INSTANCE,
+                        org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole("ANONYMOUS"))
+                .build();
+        FilterChainModel anonymousRoleChain = model(
+                new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new AuthorizationFilter(anonymousRole)));
+        assertThat(anonymousRoleChain.permitsAllAnonymous()).isNull();
+        assertThat(anonymousRoleChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
     }
 
     @Test

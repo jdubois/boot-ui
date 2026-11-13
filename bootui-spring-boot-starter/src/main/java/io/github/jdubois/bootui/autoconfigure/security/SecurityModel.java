@@ -481,7 +481,7 @@ final class SecurityModel {
             }
             if (firstLabel.contains("*")) {
                 // A leftmost-label wildcard is only acceptable with a concrete, multi-label suffix.
-                return rest.isEmpty();
+                return rest.isEmpty() || !rest.contains(".");
             }
             return false;
         }
@@ -504,6 +504,7 @@ final class SecurityModel {
     record PasswordEncoderModel(String type, Integer bcryptStrength) {}
 
     record ChainDetails(
+            boolean chainSupported,
             boolean filtersKnown,
             boolean headersKnown,
             boolean unconditional,
@@ -521,7 +522,17 @@ final class SecurityModel {
                 List<AuthorizationMapping> mappings,
                 Boolean bearerSavesSession,
                 boolean httpsRedirect) {
-            this(filtersKnown, headersKnown, unconditional, matcher, mappings, bearerSavesSession, httpsRedirect, true);
+            this(
+                    true,
+                    filtersKnown,
+                    headersKnown,
+                    unconditional,
+                    matcher,
+                    mappings,
+                    bearerSavesSession,
+                    httpsRedirect,
+                    true,
+                    false);
         }
 
         ChainDetails(
@@ -534,6 +545,7 @@ final class SecurityModel {
                 boolean httpsRedirect,
                 boolean csrfKnown) {
             this(
+                    true,
                     filtersKnown,
                     headersKnown,
                     unconditional,
@@ -543,6 +555,29 @@ final class SecurityModel {
                     httpsRedirect,
                     csrfKnown,
                     false);
+        }
+
+        ChainDetails(
+                boolean filtersKnown,
+                boolean headersKnown,
+                boolean unconditional,
+                MatcherFacts matcher,
+                List<AuthorizationMapping> mappings,
+                Boolean bearerSavesSession,
+                boolean httpsRedirect,
+                boolean csrfKnown,
+                boolean passkeySessionStrategyMissing) {
+            this(
+                    true,
+                    filtersKnown,
+                    headersKnown,
+                    unconditional,
+                    matcher,
+                    mappings,
+                    bearerSavesSession,
+                    httpsRedirect,
+                    csrfKnown,
+                    passkeySessionStrategyMissing);
         }
 
         ChainDetails {
@@ -566,6 +601,14 @@ final class SecurityModel {
                         && !path.contains("{")
                         && !path.contains("}")
                         && !path.contains("?")) {
+                    int template = requestPath == null ? -1 : requestPath.indexOf("/{");
+                    if (template >= 0) {
+                        String concretePrefix = requestPath.substring(0, template);
+                        if (!path.startsWith(concretePrefix + "/")) {
+                            return false;
+                        }
+                        return null;
+                    }
                     return path.equals(requestPath);
                 }
                 if (path != null
@@ -575,6 +618,17 @@ final class SecurityModel {
                         && !path.contains("}")
                         && !path.contains("?")) {
                     String prefix = path.substring(0, path.length() - 3);
+                    int template = requestPath == null ? -1 : requestPath.indexOf("/{");
+                    if (template >= 0) {
+                        String concretePrefix = requestPath.substring(0, template);
+                        if (concretePrefix.equals(prefix) || concretePrefix.startsWith(prefix + "/")) {
+                            return true;
+                        }
+                        if (!prefix.startsWith(concretePrefix + "/")) {
+                            return false;
+                        }
+                        return null;
+                    }
                     return requestPath.equals(prefix) || requestPath.startsWith(prefix + "/");
                 }
                 return null;
@@ -616,5 +670,32 @@ final class SecurityModel {
         }
     }
 
-    record AuthorizationMapping(MatcherFacts matcher, Boolean grant) {}
+    enum GrantState {
+        PERMIT_ALL,
+        RESTRICTED_NON_ANONYMOUS,
+        DENY_ALL,
+        UNKNOWN;
+
+        Boolean grant() {
+            return switch (this) {
+                case PERMIT_ALL -> Boolean.TRUE;
+                case RESTRICTED_NON_ANONYMOUS, DENY_ALL -> Boolean.FALSE;
+                case UNKNOWN -> null;
+            };
+        }
+    }
+
+    record AuthorizationMapping(MatcherFacts matcher, GrantState state) {
+        AuthorizationMapping {
+            state = state == null ? GrantState.UNKNOWN : state;
+        }
+
+        AuthorizationMapping(MatcherFacts matcher, Boolean grant) {
+            this(matcher, grant == null ? GrantState.UNKNOWN : grant ? GrantState.PERMIT_ALL : GrantState.DENY_ALL);
+        }
+
+        Boolean grant() {
+            return state.grant();
+        }
+    }
 }

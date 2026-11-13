@@ -292,8 +292,19 @@ record SecurityContext(
      * environment variables, credentials, thread/heap contents, or letting a caller reconfigure or
      * shut down the application.
      */
-    static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS =
-            List.of("env", "beans", "configprops", "heapdump", "threaddump", "shutdown", "loggers", "mappings");
+    static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS = List.of(
+            "env",
+            "beans",
+            "configprops",
+            "heapdump",
+            "threaddump",
+            "shutdown",
+            "loggers",
+            "mappings",
+            "httpexchanges",
+            "startup",
+            "logfile",
+            "sessions");
 
     /**
      * The subset of {@link #SENSITIVE_ACTUATOR_ENDPOINTS} still reachable once
@@ -446,6 +457,31 @@ record SecurityContext(
             ".*[.-](expiration|expiry|expires|ttl|timeout|duration|validity|max-age|maxage|refresh-interval)$",
             Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern NUMERIC_LITERAL = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?");
+
+    private static boolean isSuspectedSecretKey(String name) {
+        return name != null
+                && !name.isBlank()
+                && !name.toLowerCase(Locale.ROOT).startsWith("bootui.")
+                && SUSPECTED_SECRET_KEY.matcher(name).matches()
+                && !NON_SECRET_VALUE_KEY_SUFFIX.matcher(name).matches();
+    }
+
+    private static String normalizeSecretKey(String name) {
+        return name.toLowerCase(Locale.ROOT).replaceAll("[_.-]", "");
+    }
+
+    private static boolean isNonSecretLiteral(String text) {
+        if (text == null) return true;
+        String trimmed = text.trim();
+        return trimmed.isEmpty()
+                || trimmed.contains("${")
+                || "true".equalsIgnoreCase(trimmed)
+                || "false".equalsIgnoreCase(trimmed)
+                || trimmed.contains("://")
+                || NUMERIC_LITERAL.matcher(trimmed).matches();
+    }
+
     /**
      * Configuration property names (never values) that look like they hold a credential -- matching
      * {@link #SUSPECTED_SECRET_KEY} but not the non-secret {@link #NON_SECRET_VALUE_KEY_SUFFIX} (a
@@ -467,6 +503,10 @@ record SecurityContext(
         for (PropertySource<?> propertySource : configurableEnvironment.getPropertySources()) {
             if (++sourceCount > 128) throw new SecurityRuleSupport.IncompleteObservationException();
             if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(propertySource)) continue;
+            if (SecurityEnvironmentSnapshot.generatedValues(propertySource)
+                    || SecurityEnvironmentSnapshot.isDevToolsDefaults(environment, propertySource)) {
+                continue;
+            }
             if (!isScannableConfigSource(propertySource)) {
                 String type = propertySource.getClass().getName();
                 if (Set.of(
@@ -480,13 +520,19 @@ record SecurityContext(
                     if (values.size() > 5000) throw new SecurityRuleSupport.IncompleteObservationException();
                     for (Object key : values.keySet()) {
                         if (key instanceof String name) {
-                            shadowed.add(name);
-                            shadowed.add(name.toLowerCase(Locale.ROOT).replace('_', '.'));
+                            shadowed.add(normalizeSecretKey(name));
                         }
                     }
                 } else if (!(propertySource instanceof RandomValuePropertySource)
                         && !(propertySource instanceof PropertySource.StubPropertySource)) {
-                    opaqueHigherSource = true;
+                    Set<String> keys = SecurityEnvironmentSnapshot.incompleteKeys(propertySource);
+                    if (keys == null) {
+                        opaqueHigherSource = true;
+                    } else {
+                        for (String key : keys) {
+                            shadowed.add(normalizeSecretKey(key));
+                        }
+                    }
                 }
                 continue;
             }
@@ -496,19 +542,19 @@ record SecurityContext(
             String[] names = enumerable.getPropertyNames();
             if (names.length > 5000) throw new SecurityRuleSupport.IncompleteObservationException();
             for (String name : names) {
-                if (name == null
-                        || name.isBlank()
-                        || name.toLowerCase(Locale.ROOT).startsWith("bootui.")) {
+                if (!isSuspectedSecretKey(name)) {
                     continue;
                 }
-                if (!SUSPECTED_SECRET_KEY.matcher(name).matches()
-                        || NON_SECRET_VALUE_KEY_SUFFIX.matcher(name).matches()) {
-                    continue;
-                }
-                if (!shadowed.add(name)) continue;
+                if (!shadowed.add(normalizeSecretKey(name))) continue;
                 if (opaqueHigherSource) continue;
                 Object rawValue = propertySource.getProperty(name);
-                if (!(rawValue instanceof String text) || text.isBlank() || text.contains("${")) {
+                if (rawValue instanceof org.springframework.boot.origin.OriginTrackedValue tracked
+                        && rawValue.getClass()
+                                .getName()
+                                .startsWith("org.springframework.boot.origin.OriginTrackedValue")) {
+                    rawValue = tracked.getValue();
+                }
+                if (!(rawValue instanceof String text) || isNonSecretLiteral(text)) {
                     continue;
                 }
                 found.add(name);
@@ -529,7 +575,9 @@ record SecurityContext(
             return false;
         }
         return propertySource.getClass() == org.springframework.boot.env.OriginTrackedMapPropertySource.class
-                && name.startsWith("Config resource 'class path resource");
+                && (name.startsWith("Config resource 'class path resource")
+                        || name.startsWith("Config resource 'file [")
+                        || name.startsWith("Config resource 'file:"));
     }
 
     boolean secretObservationComplete() {
@@ -538,15 +586,24 @@ record SecurityContext(
         for (PropertySource<?> source : configurable.getPropertySources()) {
             if (++count > 128) return false;
             if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(source)) continue;
-            if (source instanceof PropertySource.StubPropertySource || source instanceof RandomValuePropertySource)
+            if (source instanceof PropertySource.StubPropertySource
+                    || source instanceof RandomValuePropertySource
+                    || SecurityEnvironmentSnapshot.generatedValues(source)
+                    || SecurityEnvironmentSnapshot.isDevToolsDefaults(environment, source)) {
                 continue;
+            }
             if (!Set.of(
                             "org.springframework.core.env.MapPropertySource",
                             "org.springframework.core.env.PropertiesPropertySource",
                             "org.springframework.core.env.SystemEnvironmentPropertySource",
                             "org.springframework.mock.env.MockPropertySource",
                             "org.springframework.boot.env.OriginTrackedMapPropertySource")
-                    .contains(source.getClass().getName())) return false;
+                    .contains(source.getClass().getName())) {
+                Set<String> keys = SecurityEnvironmentSnapshot.incompleteKeys(source);
+                if (keys == null || keys.stream().anyMatch(SecurityContext::isSuspectedSecretKey)) {
+                    return false;
+                }
+            }
         }
         return true;
     }
