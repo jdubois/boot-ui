@@ -4,17 +4,19 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
 import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 
 /**
  * Resolves the value the <em>host application</em> configured for a property, ignoring the actuator
- * defaults {@link BootUiActuatorDefaultsEnvironmentPostProcessor} contributes on BootUI's behalf.
+ * defaults {@link BootUiActuatorDefaultsEnvironmentPostProcessor} contributes on BootUI's behalf and
+ * Spring Boot DevTools' automatic {@code devtools} development property defaults.
  *
  * <p>BootUI widens {@code management.endpoints.web.exposure.include} and sets
  * {@code management.endpoint.health.show-details=always} (among others) so its local panels work. Advisor
  * rules, the Security scanner, and the pentest checks all report host misconfiguration, so they must not
- * see BootUI's own contribution as if the application had chosen it &mdash; otherwise every BootUI user is
- * shown a finding BootUI created.</p>
+ * see BootUI's own contribution or DevTools' automatic development defaults as if the application had chosen
+ * them &mdash; otherwise every BootUI user is shown a finding BootUI or DevTools created.</p>
  *
  * <p>Two properties of the lookup matter and are easy to get wrong when duplicated per call site:</p>
  * <ul>
@@ -31,11 +33,15 @@ import org.springframework.core.env.PropertySource;
  */
 public final class BootUiContributedProperties {
 
+    private static final String DEVTOOLS_DEFAULTS = "devtools";
+    private static final String CAPTURED_DEVTOOLS_SOURCE_CLASS =
+            "io.github.jdubois.bootui.autoconfigure.security.SecurityEnvironmentSnapshot$DevToolsDefaults";
+
     private BootUiContributedProperties() {}
 
     /**
      * Returns the trimmed value the host configured for {@code key}, or {@code null} when the key is unset,
-     * blank, or set only by BootUI's own actuator defaults.
+     * blank, or set only by BootUI's own actuator defaults or Spring Boot DevTools' {@code devtools} source.
      */
     public static String hostProperty(Environment environment, String key) {
         if (environment == null || key == null) {
@@ -46,7 +52,8 @@ public final class BootUiContributedProperties {
             return value == null || value.isBlank() ? null : value.trim();
         }
         for (PropertySource<?> propertySource : configurableEnvironment.getPropertySources()) {
-            if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(propertySource)) {
+            if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(propertySource)
+                    || isDevToolsDefaults(propertySource)) {
                 continue;
             }
             Object value = propertySource.getProperty(key);
@@ -80,6 +87,13 @@ public final class BootUiContributedProperties {
             }
         }
         return null;
+    }
+
+    private static boolean isDevToolsDefaults(PropertySource<?> propertySource) {
+        return DEVTOOLS_DEFAULTS.equals(propertySource.getName())
+                && (propertySource.getClass() == MapPropertySource.class
+                        || CAPTURED_DEVTOOLS_SOURCE_CLASS.equals(
+                                propertySource.getClass().getName()));
     }
 
     private static boolean isBootUiContribution(PropertySource<?> propertySource, String key, String value) {

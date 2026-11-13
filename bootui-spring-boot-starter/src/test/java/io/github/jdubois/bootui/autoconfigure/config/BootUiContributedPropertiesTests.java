@@ -41,6 +41,33 @@ class BootUiContributedPropertiesTests {
     }
 
     @Test
+    void ignoresDevToolsAutomaticDefaultPropertySource() {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment
+                .getPropertySources()
+                .addFirst(new MapPropertySource(
+                        "devtools",
+                        Map.of(
+                                "spring.web.error.include-stacktrace",
+                                "always",
+                                "spring.mvc.log-request-details",
+                                "true")));
+        ConfigurationPropertySources.attach(environment);
+
+        assertThat(BootUiContributedProperties.hostProperty(environment, "spring.web.error.include-stacktrace"))
+                .isNull();
+        assertThat(BootUiContributedProperties.hostProperty(environment, "spring.mvc.log-request-details"))
+                .isNull();
+
+        environment
+                .getPropertySources()
+                .addFirst(
+                        new MapPropertySource("application", Map.of("spring.web.error.include-stacktrace", "always")));
+        assertThat(BootUiContributedProperties.hostProperty(environment, "spring.web.error.include-stacktrace"))
+                .isEqualTo("always");
+    }
+
+    @Test
     void returnsHostValueEvenWhenConfigurationPropertiesSourceIsAttached() {
         StandardEnvironment environment = new StandardEnvironment();
         environment.getPropertySources().addFirst(new MapPropertySource("application", Map.of(SHOW_DETAILS, "always")));
