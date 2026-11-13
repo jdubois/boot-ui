@@ -318,4 +318,23 @@ class HeapDumpServiceTests {
         assertThat(report.topClasses()).hasSize(1);
         assertThat(report.topClasses().get(0).className()).isEqualTo("java.lang.String");
     }
+
+    @Test
+    void captureAndAnalyzeRunInsideDiagnosticGcTracker(@TempDir Path dir) {
+        io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker tracker =
+                new io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker();
+        HeapDumpService service = new HeapDumpService(
+                config(),
+                dir,
+                (file, live) -> Files.writeString(file, "fake-hprof"),
+                () -> HISTOGRAM,
+                Clock.fixed(Instant.parse("2026-05-31T05:00:00Z"), ZoneOffset.UTC),
+                true,
+                tracker);
+
+        service.capture(true);
+        service.analyze();
+
+        assertThat(tracker.recordedWindows()).isEqualTo(2);
+    }
 }
