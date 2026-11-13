@@ -1,7 +1,7 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**50 servlet rules** and **26 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
+**50 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
 analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
 execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
 to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
@@ -582,11 +582,34 @@ map is verified; opaque backing maps remain barriers. Random-value sources block
 are never sampled. Unsupported individual values block their own keys rather than unrelated configuration; unknown
 source inventories still make affected checks incomplete.
 
-The current 26-rule catalog removes two duplicate authorization-filter absence checks, adds a structurally
-supported chain-ordering advisory, and adds OAuth2 client provider endpoint transport (`SEC-RXF-OAUTH2-005`). Previously retired `SEC-RXF-OAUTH2-001` (unrelated validator-bean inference) and
+The current 32-rule catalog removes two duplicate authorization-filter absence checks, adds a structurally
+supported chain-ordering advisory, adds OAuth2 client provider endpoint transport (`SEC-RXF-OAUTH2-005`), and adds
+six WebFlux parity rules (`SEC-RXF-AUTH-001`, `SEC-RXF-AUTH-002`, `SEC-RXF-AUTH-003`, `SEC-RXF-HEAD-007`,
+`SEC-RXF-METHOD-001`, and `SEC-RXF-OAUTH2-006`). Previously retired `SEC-RXF-OAUTH2-001` (unrelated validator-bean inference) and
 `SEC-RXF-CONFIG-001` (unsupported `spring.security.debug` property) remain reserved; neither is revived.
 The advisor distinguishes actual reactive form, one-time-token and OAuth2/OIDC login from OAuth client grant machinery, Basic credentials
 from header-only bearer credentials, and observed framework defaults from custom/unknown behavior.
+
+### SEC-RXF-AUTH-001 - Reactive password encoder must not store credentials in plain text
+
+- **Severity**: CRITICAL
+- **Detects**: A supported active `UserDetailsRepositoryReactiveAuthenticationManager` selects `NoOpPasswordEncoder` for password encoding (directly or via `DelegatingPasswordEncoder`). Unused `PasswordEncoder` beans are not evidence of effective storage; custom reactive authentication managers and unreadable encoders remain unknown and are never invoked.
+- **Recommendation**: Use a delegating encoder (`PasswordEncoderFactories.createDelegatingPasswordEncoder()`) backed by bcrypt, Argon2, or PBKDF2.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
+
+### SEC-RXF-AUTH-002 - Reactive password encoder should not use a weak or legacy algorithm
+
+- **Severity**: HIGH
+- **Detects**: A supported active `UserDetailsRepositoryReactiveAuthenticationManager` selects a weak or legacy encoder (`StandardPasswordEncoder`, `MessageDigestPasswordEncoder`, `Md4PasswordEncoder`, `LdapShaPasswordEncoder`) for new hashes. A `DelegatingPasswordEncoder`'s legacy matching map is not penalized.
+- **Recommendation**: Migrate to bcrypt, Argon2, or PBKDF2 via a `DelegatingPasswordEncoder` so hashes upgrade over time.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
+
+### SEC-RXF-AUTH-003 - Reactive BCrypt password encoder should use an adequate work factor
+
+- **Severity**: LOW
+- **Detects**: A supported active `UserDetailsRepositoryReactiveAuthenticationManager` selects `BCryptPasswordEncoder` with a readable strength below the framework default of 10. Unknown encoders or unreadable cost metadata remain incomplete rather than passing.
+- **Recommendation**: Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
 
 ### SEC-RXF-AUTHZ-001 - Every reactive filter chain should enforce authorization
 
@@ -702,6 +725,20 @@ incomplete rather than becoming a scalar last-writer policy or a guessed union.
 - **Recommendation**: Distinguish `max-age=0`, which removes the browser's policy, from a shorter intentional rollout. RFC 6797 mandates no universal one-year minimum; `includeSubDomains` is a separate deployment decision.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-hsts>
 
+### SEC-RXF-HEAD-007 - Review permissive CSP script execution in reactive chains
+
+- **Severity**: MEDIUM
+- **Detects**: A supported single enforcing `Content-Security-Policy` on a reactive chain permits `'unsafe-inline'`, `'unsafe-eval'`, or an unrestricted script source (`*` or scheme-only source) after accounting for `script-src`/`default-src` fallback, `script-src-elem`/`script-src-attr`, first-duplicate-directive precedence, nonce/hash overrides, `'strict-dynamic'`, and `sandbox` without `allow-scripts` via `CspPolicy.analyze`. Report-only policies do not establish enforcement; framing is reviewed separately by `SEC-RXF-HEAD-002`.
+- **Recommendation**: Restrict script execution with application-specific nonces/hashes or explicit trusted origins and remove unnecessary `'unsafe-eval'` permissions.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp>
+
+### SEC-RXF-METHOD-001 - Method security annotations require reactive method security to be enabled
+
+- **Severity**: HIGH
+- **Detects**: Application beans declare method-security annotations (`@PreAuthorize`, `@PostAuthorize`, `@PreFilter`, `@PostFilter`, `@Secured`, `@RolesAllowed`, `@DenyAll`, `@PermitAll`) across bounded class, interface, superclass, and meta-annotation hierarchies without matching recognized reactive method-security activation (`@EnableReactiveMethodSecurity` / `ReactiveAuthorizationManagerMethodSecurityConfiguration` / `ReactiveMethodSecurityConfiguration` or reactive pre/post authorization advisors). Imperative `@EnableMethodSecurity` does not activate reactive publisher authorization, and `@EnableReactiveMethodSecurity` supports only the pre/post annotation family.
+- **Recommendation**: Enable `@EnableReactiveMethodSecurity` and use `@PreAuthorize`, `@PostAuthorize`, `@PreFilter`, and `@PostFilter` on reactive publisher methods. Verify proxy boundaries and invocation behavior separately.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/authorization/method.html>
+
 ### SEC-RXF-ACT-001 - Actuator endpoints should not be exposed with a wildcard
 
 - **Severity**: HIGH
@@ -773,6 +810,13 @@ inconclusive rather than assumed to inherit application-chain policy.
 - **Detects**: A production profile with a registration-linked `spring.security.oauth2.client.provider.<id>` `authorization-uri`, `token-uri`, `jwk-set-uri` or `user-info-uri` using plain HTTP, discovered from bounded native configuration maps like SEC-OAUTH-006. `issuer-uri` belongs to the Pentesting advisor (PT-A07-006). Only property names are reported.
 - **Recommendation**: Use HTTPS for every OAuth2 client provider endpoint and keep certificate validation enabled; reserve HTTP providers for isolated local development.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc6749.html#section-3.2>
+
+### SEC-RXF-OAUTH2-006 - Validate the JWT audience claim in reactive resource servers
+
+- **Severity**: INFO
+- **Detects**: An active `NimbusReactiveJwtDecoder` or `SupplierReactiveJwtDecoder` on a reactive resource-server chain has no explicit `spring.security.oauth2.resourceserver.jwt.audiences` setting. Custom `ReactiveJwtDecoder` implementations remain unknown rather than passing, and unrelated `OAuth2TokenValidator` beans do not establish audience validation.
+- **Recommendation**: Configure `spring.security.oauth2.resourceserver.jwt.audiences` for Boot-managed reactive JWT validation, or attach an audience `OAuth2TokenValidator` directly to a custom `ReactiveJwtDecoder`.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html#webflux-oauth2resourceserver-jwt-validation>
 
 ### SEC-RXF-CONFIG-002 - Review HTTPS enforcement for reactive production applications
 

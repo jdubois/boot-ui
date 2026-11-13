@@ -4,9 +4,13 @@ import java.util.List;
 
 final class ReactiveSecurityRuleRegistry {
 
-    static final int RULE_COUNT = 26;
+    static final int RULE_COUNT = 32;
 
     private static final List<ReactiveSecurityRule> ACTIVE_RULES = List.of(
+            // Authentication
+            new ReactiveNoOpPasswordEncoderRule(),
+            new ReactiveWeakPasswordEncoderRule(),
+            new ReactiveWeakBcryptStrengthRule(),
             // Authorization
             new ReactiveAuthorizationFilterRule(),
             // AUTHZ-002 and AUTHZ-003 remain reserved: duplicate missing-filter evidence.
@@ -25,6 +29,9 @@ final class ReactiveSecurityRuleRegistry {
             new ReactiveContentSecurityPolicyRule(),
             new ReactiveHeadersDisabledRule(),
             new ReactiveWeakHstsPolicyRule(),
+            new ReactiveWeakContentSecurityPolicyRule(),
+            // Method security
+            new ReactiveMethodSecurityAnnotationsIgnoredRule(),
             // Actuator exposure
             new ReactiveActuatorWildcardExposureRule(),
             new ReactiveActuatorSensitiveExposureRule(),
@@ -36,6 +43,7 @@ final class ReactiveSecurityRuleRegistry {
             new ReactiveInsecureJwtMetadataUrlRule(),
             new ReactiveInsecureOpaqueTokenIntrospectionUrlRule(),
             new ReactiveInsecureOAuth2ClientEndpointRule(),
+            new ReactiveJwtAudienceValidationRule(),
             // Configuration hygiene
             new ReactiveHttpsEnforcementRule(),
             new ReactiveHardcodedSecretPropertyRule(),

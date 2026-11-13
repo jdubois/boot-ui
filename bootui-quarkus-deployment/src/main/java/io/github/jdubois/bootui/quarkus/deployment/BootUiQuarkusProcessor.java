@@ -737,6 +737,8 @@ class BootUiQuarkusProcessor {
         Map<String, String> securityFeatures = Map.of(
                 "oidc",
                 "oidc",
+                "oidc-client",
+                "oidc-client",
                 "jwt",
                 "smallrye-jwt",
                 "jdbc",
@@ -754,6 +756,9 @@ class BootUiQuarkusProcessor {
                 ""
                         + features.stream()
                                 .anyMatch(item -> feature.equals(item.getName())
+                                        || ("oidc-client".equals(feature)
+                                                && ("oidc-client-reactive-filter".equals(item.getName())
+                                                        || "oidc-client-filter".equals(item.getName())))
                                         || ("messaging-kafka".equals(feature)
                                                 && "smallrye-reactive-messaging-kafka".equals(item.getName()))))));
     }

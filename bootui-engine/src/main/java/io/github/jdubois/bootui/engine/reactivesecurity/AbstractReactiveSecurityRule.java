@@ -110,6 +110,17 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
         return violation(context, details);
     }
 
+    SecurityRuleResultDto encoderViolation(ReactiveSecurityContext context, List<String> details) {
+        boolean known = context.required(context.passwordEncodersObserved()
+                && context.passwordEncoders().stream()
+                        .noneMatch(encoder -> encoder.type().startsWith("Unknown")));
+        if (details.isEmpty() && !known) {
+            return skipped(
+                    "Active reactive password encoder metadata is unavailable; unrelated beans are not evidence.");
+        }
+        return violation(context, details);
+    }
+
     /**
      * Document-header rules target chains with an observed interactive browser login (form, OAuth2/OIDC
      * or one-time token), matching the servlet browser-credential scope. Bearer-only and Basic API

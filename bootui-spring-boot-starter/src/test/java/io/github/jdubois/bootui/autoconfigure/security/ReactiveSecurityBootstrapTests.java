@@ -66,7 +66,7 @@ class ReactiveSecurityBootstrapTests {
                             sourceTypes, capturedTypes, observation, report)
                     .isEqualTo("SCANNED");
             assertThat(report.analysisErrors()).isEmpty();
-            assertThat(report.rulesEvaluated()).isEqualTo(26);
+            assertThat(report.rulesEvaluated()).isEqualTo(32);
             assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
             assertThat(observation.environment().suspectedHardcodedSecretKeys()).contains("security.audit.password");
             assertThat(report.toString()).doesNotContain("bootstrap-test-literal");
@@ -78,10 +78,13 @@ class ReactiveSecurityBootstrapTests {
     static class BootstrapConfiguration {
         @Bean
         SecurityWebFilterChain securityChain() {
+            var authManager =
+                    new org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager(
+                            username -> {
+                                throw new AssertionError("UserDetails callback must not execute during inspection");
+                            });
             return ServerHttpSecurity.http()
-                    .authenticationManager(authentication -> {
-                        throw new AssertionError("Authentication callback must not execute during inspection");
-                    })
+                    .authenticationManager(authManager)
                     .httpBasic(Customizer.withDefaults())
                     .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
                     .build();

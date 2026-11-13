@@ -58,6 +58,7 @@ final class QuarkusSecurityChecks {
             "QS-AUTHZ-001",
             "QS-AUTHZ-002",
             "QS-AUTHZ-004",
+            "QS-AUTHZ-005",
             "QS-CFG-001",
             "QS-CORS-001",
             "QS-CORS-002",
@@ -74,16 +75,19 @@ final class QuarkusSecurityChecks {
             "QS-HDR-006",
             "QS-MGMT-001",
             "QS-MGMT-003",
+            "QS-MGMT-004",
             "QS-MSG-001",
             "QS-OIDC-001",
             "QS-OIDC-002",
             "QS-OIDC-003",
             "QS-OIDC-004",
             "QS-OIDC-005",
+            "QS-OIDC-006",
             "QS-PROXY-001",
             "QS-SESSION-001",
             "QS-SESSION-002",
             "QS-SESSION-003",
+            "QS-SESSION-004",
             "QS-TLS-001",
             "QS-TLS-003",
             "QS-TLS-004",
@@ -369,6 +373,19 @@ final class QuarkusSecurityChecks {
                         "Set quarkus.security.jaxrs.deny-unannotated-endpoints=true and mark public endpoints @PermitAll.",
                         uncovered.details()));
             }
+        }
+        if (observations.check("QS-AUTHZ-005", !s.invalidProdPermissionPaths().isEmpty())) {
+            v.add(rule(
+                    "QS-AUTHZ-005",
+                    "Production HTTP permission path uses unsupported /** wildcard",
+                    "Authorization",
+                    "MEDIUM",
+                    "A supported production quarkus.http.auth.permission.<name>.paths declaration ends in /**."
+                            + " Quarkus ImmutablePathMatcher supports only a single trailing /* or /*/ wildcard and"
+                            + " fails at production startup with ConfigurationException when /** is used.",
+                    s.invalidProdPermissionPaths().size(),
+                    s.invalidProdPermissionPaths(),
+                    "Replace trailing /** with /* in quarkus.http.auth.permission.<name>.paths."));
         }
         if (observations.check("QS-TLS-001", true, s.insecureRequests() != null)
                 && "enabled".equals(s.insecureRequests())) {
@@ -682,6 +699,19 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.token-state-manager.encryption-required=false"),
                     "Remove the override so token-state-manager.encryption-required keeps its true default."));
         }
+        if (observations.check("QS-OIDC-006", !s.insecureOidcClientEndpoints().isEmpty())) {
+            v.add(rule(
+                    "QS-OIDC-006",
+                    "OIDC client endpoints must use HTTPS and verify TLS",
+                    "OIDC",
+                    "HIGH",
+                    "An active quarkus.oidc-client configuration uses plain HTTP for auth-server-url, token-path, or"
+                            + " revoke-path, or disables certificate validation with tls.verification=none, exposing"
+                            + " client credentials and access tokens on the wire.",
+                    s.insecureOidcClientEndpoints().size(),
+                    s.insecureOidcClientEndpoints(),
+                    "Use HTTPS for all quarkus.oidc-client endpoints and keep TLS certificate verification enabled."));
+        }
         if (observations.check("QS-MGMT-001", s.managementEnabled()) && s.managementHostNonLoopback()) {
             v.add(rule(
                     "QS-MGMT-001",
@@ -708,6 +738,20 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.management.enabled=true, quarkus.management.host /"
                             + " %prod.quarkus.management.host absent"),
                     "Explicitly pin %prod.quarkus.management.host to 127.0.0.1, or to the intended bind address."));
+        }
+        if (observations.check("QS-MGMT-004", !s.ignoredManagementAuthPolicies().isEmpty())) {
+            v.add(rule(
+                    "QS-MGMT-004",
+                    "Management permission policies declared while management auth is disabled",
+                    "Management",
+                    "HIGH",
+                    "quarkus.management.auth.permission.* or quarkus.management.auth.policy.* rules are declared"
+                            + " while build-time quarkus.management.auth.enabled is false (its default), so Quarkus"
+                            + " silently ignores all management interface permission policies.",
+                    s.ignoredManagementAuthPolicies().size(),
+                    s.ignoredManagementAuthPolicies(),
+                    "Set build-time quarkus.management.auth.enabled=true so the declared management permission"
+                            + " policies are enforced."));
         }
         if (observations.check("QS-CFG-001", true) && !s.suspectedSecretKeys().isEmpty()) {
             v.add(rule(
@@ -757,6 +801,20 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.http.auth.form.timeout >= 8h"),
                     "Lower the timeout (the Quarkus default is 30 minutes) and pair it with new-cookie-interval."));
+        }
+        if (observations.check("QS-SESSION-004", s.formAuth()) && s.formSessionEncryptionKeyShort()) {
+            v.add(rule(
+                    "QS-SESSION-004",
+                    "Short form-auth session encryption key",
+                    "Session",
+                    "MEDIUM",
+                    "quarkus.http.auth.session.encryption-key is shorter than 16 characters while form"
+                            + " authentication is enabled. Quarkus requires at least 16 characters for persistent"
+                            + " login cookie encryption.",
+                    1,
+                    List.of("quarkus.http.auth.session.encryption-key length < 16"),
+                    "Configure a random quarkus.http.auth.session.encryption-key of at least 16 characters (ideally"
+                            + " 32+ bytes from an external secret store)."));
         }
         if (observations.check("QS-GRPC-001", s.grpcReflectionEnabledInProd())) {
             v.add(rule(
@@ -999,6 +1057,8 @@ final class QuarkusSecurityChecks {
                     case "QS-OIDC-002" -> "security-oidc-code-flow-authentication#oidc-cookies";
                     case "QS-OIDC-003" -> "security-oidc-code-flow-authentication#proof-key-for-code-exchange-pkce";
                     case "QS-OIDC-005" -> "security-oidc-code-flow-authentication#token-state-manager";
+                    case "QS-OIDC-006" -> "security-openid-connect-client-reference";
+                    case "QS-MGMT-004" -> "management-interface-reference#basic-auth";
                     case "QS-CFG-001" -> "credentials-provider";
                     case "QS-GRPC-001" -> "grpc-service-implementation#reflection-service";
                     case "QS-GRAPHQL-001" -> "smallrye-graphql";
