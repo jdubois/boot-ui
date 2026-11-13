@@ -1,6 +1,6 @@
 # Quarkus security checks
 
-The Security panel, on Quarkus, runs a fixed, on-demand **45-rule** ruleset against the host application's
+The Security panel, on Quarkus, runs a fixed, on-demand **44-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
 `quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`, `quarkus.http.proxy.*`,
 `quarkus.security.users.embedded.*`, `quarkus.rest-csrf.*` (the CSRF extension), `quarkus.grpc.server.*`,
@@ -281,15 +281,7 @@ Dismissed rules remove all of their findings from the score.
 
 ### QS-TLS-002 - No TLS configured for the main HTTP listener
 
-- **Severity**: INFO
-- **Detects**: No supported main-listener TLS material is declared. Recognized forms include a legacy keystore,
-  paired certificate/key lists, TLS-registry JKS/P12 paths, and paired PEM certificate/key entries. A named registry
-  bucket only counts when selected by `quarkus.http.tls-configuration-name`; an unrelated client bucket does not.
-  Partial material and programmatic providers remain incomplete, and a declaration is not proof of usable HTTPS.
-  Password, alias, ordering, and other option defaults are not certificate material and do not, by themselves, make
-  TLS observation incomplete.
-- **Recommendation**: Acceptable behind a verified terminating proxy.
-- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#ssl>
+**Retired.** Duplicate of `QS-TLS-001` (`LOW`, `quarkus.http.insecure-requests=enabled`) in the default `insecure-requests` posture when listener SSL is absent, and fires on every local Quarkus dev/test run. Listener TLS material detection (legacy keystore, paired certificate/key lists, and TLS-registry JKS/P12 or paired PEM entries selected by `quarkus.http.tls-configuration-name`) continues to gate `QS-HDR-003`. The ID remains reserved in `QuarkusSecurityChecks.RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals stay valid.
 
 ### QS-TLS-003 - TLS certificate validation disabled
 

@@ -65,7 +65,7 @@ class QuarkusSecurityScannerTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 4, 10000})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 3, 10000})
     void baseIntegrationPostureExcludesUnknownDocumentChecksBeforeCountingAndRetaining(int retentionLimit) {
         Snap snap = new Snap();
         snap.basic = false;
@@ -94,10 +94,10 @@ class QuarkusSecurityScannerTest {
         SecurityReport report = scanner.scan();
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .containsExactlyInAnyOrder("QS-AUTH-001", "QS-TLS-001", "QS-TLS-002", "QS-HDR-006");
+                .containsExactlyInAnyOrder("QS-AUTH-001", "QS-TLS-001", "QS-HDR-006");
         assertCountedMetadata(report);
-        assertThat(report.violationDetails().total()).isEqualTo(4);
-        assertThat(report.violationDetails().retained()).isEqualTo(Math.min(4, retentionLimit));
+        assertThat(report.violationDetails().total()).isEqualTo(3);
+        assertThat(report.violationDetails().retained()).isEqualTo(Math.min(3, retentionLimit));
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         String scanId = report.violationDetails().scanId();
         AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
@@ -113,7 +113,7 @@ class QuarkusSecurityScannerTest {
         }
         var headers = scanner.ruleViolations("QS-HDR-006", scanId, 0, null);
         assertThat(headers.violationCount()).isOne();
-        if (retentionLimit >= 4) {
+        if (retentionLimit >= 3) {
             assertThat(headers.violations())
                     .containsExactly("quarkus.http.header.\"X-Content-Type-Options\".value absent");
             assertThat(headers.truncated()).isFalse();
@@ -712,15 +712,59 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void noTlsFlagsTls002EvenWhenForwardedHeadersAreTrusted() {
+    void retiredTls002IsNotEvaluatedAndDismissalsStayCompatible() {
+        assertThat(QuarkusSecurityChecks.RETIRED_RULES)
+                .containsExactlyInAnyOrder(
+                        "QS-AUTH-005",
+                        "QS-AUTH-006",
+                        "QS-AUTH-011",
+                        "QS-AUTHZ-003",
+                        "QS-TLS-002",
+                        "QS-CORS-003",
+                        "QS-CORS-004",
+                        "QS-CORS-005",
+                        "QS-HDR-007",
+                        "QS-HDR-008",
+                        "QS-MGMT-002");
+        assertThat(QuarkusSecurityChecks.ruleIds()).doesNotContainAnyElementsOf(QuarkusSecurityChecks.RETIRED_RULES);
+
         Snap fires = new Snap();
         fires.ssl = false;
-        assertThat(find(scan(fires), "QS-TLS-002").severity()).isEqualTo("INFO");
+        fires.behindProxy = true;
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(fires::build, CLOCK);
+        SecurityReport report = scanner.scan();
+        assertThat(find(report, "QS-TLS-002")).isNull();
+        assertThat(scanner.applyDismissals(report, QuarkusSecurityChecks.RETIRED_RULES))
+                .isEqualTo(report);
+    }
 
-        Snap proxied = new Snap();
-        proxied.ssl = false;
-        proxied.behindProxy = true;
-        assertThat(find(scan(proxied), "QS-TLS-002")).isNotNull();
+    @Test
+    void quarkusCatalogDocumentsActiveRulesAndMarksRetiredTls002() throws IOException {
+        Path workingDirectory = Path.of("").toAbsolutePath();
+        Path docPath = Files.isRegularFile(workingDirectory.resolve("docs/QUARKUS-CHECKS.md"))
+                ? workingDirectory.resolve("docs/QUARKUS-CHECKS.md")
+                : workingDirectory.resolve("../docs/QUARKUS-CHECKS.md").normalize();
+        String documentation = Files.readString(docPath);
+        java.util.regex.Pattern headingPattern = java.util.regex.Pattern.compile("(?m)^### (QS-[A-Z0-9-]+) - ");
+        java.util.regex.Pattern nextHeading = java.util.regex.Pattern.compile("(?m)^#{2,3} ");
+        java.util.regex.Pattern retiredSection = java.util.regex.Pattern.compile("(?m)^\\*\\*Retired\\.\\*\\*\\s+");
+        Set<String> activeHeadings = new java.util.LinkedHashSet<>();
+        Set<String> retiredHeadings = new java.util.LinkedHashSet<>();
+        var matcher = headingPattern.matcher(documentation);
+        while (matcher.find()) {
+            String id = matcher.group(1);
+            var next = nextHeading.matcher(documentation);
+            int end = next.find(matcher.end()) ? next.start() : documentation.length();
+            String section = documentation.substring(matcher.start(), end);
+            if (retiredSection.matcher(section).find()) {
+                assertThat(section).doesNotContain("- **Severity**:");
+                retiredHeadings.add(id);
+            } else {
+                activeHeadings.add(id);
+            }
+        }
+        assertThat(activeHeadings).containsExactlyInAnyOrderElementsOf(QuarkusSecurityChecks.ruleIds());
+        assertThat(retiredHeadings).containsExactly("QS-TLS-002").isSubsetOf(QuarkusSecurityChecks.RETIRED_RULES);
     }
 
     @Test
@@ -1473,7 +1517,7 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(45);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(44);
     }
 
     @Test
@@ -1561,7 +1605,6 @@ class QuarkusSecurityScannerTest {
                 "QS-AUTHZ-002",
                 "QS-AUTHZ-004",
                 "QS-TLS-001",
-                "QS-TLS-002",
                 "QS-TLS-003",
                 "QS-TLS-004",
                 "QS-TLS-005",
@@ -1763,15 +1806,19 @@ class QuarkusSecurityScannerTest {
     void everyRuleIdTheChecksEmitIsInTheCatalogueDetailReadsUse() throws java.io.IOException {
         String source = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/io/github/jdubois/bootui/engine/quarkussecurity/QuarkusSecurityChecks.java"));
+        int retired = source.indexOf("RETIRED_RULES = Set.of(");
         int learnMore = source.indexOf("static String learnMore(String id)");
         int catalogue = source.indexOf("RULE_IDS = List.of(");
+        assertThat(retired).isPositive();
         assertThat(learnMore)
                 .as("the learnMore guide map is excluded: it may name rules no check emits")
                 .isPositive();
         assertThat(catalogue).isPositive();
+        int retiredEnd = source.indexOf(");", retired);
         int catalogueEnd = source.indexOf(");", catalogue);
         int learnMoreEnd = source.indexOf("\n    }\n", learnMore);
-        String checks = source.substring(0, catalogue)
+        String checks = source.substring(0, retired)
+                + source.substring(retiredEnd, catalogue)
                 + source.substring(catalogueEnd, learnMore)
                 + source.substring(learnMoreEnd);
         java.util.Set<String> emitted = new java.util.TreeSet<>();
@@ -1780,7 +1827,7 @@ class QuarkusSecurityScannerTest {
         while (literal.find()) {
             emitted.add(literal.group(1));
         }
-        assertThat(emitted).isNotEmpty();
+        assertThat(emitted).isNotEmpty().doesNotContainAnyElementsOf(QuarkusSecurityChecks.RETIRED_RULES);
         assertThat(QuarkusSecurityChecks.ruleIds())
                 .as("a rule id a check names but RULE_IDS lacks would answer Unknown advisor rule")
                 .containsAll(emitted);

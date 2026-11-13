@@ -619,7 +619,7 @@ panel and `/bootui/api/security` contract support all three stacks.
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it analyses Spring Security when present: already-created `SecurityFilterChain` configuration and
+On Spring Boot it evaluates a 50-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
 supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
 also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
 check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
@@ -635,7 +635,7 @@ analyzer configuration check is also available when Spring Security is absent.
 
 ![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
-On Quarkus it runs a Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
+On Quarkus it runs a 44-rule Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
 endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS and transport policy,
 forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), response headers, and
 `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The shared static analyzer configuration check

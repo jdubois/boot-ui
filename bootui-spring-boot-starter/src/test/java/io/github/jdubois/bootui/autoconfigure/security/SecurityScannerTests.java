@@ -64,7 +64,7 @@ import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 54;
+    private static final int RULE_COUNT = 50;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @TempDir
@@ -393,7 +393,7 @@ class SecurityScannerTests {
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.results())
                 .extracting(SecurityRuleResultDto::id)
-                .doesNotContain("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-004", "SEC-ACT-006");
+                .doesNotContain("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-006");
     }
 
     @Test
@@ -786,42 +786,38 @@ class SecurityScannerTests {
     }
 
     @Test
-    void flagsInteractiveLoginChainWithoutConcurrentSessionControl() {
+    void retiredServletRulesAreNotEvaluatedAndDismissalsStayCompatible() {
         FilterChainModel chain = new FilterChainModel(
                 0,
                 "any request",
                 List.of(
+                        "HeaderWriterFilter",
                         "SecurityContextHolderFilter",
                         "UsernamePasswordAuthenticationFilter",
                         "SessionManagementFilter",
                         "AuthorizationFilter"),
                 Boolean.FALSE,
                 Boolean.FALSE,
-                List.of());
+                List.of("XContentTypeOptionsHeaderWriter"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("management.endpoint.health.show-details", "always")
+                .withProperty("management.endpoint.health.show-components", "always")
+                .withProperty("spring.web.error.include-stacktrace", "always")
+                .withProperty("spring.web.error.include-message", "always");
 
-        SecurityReport report = new SecurityScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
+        SecurityScanner scanner = new SecurityScanner(contextWith(chain, environment), CLOCK);
+        SecurityReport report = scanner.scan();
 
-        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-SESSION-007");
-    }
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-SESSION-007", "SEC-HEAD-010", "SEC-ACT-004", "SEC-CONFIG-005")
+                .doesNotContainAnyElementsOf(SecurityScanner.RETIRED_RULE_IDS);
 
-    @Test
-    void doesNotFlagConcurrentSessionControlWhenConfigured() {
-        FilterChainModel chain = new FilterChainModel(
-                0,
-                "any request",
-                List.of(
-                        "SecurityContextHolderFilter",
-                        "UsernamePasswordAuthenticationFilter",
-                        "SessionManagementFilter",
-                        "ConcurrentSessionFilter",
-                        "AuthorizationFilter"),
-                Boolean.FALSE,
-                Boolean.FALSE,
-                List.of());
-
-        SecurityReport report = new SecurityScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
-
-        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-SESSION-007");
+        SecurityReport dismissed = scanner.applyDismissals(report, SecurityScanner.RETIRED_RULE_IDS);
+        assertThat(dismissed.results()).isEqualTo(report.results());
+        assertThat(dismissed.violationsFound()).isEqualTo(report.violationsFound());
+        assertThat(dismissed.severityCounts()).isEqualTo(report.severityCounts());
+        assertThat(dismissed.scan().status()).isEqualTo(report.scan().status());
     }
 
     @Test
