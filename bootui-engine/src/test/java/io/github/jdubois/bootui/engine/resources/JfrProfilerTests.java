@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler.RequestSamples;
+import io.github.jdubois.bootui.engine.resources.JfrProfiler.Segment;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler.Snapshot;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler.State;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +33,7 @@ class JfrProfilerTests {
         Snapshot running = profiler.start(Duration.ofMinutes(1));
         assertThat(running.state()).isEqualTo(State.RUNNING);
         assertThat(running.sampler()).isIn(JfrProfiler.EXECUTION_SAMPLER, JfrProfiler.CPU_TIME_SAMPLER);
+        assertThat(running.virtualThreadPinningSupported()).isEqualTo(startVirtual != null);
         assertThat(profiler.start(Duration.ofMinutes(1)).startedAt())
                 .as("a second start joins the running session")
                 .isEqualTo(running.startedAt());
@@ -152,6 +155,108 @@ class JfrProfilerTests {
         assertThat(JfrSegments.active()).isFalse();
         assertThat(JfrSegments.begin("r-1")).isNull();
         JfrSegments.end(null);
+    }
+
+    @Test
+    void virtualThreadPinningEventsJoinOverlappingSegmentsAndCountOutsidePins() throws Exception {
+        assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
+        Method startVirtual = virtualThreads();
+        assumeThat(startVirtual).as("Virtual threads are available (JDK 21+)").isNotNull();
+
+        profiler.start(Duration.ofMinutes(1));
+        String pinnedRequest = RequestIds.next();
+        SegmentMeter meter = SegmentMeter.shared();
+        ((Thread) startVirtual.invoke(null, (Runnable) () -> {
+                    meter.begin(pinnedRequest);
+                    try (BootUiCorrelation.Scope ignored =
+                            BootUiCorrelation.open(CorrelationContext.forRequest(pinnedRequest))) {
+                        RequestPinTrigger.trigger();
+                    } finally {
+                        meter.switchTo(null);
+                        meter.take(pinnedRequest);
+                    }
+                }))
+                .join();
+        ((Thread) startVirtual.invoke(null, (Runnable) OutsidePinTrigger::trigger)).join();
+
+        Snapshot done = profiler.stop();
+
+        assertThat(done.state()).isEqualTo(State.COMPLETED);
+        assertThat(done.virtualThreadPinningSupported()).isTrue();
+        assertThat(done.analysis().pinnedEvents()).isGreaterThanOrEqualTo(2);
+        assertThat(done.analysis().outsidePinnedEvents()).isGreaterThanOrEqualTo(1);
+        assertThat(done.analysis().pinnedDurationMicros()).isPositive();
+        RequestSamples onPinned = done.analysis().requests().get(pinnedRequest);
+        assertThat(onPinned).isNotNull();
+        assertThat(onPinned.virtualThread()).isTrue();
+        assertThat(onPinned.pinnedEvents()).isGreaterThanOrEqualTo(1);
+        assertThat(onPinned.pinnedDurationMicros()).isPositive();
+        assertThat(onPinned.pinnedFrames().keySet())
+                .anyMatch(frame -> frame.contains("JfrProfilerTests.pinCarrierInsideRequest"))
+                .noneMatch(frame -> frame.contains("JfrProfilerTests.pinCarrierOutsideRequest"));
+    }
+
+    @Test
+    void intervalOverlapAttributionHandlesBoundaryAndSpanningPins() {
+        List<Segment> segments = List.of(new Segment(100, 200, "req-1"), new Segment(300, 400, "req-2"));
+
+        assertThat(JfrProfiler.ownerOverlapping(null, 120, 150)).isNull();
+        assertThat(JfrProfiler.ownerOverlapping(List.of(), 120, 150)).isNull();
+        assertThat(JfrProfiler.ownerOverlapping(segments, 120, 180)).isEqualTo("req-1");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 80, 120)).isEqualTo("req-1");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 180, 220)).isEqualTo("req-1");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 50, 250)).isEqualTo("req-1");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 90, 100)).isEqualTo("req-1");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 200, 210)).isEqualTo("req-1");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 201, 299)).isNull();
+        assertThat(JfrProfiler.ownerOverlapping(segments, 290, 310)).isEqualTo("req-2");
+        assertThat(JfrProfiler.ownerOverlapping(segments, 401, 500)).isNull();
+    }
+
+    @Test
+    void eventTypeLookupDetectsPresenceAndAbsenceOfVirtualThreadPinned() {
+        assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
+        List<jdk.jfr.EventType> registered =
+                jdk.jfr.FlightRecorder.getFlightRecorder().getEventTypes();
+        assertThat(JfrProfiler.Jfr.hasEventType(registered, JfrProfiler.EXECUTION_SAMPLER))
+                .isTrue();
+        List<jdk.jfr.EventType> withoutPinning = registered.stream()
+                .filter(type -> !JfrProfiler.VIRTUAL_THREAD_PINNED_EVENT.equals(type.getName()))
+                .toList();
+        assertThat(JfrProfiler.Jfr.hasEventType(withoutPinning, JfrProfiler.VIRTUAL_THREAD_PINNED_EVENT))
+                .isFalse();
+    }
+
+    static void pinCarrierInsideRequest() {
+        try {
+            Thread.sleep(8);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    static void pinCarrierOutsideRequest() {
+        try {
+            Thread.sleep(8);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static final class RequestPinTrigger {
+        static {
+            pinCarrierInsideRequest();
+        }
+
+        static void trigger() {}
+    }
+
+    private static final class OutsidePinTrigger {
+        static {
+            pinCarrierOutsideRequest();
+        }
+
+        static void trigger() {}
     }
 
     private static void work(String requestId) {

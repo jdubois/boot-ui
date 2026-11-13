@@ -114,13 +114,19 @@ final class SpringHibernateRepositoryDiscovery {
         MergedAnnotation<Annotation> nativeQuery = annotations.get(JPA + "NativeQuery");
         MergedAnnotation<Annotation> modifying = annotations.get(JPA + "Modifying");
         MergedAnnotation<Annotation> graph = annotations.get(JPA + "EntityGraph");
-        boolean named = presentString(query, "name")
+        boolean explicitQueryText = presentString(query, "value") || presentString(nativeQuery, "value");
+        boolean jpaNamed = !explicitQueryText && hasJpaNamedQuery(domain, method.getName());
+        boolean named = jpaNamed
+                || presentString(query, "name")
                 || presentString(query, "countName")
                 || presentString(query, "countProjection")
                 || presentString(nativeQuery, "sqlResultSetMapping");
         Class<?> rewriter =
                 query.isPresent() ? query.getValue("queryRewriter", Class.class).orElse(null) : null;
         boolean rewriting = rewriter != null && !rewriter.getName().endsWith("$IdentityQueryRewriter");
+        boolean hasTypeParameters = method.getTypeParameters().length > 0;
+        boolean derivedQueryVerified =
+                !query.isPresent() && !nativeQuery.isPresent() && !named && !rewriting && !hasTypeParameters;
         Class<?> element = returnElement(repository, method);
         Boolean limitInMemory = null;
         MergedAnnotation<Annotation> hints = annotations.get(JPA + "QueryHints");
@@ -138,9 +144,9 @@ final class SpringHibernateRepositoryDiscovery {
         HibernateQueryEvidence evidence = new HibernateQueryEvidence(
                 true,
                 query.isPresent() || nativeQuery.isPresent(),
-                false,
+                derivedQueryVerified,
                 named,
-                rewriting || method.getTypeParameters().length > 0,
+                rewriting || hasTypeParameters,
                 element,
                 graph.isPresent(),
                 graph.isPresent() ? graph.getValue("type").map(Object::toString).orElse(null) : null,
@@ -200,6 +206,54 @@ final class SpringHibernateRepositoryDiscovery {
                         .getValue(attribute, String.class)
                         .filter(value -> !value.isBlank())
                         .isPresent();
+    }
+
+    private static boolean hasJpaNamedQuery(Class<?> domain, String methodName) {
+        if (domain == null || methodName == null || methodName.isBlank()) {
+            return false;
+        }
+        String candidate = domain.getSimpleName() + "." + methodName;
+        for (Class<?> current = domain; current != null && current != Object.class; current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                if (matchesNamedQueryAnnotation(annotation, candidate)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean matchesNamedQueryAnnotation(Annotation annotation, String candidate) {
+        String typeName = annotation.annotationType().getName();
+        if (typeName.equals("jakarta.persistence.NamedQuery")
+                || typeName.equals("jakarta.persistence.NamedNativeQuery")
+                || typeName.equals("org.hibernate.annotations.NamedQuery")
+                || typeName.equals("org.hibernate.annotations.NamedNativeQuery")) {
+            try {
+                Object name = annotation.annotationType().getMethod("name").invoke(annotation);
+                return name instanceof String text && text.equals(candidate);
+            } catch (ReflectiveOperationException | RuntimeException ex) {
+                return false;
+            }
+        }
+        if (typeName.equals("jakarta.persistence.NamedQueries")
+                || typeName.equals("jakarta.persistence.NamedNativeQueries")
+                || typeName.equals("org.hibernate.annotations.NamedQueries")
+                || typeName.equals("org.hibernate.annotations.NamedNativeQueries")) {
+            try {
+                Object value = annotation.annotationType().getMethod("value").invoke(annotation);
+                if (value instanceof Annotation[] nested) {
+                    for (Annotation child : nested) {
+                        if (matchesNamedQueryAnnotation(child, candidate)) {
+                            return true;
+                        }
+                    }
+                }
+            } catch (ReflectiveOperationException | RuntimeException ex) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static Class<?> returnElement(Class<?> repository, Method method) {

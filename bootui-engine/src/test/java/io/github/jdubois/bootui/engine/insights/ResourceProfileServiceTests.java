@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.JfrProfiler;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
@@ -54,8 +55,22 @@ class ResourceProfileServiceTests {
         assertThat(running.endsAt() - running.startedAt()).isEqualTo(60_000);
         String recorded = RequestIds.next();
         String evicted = RequestIds.next();
+        Method startVirtual = virtualThreads();
+        String pinned = startVirtual != null ? RequestIds.next() : null;
         run(recorded);
         run(evicted);
+        if (pinned != null) {
+            runPinned(startVirtual, pinned);
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    System.currentTimeMillis(),
+                    10_000_000L,
+                    CorrelationContext.forRequest(pinned),
+                    "http-2",
+                    null,
+                    false,
+                    new HttpPayload("POST", "/api/orders/checkout", "/api/orders/checkout", null, 200)));
+        }
         journal.offer(RuntimeEvent.of(
                 JournalSource.HTTP,
                 System.currentTimeMillis(),
@@ -70,11 +85,25 @@ class ResourceProfileServiceTests {
         RuntimeResourceProfileDto done = service.stop();
 
         assertThat(done.state()).isEqualTo("COMPLETED");
-        assertThat(done.requests()).isEqualTo(2);
+        assertThat(done.requests()).isEqualTo(pinned != null ? 3 : 2);
         assertThat(done.cpuSamples()).isPositive();
-        assertThat(done.routes())
-                .extracting(RuntimeResourceProfileRouteDto::route)
-                .containsExactlyInAnyOrder("GET /api/report/{id}", ResourceProfileService.NOT_RETAINED);
+        assertThat(done.virtualThreadPinningSupported()).isEqualTo(pinned != null);
+        if (pinned != null) {
+            assertThat(done.pinnedEvents()).isGreaterThanOrEqualTo(1);
+            assertThat(done.pinnedDurationMicros()).isPositive();
+            RuntimeResourceProfileRouteDto checkout = done.routes().stream()
+                    .filter(route -> route.route().equals("POST /api/orders/checkout"))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(checkout.virtualThreads()).isTrue();
+            assertThat(checkout.pinnedEvents()).isGreaterThanOrEqualTo(1);
+            assertThat(checkout.pinnedDurationMicros()).isPositive();
+            assertThat(checkout.pinnedFrames()).isNotEmpty().hasSizeLessThanOrEqualTo(5);
+        } else {
+            assertThat(done.routes())
+                    .extracting(RuntimeResourceProfileRouteDto::route)
+                    .containsExactlyInAnyOrder("GET /api/report/{id}", ResourceProfileService.NOT_RETAINED);
+        }
         RuntimeResourceProfileRouteDto report = done.routes().stream()
                 .filter(route -> route.route().equals("GET /api/report/{id}"))
                 .findFirst()
@@ -115,6 +144,63 @@ class ResourceProfileServiceTests {
                 new ResourceProfileService(null, null, Duration.ofSeconds(5), null).status();
         assertThat(disabled.state()).isEqualTo("UNAVAILABLE");
         assertThat(disabled.reason()).isEqualTo(RuntimeInsightsService.DISABLED);
+    }
+
+    @Test
+    void reportsJep491LimitationOnlyOnJdk24AndLaterWhenVirtualThreadPinningIsSupported() {
+        assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
+        assumeThat(virtualThreads()).as("Virtual threads are available").isNotNull();
+
+        ResourceProfileService onJdk21 =
+                new ResourceProfileService(journal, null, Duration.ofSeconds(5), null, JfrProfiler.shared(), 21);
+        ResourceProfileService onJdk24 =
+                new ResourceProfileService(journal, null, Duration.ofSeconds(5), null, JfrProfiler.shared(), 24);
+        onJdk21.start();
+        RuntimeResourceProfileDto jdk21Done = onJdk21.stop();
+        assertThat(jdk21Done.limitations()).doesNotContain(ResourceProfileService.JEP_491_NOTE);
+
+        onJdk24.start();
+        RuntimeResourceProfileDto jdk24Done = onJdk24.stop();
+        assertThat(jdk24Done.limitations()).contains(ResourceProfileService.JEP_491_NOTE);
+    }
+
+    static void pinCheckout() {
+        try {
+            Thread.sleep(8);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static final class CheckoutPinTrigger {
+        static {
+            pinCheckout();
+        }
+
+        static void trigger() {}
+    }
+
+    private static void runPinned(Method startVirtual, String requestId) throws Exception {
+        ((Thread) startVirtual.invoke(null, (Runnable) () -> {
+                    SegmentMeter meter = SegmentMeter.shared();
+                    meter.begin(requestId);
+                    try (BootUiCorrelation.Scope ignored =
+                            BootUiCorrelation.open(CorrelationContext.forRequest(requestId))) {
+                        CheckoutPinTrigger.trigger();
+                    } finally {
+                        meter.switchTo(null);
+                        meter.take(requestId);
+                    }
+                }))
+                .join();
+    }
+
+    private static Method virtualThreads() {
+        try {
+            return Thread.class.getMethod("startVirtualThread", Runnable.class);
+        } catch (NoSuchMethodException ex) {
+            return null;
+        }
     }
 
     private static void run(String requestId) throws InterruptedException {

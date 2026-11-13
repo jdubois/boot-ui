@@ -841,6 +841,88 @@ class DependencyCatalogTests {
     }
 
     @Test
+    void aShadowedDuplicateArchiveIsNeverMarkedIdentifiedEvenWhenItsNameMatchesAResolvedCoordinate() throws Exception {
+        Path first = plainJar("a/resolved-1.0.0.jar");
+        Path second = plainJar("b/resolved-1.0.0.jar");
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [{"purl": "pkg:maven/com.example/resolved@1.0.0"}]}
+                """);
+
+        DependencyCoverageDto coverage = withClassPathInventory(resolver, first.toString(), second.toString())
+                .coverage();
+
+        assertThat(coverage).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("resolved-1.0.0.jar")));
+    }
+
+    @Test
+    void excludesTheHostApplicationFromMavenDescriptorsWhileKeepingShadedAndLibrarySbomDependencies() throws Exception {
+        Path fatJar =
+                repackagedJar("app.jar", "BOOT-INF/lib/", List.of("widget-1.2.3.jar", "embedded-sbom-lib-1.0.jar"));
+        Resource appFromSbom = new ByteArrayResource(
+                "groupId=com.example\nartifactId=demo-app\nversion=0.0.1\n".getBytes(StandardCharsets.UTF_8));
+        Resource appFromBootInfClasses = descriptorAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/classes/META-INF/maven/com.example/app/pom.properties",
+                "com.example",
+                "app",
+                "0.0.1");
+        Resource appFromNestedBootInfClasses = descriptorAtUri(
+                "jar:nested:/app/app.jar/!BOOT-INF/classes/!/META-INF/maven/com.example/app/pom.properties",
+                "com.example",
+                "app",
+                "0.0.1");
+        Resource appFromOuterJarRoot = descriptorAtUrl(
+                "jar:file:/app/app.jar!/META-INF/maven/com.example/app/pom.properties", "com.example", "app", "0.0.1");
+        Resource shadedIntoAppClasses = descriptorAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/classes/META-INF/maven/org.yaml/snakeyaml/pom.properties",
+                "org.yaml",
+                "snakeyaml",
+                "1.26");
+        Resource widgetDescriptor = descriptorAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/lib/widget-1.2.3.jar!/META-INF/maven/com.acme/widget/pom.properties",
+                "com.acme",
+                "widget",
+                "1.2.3");
+        Resource libraryWithOwnSbomDescriptor = descriptorAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/lib/embedded-sbom-lib-1.0.jar!/META-INF/maven/org.thirdparty/embedded-sbom-lib/pom.properties",
+                "org.thirdparty",
+                "embedded-sbom-lib",
+                "1.0");
+        Resource libraryOwnedSbom = sbomResourceAtUrl(
+                "jar:file:/app/app.jar!/BOOT-INF/lib/embedded-sbom-lib-1.0.jar!/META-INF/sbom/bom.json", """
+                {
+                  "metadata": {"component": {"purl": "pkg:maven/org.thirdparty/embedded-sbom-lib@1.0"}},
+                  "components": []
+                }
+                """);
+        ResourcePatternResolver resolver = patternResolver(Map.of(
+                "classpath*:META-INF/sbom/application.cdx.json",
+                List.of(sbomResource("""
+                        {
+                          "metadata": {"component": {"purl": "pkg:maven/com.example/demo-app@0.0.1"}},
+                          "components": []
+                        }
+                        """)),
+                "classpath*:META-INF/sbom/bom.json",
+                List.of(libraryOwnedSbom),
+                "classpath*:META-INF/maven/*/*/pom.properties",
+                List.of(
+                        appFromSbom,
+                        appFromBootInfClasses,
+                        appFromNestedBootInfClasses,
+                        appFromOuterJarRoot,
+                        shadedIntoAppClasses,
+                        widgetDescriptor,
+                        libraryWithOwnSbomDescriptor)));
+
+        DependencyInventory inventory = withClassPathInventory(resolver, fatJar.toString());
+
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("com.acme:widget", "org.thirdparty:embedded-sbom-lib", "org.yaml:snakeyaml");
+        assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 0, List.of()));
+    }
+
+    @Test
     void anExplodedWarHonorsItsLayersIndex() throws Exception {
         Path webInf = Files.createDirectories(tempDir.resolve("war/WEB-INF"));
         Files.writeString(webInf.resolve("layers.idx"), """
@@ -1096,6 +1178,37 @@ class DependencyCatalogTests {
 
     private static Resource descriptorAtUrl(String url) {
         return new ByteArrayResource(WIDGET_DESCRIPTOR) {
+            @Override
+            public URL getURL() throws IOException {
+                return URI.create(url).toURL();
+            }
+        };
+    }
+
+    private static Resource descriptorAtUrl(String url, String groupId, String artifactId, String version) {
+        byte[] bytes = ("groupId=" + groupId + "\nartifactId=" + artifactId + "\nversion=" + version + "\n")
+                .getBytes(StandardCharsets.UTF_8);
+        return new ByteArrayResource(bytes) {
+            @Override
+            public URL getURL() throws IOException {
+                return URI.create(url).toURL();
+            }
+        };
+    }
+
+    private static Resource descriptorAtUri(String uri, String groupId, String artifactId, String version) {
+        byte[] bytes = ("groupId=" + groupId + "\nartifactId=" + artifactId + "\nversion=" + version + "\n")
+                .getBytes(StandardCharsets.UTF_8);
+        return new ByteArrayResource(bytes) {
+            @Override
+            public URI getURI() {
+                return URI.create(uri);
+            }
+        };
+    }
+
+    private static Resource sbomResourceAtUrl(String url, String json) {
+        return new ByteArrayResource(json.getBytes(StandardCharsets.UTF_8)) {
             @Override
             public URL getURL() throws IOException {
                 return URI.create(url).toURL();

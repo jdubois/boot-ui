@@ -62,8 +62,8 @@ that belongs to `pg_monitor` where you can.
 
 - **Database advisor** checks physical schema structure from metadata and vendor catalogs. Its
   [Server rules](../DATABASE-ADVISOR-CHECKS.md#server) also judge a few of the settings shown here (a missing
-  `pg_stat_statements`, `track_io_timing`, autovacuum, the idle-in-transaction and statement timeouts, the slow-statement
-  log); this panel itself stays neutral.
+  `pg_stat_statements`, `track_io_timing`, autovacuum, and the idle-in-transaction timeout); this panel itself stays
+  neutral.
 - **SQL Trace** shows statements this JVM recently issued.
 - **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
   client of the database.
@@ -488,8 +488,7 @@ counters with per-region breakdowns.
 
 When statistics collection is off, the panel offers **Enable for this runtime**, which calls
 `Statistics#setStatisticsEnabled(true)` without rewriting your configuration. The persistent alternatives are
-`hibernate.generate_statistics=true` and `quarkus.hibernate-orm.statistics=true` (the HIB-CONFIG-007 recommendation of
-the [Hibernate advisor](../HIBERNATE-CHECKS.md)). That toggle is the only mutation and follows the localhost,
+`hibernate.generate_statistics=true` and `quarkus.hibernate-orm.statistics=true`. That toggle is the only mutation and follows the localhost,
 cross-site-write, and read-only policy; there is no reset action. The panel is identical on Quarkus.
 
 ::: details Known limitations

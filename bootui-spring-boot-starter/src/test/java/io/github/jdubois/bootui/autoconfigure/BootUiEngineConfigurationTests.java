@@ -580,6 +580,28 @@ class BootUiEngineConfigurationTests {
     }
 
     @Test
+    void resolvesMappingsBasePathAccordingToServletOrReactiveContext() {
+        try (var servletContext = new GenericWebApplicationContext()) {
+            servletContext.refresh();
+            MockEnvironment servletEnv = new MockEnvironment()
+                    .withProperty("server.servlet.context-path", "/host")
+                    .withProperty("spring.mvc.servlet.path", "/mvc")
+                    .withProperty("spring.webflux.base-path", "/ignored-reactive");
+            assertThat(BootUiEngineConfiguration.resolveMappingsBasePath(servletContext, servletEnv))
+                    .isEqualTo("/host/mvc");
+        }
+        try (var reactiveContext = new GenericReactiveWebApplicationContext()) {
+            reactiveContext.refresh();
+            MockEnvironment reactiveEnv = new MockEnvironment()
+                    .withProperty("spring.webflux.base-path", "/reactive")
+                    .withProperty("server.servlet.context-path", "/ignored-servlet")
+                    .withProperty("spring.mvc.servlet.path", "/ignored-mvc");
+            assertThat(BootUiEngineConfiguration.resolveMappingsBasePath(reactiveContext, reactiveEnv))
+                    .isEqualTo("/reactive");
+        }
+    }
+
+    @Test
     void activityPersistenceSettingsFactoryMapsPropertiesWithoutTransposition() {
         // Several adjacent fields share a type (four Durations, several Strings), so a positional
         // transposition in the factory would compile and only surface as a wrong value at runtime. Every

@@ -108,7 +108,11 @@ public final class BootUiApiContractCatalog {
                             "unconditionalClasses", JsonType.ARRAY,
                             "exclusions", JsonType.ARRAY,
                             "counts", JsonType.OBJECT)),
-            pagedList("mappings", "/mappings/flat", "mappings", fields("total", JsonType.INTEGER)),
+            pagedList(
+                    "mappings",
+                    "/mappings/flat",
+                    "mappings",
+                    fields("total", JsonType.INTEGER, "basePath", JsonType.STRING)),
             inventory("data", "/data/repositories", "springDataPresent", "repositories"),
             inventory("flyway", "/flyway/migrations", "flywayPresent", "databases"),
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
@@ -687,6 +691,10 @@ public final class BootUiApiContractCatalog {
                     "cpuSamples", JsonType.INTEGER,
                     "outsideSamples", JsonType.INTEGER,
                     "requests", JsonType.INTEGER,
+                    "virtualThreadPinningSupported", JsonType.BOOLEAN,
+                    "pinnedEvents", JsonType.INTEGER,
+                    "outsidePinnedEvents", JsonType.INTEGER,
+                    "pinnedDurationMicros", JsonType.INTEGER,
                     "routes", JsonType.ARRAY,
                     "routesOmitted", JsonType.INTEGER,
                     "limitations", JsonType.ARRAY));

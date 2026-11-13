@@ -23,6 +23,13 @@ test.describe('HTTP mappings view (Quarkus)', () => {
     await expect(rows.first()).toContainText('GET')
     await expect(rows.first()).toContainText('/api/sample/hello')
     await expect(rows.first()).toContainText('SampleResource#hello')
+
+    const probeLink = rows.first().locator('.mappings-probe-link')
+    await expect(probeLink).toBeVisible()
+    await probeLink.click()
+    await expect(page).toHaveURL(/#\/http-probe\?/)
+    await expect(page.getByLabel('Method')).toHaveValue('GET')
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue('/api/sample/hello')
   })
 
   test('never leaks BootUI\u2019s own /bootui/api routes into the inventory', async ({openView, page}) => {

@@ -13,6 +13,12 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.boot.context.properties.bind.Bindable;
 
+final class SpringRules {
+    static final Set<String> RETIRED_RULE_IDS = SpringRuleRegistry.RETIRED_RULE_IDS;
+
+    private SpringRules() {}
+}
+
 abstract class AbstractSpringRule implements SpringRule {
     static final String BOOT = "https://docs.spring.io/spring-boot/reference/";
     private final SpringRuleDefinition definition;
@@ -819,33 +825,6 @@ final class GracefulShutdownDisabledRule extends AbstractSpringRule {
     }
 }
 
-final class Http2DisabledRule extends AbstractSpringRule {
-    Http2DisabledRule() {
-        super(
-                "WEB-003",
-                "Consider origin HTTP/2",
-                SpringCategory.WEB,
-                "INFO",
-                "HTTP/2 is not configured on an attributable Boot origin server; client-facing protocol negotiation at a proxy is not observed.",
-                "Review edge termination, clients, h2/h2c support and measurements before enabling origin HTTP/2. It is optional, not a universal TLS requirement.",
-                "web/servlet.html");
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext c) {
-        Boolean configured = c.bind("server.http2.enabled", Boolean.class);
-        c.applies(configured != null);
-        SpringRuleResultDto result = configured != null
-                ? pass()
-                : c.applies(c.observations().yes(BOOT_WEB_SERVER))
-                        ? violation(
-                                c,
-                                "Boot origin HTTP/2 is not configured; edge HTTP/2 may already satisfy client requirements.")
-                        : unknown(c);
-        return webLink(c, result);
-    }
-}
-
 final class ErrorDetailsExposedRule extends AbstractSpringRule {
     ErrorDetailsExposedRule() {
         super(
@@ -1109,6 +1088,7 @@ final class ActuatorExposeAllRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.applicationSecurityChainPresent()) return skipped(ActuatorExposure.DEFERRED_TO_SECURITY_ADVISOR);
         if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         return ActuatorExposure.exposesAll(c) && ActuatorExposure.anyAccessible(c)
                 ? violation(
@@ -1132,6 +1112,7 @@ final class SensitiveActuatorEndpointsExposedRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.applicationSecurityChainPresent()) return skipped(ActuatorExposure.DEFERRED_TO_SECURITY_ADVISOR);
         if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         if (ActuatorExposure.exposesAll(c)) return pass();
         List<String> details = new ArrayList<>();
@@ -1188,6 +1169,7 @@ final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule 
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.applicationSecurityChainPresent()) return skipped(ActuatorExposure.DEFERRED_TO_SECURITY_ADVISOR);
         if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         List<String> details = new ArrayList<>();
         if (ActuatorExposure.shutdownAccessible(c))
@@ -1197,30 +1179,6 @@ final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule 
             details.add(
                     "Known heapdump endpoint has web exposure and effective read permission; heap dumps can contain secrets.");
         return violation(c, details);
-    }
-}
-
-final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule {
-    ReactiveHandlerWithBlockingDatasourceRule() {
-        super(
-                "REACTIVE-001",
-                "Review reactive handlers alongside JDBC",
-                SpringCategory.REACTIVE,
-                "INFO",
-                "Application Mono/Flux handlers coexist with a blocking DataSource. This cannot establish blocking inside handlers; offloaded or migration-only JDBC can be intentional.",
-                "Review actual JDBC call sites and offloading where used. No per-handler defect or mandatory driver migration is inferred.",
-                "https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html");
-    }
-
-    @Override
-    SpringRuleResultDto evaluateRule(SpringContext c) {
-        if (!c.reactive()) return skipped("This is not a WebFlux application.");
-        if (!c.observations().incomplete().isEmpty()) return unknown(c);
-        return c.applies(c.reactiveHandlerMethodCount() > 0) && !c.dataSources().isEmpty()
-                ? violation(
-                        c,
-                        "Application reactive handlers coexist with JDBC DataSource metadata; review actual call sites. Correct offloading and migration-only usage are not defects.")
-                : pass();
     }
 }
 

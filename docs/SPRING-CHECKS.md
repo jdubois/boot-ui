@@ -59,8 +59,8 @@ discovery remain unknown.
 
 ### The same ruleset on MVC and WebFlux
 
-Servlet OSIV and servlet multipart guidance are inapplicable on WebFlux, and the two
-[reactive rules](#reactive-webflux-only) are inapplicable on MVC.
+Servlet OSIV and servlet multipart guidance are inapplicable on WebFlux, and the
+[reactive check](#reactive-webflux-only) (`SPRING-REACTIVE-003`) is inapplicable on MVC.
 
 Virtual-thread advice distinguishes Boot task execution and Reactor's shared `boundedElastic` scheduler (which Boot 4's
 `ReactorEnvironmentPostProcessor` switches to virtual threads when `spring.threads.virtual.enabled=true`) from reactive
@@ -287,17 +287,14 @@ findings from the score.
 
 ### SPRING-WEB-003 - Consider origin HTTP/2
 
-- **Severity**: INFO
-- **Detects**: An applicable Boot-managed origin is not configured for HTTP/2, without an explicit opt-out. This is not proof HTTP/2 is absent at the edge or that latency is suboptimal.
-- **Recommendation**: Evaluate origin HTTP/2 only where clients/topology benefit. Account for TLS `h2`, cleartext `h2c` behind suitable infrastructure, and edge termination. Explicit `server.http2.enabled=false` suppresses this optional prompt.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html> (on WebFlux, <https://docs.spring.io/spring-boot/reference/web/reactive.html>)
+**Retired.** `server.http2.enabled` is unset by default in Spring Boot. Plain HTTP/1.1 is standard in local development and behind TLS-terminating reverse proxies, and enabling `server.http2.enabled=true` without SSL enables cleartext `h2c` (which browsers do not support).
 
 ### SPRING-WEB-004 - Review configured fallback error details
 
 - **Severity**: MEDIUM
 - **Detects**: Application-configured `spring.web.error.*` settings request detail disclosure (`always` or caller-controlled `on-param`, in any spelling Boot's lenient enum binding accepts, or `include-exception=true`) in Boot's fallback error handling. This does not characterize every custom error response. Legacy `server.error.*` keys belong to SPRING-CONFIG-003.
 - **DevTools defaults ignored**: while a DevTools restart is active, DevTools adds a low-priority `devtools` property source that sets `include-binding-errors`, `include-message` and `include-stacktrace` to `always` for local development. Those defaults are not the application's configuration and are ignored, like BootUI's own Actuator defaults; an application value still wins and is still reported.
-- **Overlap**: The Security advisor's SEC-CONFIG-005 reviews the same settings, but only when Spring Security filter chains exist; this rule also covers applications without Spring Security.
+- **Ownership**: Remains always active as the sole owner of `spring.web.error.*` fallback error detail settings, whether or not application `SecurityFilterChain` or `SecurityWebFilterChain` beans are present.
 - **Recommendation**: Use `never` for stacktrace/message/binding-error details and false for exception inclusion where details must stay private. `on-param` is not an authorization boundary.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html> (on WebFlux, <https://docs.spring.io/spring-boot/reference/web/reactive.html>)
 
@@ -349,26 +346,26 @@ findings from the score.
 
 The access-aware rules follow Boot 4.1.1: endpoint settings override global defaults, then `max-permitted` caps access. Typed conversion accepts Boot-supported spellings such as `readonly` and legacy `enabled=on`. Empty values that bind to null inherit the next policy level; two non-null typed `access` and legacy `enabled` values at the same scope conflict rather than silently taking precedence. Both heapdump and shutdown default to access `none`. A valid empty include falls back to `health`; excludes win. Invalid binding is not silently treated as empty.
 
-Host configuration is distinguished from BootUI's low-priority management defaults. The Security advisor's SEC-ACT-* rules review overlapping exposure when Spring Security filter chains are available; the panel remains available without Spring Security for its local static-analyzer configuration check. These rules keep Actuator exposure visible for applications without Spring Security. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
+Host configuration is distinguished from BootUI's low-priority management defaults. When at least one non-BootUI application `SecurityFilterChain` or `SecurityWebFilterChain` bean is registered in the context (excluding BootUI's own `bootUiSecurityFilterChain` / `bootUiReactiveSecurityWebFilterChain`), `SPRING-MGMT-001`, `SPRING-MGMT-002` and `SPRING-MGMT-004` are deferred (`SKIPPED`) to the Security Advisor (`SEC-ACT-001/002/005` and `SEC-RXF-ACT-*`), which evaluates the same Actuator exposure alongside route-level authentication and authorization without double-penalizing the Scorecard. `SPRING-MGMT-003` (like `SPRING-WEB-004`) remains always active as the sole owner of `show-values=always` and `health.show-details=always`. When no application security filter chain is present, `SPRING-MGMT-001`, `SPRING-MGMT-002` and `SPRING-MGMT-004` remain active so Actuator exposure is still reviewed. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
 
 ### SPRING-MGMT-001 - Review host wildcard Actuator exposure
 
 - **Severity**: MEDIUM
-- **Detects**: Host-configured wildcard web exposure with applicable endpoint evidence, respecting exclusion and access suppression. It is not proof every optional endpoint exists or that endpoints are public.
+- **Detects**: Host-configured wildcard web exposure with applicable endpoint evidence, respecting exclusion and access suppression. Deferred (`SKIPPED`) when a non-BootUI application `SecurityFilterChain` or `SecurityWebFilterChain` bean is present, where `SEC-ACT-001` / `SEC-RXF-ACT-001` evaluates wildcard exposure with route authorization context. It is not proof every optional endpoint exists or that endpoints are public.
 - **Recommendation**: Prefer an explicit needed endpoint list and review access controls separately. Profile names and port equality do not increase severity.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
 ### SPRING-MGMT-002 - Review explicitly exposed sensitive Actuator endpoints
 
 - **Severity**: MEDIUM
-- **Detects**: Explicit host inclusion of observed sensitive diagnostic endpoints with readable access. Wildcards are handled by SPRING-MGMT-001; shutdown/heapdump by SPRING-MGMT-004. Missing optional endpoints and BootUI-contributed exposure are not host findings.
+- **Detects**: Explicit host inclusion of observed sensitive diagnostic endpoints with readable access. Wildcards are handled by SPRING-MGMT-001; shutdown/heapdump by SPRING-MGMT-004. Deferred (`SKIPPED`) when a non-BootUI application `SecurityFilterChain` or `SecurityWebFilterChain` bean is present, where `SEC-ACT-002` / `SEC-RXF-ACT-002` evaluates sensitive exposure with route authorization context. Missing optional endpoints and BootUI-contributed exposure are not host findings.
 - **Recommendation**: Review which diagnostics need web access and how that access is restricted. This rule does not assess endpoint authorization.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
 ### SPRING-MGMT-003 - Review Actuator values and health details
 
 - **Severity**: MEDIUM
-- **Detects**: Host-configured `show-values=always` or health `show-details=always` on applicable readable endpoints, in any spelling Boot's lenient enum binding accepts (for example `WHEN_AUTHORIZED` or `whenauthorized` are valid, not analysis errors). These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
+- **Detects**: Host-configured `show-values=always` or health `show-details=always` on applicable readable endpoints, in any spelling Boot's lenient enum binding accepts (for example `WHEN_AUTHORIZED` or `whenauthorized` are valid, not analysis errors). Always active regardless of whether application security filter chains are present. These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
 - **Only host configuration**: BootUI contributes `management.endpoint.health.show-details=always` itself, as a lowest-priority default, so its own Health panel works. That contribution is ignored here, so the rule reports only what the application configured.
 - **Recommendation**: Prefer `never` when details are unnecessary, or `when-authorized` with deliberate endpoint roles and authorization configuration. Review sanitization separately.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization>
@@ -376,20 +373,17 @@ Host configuration is distinguished from BootUI's low-priority management defaul
 ### SPRING-MGMT-004 - Review granted heapdump or shutdown web access
 
 - **Severity**: HIGH
-- **Detects**: An observed shutdown endpoint has effective write access and web exposure, or an observed heapdump endpoint has read access and web exposure. Both default to `none` in Boot 4.1.1, so include/wildcard exposure alone is not sufficient. A read-only cap allows heapdump reads but not shutdown writes.
+- **Detects**: An observed shutdown endpoint has effective write access and web exposure, or an observed heapdump endpoint has read access and web exposure. Both default to `none` in Boot 4.1.1, so include/wildcard exposure alone is not sufficient. A read-only cap allows heapdump reads but not shutdown writes. Deferred (`SKIPPED`) when a non-BootUI application `SecurityFilterChain` or `SecurityWebFilterChain` bean is present, where the Security Advisor evaluates dangerous Actuator endpoints alongside route authorization.
 - **Recommendation**: Keep unnecessary endpoint access at `none` and remove unnecessary exposure. Where deliberate, review endpoint authorization and network restrictions. No profile/port-based CRITICAL escalation or claim of unauthenticated access is made.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
 ## Reactive (WebFlux only)
 
-Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring MVC) application; they only evaluate when the advisor detects a WebFlux `ReactiveWebApplicationContext`.
+Active rules in this category are `SKIPPED` unconditionally on a servlet (Spring MVC) application; they only evaluate when the advisor detects a WebFlux `ReactiveWebApplicationContext`.
 
 ### SPRING-REACTIVE-001 - Review reactive handlers alongside JDBC
 
-- **Severity**: INFO
-- **Detects**: This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC DataSource is also configured. A blocking JDBC call made directly inside a reactive chain (instead of offloaded to a bounded scheduler) can block request processing and reduce concurrent capacity. Modeled after the Quarkus advisor's QA-RX-001 (since retired), but deliberately coarser: this reflection-only scanner cannot see inside a handler method's body, so it cannot tell whether offloading is already done correctly. It is an app-level prompt to verify, not a per-endpoint finding.
-- **Recommendation**: Offload blocking database calls, for example with `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`, or migrate to a reactive driver such as R2DBC; verify this per endpoint.
-- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html>
+**Retired.** A WebFlux application can legitimately configure a JDBC `DataSource` for Flyway or Liquibase schema migrations or offload JDBC calls via `Schedulers.boundedElastic()`. Because a reflection-only context scan cannot inspect handler method bodies, this check fired permanently unless dismissed. Actual event-loop blocking is covered by Runtime Insights and the Java Agent **Side Effects** panel.
 
 ### SPRING-REACTIVE-003 - Review explicitly unlimited codec aggregation
 
@@ -402,7 +396,7 @@ Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring M
 
 ## Rule summary
 
-The Spring Advisor ships **41 active rules** across eight categories. The October 2026 audit retired SPRING-CONFIG-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, and added SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **1 HIGH**, **12 MEDIUM**, **10 LOW** and **18 INFO**. Profile names and management-port equality do not escalate severities.
+The Spring Advisor ships **39 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **1 HIGH**, **12 MEDIUM**, **10 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
 
 | Category | Rules |
 | --- | --- |
@@ -410,10 +404,10 @@ The Spring Advisor ships **41 active rules** across eight categories. The Octobe
 | Configuration | SPRING-CONFIG-002 ... SPRING-CONFIG-008 |
 | Profiles and environment | SPRING-PROFILE-002, SPRING-PROFILE-003 |
 | Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-007, SPRING-CACHE-001 |
-| Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-005, SPRING-WEB-007, SPRING-WEB-008 |
+| Web and HTTP | SPRING-WEB-001, SPRING-WEB-002, SPRING-WEB-004, SPRING-WEB-005, SPRING-WEB-007, SPRING-WEB-008 |
 | Data and persistence | SPRING-JPA-001, SPRING-DATA-001, SPRING-DATA-002 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |
-| Reactive (WebFlux only) | SPRING-REACTIVE-001, SPRING-REACTIVE-003 |
+| Reactive (WebFlux only) | SPRING-REACTIVE-003 |
 
 ## Retired rule IDs
 
@@ -423,8 +417,10 @@ These IDs remain reserved. Existing dismissals are preserved without migration o
 | --- | --- | --- |
 | SPRING-PROFILE-001 | Require an explicit active profile | Profiles are optional; configured default profiles and profile-free external configuration are valid. |
 | SPRING-PERF-004 | Hikari default may bottleneck virtual threads | Property absence cannot establish an unreviewed/undersized pool. Explicitly writing the default 10 changes no runtime behavior; size against database capacity and observed load. |
+| SPRING-WEB-003 | Consider origin HTTP/2 | `server.http2.enabled` is unset by default; plain HTTP/1.1 is standard in local development and behind TLS-terminating reverse proxies, and enabling `server.http2.enabled=true` without SSL enables cleartext `h2c` (unsupported by browsers). |
 | SPRING-WEB-006 | Forwarded headers from a production profile | A profile name cannot establish a trusted proxy. Changing header trust needs deployment evidence. |
 | SPRING-CONFIG-001 | Consider lazy initialization for large contexts | More than 300 bean definitions is not a startup-cost measurement and is exceeded by almost every web, Actuator and data application (BootUI's own beans included). Boot advises against enabling lazy initialization by default because it delays failures and first-request work. |
+| SPRING-REACTIVE-001 | Review reactive handlers alongside JDBC | A WebFlux app legitimately configures a `DataSource` for Flyway/Liquibase migrations or offloads JDBC calls via `Schedulers.boundedElastic()`. The reflection-only rule cannot inspect method bodies; actual event-loop blocking is covered by Runtime Insights and the Java Agent **Side Effects** panel. |
 | SPRING-REACTIVE-002 | Increase the default codec buffer | A safe bounded default is not a defect, and `spring.codec.*` is stale in Boot 4. The new unlimited-aggregation check addresses a different condition. |
 
 ## Audit sources and limitations

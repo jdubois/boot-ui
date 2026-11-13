@@ -37,7 +37,7 @@ class PostgresPoolServerRulesLiveTests {
                 Statement statement = connection.createStatement()) {
             // Applies to sessions opened afterwards, which is every connection the scan borrows.
             statement.execute("alter role \"" + postgres.getUsername() + "\" set idle_session_timeout = '1min'");
-            // Role settings reach the scan connection's session; DB-SERVER-001 reads this one, 002 keeps its default 0.
+            // Role settings reach the scan connection's session; DB-SERVER-001 reads this one.
             statement.execute(
                     "alter role \"" + postgres.getUsername() + "\" set idle_in_transaction_session_timeout = '30s'");
         }
@@ -65,11 +65,12 @@ class PostgresPoolServerRulesLiveTests {
 
         // The role sets a 30 s idle-in-transaction timeout; everything else is a stock PostgreSQL default.
         assertThat(status(report, "DB-SERVER-001")).isEqualTo("PASS");
-        assertThat(status(report, "DB-SERVER-002")).isEqualTo("VIOLATION");
         assertThat(status(report, "DB-SERVER-003")).isEqualTo("PASS");
         assertThat(status(report, "DB-SERVER-005")).isEqualTo("VIOLATION");
-        assertThat(status(report, "DB-SERVER-006")).isEqualTo("VIOLATION");
         assertThat(status(report, "DB-SERVER-007")).isEqualTo("SKIPPED");
+        assertThat(report.results())
+                .extracting(result -> result.id())
+                .doesNotContain("DB-POOL-004", "DB-SERVER-002", "DB-SERVER-006");
         assertThat(PoolServerLiveSupport.rule(report, "DB-SERVER-004"))
                 .hasValueSatisfying(
                         result -> assertThat(result.sampleViolations().get(0))

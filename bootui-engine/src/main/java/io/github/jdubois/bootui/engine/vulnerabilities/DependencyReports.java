@@ -469,6 +469,34 @@ public final class DependencyReports {
     }
 
     /**
+     * De-duplicates and bounds advisory aliases (and {@code upstream} identifiers), prioritizing canonical
+     * {@code CVE-} and {@code GHSA-} identifiers ahead of vendor/distribution prefixes (such as {@code BIT-}
+     * and {@code CGA-}) while preserving encounter order within each priority tier.
+     */
+    public static List<String> orderAliases(Collection<String> aliases, int limit) {
+        if (aliases == null || aliases.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+        return aliases.stream()
+                .filter(alias -> alias != null && !alias.isBlank())
+                .map(String::trim)
+                .distinct()
+                .sorted(Comparator.comparingInt(DependencyReports::aliasPriority))
+                .limit(limit)
+                .toList();
+    }
+
+    private static int aliasPriority(String alias) {
+        if (canonicalCveId(alias) != null) {
+            return 0;
+        }
+        if (alias.regionMatches(true, 0, "GHSA-", 0, 5)) {
+            return 1;
+        }
+        return 2;
+    }
+
+    /**
      * De-duplicates and orders reported Maven fixed-version candidates using Maven version semantics,
      * falling back to stable lexical ordering when comparison is inconclusive.
      */

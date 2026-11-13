@@ -1248,6 +1248,10 @@ export function createWorkshopFixtures({
     cpuSamples: 0,
     outsideSamples: 0,
     requests: 0,
+    virtualThreadPinningSupported: true,
+    pinnedEvents: 0,
+    outsidePinnedEvents: 0,
+    pinnedDurationMicros: 0,
     routes: [],
     routesOmitted: 0,
     limitations: []

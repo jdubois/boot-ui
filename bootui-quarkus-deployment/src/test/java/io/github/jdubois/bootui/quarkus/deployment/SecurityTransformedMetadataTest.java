@@ -162,6 +162,22 @@ class SecurityTransformedMetadataTest {
     }
 
     @Test
+    void repeatablePermissionsAllowedAndMechanismSelectionRemainKnownAfterArcMaterialization() throws Exception {
+        var repeatableFixture = bootstrap(RepeatablePermissionsResource.class, null);
+        var repeatableValues = capture(repeatableFixture, List.of(), LaunchMode.TEST);
+        assertThat(repeatableValues.get("bootui.internal.sec.incomplete")).isEqualTo("false");
+        assertThat(repeatableValues.get("bootui.internal.sec.endpoint.0.access"))
+                .isEqualTo("RESTRICTED");
+
+        var mechanismFixture = bootstrap(MechanismSelectedResource.class, null);
+        var additional = new AdditionalSecuredMethodsBuildItem(
+                List.of(method(mechanismFixture.index(), MechanismSelectedResource.class)), Optional.empty());
+        var mechanismValues = capture(mechanismFixture, List.of(additional), LaunchMode.TEST);
+        assertThat(mechanismValues.get("bootui.internal.sec.incomplete")).isEqualTo("false");
+        assertThat(mechanismValues.get("bootui.internal.sec.endpoint.0.access")).isEqualTo("RESTRICTED");
+    }
+
+    @Test
     void normalModeRemainsDarkWithoutReadingValidationMetadata() throws Exception {
         assertThat(capture(new Fixture(index(OrdinaryResource.class), null), List.of(), LaunchMode.NORMAL))
                 .isEmpty();
@@ -190,7 +206,12 @@ class SecurityTransformedMetadataTest {
                 .addInterceptorBindingRegistrar(new InterceptorBindingRegistrar() {
                     @Override
                     public List<InterceptorBinding> getAdditionalBindings() {
-                        return List.of(InterceptorBinding.of(DenyAll.class), InterceptorBinding.of(PermitAll.class));
+                        return List.of(
+                                InterceptorBinding.of(DenyAll.class),
+                                InterceptorBinding.of(PermitAll.class),
+                                InterceptorBinding.of(
+                                        io.quarkus.security.PermissionsAllowed.class,
+                                        java.util.Set.of("value", "params", "permission", "inclusive")));
                     }
                 });
         if (transformer != null) {
@@ -209,8 +230,12 @@ class SecurityTransformedMetadataTest {
                 resource,
                 BindingFixtureInterceptor.class,
                 PermitBindingFixtureInterceptor.class,
+                PermissionsBindingFixtureInterceptor.class,
                 DenyAll.class,
                 PermitAll.class,
+                io.quarkus.security.PermissionsAllowed.class,
+                io.quarkus.security.PermissionsAllowed.List.class,
+                io.quarkus.vertx.http.runtime.security.annotation.BasicAuthentication.class,
                 Singleton.class,
                 Interceptor.class,
                 AroundInvoke.class,
@@ -287,6 +312,37 @@ class SecurityTransformedMetadataTest {
         @PermitAll
         public String get() {
             return "method overrides class";
+        }
+    }
+
+    @Singleton
+    @Path("/repeatable-permissions")
+    public static class RepeatablePermissionsResource {
+        @GET
+        @io.quarkus.security.PermissionsAllowed("items:read")
+        @io.quarkus.security.PermissionsAllowed("items:inspect")
+        public String get() {
+            return "repeatable";
+        }
+    }
+
+    @Singleton
+    @Path("/mechanism-selected")
+    public static class MechanismSelectedResource {
+        @GET
+        @io.quarkus.vertx.http.runtime.security.annotation.BasicAuthentication
+        public String get() {
+            return "mechanism";
+        }
+    }
+
+    @Interceptor
+    @Priority(1)
+    @io.quarkus.security.PermissionsAllowed("fixture")
+    public static class PermissionsBindingFixtureInterceptor {
+        @AroundInvoke
+        Object intercept(InvocationContext context) throws Exception {
+            return context.proceed();
         }
     }
 

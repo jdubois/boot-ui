@@ -84,6 +84,16 @@ class QuarkusPermissionEvidenceTest {
                         endpoint("/api", "GET")))
                 .isEqualTo(QuarkusPermissionEvidence.Decision.UNKNOWN);
         assertThat(QuarkusPermissionEvidence.decision(List.of(), endpoint("/api/{id}", "GET")))
+                .isEqualTo(QuarkusPermissionEvidence.Decision.PUBLIC);
+        assertThat(QuarkusPermissionEvidence.decision(
+                        List.of(new QuarkusSecurityPermission("prefix", "/api/*", "authenticated", null)),
+                        endpoint("/api/{id}", "GET")))
+                .isEqualTo(QuarkusPermissionEvidence.Decision.RESTRICTED);
+        assertThat(QuarkusPermissionEvidence.decision(
+                        List.of(new QuarkusSecurityPermission("overlap", "/api/admin", "deny", null)),
+                        endpoint("/api/{id}", "GET")))
+                .isEqualTo(QuarkusPermissionEvidence.Decision.UNKNOWN);
+        assertThat(QuarkusPermissionEvidence.decision(List.of(), endpoint("/api/{unclosed", "GET")))
                 .isEqualTo(QuarkusPermissionEvidence.Decision.UNKNOWN);
         assertThat(QuarkusPermissionEvidence.decision(
                         List.of(new QuarkusSecurityPermission("scope", "/*", "permit", null, false, "custom", true)),

@@ -11,6 +11,10 @@ import java.util.List;
  * @param allocatedBytes JFR's estimate of the bytes they allocated, from its allocation samples
  * @param virtualThreads whether any sample was taken on a virtual thread, which scope readings cannot measure
  * @param hotFrames the frames most often on CPU, each sample's first application frame, at most {@value #MAX_FRAMES}
+ * @param pinnedEvents {@code jdk.VirtualThreadPinned} events joined to the route's requests
+ * @param pinnedDurationMicros total duration, in microseconds, of the route's virtual-thread pinning events
+ * @param pinnedFrames the frames where virtual threads pinned most often, each event's first application frame, at
+ *     most {@value #MAX_FRAMES}
  */
 public record RuntimeResourceProfileRouteDto(
         String route,
@@ -18,12 +22,16 @@ public record RuntimeResourceProfileRouteDto(
         long cpuSamples,
         long allocatedBytes,
         boolean virtualThreads,
-        List<RuntimeResourceProfileFrameDto> hotFrames) {
+        List<RuntimeResourceProfileFrameDto> hotFrames,
+        long pinnedEvents,
+        long pinnedDurationMicros,
+        List<RuntimeResourceProfileFrameDto> pinnedFrames) {
 
     /** The hot frames listed at most. */
     public static final int MAX_FRAMES = 5;
 
     public RuntimeResourceProfileRouteDto {
         hotFrames = DtoCollections.immutableCopy(hotFrames);
+        pinnedFrames = DtoCollections.immutableCopy(pinnedFrames);
     }
 }

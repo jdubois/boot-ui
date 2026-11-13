@@ -549,29 +549,6 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
 }
 
 /**
- * Flags use of the legacy Joda-Time library instead of {@code java.time}.
- */
-final class NoJodaTimeRule extends AbstractArchitectureRule {
-
-    NoJodaTimeRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-004",
-                "Classes should not use Joda-Time",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects use of the legacy Joda-Time library instead of the java.time API.",
-                "Migrate Joda-Time usage to the standard java.time API.",
-                "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.NO_CLASSES_SHOULD_USE_JODATIME;
-    }
-}
-
-/**
  * Flags calls that forcibly terminate the JVM ({@code System.exit(int)}, {@code Runtime.exit(int)},
  * or {@code Runtime.halt(int)}), which bypass orderly application and container shutdown.
  *
@@ -2964,34 +2941,6 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
                     }
                 })
                 .as("Classes should not directly instantiate Thread");
-    }
-}
-
-/**
- * Flags {@code assert} statements (compiled as a no-arg {@code new AssertionError()}) that have no
- * detail message, which produce near-useless failure diagnostics.
- *
- * <p>Wires in ArchUnit's own ready-made {@code GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE}.
- */
-final class AssertionsShouldHaveDetailMessageRule extends AbstractArchitectureRule {
-
-    AssertionsShouldHaveDetailMessageRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-018",
-                "Assertions should have a detail message",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects assert statements (compiled as new AssertionError() with no arguments) that have no detail"
-                        + " message, which produce near-useless failure diagnostics.",
-                "Add a detail message, e.g. \"assert x > 0 : \\\"x must be positive\\\";\", so a failure explains what"
-                        + " was expected.",
-                "https://docs.oracle.com/javase/8/docs/technotes/guides/language/assert.html"));
-    }
-
-    @Override
-    ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE;
     }
 }
 

@@ -45,7 +45,8 @@ record SpringObservations(
         JAVA_FEATURE_VERSION,
         MULTIPART_MAX_REQUEST_SIZE,
         MULTIPART_MAX_FILE_SIZE,
-        MULTIPART_DISABLED
+        MULTIPART_DISABLED,
+        APPLICATION_SECURITY_CHAIN
     }
 
     enum AsyncSelection {

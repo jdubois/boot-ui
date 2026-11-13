@@ -41,7 +41,6 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             "QA-PROD-002",
             "QA-PROD-003",
             "QA-WEB-001",
-            "QA-WEB-002",
             "QA-WEB-003",
             "QA-WEB-004");
     private static final Set<String> PRODUCTION_RULES =
@@ -123,7 +122,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             inspect(Set.of("QA-CFG-004"), this::legacyProperties);
             inspect(productionRules(), this::production);
             inspect(Set.of("QA-WEB-001"), this::compression);
-            inspect(Set.of("QA-WEB-002", "QA-WEB-004"), this::shutdown);
+            inspect(Set.of("QA-WEB-004"), this::shutdown);
             inspect(Set.of("QA-WEB-003"), this::clientTimeouts);
             return new QuarkusAppSnapshot(
                     metadata,
@@ -421,7 +420,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
 
         private void shutdown() {
-            String declared = productionIntent(Set.of("QA-WEB-002", "QA-WEB-004"), "quarkus.shutdown.timeout");
+            String declared = productionIntent(Set.of("QA-WEB-004"), "quarkus.shutdown.timeout");
             Duration timeout;
             String provenance = ACTIVE;
             if (declared != null) {
@@ -434,11 +433,22 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                         .orElse(null);
             }
             if (timeout != null && timeout.isNegative()) {
-                unavailable(Set.of("QA-WEB-002", "QA-WEB-004"), "The shutdown duration is invalid.");
+                unavailable(Set.of("QA-WEB-004"), "The shutdown duration is invalid.");
                 return;
             }
-            String value = timeout == null ? "absent" : timeout.isZero() ? "zero" : "positive";
-            add("QA-WEB-002", "HTTP request draining", value, provenance);
+            String value;
+            if (timeout == null) {
+                value = "absent";
+            } else {
+                long millis;
+                try {
+                    millis = timeout.toMillis();
+                } catch (ArithmeticException ex) {
+                    unavailable(Set.of("QA-WEB-004"), "The shutdown duration is invalid.");
+                    return;
+                }
+                value = millis <= 0L ? "zero" : "positive";
+            }
             add("QA-WEB-004", "HTTP request draining", value, provenance);
         }
 
@@ -485,7 +495,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         private void inspect(Set<String> rules, Runnable operation) {
             try {
                 operation.run();
-            } catch (IllegalArgumentException
+            } catch (ArithmeticException
+                    | IllegalArgumentException
                     | IllegalStateException
                     | NoSuchElementException
                     | UnsupportedOperationException ex) {

@@ -64,6 +64,24 @@ class ArchiveNamesTests {
         assertThat(ArchiveNames.matches("sample-1.0.0-.jar", "sample", "1.0.0")).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "sample-1.0-rc1.jar",
+                "sample-1.0-RC.2.jar",
+                "sample-1.0-alpha1.jar",
+                "sample-1.0-beta-2.jar",
+                "sample-1.0-milestone1.jar",
+                "sample-1.0-M1.jar",
+                "sample-1.0-SNAPSHOT.jar",
+                "sample-1.0-20260101.120000-1.jar",
+                "sample-1.0-Final.jar",
+                "sample-1.0-sp1.jar"
+            })
+    void doesNotTreatPreReleaseOrQualifierSuffixesAsClassifiersOfTheBaseVersion(String archive) {
+        assertThat(ArchiveNames.matches(archive, "sample", "1.0")).isFalse();
+    }
+
     @Test
     void rejectsBlankOrMissingCoordinates() {
         assertThat(ArchiveNames.matches("sample-1.0.0.jar", null, "1.0.0")).isFalse();

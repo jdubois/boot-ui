@@ -76,6 +76,11 @@ final class SpringInventory {
     private static final Set<String> BOOTUI_WEBFLUX_CONFIGURERS = Set.of(
             "io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer",
             "io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer");
+    private static final Set<String> BOOTUI_SECURITY_CHAIN_NAMES =
+            Set.of("bootUiSecurityFilterChain", "bootUiReactiveSecurityWebFilterChain", "bootUiSecurityWebFilterChain");
+    private static final Set<String> BOOTUI_SECURITY_AUTOCONFIGURATIONS = Set.of(
+            "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration",
+            "io.github.jdubois.bootui.autoconfigure.BootUiReactiveSpringSecurityAutoConfiguration");
     private static final Set<String> INJECTED = Set.of(
             "org.springframework.beans.factory.annotation.Autowired",
             "org.springframework.beans.factory.annotation.Value",
@@ -198,6 +203,8 @@ final class SpringInventory {
         observeOsiv(reactive);
         observeMigrationModules();
         observeMultipart(reactive);
+        boolean applicationSecurityChain = hasApplicationSecurityChain();
+        facts.put(APPLICATION_SECURITY_CHAIN, applicationSecurityChain);
         return SpringContext.builder(environment)
                 .virtualThreadsSupported(Runtime.version().feature() >= 21)
                 .beanDefinitionCount(factory.getBeanDefinitionCount())
@@ -240,6 +247,7 @@ final class SpringInventory {
                 .reactiveHandlerMethodCount(handlers)
                 .defaultPackageBeans(defaultPackage)
                 .mutableSingletonFields(mutable)
+                .applicationSecurityChainPresent(applicationSecurityChain)
                 .observations(new SpringObservations(facts, List.copyOf(incomplete)))
                 .build();
     }
@@ -1340,6 +1348,19 @@ final class SpringInventory {
     private static boolean isKnownNonCodecWebFluxConfigurer(Entry entry) {
         return isFramework(entry)
                 || BOOTUI_WEBFLUX_CONFIGURERS.contains(entry.type().getName());
+    }
+
+    private boolean hasApplicationSecurityChain() {
+        return typed("org.springframework.security.web.SecurityFilterChain").stream()
+                        .anyMatch(entry -> !isBootUiSecurityChain(entry))
+                || typed("org.springframework.security.web.server.SecurityWebFilterChain").stream()
+                        .anyMatch(entry -> !isBootUiSecurityChain(entry));
+    }
+
+    private static boolean isBootUiSecurityChain(Entry entry) {
+        return BOOTUI_SECURITY_CHAIN_NAMES.contains(entry.name())
+                || entry.ref().aliases().stream().anyMatch(BOOTUI_SECURITY_CHAIN_NAMES::contains)
+                || (entry.factory() != null && BOOTUI_SECURITY_AUTOCONFIGURATIONS.contains(entry.factory()));
     }
 
     private Entry entry(String name) {

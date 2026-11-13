@@ -96,14 +96,12 @@ class ArchitectureGeneratedCodeRulesTests {
                         public static void run() {
                             System.out.println("example");
                             java.util.logging.Logger.getLogger("example").info("example");
-                            org.joda.time.LegacyClock.now();
                             new IllegalArgumentException().printStackTrace(new java.io.PrintWriter(System.err));
                             System.exit(1);
                             sun.fixture.InternalApi.call();
                             sample.support.DeprecatedApi.call();
                             org.junit.jupiter.api.Assertions.assertTrue(flag);
                             new Thread(() -> {}).start();
-                            assert flag;
                             throw new RuntimeException();
                         }
                     }
@@ -117,9 +115,6 @@ class ArchitectureGeneratedCodeRulesTests {
                             + "; public class FieldInjected { @jakarta.inject.Inject Object injected; }");
         }
         sources.put(
-                "target/generated-sources/support/LegacyClock.java",
-                "package org.joda.time; public class LegacyClock { public static void now() {} }");
-        sources.put(
                 "target/generated-sources/support/InternalApi.java",
                 "package sun.fixture; public class InternalApi { public static void call() {} }");
         sources.put(
@@ -128,14 +123,14 @@ class ArchitectureGeneratedCodeRulesTests {
         var classes = compile(root, "target/classes", sources);
         var generated = ArchitectureGeneratedCode.resolve(classes);
         assertThat(generated.limitations()).isEmpty();
-        assertThat(generated.generatedClasses()).hasSize(6);
+        assertThat(generated.generatedClasses()).hasSize(5);
         var handwritten = generated.handwrittenClasses(classes);
         var generatedOnly = classes.that(DescribedPredicate.describe(
                 "generated fixture", type -> generated.generatedClasses().contains(type.getName())));
         var rules = ArchitectureRuleRegistry.activeRules().stream()
                 .filter(rule -> rule.definition().category() == ArchitectureCategory.CODING_PRACTICES)
                 .toList();
-        assertThat(rules).hasSize(16);
+        assertThat(rules).hasSize(14);
         for (var platform : ArchitecturePlatform.values()) {
             for (var rule : rules) {
                 if (platform == ArchitecturePlatform.QUARKUS

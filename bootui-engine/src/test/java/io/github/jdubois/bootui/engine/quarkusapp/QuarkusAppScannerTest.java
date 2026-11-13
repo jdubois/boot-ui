@@ -42,11 +42,9 @@ class QuarkusAppScannerTest {
             "QA-PROD-002",
             "QA-PROD-003",
             "QA-WEB-001",
-            "QA-WEB-002",
             "QA-WEB-003",
             "QA-WEB-004");
-    private static final Set<String> RETIRED_RULES =
-            Set.of("QA-CDI-001", "QA-CFG-001", "QA-RX-001", "QA-SCH-001", "QA-PROD-001", "QA-PROF-001", "QA-DB-001");
+    private static final Set<String> RETIRED_RULES = QuarkusAppChecks.RETIRED_RULES;
 
     private static final class Snap {
         QuarkusAppMetadata metadata = new QuarkusAppMetadata(
@@ -115,25 +113,21 @@ class QuarkusAppScannerTest {
      */
     @Test
     void absentRequestDrainingWithUnobservedProductionIsOneFindingNotAlsoAnError() {
-        Snap snap = new Snap().setting("QA-WEB-002", "absent").setting("QA-WEB-004", "absent");
+        Snap snap = new Snap().setting("QA-WEB-004", "absent");
         snap.profiles = List.of("dev");
-        for (String id : List.of("QA-WEB-002", "QA-WEB-004")) {
-            snap.problems.add(new QuarkusAppEvidenceProblem(
-                    id,
-                    "Only loaded production declarations were inspected; effective production configuration, "
-                            + "external overrides and unloaded profile-aware files are unavailable."));
-        }
+        snap.problems.add(new QuarkusAppEvidenceProblem(
+                "QA-WEB-004",
+                "Only loaded production declarations were inspected; effective production configuration, "
+                        + "external overrides and unloaded profile-aware files are unavailable."));
         SpringReport report = scan(snap);
         assertThat(report.results()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-004");
         assertThat(find(report, "QA-WEB-004").description())
                 .contains("Coverage is incomplete: Only loaded production declarations were inspected");
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(QuarkusAppChecks.evaluate(snap.build()).skipped())
-                .extracting(SpringRuleResultDto::id, SpringRuleResultDto::status)
-                .containsExactly(org.assertj.core.api.Assertions.tuple("QA-WEB-002", "SKIPPED"));
+        assertThat(QuarkusAppChecks.evaluate(snap.build()).skipped()).isEmpty();
         assertThat(report.evidence().limitations())
                 .extracting(limitation -> limitation.substring(0, limitation.indexOf(':')))
-                .containsExactly("QA-WEB-002", "QA-WEB-004");
+                .containsExactly("QA-WEB-004");
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -185,7 +179,7 @@ class QuarkusAppScannerTest {
                 true, 0, 0, 0, 0, 8, false, false, false, List.of(), List.of(), List.of(), List.of());
         snap.runtimeJdk = 24;
         SpringReport report = scan(snap);
-        assertThat(report.rulesEvaluated()).isEqualTo(14);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
         assertThat(report.inspected()).isNotEmpty();
         assertThat(report.evidence().usable()).isFalse();
         assertThat(report.evidence().coverageComplete()).isTrue();
@@ -196,14 +190,7 @@ class QuarkusAppScannerTest {
         Snap snap = new Snap();
         snap.profiles = List.of("dev");
         for (String id : List.of(
-                "QA-CFG-002",
-                "QA-CFG-003",
-                "QA-CFG-005",
-                "QA-PROD-002",
-                "QA-PROD-003",
-                "QA-WEB-001",
-                "QA-WEB-002",
-                "QA-WEB-004")) {
+                "QA-CFG-002", "QA-CFG-003", "QA-CFG-005", "QA-PROD-002", "QA-PROD-003", "QA-WEB-001", "QA-WEB-004")) {
             snap.evaluated.remove(id);
             snap.problems.add(new QuarkusAppEvidenceProblem(
                     id,
@@ -252,12 +239,12 @@ class QuarkusAppScannerTest {
 
     @Test
     void failedConfigurationDoesNotCountAndDismissalsKeepEvidence() {
-        Snap snap = new Snap().setting("QA-WEB-001", "invalid").setting("QA-WEB-002", "zero");
+        Snap snap = new Snap().setting("QA-WEB-001", "invalid").setting("QA-WEB-004", "zero");
         QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(snap::build, CLOCK);
         SpringReport report = scanner.scan();
         assertThat(report.evidence().usable()).isTrue();
         assertThat(report.evidence().coverageComplete()).isFalse();
-        assertThat(scanner.applyDismissals(report, Set.of("QA-WEB-002")).evidence())
+        assertThat(scanner.applyDismissals(report, Set.of("QA-WEB-004")).evidence())
                 .isEqualTo(report.evidence());
         assertThat(QuarkusAppScanner.usingSnapshot(() -> null, CLOCK)
                         .scan()
@@ -267,7 +254,17 @@ class QuarkusAppScannerTest {
     }
 
     @Test
-    void auditedCatalogKeepsFourteenIdentifiersAndRetiresSevenWithoutReuse() {
+    void auditedCatalogKeepsThirteenIdentifiersAndRetiresEightWithoutReuse() {
+        assertThat(QuarkusAppChecks.RETIRED_RULES)
+                .containsExactlyInAnyOrder(
+                        "QA-CDI-001",
+                        "QA-CFG-001",
+                        "QA-RX-001",
+                        "QA-SCH-001",
+                        "QA-PROD-001",
+                        "QA-PROF-001",
+                        "QA-DB-001",
+                        "QA-WEB-002");
         assertThat(QuarkusAppChecks.ruleIds())
                 .containsExactly(
                         "QA-CDI-002",
@@ -280,11 +277,10 @@ class QuarkusAppScannerTest {
                         "QA-PROD-002",
                         "QA-PROD-003",
                         "QA-WEB-001",
-                        "QA-WEB-002",
                         "QA-WEB-003",
                         "QA-WEB-004",
                         "QA-PERF-002");
-        assertThat(QuarkusAppChecks.ruleCount()).isEqualTo(14);
+        assertThat(QuarkusAppChecks.ruleCount()).isEqualTo(13);
         Set<String> audited = new HashSet<>(QuarkusAppChecks.ruleIds());
         audited.addAll(RETIRED_RULES);
         assertThat(audited).hasSize(21);
@@ -299,8 +295,8 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(14);
-        assertThat(report.scan().rulesEvaluated()).isEqualTo(14);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.scan().rulesEvaluated()).isEqualTo(13);
         assertThat(report.componentsAnalyzed()).isEqualTo(4);
         assertThat(report.scan().componentsAnalyzed()).isEqualTo(4);
         assertThat(report.scan().status()).isEqualTo("SCANNED");
@@ -319,7 +315,7 @@ class QuarkusAppScannerTest {
         }
         assertThat(scan(snap).results()).isEmpty();
         assertThat(scan(snap).analysisErrors()).isEmpty();
-        assertThat(scan(snap).rulesEvaluated()).isEqualTo(14);
+        assertThat(scan(snap).rulesEvaluated()).isEqualTo(13);
     }
 
     @Test
@@ -387,9 +383,9 @@ class QuarkusAppScannerTest {
         "QA-PROD-002,drop-and-create,CRITICAL",
         "QA-PROD-003,in-memory,MEDIUM",
         "QA-WEB-001,default-disabled,INFO",
-        "QA-WEB-002,zero,LOW",
         "QA-WEB-003,connect-zero,MEDIUM",
         "QA-WEB-003,read-zero,MEDIUM",
+        "QA-WEB-004,zero,INFO",
         "QA-WEB-004,absent,INFO"
     })
     void normalizedSettingsHaveExplicitTriggersAndSeverities(String id, String value, String severity) {
@@ -413,16 +409,13 @@ class QuarkusAppScannerTest {
         "QA-PROD-003,persistent-or-unclassified",
         "QA-WEB-001,enabled",
         "QA-WEB-001,disabled",
-        "QA-WEB-002,positive",
-        "QA-WEB-002,absent",
-        "QA-WEB-004,zero",
         "QA-WEB-004,positive"
     })
     void normalizedNonTriggersAreSuccessfullyEvaluated(String id, String value) {
         SpringReport report = scan(new Snap().setting(id, value));
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(14);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
     }
 
     @ParameterizedTest
@@ -435,7 +428,6 @@ class QuarkusAppScannerTest {
                 "QA-PROD-002",
                 "QA-PROD-003",
                 "QA-WEB-001",
-                "QA-WEB-002",
                 "QA-WEB-003",
                 "QA-WEB-004"
             })
@@ -446,7 +438,7 @@ class QuarkusAppScannerTest {
             assertThat(report.analysisErrors())
                     .extracting(SpringRuleResultDto::id)
                     .containsExactly(id);
-            assertThat(report.rulesEvaluated()).isEqualTo(13);
+            assertThat(report.rulesEvaluated()).isEqualTo(12);
             assertThat(report.scan().status()).isEqualTo("PARTIAL");
             assertThat(report.toString()).doesNotContain("password=unclassified");
         }
@@ -478,7 +470,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(new Snap().setting("QA-PROD-002", value));
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-PROD-002");
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
     }
 
     @Test
@@ -499,14 +491,14 @@ class QuarkusAppScannerTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"zero,QA-WEB-002", "absent,QA-WEB-004"})
-    void shutdownChecksAreMutuallyExclusiveAndRecommendPositiveDuration(String value, String id) {
-        SpringReport report = scan(new Snap().setting("QA-WEB-002", value).setting("QA-WEB-004", value));
-        assertThat(report.results()).extracting(SpringRuleResultDto::id).containsExactly(id);
-        assertThat(find(report, id).recommendation()).contains("quarkus.shutdown.timeout=10s");
-        if ("zero".equals(value)) {
-            assertThat(find(report, id).recommendation()).contains("Removing the override does not enable draining");
-        }
+    @ValueSource(strings = {"zero", "absent"})
+    void absentOrNonPositiveShutdownTimeoutTriggersInfoPromptAndRecommendsPositiveDuration(String value) {
+        SpringReport report = scan(new Snap().setting("QA-WEB-004", value));
+        assertThat(report.results()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-004");
+        SpringRuleResultDto finding = find(report, "QA-WEB-004");
+        assertThat(finding.severity()).isEqualTo("INFO");
+        assertThat(finding.recommendation())
+                .contains("quarkus.shutdown.timeout=10s", "Removing the override does not enable draining");
     }
 
     @Test
@@ -514,7 +506,7 @@ class QuarkusAppScannerTest {
         // The provider emits no finding observations for finite timers, independently of their length.
         SpringReport report = scan(new Snap());
         assertThat(find(report, "QA-WEB-003")).isNull();
-        assertThat(report.rulesEvaluated()).isEqualTo(14);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
         SpringRuleResultDto zero = find(scan(new Snap().setting("QA-WEB-003", "read-zero")), "QA-WEB-003");
         assertThat(zero.description()).contains("That timer is disabled", "other application deadlines");
         assertThat(zero.recommendation()).contains("Long finite timers are not inherently invalid");
@@ -539,7 +531,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-PERF-002")).isNull();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(14);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
     }
 
     @Test
@@ -549,7 +541,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(report.results()).isEmpty();
         assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-PERF-002");
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -559,7 +551,7 @@ class QuarkusAppScannerTest {
         snap.metadata = QuarkusAppMetadata.unavailable();
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-CFG-002")).isNotNull();
-        assertThat(report.rulesEvaluated()).isEqualTo(10);
+        assertThat(report.rulesEvaluated()).isEqualTo(9);
         assertThat(report.componentsAnalyzed()).isZero();
         assertThat(report.analysisErrors())
                 .extracting(SpringRuleResultDto::id)
@@ -574,7 +566,7 @@ class QuarkusAppScannerTest {
         snap.metadata = QuarkusAppMetadata.unavailable();
         snap.runtimeJdk = 24;
         SpringReport report = scan(snap);
-        assertThat(report.rulesEvaluated()).isEqualTo(11);
+        assertThat(report.rulesEvaluated()).isEqualTo(10);
         assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).doesNotContain("QA-PERF-002");
     }
 
@@ -588,7 +580,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-PERF-002")).isNull();
         assertThat(report.analysisErrors()).isEmpty();
-        assertThat(report.rulesEvaluated()).isEqualTo(14);
+        assertThat(report.rulesEvaluated()).isEqualTo(13);
         assertThat(report.scan().status()).isEqualTo("SCANNED");
     }
 
@@ -610,7 +602,7 @@ class QuarkusAppScannerTest {
         assertThat(report.analysisErrors()).isEmpty();
         assertThat(report.evidence().coverageComplete()).isFalse();
         assertThat(report.evidence().limitations()).singleElement().asString().startsWith(id + ": ");
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.toString()).doesNotContain("password", "must-not-be-rendered");
     }
@@ -621,7 +613,7 @@ class QuarkusAppScannerTest {
         assertThat(snap.metadata.restClientSupported()).isFalse();
         SpringReport report = scan(snap);
         assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-003");
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -648,7 +640,7 @@ class QuarkusAppScannerTest {
         assertThat(report.analysisErrors()).isEmpty();
         assertThat(report.evidence().limitations()).singleElement().asString().startsWith("QA-PROD-002: ");
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
         assertThat(report.toString()).doesNotContain("jdbc:secret-url", "password=secret");
         assertThat(report.severityCounts()).contains(new SpringSeverityCountDto("CRITICAL", 1));
     }
@@ -716,7 +708,6 @@ class QuarkusAppScannerTest {
                 "QA-PROD-002",
                 "QA-PROD-003",
                 "QA-WEB-001",
-                "QA-WEB-002",
                 "QA-WEB-004"
             })
     void productionCoverageLimitationsAreSkippedDiagnosticsRatherThanAnalysisErrors(String id) {
@@ -798,7 +789,7 @@ class QuarkusAppScannerTest {
                 .contains(
                         "Only loaded production declarations were inspected",
                         "Configuration discovery reached an inspection limit");
-        assertThat(report.rulesEvaluated()).isEqualTo(13);
+        assertThat(report.rulesEvaluated()).isEqualTo(12);
     }
 
     @Test
@@ -808,9 +799,9 @@ class QuarkusAppScannerTest {
         snap.evaluated.clear();
         SpringReport report = scan(snap);
         assertThat(report.rulesEvaluated()).isZero();
-        assertThat(report.analysisErrors()).hasSize(13);
+        assertThat(report.analysisErrors()).hasSize(12);
         assertThat(report.results()).hasSize(1);
-        assertThat(report.evidence().limitations()).hasSize(14);
+        assertThat(report.evidence().limitations()).hasSize(13);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -823,7 +814,7 @@ class QuarkusAppScannerTest {
         SpringReport report = scan(snap);
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.rulesEvaluated()).isZero();
-        assertThat(report.analysisErrors()).hasSize(14);
+        assertThat(report.analysisErrors()).hasSize(13);
         assertThat(report.results()).isEmpty();
         assertThat(report.severityCounts()).allMatch(count -> count.count() == 0);
         assertThat(report.toString()).doesNotContain("password=secret");
@@ -856,7 +847,7 @@ class QuarkusAppScannerTest {
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.rulesEvaluated()).isZero();
         assertThat(report.componentsAnalyzed()).isZero();
-        assertThat(report.analysisErrors()).hasSize(14).allSatisfy(error -> {
+        assertThat(report.analysisErrors()).hasSize(13).allSatisfy(error -> {
             assertThat(error.status()).isEqualTo("ERROR");
             assertThat(error.violationCount()).isZero();
         });
@@ -1000,7 +991,7 @@ class QuarkusAppScannerTest {
         SpringReport scanned = scanner.scan();
         SpringReport dismissed = scanner.applyDismissals(scanned, Set.of("QA-CDI-004"));
         assertThat(dismissed.scan().status()).isEqualTo("PARTIAL");
-        assertThat(dismissed.rulesEvaluated()).isEqualTo(13);
+        assertThat(dismissed.rulesEvaluated()).isEqualTo(12);
         assertThat(dismissed.analysisErrors()).isEqualTo(scanned.analysisErrors());
         assertThat(dismissed.evidence()).isEqualTo(scanned.evidence());
         assertThat(dismissed.evidence().coverageComplete()).isFalse();

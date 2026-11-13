@@ -6,11 +6,19 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAttributeModel;
+import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
 import io.github.jdubois.bootui.spi.NamedDataSource;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
@@ -88,12 +96,10 @@ class MariaDbDatabaseAdvisorLiveTests {
     void detectsMariaDbAsItsOwnDialectAndReadsItsCatalogWithoutErrors() {
         DatabaseAdvisorReport report = scan();
 
-        assertThat(report.scan().status()).isEqualTo("PARTIAL");
-        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
-            assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-005");
-            assertThat(diagnostic.level()).isEqualTo("WARNING");
-            assertThat(diagnostic.message()).contains("index semantics are unknown");
-        });
+        assertThat(report.scan().status()).as("%s", report.diagnostics()).isEqualTo("SCANNED");
+        assertThat(report.diagnostics())
+                .noneMatch(diagnostic ->
+                        "DB-SCHEMA-005".equals(diagnostic.source()) && "WARNING".equals(diagnostic.level()));
         assertThat(report.rulesErrored()).isZero();
         assertThat(report.dataSources()).singleElement().satisfies(status -> {
             assertThat(status.status()).isEqualTo("AVAILABLE");
@@ -102,6 +108,47 @@ class MariaDbDatabaseAdvisorLiveTests {
         // Every MySQL-family rule ran: none of them is reported as skipped for want of a datasource.
         assertThat(report.diagnostics())
                 .noneMatch(diagnostic -> diagnostic.source().startsWith("DB-MYSQL"));
+    }
+
+    @Entity
+    @Table(name = "tickets")
+    static class Ticket {
+        @Id
+        @Column(name = "id", unique = true)
+        Integer id;
+
+        @Column(name = "label", unique = true, length = 64)
+        String label;
+    }
+
+    @Test
+    void declaredUniquenessConcludesAgainstTheLiveMariaDbCatalog() {
+        List<HibernateAttributeModel> attributes = new java.util.ArrayList<>();
+        for (Field field : Ticket.class.getDeclaredFields()) {
+            attributes.add(new HibernateAttributeModel(
+                    "Ticket",
+                    field.getName(),
+                    field.getType(),
+                    field.getGenericType(),
+                    "BASIC",
+                    false,
+                    true,
+                    Arrays.asList(field.getAnnotations())));
+        }
+        EntityDiscovery entities = new EntityDiscovery(
+                List.of(new HibernateEntityModel("Ticket", Ticket.class, attributes)), List.of(), List.of());
+        DatabaseAdvisorReport report = DatabaseAdvisorScanner.using(
+                        () -> List.of(new NamedDataSource("primary", dataSource)), () -> entities, Clock.systemUTC())
+                .scan();
+
+        assertThat(finding(report, "DB-HIB-005")).hasValueSatisfying(result -> {
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations())
+                    .singleElement()
+                    .asString()
+                    .contains("Ticket#label", "no enforcing key");
+        });
+        assertThat(report.diagnostics()).noneMatch(diagnostic -> "DB-HIB-005".equals(diagnostic.source()));
     }
 
     @Test

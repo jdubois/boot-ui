@@ -217,7 +217,6 @@ class SpringBootProvenanceTests {
             assertThat(snapshot.observations().yes(BOOT_WEB_SERVER)).isTrue();
             assertThat(new ResponseCompressionDisabledRule().evaluate(snapshot).status())
                     .isEqualTo("VIOLATION");
-            assertThat(new Http2DisabledRule().evaluate(snapshot).status()).isEqualTo("VIOLATION");
             assertThat(new ErrorDetailsExposedRule().evaluate(snapshot).status())
                     .isEqualTo("VIOLATION");
         });
@@ -615,7 +614,132 @@ class SpringBootProvenanceTests {
                                     context.getBeanFactory(), context.getEnvironment(), false, Clock.systemUTC())
                             .scan();
                     assertThat(report.scan().status()).isEqualTo("SCANNED");
-                    assertThat(report.rulesEvaluated()).isEqualTo(41);
+                    assertThat(report.rulesEvaluated()).isEqualTo(39);
+                });
+    }
+
+    @Test
+    void actuatorExposureRulesDeferForApplicationSecurityChainsAndIgnoreBootUiOwnChains() {
+        String[] exposedProps = {
+            "management.endpoints.web.exposure.include=*,heapdump,shutdown",
+            "management.endpoint.heapdump.access=read-only",
+            "management.endpoint.shutdown.access=unrestricted",
+            "management.endpoint.env.show-values=always"
+        };
+        org.springframework.web.server.WebFilter noopWebFilter = (exchange, chain) -> chain.filter(exchange);
+        var customNameBootUiDef = new org.springframework.beans.factory.support.RootBeanDefinition(
+                org.springframework.security.web.SecurityFilterChain.class,
+                () -> new org.springframework.security.web.DefaultSecurityFilterChain(
+                        org.springframework.security.web.util.matcher.AnyRequestMatcher.INSTANCE));
+        customNameBootUiDef.setFactoryBeanName(
+                "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration");
+        actuator.withPropertyValues(exposedProps)
+                .withBean(
+                        "bootUiSecurityFilterChain",
+                        org.springframework.security.web.SecurityFilterChain.class,
+                        () -> new org.springframework.security.web.DefaultSecurityFilterChain(
+                                org.springframework.security.web.util.matcher.AnyRequestMatcher.INSTANCE))
+                .withBean(
+                        "bootUiReactiveSecurityWebFilterChain",
+                        org.springframework.security.web.server.SecurityWebFilterChain.class,
+                        () -> new org.springframework.security.web.server.MatcherSecurityWebFilterChain(
+                                org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers
+                                        .anyExchange(),
+                                java.util.List.of(noopWebFilter)))
+                .withBean(
+                        "aliasedBootUiChain",
+                        org.springframework.security.web.server.SecurityWebFilterChain.class,
+                        () -> new org.springframework.security.web.server.MatcherSecurityWebFilterChain(
+                                org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers
+                                        .anyExchange(),
+                                java.util.List.of(noopWebFilter)))
+                .withInitializer(context -> {
+                    context.getBeanFactory().registerAlias("aliasedBootUiChain", "bootUiSecurityWebFilterChain");
+                    ((org.springframework.beans.factory.support.BeanDefinitionRegistry) context.getBeanFactory())
+                            .registerBeanDefinition("factoryAttributedBootUiChain", customNameBootUiDef);
+                })
+                .run(context -> {
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.applicationSecurityChainPresent()).isFalse();
+                    assertThat(new ActuatorExposeAllRule().evaluate(snapshot).status())
+                            .isEqualTo("VIOLATION");
+                    assertThat(new DangerousActuatorEndpointsAccessibleRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("VIOLATION");
+                    assertThat(new ActuatorShowValuesAlwaysRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("VIOLATION");
+                });
+        actuator.withPropertyValues(exposedProps)
+                .withBean(
+                        "bootUiSecurityFilterChain",
+                        org.springframework.security.web.SecurityFilterChain.class,
+                        () -> new org.springframework.security.web.DefaultSecurityFilterChain(
+                                org.springframework.security.web.util.matcher.AnyRequestMatcher.INSTANCE))
+                .withBean(
+                        "applicationSecurityFilterChain",
+                        org.springframework.security.web.SecurityFilterChain.class,
+                        () -> new org.springframework.security.web.DefaultSecurityFilterChain(
+                                org.springframework.security.web.util.matcher.AnyRequestMatcher.INSTANCE))
+                .run(context -> {
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.applicationSecurityChainPresent()).isTrue();
+                    assertThat(new ActuatorExposeAllRule().evaluate(snapshot).status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(new SensitiveActuatorEndpointsExposedRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(new DangerousActuatorEndpointsAccessibleRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(new ActuatorShowValuesAlwaysRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("VIOLATION");
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isTrue();
+                });
+        actuator.withPropertyValues(exposedProps)
+                .withBean(
+                        "bootUiReactiveSecurityWebFilterChain",
+                        org.springframework.security.web.server.SecurityWebFilterChain.class,
+                        () -> new org.springframework.security.web.server.MatcherSecurityWebFilterChain(
+                                org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers
+                                        .anyExchange(),
+                                java.util.List.of(noopWebFilter)))
+                .withBean(
+                        "applicationSecurityWebFilterChain",
+                        org.springframework.security.web.server.SecurityWebFilterChain.class,
+                        () -> new org.springframework.security.web.server.MatcherSecurityWebFilterChain(
+                                org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers
+                                        .anyExchange(),
+                                java.util.List.of(noopWebFilter)))
+                .run(context -> {
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), true);
+                    assertThat(snapshot.applicationSecurityChainPresent()).isTrue();
+                    assertThat(new ActuatorExposeAllRule().evaluate(snapshot).status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(new SensitiveActuatorEndpointsExposedRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(new DangerousActuatorEndpointsAccessibleRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(new ActuatorShowValuesAlwaysRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("VIOLATION");
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isTrue();
                 });
     }
 

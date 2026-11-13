@@ -112,7 +112,7 @@ final class PostgresCatalogReader {
             join pg_class t on t.oid = c.conrelid
             join pg_namespace n on n.oid = t.relnamespace
             where c.convalidated = false
-              and c.contype in ('f', 'c')
+              and c.contype in ('f', 'c', 'n')
             """ + SYSTEM_SCHEMA_FILTER + """
               and not exists (
                     select 1 from pg_depend d
@@ -193,10 +193,8 @@ final class PostgresCatalogReader {
             "reserved_connections",
             "idle_session_timeout",
             "idle_in_transaction_session_timeout",
-            "statement_timeout",
             "autovacuum",
             "track_io_timing",
-            "log_min_duration_statement",
             "shared_preload_libraries");
 
     /** Whether {@code pg_stat_statements} is created in the connected database; a constant, so nothing is bound. */

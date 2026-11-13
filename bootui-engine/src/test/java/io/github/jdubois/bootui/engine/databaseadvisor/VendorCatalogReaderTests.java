@@ -360,7 +360,12 @@ class VendorCatalogReaderTests {
     void mysqlAndMariaDbKeepDistinctVisibilityAndExpressionGates() throws Exception {
         List<String> mysql = mysql(Dialect.MYSQL, new DatabaseVersion(8, 0, 13, "8.0.13"));
         assertThat(String.join("\n", mysql))
-                .contains("s.is_visible", "s.expression", "c.extra as column_extra")
+                .contains(
+                        "s.is_visible",
+                        "s.expression",
+                        "c.extra as column_extra",
+                        "t.table_type = 'BASE TABLE'",
+                        "lower(c.character_set_name) in ('utf8', 'utf8mb3')")
                 .doesNotContain("s.ignored");
         List<String> maria = mysql(Dialect.MARIADB, new DatabaseVersion(10, 6, 0, "10.6.0"));
         assertThat(String.join("\n", maria)).contains("s.ignored").doesNotContain("s.is_visible", "s.expression");
@@ -517,13 +522,18 @@ class VendorCatalogReaderTests {
                         "i.index_type <> 'DOMAIN'",
                         "c.index_owner",
                         "c.index_name",
+                        "c.generated = 'GENERATED NAME'",
                         "i.table_owner = ?",
                         "c.data_precision",
                         "c.data_scale");
         assertThat(sql).doesNotContain("status <> 'USABLE'", "c.status <> 'ENABLED'", "dba_", "nextval");
-        for (PreparedStatement statement : statements) {
+        for (int i = 0; i < statements.size(); i++) {
+            PreparedStatement statement = statements.get(i);
             verify(statement).setObject(1, "APP");
-            verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+            int expectedMaxRows = (i == 0 || i == 2)
+                    ? DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1
+                    : DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1;
+            verify(statement).setMaxRows(expectedMaxRows);
         }
         assertThat(findings.build().findings(VendorFindingKinds.ORACLE_IDENTITY_COLUMNS))
                 .singleElement()
@@ -552,14 +562,14 @@ class VendorCatalogReaderTests {
                         new ServerSetting("max_connections", "100", null));
         String sql = queries.get(0);
         assertThat(sql)
-                .isEqualTo("select name, setting, unit from pg_settings where name in (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                .isEqualTo("select name, setting, unit from pg_settings where name in (?, ?, ?, ?, ?, ?, ?, ?)"
                         + " order by name limit ?")
                 .doesNotContain("max_connections");
         PreparedStatement statement = statements.get(0);
         for (int index = 0; index < PostgresCatalogReader.SERVER_SETTING_NAMES.size(); index++) {
             verify(statement).setObject(index + 1, PostgresCatalogReader.SERVER_SETTING_NAMES.get(index));
         }
-        verify(statement).setInt(11, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setInt(9, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
         verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
         verify(statement).setQueryTimeout(5);
     }
@@ -676,11 +686,10 @@ class VendorCatalogReaderTests {
         assertThat(PostgresCatalogReader.SERVER_SETTING_NAMES)
                 .contains(
                         "idle_in_transaction_session_timeout",
-                        "statement_timeout",
                         "autovacuum",
                         "track_io_timing",
-                        "log_min_duration_statement",
                         "shared_preload_libraries")
+                .doesNotContain("statement_timeout", "log_min_duration_statement")
                 .doesNotContainNull()
                 .doesNotHaveDuplicates();
         assertThat(MySqlCatalogReader.SERVER_SETTINGS_SQL).contains("'performance_schema'");
@@ -746,6 +755,27 @@ class VendorCatalogReaderTests {
 
         assertThat(findings.build().findings(VendorFindingKinds.MYSQL_SERVER_SETTINGS))
                 .containsExactly(new ServerSetting("max_connections", "151", null));
+    }
+
+    @Test
+    void enrichmentCatalogQueriesUseTheHigherEnrichmentRowLimit() throws Exception {
+        Connection connection = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        ResultSet result = mock(ResultSet.class);
+        when(connection.prepareStatement(anyString())).thenReturn(statement);
+        when(statement.executeQuery()).thenReturn(result);
+        when(result.next()).thenReturn(false);
+
+        CatalogQuery.read(
+                connection,
+                VendorFindingKinds.POSTGRES_INDEX_DETAILS,
+                "select 1 limit ?",
+                ScanBudget.of(Duration.ofSeconds(30)),
+                DatabaseAdvisorLimits.DEFAULTS,
+                row -> null);
+
+        verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1);
+        verify(statement).setInt(1, DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1);
     }
 
     private static VendorFindings postgres(

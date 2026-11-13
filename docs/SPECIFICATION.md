@@ -1250,7 +1250,7 @@ Features:
   recognized top-level `database_specific.severity` label fallback, otherwise `UNKNOWN`; this is provider compatibility,
   not a universal OSV scale. Normalize MODERATE to MEDIUM and valid zero to NONE. Never reinterpret bare numbers or
   CVSS v2 as v3/v4, and never drop unsupported findings. An advisory whose own OSV ID carries the OpenSSF Malicious
-  Packages `MAL-` prefix is `CRITICAL` with no score, and its details lead with removal guidance.
+  Packages `MAL-` prefix is `CRITICAL` with no score, and its summary and details lead with removal guidance.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
   safety limit of 20 page rounds per chunk is hit, and partition the outgoing package list into batches of at most
@@ -1419,6 +1419,8 @@ Features:
   (64 KiB), header count (50), header name (256 bytes), header value (8 KiB) and total header size (32 KiB), all
   measured in UTF-8 bytes.
 - Require explicit confirmation before sending any method other than `GET` or `HEAD`.
+- Offer a searchable route picker backed by `/bootui/api/mappings/flat` when the Mappings panel is available, composing the application's effective `basePath` with declared route patterns, prefilling `Accept` and `Content-Type` headers from `produces` and `consumes`, and highlighting `{param}` path placeholders without auto-sending.
+- Accept passive prefill navigation (`Open in HTTP Probe`) from Mappings and HTTP Exchanges when `http-probe` is enabled and writable, never sending a probe on navigation.
 - Display status, selected response headers, body, timing, and errors.
 
 Acceptance criteria:
@@ -2058,8 +2060,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
   `POST /bootui/api/runtime-insights/resource-profile` starts a JFR session of `bootui.resources.jfr.max-duration`,
   joining a running one, and `POST /bootui/api/runtime-insights/resource-profile/stop` ends it early. The results count
-  CPU samples and JFR's estimate of allocated bytes per route, virtual threads included, with each route's five hottest
-  frames, at most 20 routes.
+  CPU samples, JFR's estimate of allocated bytes, and `jdk.VirtualThreadPinned` events and durations (at a `1 ms`
+  threshold when supported, with a JEP 491 note on JDK 24+) per route, virtual threads included, with each route's five
+  hottest CPU and pinning frames, at most 20 routes.
 - **Copy for AI** on the open observation previews one Markdown document from the detail already loaded (sentence,
   checks, requests to open, evidence, and what it cannot see) and sends nothing. The `get_runtime_insights`,
   `get_runtime_insight`, `get_runtime_impact`, and `get_runtime_run_comparison` MCP tools (`bootui insights list`,
@@ -2571,8 +2574,8 @@ Features:
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
 - Judge the JDBC driver settings (nine `DB-DRIVER-*` rules: batching rewrite, prepared-statement caches, savepoints,
   diagnostic settings, socket timeout and application name), compare the connection pool with the server's limits
-  (four `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
-  need (seven `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
+  (three `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
+  need (five `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
   Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since the verdict belongs to the scored advisor.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
   `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a
