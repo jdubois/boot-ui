@@ -51,6 +51,7 @@ public final class AgentRequestValues {
     public static final int F_REPEATED = 8;
     public static final int F_BUSY = 16;
     public static final int F_SEEN = 32;
+    public static final int F_ASSESSMENT = 64;
 
     /** Name-value pairs an adapter passes per request at most: the bridge keeps at most 32 and counts the rest. */
     public static final int MAX_PAIRS = 64;
@@ -173,8 +174,8 @@ public final class AgentRequestValues {
     /** The value sat inside an unquoted literal (a number, true, or false): never a fact on its own. */
     public static final int FLAG_BARE_LITERAL = 16;
 
-    /** The value is shorter than 4 characters, a probe only an assessment request holds: never a fact on its own. */
-    public static final int FLAG_SHORT = 32;
+    /** The value came from an assessment request, a scanner's probe: never a fact on its own. */
+    public static final int FLAG_ASSESSMENT = 32;
 
     /**
      * Publishes an engine-side sink's match of the calling thread's request's value named {@code name}: the sink's

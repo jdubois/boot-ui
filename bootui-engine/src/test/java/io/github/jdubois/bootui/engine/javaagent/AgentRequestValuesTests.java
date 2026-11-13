@@ -102,21 +102,6 @@ class AgentRequestValuesTests {
     }
 
     @Test
-    void aShortMatchIsFlaggedShortSoItWaitsForASecondRequest() {
-        String sql = "where q = 'bar' and name = 'alice'";
-        int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
-        spans[AgentRequestValues.S_COUNT] = 2;
-        spans[AgentRequestValues.S_FIRST + 1] = 11;
-        spans[AgentRequestValues.S_FIRST + 2] = 14;
-        spans[AgentRequestValues.S_FIRST + 3] = 1;
-        spans[AgentRequestValues.S_FIRST + 4] = 28;
-        spans[AgentRequestValues.S_FIRST + 5] = 33;
-
-        assertThat(RequestInputSinks.valueFlags(sql, spans, 0)).isEqualTo(AgentRequestValues.FLAG_SHORT);
-        assertThat(RequestInputSinks.valueFlags(sql, spans, 1)).isZero();
-    }
-
-    @Test
     void aServletParameterMapIsFlattened() {
         Map<String, String[]> form = new LinkedHashMap<>();
         form.put("q", new String[] {"bar'", null, "baz"});

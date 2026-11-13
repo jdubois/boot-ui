@@ -124,9 +124,9 @@ class SinkTextTests {
                         | AgentRequestValues.FLAG_BARE_LITERAL);
         assertThat(positions[1])
                 .isEqualTo(AgentRequestValues.POSITION_IN_LITERAL | AgentRequestValues.FLAG_BARE_LITERAL);
-        assertThat(RequestInputSinks.valueFlags(sql, spans(sql, "-33.8688", 0), 0))
+        assertThat(RequestInputSinks.numeric(sql, spans(sql, "-33.8688", 0), 0))
                 .isEqualTo(AgentRequestValues.FLAG_NUMERIC);
-        assertThat(RequestInputSinks.valueFlags("a=-x.1", spans("a=-x.1", "-x.1", 0), 0))
+        assertThat(RequestInputSinks.numeric("a=-x.1", spans("a=-x.1", "-x.1", 0), 0))
                 .isZero();
     }
 
@@ -214,7 +214,7 @@ class SinkTextTests {
         assertThat(RequestInputSinks.redact(text, 0, 13, spans, new String[] {"user"}))
                 .as("a span crossing the bound")
                 .isNull();
-        assertThat(RequestInputSinks.valueFlags("id=4242", spans("id=4242", "4242", 0), 0))
+        assertThat(RequestInputSinks.numeric("id=4242", spans("id=4242", "4242", 0), 0))
                 .isEqualTo(AgentRequestValues.FLAG_NUMERIC);
         assertThat(RequestInputSinks.reported(spans, 0)).isTrue();
         assertThat(RequestInputSinks.reported(spans, 1)).isFalse();

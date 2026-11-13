@@ -96,17 +96,17 @@ class SecuritySinksStoreTests {
     }
 
     @Test
-    void aShortProbeWaitsEvenInsideOrAcrossALiteralUntilASecondValueConfirmsIt() {
+    void anAssessmentMatchWaitsEvenInsideOrAcrossALiteralUntilASecondValueConfirmsIt() {
         SideEffectsStore store = new SideEffectsStore(0L);
-        int inside = SideEffectsCatalog.SINK_IN_LITERAL | SideEffectsCatalog.SINK_SHORT;
+        int inside = SideEffectsCatalog.SINK_IN_LITERAL | SideEffectsCatalog.SINK_ASSESSMENT;
         int crossing = SideEffectsCatalog.SINK_OUTSIDE_LITERAL
                 | SideEffectsCatalog.SINK_CROSSES_LITERAL
-                | SideEffectsCatalog.SINK_SHORT;
+                | SideEffectsCatalog.SINK_ASSESSMENT;
         store.add(sink(1, "select * from users where name = '{q}'", inside, 1, 2));
         store.add(sink(2, "select * from users where name = {q} and p = ?", crossing, 3, 4));
         store.resolve(routes(2), NOW);
         assertThat(store.rows(SENSOR, true, true))
-                .as("bar or ' in one request may be any literal's")
+                .as("a scanner's probe in one request may be a constant the text always holds")
                 .isEmpty();
         assertThat(store.unconfirmed()).isEqualTo(2L);
 

@@ -97,7 +97,7 @@ public final class SideEffectsCatalog {
     static final int SINK_NUMERIC = 4;
     static final int SINK_CROSSES_LITERAL = 8;
     static final int SINK_BARE_LITERAL = 16;
-    static final int SINK_SHORT = 32;
+    static final int SINK_ASSESSMENT = 32;
 
     /** Where in an SQL text a value sat, as a security-sinks row's location says. */
     public static final String INSIDE_LITERAL = "inside a literal";

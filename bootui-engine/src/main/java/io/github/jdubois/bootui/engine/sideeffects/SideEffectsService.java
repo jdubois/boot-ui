@@ -249,8 +249,8 @@ public final class SideEffectsService implements AutoCloseable {
             + " managed executor still matches, until the response completes; a task the agent propagates never does. A"
             + " row's target is the redacted text, the value replaced by the parameter's name, and SQL literals masked;"
             + " when a text was scanned only in part or held more matches than could be redacted, no text is kept. A"
-            + " value outside an SQL literal, made of digits only, or shorter than 4 characters is shown once a second"
-            + " request confirms the text"
+            + " value outside an SQL literal, made of digits only, or from a request tagged with the header is shown once"
+            + " a second request confirms the text"
             + " varies with it.";
 
     static final String LIMITATION_SECURITY_CHECKS = "Security sinks' JDK checks: a deserialization is one outermost"
@@ -1750,8 +1750,8 @@ public final class SideEffectsService implements AutoCloseable {
                 if (unconfirmed > 0) {
                     limitations.add(unconfirmed
                             + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
-                            + " not shown yet: a value outside an SQL literal, a number, a probe shorter than 4"
-                            + " characters, or one whose place in the text"
+                            + " not shown yet: a value outside an SQL literal, a number, a scanner's probe, or one"
+                            + " whose place in the text"
                             + " is not known may be a word the text always holds, until a second request confirms the"
                             + " text varies with it.");
                 }

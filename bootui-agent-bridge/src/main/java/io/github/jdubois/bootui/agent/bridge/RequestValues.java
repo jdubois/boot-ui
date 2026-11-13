@@ -64,8 +64,8 @@ public final class RequestValues {
 
     /**
      * The shortest value held for an assessment request, one an external DAST tool tagged with the {@code
-     * X-BootUI-Assessment-Id} header: its short probes, as {@code bar} or {@code '}, are held too, and a match of one is
-     * flagged {@link #FLAG_SHORT}, so it is shown only once a second request confirms it.
+     * X-BootUI-Assessment-Id} header: its short probes, as {@code bar} or {@code '}, are held too, and each of its
+     * matches is flagged {@link #FLAG_ASSESSMENT}, so it is shown only once a second request confirms it.
      */
     public static final int ASSESSMENT_MIN_LENGTH = 1;
 
@@ -135,6 +135,9 @@ public final class RequestValues {
      */
     public static final int F_SEEN = 32;
 
+    /** The request is an assessment request: each of its matches is published {@link #FLAG_ASSESSMENT}. */
+    public static final int F_ASSESSMENT = 64;
+
     /** Matched sink-text hashes remembered per request, so a repeated matched text is not published again. */
     public static final int MATCHED_HASHES = 8;
 
@@ -159,8 +162,11 @@ public final class RequestValues {
     /** In a record's outcome byte: the matched value sat inside an unquoted SQL literal (a number, true, or false). */
     public static final int FLAG_BARE_LITERAL = 16;
 
-    /** In a record's outcome byte: the matched value is shorter than {@value #MIN_LENGTH} characters. */
-    public static final int FLAG_SHORT = 32;
+    /**
+     * In a record's outcome byte: the value came from an assessment request, a scanner's probe, which may equal a constant
+     * the text always holds, so the match is shown only once a second request confirms the text varies with it.
+     */
+    public static final int FLAG_ASSESSMENT = 32;
 
     /** What a process start's or a file operation's own record names when its executable or path held request input
      * whose redaction could not cover every occurrence. */
@@ -817,7 +823,9 @@ public final class RequestValues {
             if ((mask & (1 << i)) == 0) {
                 continue;
             }
-            int flags = position | valueFlags(text, spans, i);
+            int flags = position
+                    | numericFlag(text, spans, i)
+                    | ((spans[S_FLAGS] & F_ASSESSMENT) != 0 ? FLAG_ASSESSMENT : 0);
             if (!reported(spans, i)) {
                 flags |= POSITION_UNKNOWN;
             }
@@ -837,11 +845,10 @@ public final class RequestValues {
     }
 
     /**
-     * The flags of value {@code index}'s first span: {@link #FLAG_NUMERIC} when it is a number (digits, with an optional
-     * leading sign and at most one decimal point), and {@link #FLAG_SHORT} when it is shorter than {@value
-     * #MIN_LENGTH} characters; else 0.
+     * {@link #FLAG_NUMERIC} when the first span of value {@code index} is a number: digits, with an optional leading
+     * sign and at most one decimal point, else 0.
      */
-    static int valueFlags(String text, int[] spans, int index) {
+    static int numericFlag(String text, int[] spans, int index) {
         int count = Math.min(spans[S_COUNT], MAX_SPANS);
         for (int s = 0; s < count; s++) {
             int slot = S_FIRST + 3 * s;
@@ -853,7 +860,7 @@ public final class RequestValues {
             if (start < 0 || end > text.length() || start >= end) {
                 return 0;
             }
-            return (number(text, start, end) ? FLAG_NUMERIC : 0) | (end - start < MIN_LENGTH ? FLAG_SHORT : 0);
+            return number(text, start, end) ? FLAG_NUMERIC : 0;
         }
         return 0;
     }
@@ -1023,7 +1030,10 @@ public final class RequestValues {
             CHECKS.increment();
             mask = 0;
             int written = 0;
-            int flags = (partial ? F_PARTIAL : 0) | (spansFit ? 0 : F_OVERFLOW) | (seen ? F_SEEN : 0);
+            int flags = (partial ? F_PARTIAL : 0)
+                    | (spansFit ? 0 : F_OVERFLOW)
+                    | (seen ? F_SEEN : 0)
+                    | (entry.assessment ? F_ASSESSMENT : 0);
             for (int i = 0; i < entry.count; i++) {
                 String value = entry.values[i];
                 int before = written;
@@ -1255,7 +1265,7 @@ public final class RequestValues {
         if (text == null || spans == null || spans.length < SPANS_LENGTH) {
             return null;
         }
-        if ((spans[S_FLAGS] & ~F_SEEN) != 0) {
+        if ((spans[S_FLAGS] & ~(F_SEEN | F_ASSESSMENT)) != 0) {
             // Partial, overflowed, or not compared at all (stopped, repeated, busy): the spans may not cover every
             // occurrence, so no text is kept. A text seen before was compared in full.
             return null;

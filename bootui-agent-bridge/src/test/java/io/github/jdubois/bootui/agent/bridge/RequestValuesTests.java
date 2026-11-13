@@ -275,26 +275,30 @@ class RequestValuesTests {
                 .as("only alice: a one-character value in nine places tells nothing")
                 .isEqualTo(2);
         assertThat(spans[RequestValues.S_COUNT]).isEqualTo(1);
-        assertThat(spans[RequestValues.S_FLAGS]).isZero();
+        assertThat(spans[RequestValues.S_FLAGS]).isEqualTo(RequestValues.F_ASSESSMENT);
         assertThat(RequestValues.redact(sql, spans, names))
                 .isEqualTo("select 1,1,1,1,1,1,1,1,1 from users where name = '{name}'");
         assertThat(RequestValues.status().get("shortValuesAmbiguous")).isEqualTo(1L);
     }
 
     @Test
-    void aMatchOfAValueShorterThanTheFloorIsFlaggedShort() {
-        String text = "where a = 'bar' and b = 'alice'";
+    void anAssessmentRequestsChecksAreMarkedAndStillRedactAnUntaggedOnesAreNot() {
+        on();
+        context.set(owner(REQUEST, null));
+        RequestValues.begin(REQUEST, names("name"), values("alice"), null, null, true);
         int[] spans = new int[RequestValues.SPANS_LENGTH];
-        spans[RequestValues.S_COUNT] = 2;
-        spans[RequestValues.S_FIRST] = 0;
-        spans[RequestValues.S_FIRST + 1] = 11;
-        spans[RequestValues.S_FIRST + 2] = 14;
-        spans[RequestValues.S_FIRST + 3] = 1;
-        spans[RequestValues.S_FIRST + 4] = 25;
-        spans[RequestValues.S_FIRST + 5] = 30;
+        String[] names = new String[RequestValues.MAX_VALUES];
+        String sql = "select * from users where name = 'alice'";
 
-        assertThat(RequestValues.valueFlags(text, spans, 0)).isEqualTo(RequestValues.FLAG_SHORT);
-        assertThat(RequestValues.valueFlags(text, spans, 1)).isZero();
+        assertThat(RequestValues.match(sql, RequestValues.SINK_SQL, spans, names))
+                .isEqualTo(1);
+        assertThat(spans[RequestValues.S_FLAGS]).isEqualTo(RequestValues.F_ASSESSMENT);
+        assertThat(RequestValues.redact(sql, spans, names)).isEqualTo("select * from users where name = '{name}'");
+        RequestValues.end(REQUEST);
+
+        RequestValues.begin(REQUEST, names("name"), values("alice"), null, null, false);
+        RequestValues.match(sql, RequestValues.SINK_SQL, spans, names);
+        assertThat(spans[RequestValues.S_FLAGS]).isZero();
     }
 
     @Test

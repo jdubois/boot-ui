@@ -527,10 +527,11 @@ scanner's requests with the `X-BootUI-Assessment-Id` header, any non-blank value
 
 - Only the header's presence is read; its value is never kept. Untagged requests are unchanged.
 - A tagged request's values are held from 1 character, so a scanner's short probes, such as `bar` or `'`, are checked too.
-- A match of a value shorter than 4 characters is never shown from one request, even inside or across an SQL literal: it
-  waits until a second request produced a different raw text with the same redacted text, which a scanner's varied
-  probes provide. A short value found in more places than a check reports is dropped, so it never costs another value
-  its redacted text.
+- A tagged request's match is never shown from one request, even inside or across an SQL literal: a probe may equal a
+  constant the text always holds, as `foo'` does where a statement's literal `'foo'` ends. It waits until a second request
+  produced a different raw text with the same redacted text, which a scanner's varied probes provide for a value that
+  really reaches the text, and a constant never does. A short value found in more places than a check reports is
+  dropped, so it never costs another value its redacted text.
 - BootUI still never sends a payload. Rows stay facts ("request input reached this SQL text unchanged"), never a
   verdict that the code is exploitable: matching is verbatim, not taint tracking, so an encoded, trimmed, or
   recombined value is not seen.
