@@ -116,7 +116,9 @@ handlers, and produces and consumes metadata, so you can see the web surface wit
 load through a stable paged DTO, and the filter searches every discovered route on the server. BootUI's own `/bootui`
 routes are filtered out while `bootui.monitoring.exclude-self` is on, which is the default.
 
-The route table comes from Actuator's mappings data on Spring Boot and from the JAX-RS resource table on Quarkus.
+The route table comes from Actuator's mappings data on Spring Boot and from the JAX-RS resource table on Quarkus, and
+reports the application's effective `basePath`. When [HTTP Probe](diagnostics.md#http-probe) is enabled and writable,
+each concrete route offers **Open in HTTP Probe** to prefill the probe form with the composed path and media types.
 
 ::: details Why Quarkus scans the Jandex index
 Vert.x exposes no runtime route-enumeration API that carries the per-route method and the produces and consumes

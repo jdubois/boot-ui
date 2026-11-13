@@ -1,6 +1,6 @@
 <script setup>
 import LowFootprintBanner from './components/LowFootprintBanner.vue'
-import {computed, nextTick, onMounted, ref, watch} from 'vue'
+import {computed, inject, nextTick, onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import {getJson} from '../api.js'
 import CaptureRetention from './components/CaptureRetention.vue'
@@ -9,10 +9,13 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 import {formatNumber} from '../utils/format.js'
 import {buildCurlCommand} from '../utils/curlCommand.js'
+import {buildExchangeProbeLink, isHttpProbeWritable} from '../utils/httpProbePrefill.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 
+const panels = inject('panels', ref(null))
+const httpProbeWritable = computed(() => isHttpProbeWritable(panels.value))
 const filter = ref('')
 const method = ref('')
 const statusClass = ref('')
@@ -262,6 +265,10 @@ function clearRouteFilter() {
 
 function profileLink(exchange) {
   return {path: '/activity', query: {request: exchange.id}}
+}
+
+function exchangeProbeLink(exchange) {
+  return buildExchangeProbeLink(exchange)
 }
 
 function showsRouteLine(exchange) {
@@ -735,6 +742,14 @@ onMounted(() => {
                         ></i>
                         {{ copiedKey === curlKey(exchange) ? 'Copied' : 'Copy as cURL' }}
                       </button>
+                      <router-link
+                        v-if="httpProbeWritable && exchangeProbeLink(exchange)"
+                        :aria-label="`Open ${exchange.method || 'GET'} ${exchange.path || '/'} in HTTP Probe`"
+                        :to="exchangeProbeLink(exchange)"
+                        class="btn btn-outline-secondary btn-sm rounded-pill text-nowrap http-exchanges-probe-link"
+                      >
+                        <i aria-hidden="true" class="bi bi-send me-1"></i>Open in HTTP Probe
+                      </router-link>
                       <span class="small text-muted">
                         A safe template built from retained metadata. Nothing is sent and no state changes.
                       </span>

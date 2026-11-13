@@ -59,6 +59,10 @@ test('uses the configured API path for queries, SSE, and security', async ({page
   expect(report.page.limit).toBe(1)
   expect(report.threads.length).toBeLessThanOrEqual(1)
 
+  const mappings = await request.get(`${API_PATH}/mappings/flat?offset=0&limit=5`)
+  expect(mappings.ok()).toBeTruthy()
+  expect((await mappings.json()).basePath).toBe('/host')
+
   await page.goto(`${UI_PATH}/`)
   const streamStatus = await page.evaluate(
     (apiPath) =>

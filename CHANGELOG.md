@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from
+  Mappings and HTTP Exchanges without auto-sending ([HTTP Probe](docs/features/diagnostics.md#http-probe); [#1668](https://github.com/jdubois/boot-ui/issues/1668)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

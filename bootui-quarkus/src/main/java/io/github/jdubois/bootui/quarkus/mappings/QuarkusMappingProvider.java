@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.quarkus.mappings;
 
 import io.github.jdubois.bootui.core.dto.MappingDto;
+import io.github.jdubois.bootui.quarkus.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Quarkus {@link MappingProvider} backed by the build-time-captured {@link QuarkusMappings} holder.
@@ -28,14 +30,30 @@ public class QuarkusMappingProvider implements MappingProvider {
 
     private final Instance<QuarkusMappings> capturedMappings;
 
+    private final Supplier<String> basePath;
+
     @Inject
     public QuarkusMappingProvider(Instance<QuarkusMappings> capturedMappings) {
+        this(capturedMappings, DeclaredRouteTemplates::mountPrefix);
+    }
+
+    QuarkusMappingProvider(Instance<QuarkusMappings> capturedMappings, Supplier<String> basePath) {
         this.capturedMappings = capturedMappings;
+        this.basePath = basePath == null ? () -> "" : basePath;
     }
 
     @Override
     public boolean available() {
         return !capturedMappings.isUnsatisfied();
+    }
+
+    @Override
+    public String basePath() {
+        if (capturedMappings.isUnsatisfied()) {
+            return "";
+        }
+        String resolved = basePath.get();
+        return resolved == null ? "" : resolved;
     }
 
     @Override

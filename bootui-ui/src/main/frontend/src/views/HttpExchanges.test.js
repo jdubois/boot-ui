@@ -153,6 +153,19 @@ describe('HTTP Exchanges', () => {
     expect(copyButton.attributes('aria-disabled')).toBeUndefined()
     expect(copyButton.text()).toContain('Copy as cURL')
 
+    const probeLink = wrapper.find('.http-exchanges-probe-link')
+    expect(probeLink.exists()).toBe(true)
+    expect(probeLink.text()).toContain('Open in HTTP Probe')
+    expect(JSON.parse(probeLink.attributes('data-to'))).toEqual({
+      path: '/http-probe',
+      query: {
+        method: 'POST',
+        path: '/api/orders?token=VALUE&page=VALUE',
+        accept: 'application/json',
+        source: 'http-exchanges'
+      }
+    })
+
     await copyButton.trigger('click')
     await flushPromises()
 

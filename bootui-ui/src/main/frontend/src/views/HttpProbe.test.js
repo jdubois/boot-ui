@@ -1,13 +1,19 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {ref} from 'vue'
+import {reactive, ref} from 'vue'
 
 import HttpProbe from './HttpProbe.vue'
 
-const {apiFetch, confirm} = vi.hoisted(() => ({apiFetch: vi.fn(), confirm: vi.fn()}))
+const {apiFetch, getJson, confirm, routeState} = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  getJson: vi.fn(),
+  confirm: vi.fn(),
+  routeState: {query: {}}
+}))
 
-vi.mock('../api.js', async (importOriginal) => ({...(await importOriginal()), apiFetch}))
+vi.mock('../api.js', async (importOriginal) => ({...(await importOriginal()), apiFetch, getJson}))
 vi.mock('../utils/useConfirm.js', () => ({useConfirm: () => ({confirm})}))
+vi.mock('vue-router', () => ({useRoute: () => routeState}))
 
 function deferred() {
   let resolve
@@ -48,8 +54,10 @@ function response(overrides = {}) {
 describe('HttpProbe', () => {
   beforeEach(() => {
     apiFetch.mockReset()
+    getJson.mockReset()
     confirm.mockReset()
     confirm.mockResolvedValue(true)
+    routeState.query = reactive({})
   })
 
   it('rechecks policy after the unsafe-probe confirmation', async () => {
@@ -203,5 +211,91 @@ describe('HttpProbe', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Probe request rejected (HTTP 413)')
+  })
+
+  it('loads declared routes on picker focus, composes basePath, prefills headers/body, and highlights path placeholders without auto-sending', async () => {
+    getJson.mockResolvedValueOnce({
+      total: 2,
+      basePath: '/host',
+      mappings: [
+        {
+          method: 'POST',
+          pattern: '/api/orders/{id:[0-9]+}',
+          handler: 'com.example.OrderController#update',
+          produces: 'application/json',
+          consumes: 'application/json'
+        },
+        {
+          method: 'ANY',
+          pattern: '/api/health',
+          handler: 'com.example.HealthController#check',
+          produces: 'text/plain',
+          consumes: null
+        }
+      ],
+      page: {total: 2, matched: 2, offset: 0, limit: 50, returned: 2, hasMore: false}
+    })
+
+    const wrapper = mount(HttpProbe, {
+      global: {
+        provide: {
+          panels: ref({
+            platform: 'spring-boot',
+            panels: [{id: 'mappings', enabled: true, available: true}]
+          })
+        }
+      }
+    })
+
+    // No network call on render.
+    expect(getJson).not.toHaveBeenCalled()
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    const picker = wrapper.get('#http-probe-route-picker')
+    await picker.trigger('focus')
+    await flushPromises()
+
+    expect(getJson).toHaveBeenCalledWith('api/mappings/flat?limit=50')
+    const options = wrapper.findAll('.http-probe-route-option')
+    expect(options).toHaveLength(2)
+    expect(options[0].text()).toContain('/host/api/orders/{id:[0-9]+}')
+    expect(options[0].text()).toContain('OrderController#update')
+
+    await options[0].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#http-probe-method').element.value).toBe('POST')
+    expect(wrapper.get('#http-probe-path').element.value).toBe('/host/api/orders/{id:[0-9]+}')
+    expect(wrapper.get('#http-probe-accept').element.value).toBe('application/json')
+    expect(wrapper.get('#http-probe-content-type').element.value).toBe('application/json')
+    expect(wrapper.get('#http-probe-body').element.value).toBe('{}')
+    expect(wrapper.get('.http-probe-placeholder-hint').text()).toContain('{id:[0-9]+}')
+    expect(apiFetch).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('prefills passively from route query parameters without auto-sending', async () => {
+    routeState.query = reactive({
+      method: 'POST',
+      path: '/api/orders?page=VALUE',
+      accept: 'application/json',
+      contentType: 'application/json',
+      source: 'http-exchanges',
+      omittedQuery: '1'
+    })
+
+    const wrapper = mount(HttpProbe)
+    await flushPromises()
+
+    expect(wrapper.get('#http-probe-method').element.value).toBe('POST')
+    expect(wrapper.get('#http-probe-path').element.value).toBe('/api/orders?page=VALUE')
+    expect(wrapper.get('#http-probe-accept').element.value).toBe('application/json')
+    expect(wrapper.get('#http-probe-content-type').element.value).toBe('application/json')
+    const hintText = wrapper.get('.http-probe-placeholder-hint').text()
+    expect(hintText).toContain('VALUE')
+    expect(hintText).toContain('1 masked or malformed query parameter was omitted')
+    expect(hintText).toContain('BootUI never records request bodies in HTTP Exchanges')
+    expect(apiFetch).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 })

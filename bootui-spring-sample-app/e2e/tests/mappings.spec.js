@@ -96,5 +96,13 @@ test.describe('HTTP mappings view', () => {
     await expect(rows).toHaveCount(1)
     await expect(rows.first()).toContainText('GET')
     await expect(rows.first()).toContainText('/api/sample/hello')
+
+    const probeLink = rows.first().locator('.mappings-probe-link')
+    await expect(probeLink).toBeVisible()
+    await probeLink.click()
+    await expect(page).toHaveURL(/#\/http-probe\?/)
+    await expect(page.getByLabel('Method')).toHaveValue('GET')
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue('/api/sample/hello')
+    await expect(page.locator('.card', {hasText: /^Response/})).toHaveCount(0)
   })
 })

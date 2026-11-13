@@ -1156,6 +1156,18 @@ public class BootUiEngineConfiguration {
         return new MappingsService(mappingProviders.getIfAvailable());
     }
 
+    static String resolveMappingsBasePath(ApplicationContext applicationContext, Environment environment) {
+        if (environment == null) {
+            return "";
+        }
+        if (SpringPentestingObservationCollector.isReactiveContext(applicationContext)) {
+            return MappingsService.composeBasePath(environment.getProperty("spring.webflux.base-path", ""));
+        }
+        return MappingsService.composeBasePath(
+                environment.getProperty("server.servlet.context-path", ""),
+                environment.getProperty("spring.mvc.servlet.path", ""));
+    }
+
     @Bean
     @Lazy
     @ConditionalOnMissingBean
@@ -1341,10 +1353,16 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         SpringMappingProvider bootUiSpringMappingProvider(
-                ObjectProvider<MappingsEndpoint> endpoints, BootUiSelfDataFilter selfDataFilter) {
+                ObjectProvider<MappingsEndpoint> endpoints,
+                BootUiSelfDataFilter selfDataFilter,
+                ApplicationContext applicationContext,
+                Environment environment) {
             // The endpoint bean may be absent (Actuator present but the mappings endpoint not exposed);
             // the provider resolves it live so it reports itself unavailable in that case.
-            return new SpringMappingProvider(endpoints::getIfAvailable, selfDataFilter);
+            return new SpringMappingProvider(
+                    endpoints::getIfAvailable,
+                    selfDataFilter,
+                    () -> resolveMappingsBasePath(applicationContext, environment));
         }
 
         @Bean
