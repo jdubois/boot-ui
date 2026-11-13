@@ -39,6 +39,8 @@ import java.util.function.Supplier;
  */
 public final class MemoryScanner {
 
+    static final Set<String> RETIRED_RULE_IDS = MemoryRuleRegistry.RETIRED_RULE_IDS;
+
     private static final String ANALYZER = "BootUI Memory Advisor";
     private static final String DISCLAIMER =
             "Heuristic JVM memory and thread health rules run against this process's live management beans only. "
@@ -79,24 +81,6 @@ public final class MemoryScanner {
     /** Snapshot of BootUI diagnostic GC activity as of the previous scan. */
     private BootUiDiagnosticGcTracker.Snapshot previousDiagnosticSnapshot = BootUiDiagnosticGcTracker.Snapshot.empty();
 
-    /**
-     * Cross-scan state for MEM-POOL-007's buffer-pool growth-without-release trend: each pool's used
-     * bytes and consecutive-increase streak as of the previous scan. Guarded by single-flight admission.
-     */
-    private Map<String, Long> previousBufferPoolUsed = Map.of();
-
-    private Map<String, Integer> previousBufferPoolStreaks = Map.of();
-    private boolean previousBufferPoolSampleAvailable;
-
-    /**
-     * Cross-scan state for MEM-HEAP-008's post-histogram old-generation usage trend. Guarded by
-     * single-flight admission.
-     */
-    private long previousOldGenUsedBytes = -1;
-
-    private int previousOldGenStreak;
-    private boolean previousOldGenSampleAvailable;
-
     MemoryScanner(MemoryCollector collector, Clock clock) {
         this(collector::collect, clock, BootUiDiagnosticGcTracker.SHARED);
     }
@@ -126,9 +110,9 @@ public final class MemoryScanner {
     /**
      * Builds the production scanner over the shared {@link ThreadDumpService} and the
      * {@code GC.class_histogram} diagnostic command, exactly as both adapters did inline before the
-     * extraction. The thread snapshot retains complete summary counts but bounds per-thread detail to
-     * 1,000 rows; the CPU-hot-thread rule skips when that detail is truncated. The histogram and its
-     * GC request can be intrusive, so callers gate the scan accordingly.
+     * extraction. The thread snapshot retains complete summary counts and bounds per-thread detail to
+     * 1,000 rows. The histogram and its GC request can be intrusive, so callers gate the scan
+     * accordingly.
      */
     public static MemoryScanner create(ThreadDumpService threadDumpService, Clock clock) {
         return new MemoryScanner(
@@ -236,14 +220,9 @@ public final class MemoryScanner {
                     BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, histogramOnlyCount);
         }
 
-        MemoryContext.BufferPoolTrend bufferPoolTrend =
-                computeBufferPoolTrend(context.memory().bufferPools());
-        MemoryContext.OldGenTrend oldGenTrend = computeOldGenTrend(context.postGcHeap());
         MemoryContext evaluated = context.withRuntime(adjustedRuntime)
                 .withGcTrend(trend)
                 .withLatestGcEvent(latestGcEvent)
-                .withBufferPoolTrend(bufferPoolTrend)
-                .withOldGenTrend(oldGenTrend)
                 .withViolationCollector(collector);
 
         List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
@@ -259,75 +238,6 @@ public final class MemoryScanner {
         }
         return report(
                 status, message, clock.millis(), summary(evaluated), results.size(), results, evidence(evaluations));
-    }
-
-    /**
-     * Computes each buffer pool's consecutive-increase streak against the previous scan's readings
-     * (MEM-POOL-007's net-growth signal). A pool's streak grows only when its used-byte
-     * reading strictly increased since the previous scan; a decrease, a plateau, or a pool absent from
-     * the previous scan resets that pool's streak to zero. The very first scan of a new scanner
-     * instance has no previous sample to compare against, so it seeds the baseline and reports
-     * {@link MemoryContext.BufferPoolTrend#unavailable()}.
-     */
-    private MemoryContext.BufferPoolTrend computeBufferPoolTrend(List<MemoryContext.BufferPoolSnapshot> pools) {
-        Map<String, Long> currentUsed = new LinkedHashMap<>();
-        for (MemoryContext.BufferPoolSnapshot pool : pools) {
-            if (pool.used() >= 0) {
-                currentUsed.put(pool.name(), pool.used());
-            }
-        }
-
-        Map<String, Integer> streaks = new LinkedHashMap<>();
-        for (Map.Entry<String, Long> entry : currentUsed.entrySet()) {
-            String name = entry.getKey();
-            long used = entry.getValue();
-            Long previous = previousBufferPoolUsed.get(name);
-            if (previous == null) {
-                continue;
-            }
-            int streak = used > previous ? incrementStreak(previousBufferPoolStreaks.getOrDefault(name, 0)) : 0;
-            streaks.put(name, streak);
-        }
-
-        MemoryContext.BufferPoolTrend trend = previousBufferPoolSampleAvailable
-                ? new MemoryContext.BufferPoolTrend(true, streaks)
-                : MemoryContext.BufferPoolTrend.unavailable();
-
-        previousBufferPoolUsed = currentUsed;
-        previousBufferPoolStreaks = streaks;
-        previousBufferPoolSampleAvailable = !currentUsed.isEmpty();
-        return trend;
-    }
-
-    /**
-     * Computes the post-histogram old-generation usage trend against the previous scan (MEM-HEAP-008's
-     * occupancy-growth signal). Missing readings break consecutive evidence. The first valid sample seeds the baseline and
-     * reports {@link MemoryContext.OldGenTrend#unavailable()}.
-     */
-    private MemoryContext.OldGenTrend computeOldGenTrend(MemoryContext.PostGcHeapData postGcHeap) {
-        if (!postGcHeap.oldGenAvailable() || postGcHeap.oldGenUsed() < 0) {
-            previousOldGenUsedBytes = -1;
-            previousOldGenStreak = 0;
-            previousOldGenSampleAvailable = false;
-            return MemoryContext.OldGenTrend.unavailable();
-        }
-        long used = postGcHeap.oldGenUsed();
-        MemoryContext.OldGenTrend trend;
-        if (previousOldGenSampleAvailable) {
-            int streak = used > previousOldGenUsedBytes ? incrementStreak(previousOldGenStreak) : 0;
-            trend = new MemoryContext.OldGenTrend(true, streak, used);
-            previousOldGenStreak = streak;
-        } else {
-            trend = MemoryContext.OldGenTrend.unavailable();
-            previousOldGenStreak = 0;
-        }
-        previousOldGenUsedBytes = used;
-        previousOldGenSampleAvailable = true;
-        return trend;
-    }
-
-    private static int incrementStreak(int streak) {
-        return streak == Integer.MAX_VALUE ? streak : streak + 1;
     }
 
     private static MemoryContext.GcTrend adjustTrendForDiagnosticGcs(
@@ -445,12 +355,6 @@ public final class MemoryScanner {
 
     private void resetObservations() {
         previousGcSample = null;
-        previousBufferPoolUsed = Map.of();
-        previousBufferPoolStreaks = Map.of();
-        previousBufferPoolSampleAvailable = false;
-        previousOldGenUsedBytes = -1;
-        previousOldGenStreak = 0;
-        previousOldGenSampleAvailable = false;
     }
 
     private MemoryReport report(

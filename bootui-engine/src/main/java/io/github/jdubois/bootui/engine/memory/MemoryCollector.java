@@ -99,9 +99,7 @@ final class MemoryCollector {
                 postHistogramGc,
                 preHistogramGcEvent,
                 postHistogramGcEvent,
-                GcTrend.unavailable(),
-                null,
-                null);
+                GcTrend.unavailable());
     }
 
     /**

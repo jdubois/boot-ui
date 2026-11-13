@@ -599,11 +599,11 @@ With verified Panache transformation, the public-persistent-field finding does n
 
 ![BootUI Memory panel](../images/bootui-memory.webp)
 
-The Memory panel runs an explicit, read-only scan over the live JVM management beans: heap and memory pools, garbage
-collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked findings such as heap
-pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead, thread deadlocks, and
-collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they expose. The scan is on
-demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
+The Memory panel runs an explicit, read-only scan of 28 active rules over the live JVM management beans: heap and
+memory pools, garbage collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked
+findings such as heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead,
+thread deadlocks, and collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they
+expose. The scan is on demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
 [Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
 you re-run the checks.
 
