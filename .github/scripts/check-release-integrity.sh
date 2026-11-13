@@ -267,10 +267,10 @@ bundle_published="$(sed -n '/^PUBLISHED = (/,/^)/p' "$BUNDLE_CHECK" | grep -oE '
 if [[ "$bundle_published" != "$EXPECTED_PUBLISHED" ]]; then
   report_error "$BUNDLE_CHECK must expect exactly the published coordinates"
 fi
-for literal in 'MAX_RELEASE_BYTES = 26_000_000' 'SIGNATURE_RESERVE_BYTES = 4096' \
+for literal in 'MAX_RELEASE_BYTES = 20_000_000' 'SIGNATURE_RESERVE_BYTES = 4096' \
   '    check_release_size(files, payloads, errors)' '    if size + reserve >= MAX_RELEASE_BYTES:'; do
   if ! grep -Fxq -- "$literal" "$BUNDLE_CHECK"; then
-    report_error "$BUNDLE_CHECK must enforce the 26 MB release-size budget ('$literal')"
+    report_error "$BUNDLE_CHECK must enforce the 20 MB release-size budget ('$literal')"
   fi
 done
 # The assembler keeps no list of its own: it bundles the bundle checker's PUBLISHED, checked just above.

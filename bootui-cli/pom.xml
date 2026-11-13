@@ -92,6 +92,7 @@
                 <version>3.6.1</version>
                 <configuration>
                     <skipITs>${skipTests}</skipITs>
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <bootui.cli.jar>${project.build.directory}/${project.build.finalName}-all.jar</bootui.cli.jar>
@@ -117,10 +118,11 @@
                 <configuration>
                     <excludes>
                         <exclude>bootui-docs/**</exclude>
+                        <exclude>bootui-tools.json</exclude>
+                        <exclude>io/github/jdubois/bootui/cli/**</exclude>
                     </excludes>
                     <archive>
                         <manifest>
-                            <mainClass>io.github.jdubois.bootui.cli.BootUiCli</mainClass>
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                         </manifest>
                     </archive>
@@ -131,6 +133,9 @@
                 <artifactId>maven-source-plugin</artifactId>
                 <configuration>
                     <excludeResources>true</excludeResources>
+                    <excludes>
+                        <exclude>io/github/jdubois/bootui/cli/**</exclude>
+                    </excludes>
                 </configuration>
                 <executions>
                     <execution>
@@ -152,9 +157,10 @@
                         </goals>
                         <configuration>
                             <target>
-                                <!-- Unattached input for the runnable jar; the client and sources need no docs copy. -->
+                                <!-- Unattached input for the runnable jar; the client and sources need no CLI or docs copy. -->
                                 <jar destfile="${project.build.directory}/cli-docs.jar"
-                                     basedir="${project.build.outputDirectory}" includes="bootui-docs/**"/>
+                                     basedir="${project.build.outputDirectory}"
+                                     includes="bootui-docs/**,bootui-tools.json,io/github/jdubois/bootui/cli/**"/>
                             </target>
                         </configuration>
                     </execution>
@@ -193,6 +199,12 @@
                                 </transformer>
                             </transformers>
                             <filters>
+                                <filter>
+                                    <artifact>info.picocli:picocli</artifact>
+                                    <excludes>
+                                        <exclude>picocli/AutoComplete*</exclude>
+                                    </excludes>
+                                </filter>
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>

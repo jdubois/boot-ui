@@ -36,14 +36,22 @@ class CliDistributionIT {
                     assertThat(input.readAllBytes()).isEqualTo(Files.readAllBytes(Path.of("../docs", topic.file())));
                 }
             }
-            assertThat(thin.stream().map(JarEntry::getName)).noneMatch(name -> name.startsWith("bootui-docs/"));
+            assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/BootUiCli.class"))
+                    .isNotNull();
+            assertThat(all.getJarEntry("bootui-tools.json")).isNotNull();
+            assertThat(thin.stream().map(JarEntry::getName))
+                    .noneMatch(name -> name.startsWith("bootui-docs/")
+                            || name.startsWith("io/github/jdubois/bootui/cli/")
+                            || name.equals("bootui-tools.json"));
             assertThat(thin.getJarEntry("io/github/jdubois/bootui/client/BootUiClient.class"))
                     .isNotNull();
         }
         Path sources = runnable.resolveSibling(thinName.replace(".jar", "-sources.jar"));
         if (Files.exists(sources)) {
             try (JarFile jar = new JarFile(sources.toFile())) {
-                assertThat(jar.stream().map(JarEntry::getName)).noneMatch(name -> name.startsWith("bootui-docs/"));
+                assertThat(jar.stream().map(JarEntry::getName))
+                        .noneMatch(name ->
+                                name.startsWith("bootui-docs/") || name.startsWith("io/github/jdubois/bootui/cli/"));
                 assertThat(jar.getJarEntry("io/github/jdubois/bootui/client/BootUiClient.java"))
                         .isNotNull();
             }
