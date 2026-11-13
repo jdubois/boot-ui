@@ -26,6 +26,7 @@ class KotlinConstructorInjectedComponent(
 class KotlinFieldInjectedComponent(
     @param:Value("\${bootui.fixture.parameter:a}") @field:Value("\${bootui.fixture.field:b}")
     private val mismatched: String,
+    @Autowired private val primaryRepository: KotlinNamespaceRepository,
 ) {
     @Autowired
     lateinit var repository: KotlinNamespaceRepository
@@ -33,5 +34,5 @@ class KotlinFieldInjectedComponent(
     @Value("\${bootui.fixture.body:default}")
     val bodyProperty: String = ""
 
-    fun describe(): String = "$mismatched $repository $bodyProperty"
+    fun describe(): String = "$mismatched $primaryRepository $repository $bodyProperty"
 }

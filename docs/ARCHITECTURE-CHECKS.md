@@ -72,8 +72,9 @@ Spring and CDI containers recognize, such as `jakarta.transaction.Transactional`
 below says which case it falls into.
 
 Two coding-practice rules adapt to Quarkus: ARCH-CODE-003 is not evaluated there, because `java.util.logging` is a
-built-in Quarkus logging API, and ARCH-CODE-016 reports standard-annotation field injection at LOW rather than MEDIUM,
-because `@Inject` field injection is the idiom of the Quarkus guides.
+built-in Quarkus logging API, and ARCH-CODE-016 reports standard-annotation field injection on Quarkus at LOW when a
+`private` field is injected and at INFO for package-private fields, rather than MEDIUM, because package-private
+`@Inject` field injection is the idiom of the Quarkus guides.
 `ArchitectureCdiNeutralityTests` pins this property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture
 set.
 
@@ -221,7 +222,7 @@ across every possible module boundary.
 Most Spring rules recognize direct annotations rather than Spring's full merged and aliased metadata model, though the
 scheduling check also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK, CGLIB, or
 AspectJ configuration. The same declaring class does not prove a `this` receiver, and filtering Kotlin dispatch helpers
-can hide authored calls inside `$suspendImpl` bodies or mangled internal members.
+can hide authored calls inside mangled internal members.
 
 These remain known limitations rather than problems solved by the logger, scheduling, and `ThreadFactory`
 improvements. For background, see the
@@ -255,10 +256,12 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: HIGH
 - **Inspects**: cyclic dependencies between the top-level package slices under the application base package
-  (`<basePackage>.(*)..`).
+  (`<basePackage>.(*)..`), as well as shared multi-segment parent slice roots across clusters of detected base packages
+  (for example `com.acme.(*)..` when `com.acme.inventory` and `com.acme.order` are both roots, never collapsing to a
+  single-segment top-level package such as `com`).
 - **Fires when**: two or more slices depend on each other directly or transitively, forming a cycle. Evaluated per
-  detected base package and aggregated. The violation count is the number of cycles ArchUnit reports, not the number of
-  dependency edges shown inside those cycle reports.
+  detected base package (and shared multi-segment parent slice root) and aggregated. The violation count is the number
+  of cycles ArchUnit reports, not the number of dependency edges shown inside those cycle reports.
 - **Why it matters**: package cycles make code hard to understand, test, and modularize, and they block clean extraction
   of modules.
 - **Recommendation**: break the dependency cycle by extracting shared types or inverting one of the dependencies so
@@ -267,12 +270,13 @@ Dismissing a rule removes all of its instances from the score.
 ### ARCH-MOD-001 - Internal packages should not be accessed from other modules
 
 - **Severity**: HIGH
-- **Inspects**: direct dependencies from application classes to packages under a literal `internal` segment within the
-  detected application base packages.
+- **Inspects**: direct dependencies from application classes to packages under a literal `internal` segment strictly
+  below a module segment under the detected application base packages (`<basePackage>.<module>.internal..`).
 - **Fires when**: a class outside the owning module prefix accesses a type in another module's `internal` package (for
-  example, `base.order` accessing `base.inventory.internal`). Each dependency is reported once with ArchUnit's own
-  description, so a call or constructor invocation points at its source line; a field or signature type points at the
-  class.
+  example, `base.order` accessing `base.inventory.internal`). Matching `internal` strictly below the deepest matched
+  `basePackage` ensures that a base package which itself contains an `internal` segment does not misattribute module
+  ownership. Each dependency is reported once with ArchUnit's own description, so a call or constructor invocation
+  points at its source line; a field or signature type points at the class.
 - **Why it matters**: `internal` marks an encapsulation boundary; crossing it couples modules to each other's
   implementation details.
 - **Recommendation**: depend only on a module's public API (the packages outside its `internal` subpackage), or move the
@@ -325,7 +329,9 @@ Dismissing a rule removes all of its instances from the score.
 - **Severity**: HIGH
 - **Inspects**: calls to `System.exit(int)`, `Runtime.exit(int)`, or `Runtime.halt(int)`.
 - **Fires when**: a class abruptly terminates the JVM instead of letting the framework manage shutdown.
-  `System.exit(int)` is exempt when called directly from a canonical `public static void main(String[])` entry point:
+  `System.exit(int)` is exempt when called directly from a non-private, non-abstract `void main(String[])` or `void main()`
+  entry point (including JDK 25 / JEP 512 package-private, instance, and parameterless `main` entry points as well as
+  Kotlin parameterless `fun main()`):
   this is Spring Boot's own officially
   documented pattern for propagating an `ExitCodeGenerator` result from CLI/batch applications,
   `System.exit(SpringApplication.exit(context, ...))` — see the Spring Boot reference docs,
@@ -334,7 +340,7 @@ Dismissing a rule removes all of its instances from the score.
   are all `Runtime.exit`/`Runtime.halt` calls regardless of origin.
 - **Recommendation**: let the container or application framework manage the lifecycle instead of calling
   `System.exit()`, `Runtime.exit()`, or `Runtime.halt()`. If you do need to propagate a process exit code from a
-  CLI/batch application, call `System.exit(SpringApplication.exit(context, ...))` from the static `main` method only.
+  CLI/batch application, call `System.exit(SpringApplication.exit(context, ...))` from the `main` entry point only.
 
 ### ARCH-CODE-007 - Classes should not access JDK-internal APIs
 
@@ -381,8 +387,12 @@ Dismissing a rule removes all of its instances from the score.
 ### ARCH-CODE-009 - Classes should not use deprecated APIs
 
 - **Severity**: INFO
-- **Inspects**: access to members or types annotated with `@Deprecated` (via ArchUnit's `GeneralCodingRules`).
-- **Fires when**: a class references a deprecated API.
+- **Inspects**: access to members or types annotated with `@Deprecated`.
+- **Fires when**: a non-deprecated class or member references a deprecated API, or any class or member references an API
+  marked `@Deprecated(forRemoval = true)`. Compiler-generated dispatch bridges (`$default`, `ACC_BRIDGE`) and synthetic
+  targets are excluded, Kotlin `$suspendImpl` origins are unwrapped to the declared `open suspend fun`, and accesses to
+  ordinary (`forRemoval = false`) `@Deprecated` targets originating inside a `@Deprecated` class or member are exempt
+  (matching JLS §9.6.4.6).
 - **Recommendation**: migrate to the recommended replacement API; deprecated members may be removed in future releases.
 
 ### ARCH-CODE-010 - Exceptions should be named ending with Exception
@@ -459,10 +469,11 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: LOW
 - **Inspects**: classes that expose only static members (at least one static method, no instance methods, and no instance
-  fields), excluding interfaces, enums, records, abstract classes, and container-managed classes: Spring stereotypes,
-  including composed ones such as `@AutoConfiguration` and `@SpringBootConfiguration`, CDI bean-defining annotations,
-  JAX-RS resources, and classes declaring `@Bean` or CDI `@Produces` methods. The container instantiates those, and a
-  full `@Configuration` class must stay subclassable.
+  fields), whose direct superclass is `java.lang.Object`, that implement no interfaces, and that have no subclasses in
+  the scanned classes — excluding interfaces, enums, records, abstract classes, and container-managed classes: Spring
+  stereotypes, including composed ones such as `@AutoConfiguration` and `@SpringBootConfiguration`, CDI bean-defining
+  annotations, JAX-RS resources, and classes declaring `@Bean` or CDI `@Produces` methods. The container instantiates
+  those, and a full `@Configuration` class must stay subclassable.
 - **Fires when**: such a utility class is not `final`, or it can be instantiated through a non-private constructor.
 - **Recommendation**: make utility classes `final` and give them a single private constructor so they cannot be
   instantiated or subclassed.
@@ -472,15 +483,16 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-016 - Classes should not use standard-annotation field injection
 
-- **Severity**: MEDIUM on Spring, LOW on Quarkus
+- **Severity**: MEDIUM on Spring; on Quarkus, LOW when a `private` field is injected and INFO otherwise
 - **Inspects**: `jakarta.inject.Inject`, `javax.inject.Inject`, `jakarta.annotation.Resource`,
   `javax.annotation.Resource`, or `com.google.inject.Inject` annotations on non-static fields — the standard JSR-330 /
   Jakarta / Guice injection annotations a CDI container such as Quarkus' Arc (or plain Guice) uses. A static
   `jakarta.inject.Inject` field is reported by ARCH-SPRING-023, and a legacy `javax` annotation on a Spring or CDI bean,
   which the container ignores altogether, by ARCH-SPRING-024, so one field is never reported under two IDs.
 - **Why the severity differs**: on Spring, `@Inject` field injection is the same pattern as `@Autowired` field injection,
-  which the Spring team advises against. On Quarkus, `@Inject` field injection is the idiom of the official guides, which
-  only advise against `private` injected fields, so it is a testability preference rather than a defect.
+  which the Spring team advises against. On Quarkus, package-private `@Inject` field injection is the idiom of the
+  official guides, which only advise against `private` injected fields, so package-private `@Inject` fields are reported
+  at INFO while `private` injected fields remain LOW.
 - **Fires when**: a dependency is injected directly into a field via one of these standard annotations instead of
   through a constructor.
 - **Why it matters**: field injection hides required dependencies, prevents `final` fields, and makes classes harder to
@@ -490,6 +502,8 @@ Dismissing a rule removes all of its instances from the score.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers
   such as Quarkus' Arc inject constructor parameters just as readily as fields.
 - **Kotlin note**: an injected `lateinit var` is a true positive; take the dependency as a constructor `val` instead.
+  Primary-constructor property backing fields initialized in `<init>` are recognized and skipped just like in
+  ARCH-SPRING-001.
 
 ### ARCH-CODE-017 - Classes should not directly instantiate Thread
 
@@ -552,7 +566,8 @@ Dismissing a rule removes all of its instances from the score.
 - **Kotlin note**: an `@Autowired lateinit var` is a true positive; take the dependency as a constructor `val` instead.
   An annotated constructor property such as `class Foo(@Value("\${key}") private val key: String)` is constructor
   injection and is not reported, although Kotlin also copies the annotation onto the backing field: a field in a Kotlin
-  class is skipped when a constructor parameter of the same type carries an identical `@Autowired` or `@Value`.
+  class is skipped when a constructor that assigns (`SET`) the field has a parameter of the same type carrying an
+  identical `@Autowired` or `@Value`.
 - **Quarkus/CDI note**: deliberately scoped to Spring's own annotations only, so it never fires on plain
   `jakarta.inject.Inject` / `@Resource` field injection — the idiomatic style on a CDI/Quarkus application. See
   ARCH-CODE-016 for the framework-neutral equivalent that covers those standard annotations instead.
@@ -598,19 +613,21 @@ Dismissing a rule removes all of its instances from the score.
 ### ARCH-SPRING-004 - Beans should not self-invoke their own proxied methods
 
 - **Severity**: HIGH
-- **Inspects**: direct self-invocation (`this.method()`) of methods proxied through `@Transactional` (Spring's own or the
-  portable `jakarta.transaction.Transactional`), `@Async`, any Spring cache operation (`@Cacheable`, `@CachePut`,
-  `@CacheEvict`, or `@Caching`), Spring Framework 7's `@Retryable` or `@ConcurrencyLimit`, Spring Retry's `@Retryable`,
-  or method security (`@PreAuthorize`, `@PostAuthorize`, `@PreFilter`, `@PostFilter`, `@Secured`, or
-  `jakarta.annotation.security.RolesAllowed`) on the method, or `@Async` / a cache operation on the declaring class.
-- **Fires when**: a bean calls one of its own proxied methods directly, bypassing the Spring proxy.
+- **Inspects**: direct self-invocation (`this.method()` and `this::method` method references) of methods proxied through
+  `@Transactional` (Spring's own or the portable `jakarta.transaction.Transactional`), `@Async`, any Spring cache
+  operation (`@Cacheable`, `@CachePut`, `@CacheEvict`, or `@Caching`), Spring Framework 7's `@Retryable` or
+  `@ConcurrencyLimit`, Spring Retry's `@Retryable`, or method security (`@PreAuthorize`, `@PostAuthorize`, `@PreFilter`,
+  `@PostFilter`, `@Secured`, or `jakarta.annotation.security.RolesAllowed`) on the method, or `@Async` / a cache
+  operation on the declaring class (for interceptable non-private, non-static, non-final methods).
+- **Fires when**: a bean calls or references one of its own proxied methods directly, bypassing the Spring proxy.
 - **Why it matters**: the transaction, async execution, caching, retry, concurrency limit, or authorization check is
   silently lost because the call never passes through the proxy — a real correctness bug, and for method security an
   authorization bypass. Whether method security is enabled at all is the Security advisor's SEC-METHOD-001.
 - **Class-level declarations**: class-level `@Transactional`, `@Retryable`, `@ConcurrencyLimit`, and method security are
   not treated as making every self-call a finding: the calling method already runs inside the same transaction, retry,
   permit, or authorization decision, and routing a nested call through the proxy could even deadlock a
-  `@ConcurrencyLimit(1)`.
+  `@ConcurrencyLimit(1)`. On classes with class-level `@Async` or cache annotations, calls to unannotated `private`,
+  `static`, or `final` helper methods are not reported because Spring's pointcuts never intercept them.
 - **Joined transactions**: a self-call is not reported when the proxy would only have joined the transaction the
   caller already runs in, so nothing is lost. Four conditions must all hold. First, the callee's only proxy annotation
   is `@Transactional`, with `REQUIRED` (the default), `SUPPORTS` or `MANDATORY` propagation. Second, the caller is
@@ -628,14 +645,14 @@ Dismissing a rule removes all of its instances from the score.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
 - **Kotlin note**: Kotlin behaves identically — marking a function `open` does not make a `this`-call go through the
-  proxy. Two compiler-generated shapes are read as what the developer wrote rather than as extra self-invocations.
-  Calls a function makes into its own helpers (such as the `$suspendImpl` of an `open suspend fun`, or the `$default`
-  bridge that fills in default arguments) are not reported, because nobody can refactor a call the compiler makes.
-  Conversely, a call that omits a default argument is compiled into a call to that `$default` bridge, and it is
-  followed through to the function it dispatches to — so a genuine self-invocation stays reported, named after the
-  function you can actually change, instead of disappearing the moment a proxied function gains a default parameter
-  value. A self-invocation written inside a lambda is still reported: the compiler puts the body in a synthetic
-  method, but the code is yours and the behaviour really is lost.
+  proxy. Compiler-generated shapes are read as what the developer wrote rather than as extra self-invocations.
+  Calls a function makes into its own helpers (such as an `open suspend fun` dispatching to its `$suspendImpl` body, or
+  a `$default` bridge calling the function it fills in default arguments for) are not reported, because nobody can
+  refactor a call the compiler makes. Conversely, authored self-calls inside an `open suspend fun` (`$suspendImpl`) are
+  unwrapped back to the declared function, and a call that omits a default argument is followed through its `$default`
+  bridge to the function it dispatches to — so genuine self-invocations stay reported and named after the function you
+  can actually change. A self-invocation written inside a lambda is still reported: the compiler puts the body in a
+  synthetic method, but the code is yours and the behaviour really is lost.
 - **Quarkus/CDI note**: this rule never reports a self-invocation on Quarkus. Arc deliberately supports intercepted
   self-invocation, unlike standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false
   positive. See the
@@ -776,14 +793,18 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: HIGH
 - **Inspects**: direct calls between `@Bean` methods declared in the same class when that class is not a full
-  `@Configuration(proxyBeanMethods=true)`.
-- **Fires when**: a `@Bean` method directly calls a different sibling `@Bean` method in lite mode, where Spring treats
-  each factory method with ordinary Java semantics rather than intercepting inter-bean calls.
+  `@Configuration(proxyBeanMethods=true)` (including `@AutoConfiguration` and composed annotations meta-annotated with
+  `proxyBeanMethods = false`), or when the target sibling `@Bean` method is `static` (which CGLIB cannot intercept even
+  in a full `@Configuration` class). Kotlin `$default` bridges are unwrapped to the declared `@Bean` method.
+- **Fires when**: a `@Bean` method directly calls a different sibling `@Bean` method in lite mode (or calls a `static`
+  sibling `@Bean` method), where Spring treats the factory invocation with ordinary Java semantics rather than
+  intercepting inter-bean calls.
 - **Why it matters**: the call bypasses container resolution and directly creates whatever the sibling factory method
   returns. For the common singleton case this is a duplicate unmanaged instance, but the exact consequence depends on
   the factory method's scope and implementation.
-- **Recommendation**: declare the class as `@Configuration` (the default `proxyBeanMethods=true`), or pass the dependency
-  as a `@Bean` method parameter instead of calling the sibling `@Bean` method directly.
+- **Recommendation**: declare the class as `@Configuration` (the default `proxyBeanMethods=true`) with non-static
+  `@Bean` methods, or pass the dependency as a `@Bean` method parameter instead of calling the sibling `@Bean` method
+  directly.
 
 ### ARCH-SPRING-018 - Lifecycle callbacks should not be proxy-driven
 
@@ -829,7 +850,9 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: MEDIUM
 - **Inspects**: `@EventListener` methods that run asynchronously because `@Async` is declared on the method or its class.
-- **Fires when**: an asynchronous event listener declares a non-`void` return type.
+- **Fires when**: an asynchronous event listener declares a `Future` / `CompletableFuture` return type (or a non-`void`
+  return on a method not already flagged by ARCH-SPRING-011). Interceptable `@Async` methods returning a non-`Future`,
+  non-`void` type are reported by ARCH-SPRING-011 (`HIGH`) instead so the same method is not penalized twice.
 - **Why it matters**: Spring supports return values from synchronous event listeners by publishing them as follow-up
   events, but its
   [`@EventListener` contract](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/event/EventListener.html)
@@ -915,10 +938,12 @@ Dismissing a rule removes all of its instances from the score.
   trace propagation), and every `RestClientCustomizer` or `WebClientCustomizer`. A client from the
   [static factory](https://docs.spring.io/spring-framework/reference/integration/rest-clients.html) works but skips all
   of that, so its calls are missing from metrics, traces, shared interceptors, and BootUI's REST client trace panel.
-- **Not reported**: clients built from an injected builder, `mutate()` on an existing client, and classes positively
-  identified as generated, such as an OpenAPI Generator `ApiClient` whose default constructor calls
-  `RestClient.builder()` when its `@Generated` source is available. Dismiss the finding for generated code that BootUI
-  cannot identify. `new RestTemplate(..)` is out of scope: some APIs still require a `RestOperations`, and
+- **Not reported**: clients built from an injected builder, `mutate()` on an existing client, `RestClient.builder()`
+  passed to `RestClientBuilderConfigurer#configure(...)`, and
+  classes positively identified as generated, such as an OpenAPI Generator `ApiClient` whose default constructor calls
+  `RestClient.builder()` when its `@Generated` source is available. Kotlin `$suspendImpl` origins are unwrapped to the
+  declared `open suspend fun`. Dismiss the finding for generated code that BootUI cannot identify.
+  `new RestTemplate(..)` is out of scope: some APIs still require a `RestOperations`, and
   [SPRING-WIRING-007](SPRING-CHECKS.md#spring-wiring-007-review-resttemplate-migration) already reviews RestTemplate.
 - **Recommendation**: inject `RestClient.Builder` or `WebClient.Builder` and build from it. Call `clone()` before
   building several clients from one builder instance. To start from Boot's defaults on a fresh builder, use
