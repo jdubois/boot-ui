@@ -157,9 +157,14 @@ open class KotlinDeprecated {
     open suspend fun oldOp(tag: String = "v1"): String = tag
 
     @Deprecated("Use replacement")
-    open suspend fun oldCaller(tag: String): String = oldOp(tag)
+    internal fun oldInternalOp(): String = "internal"
+
+    @Deprecated("Use replacement")
+    open suspend fun oldCaller(tag: String): String = oldOp(tag) + oldInternalOp()
 
     open suspend fun callOld(): String = oldOp()
+
+    internal fun callOldFromInternal(): String = oldInternalOp()
 }
 
 @Component

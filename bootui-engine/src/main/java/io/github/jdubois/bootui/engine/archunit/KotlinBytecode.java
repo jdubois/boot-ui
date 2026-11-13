@@ -124,10 +124,16 @@ public final class KotlinBytecode {
                 return false;
             }
             String name = member.getName();
-            // Kotlin mangles every generated member it does not want callable from source with a '$'
-            // (foo$default, getFoo$annotations, access$getBar$p, …); '$' is not a legal Kotlin identifier
-            // character, so no author-written member can collide with this.
-            if (name.indexOf('$') >= 0) {
+            // Kotlin stamps generated members ($default, $suspendImpl, access$, $lambda$) as SYNTHETIC,
+            // and uses specific $-suffixed names for non-synthetic generated helpers ($annotations, $delegate).
+            // Do not reject every '$' unconditionally: authored Kotlin `internal` functions are non-synthetic
+            // and mangled as `functionName$moduleName`.
+            if (name.endsWith(DEFAULT_BRIDGE_SUFFIX)
+                    || name.endsWith(SUSPEND_IMPL_SUFFIX)
+                    || name.endsWith("$annotations")
+                    || name.endsWith("$delegate")
+                    || name.startsWith("access$")
+                    || name.contains("$lambda$")) {
                 return true;
             }
             // componentN() and copy() are generated non-synthetic, but only on a data class. Gate them on

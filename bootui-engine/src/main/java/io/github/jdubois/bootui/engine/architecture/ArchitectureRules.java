@@ -641,33 +641,8 @@ final class NoSystemExitRule extends AbstractArchitectureRule {
             return false;
         }
         List<JavaClass> parameters = method.getRawParameterTypes();
-        if (parameters.size() == 1 && parameters.get(0).isEquivalentTo(String[].class)) {
-            return true;
-        }
         return parameters.isEmpty()
-                && modifiers.contains(JavaModifier.PUBLIC)
-                && modifiers.contains(JavaModifier.STATIC)
-                && hasKotlinSyntheticMainWrapper(method.getOwner());
-    }
-
-    private static boolean hasKotlinSyntheticMainWrapper(JavaClass owner) {
-        if (!KotlinBytecode.isKotlinClass(owner)) {
-            return false;
-        }
-        for (JavaMethod candidate : owner.getMethods()) {
-            Set<JavaModifier> modifiers = candidate.getModifiers();
-            List<JavaClass> parameters = candidate.getRawParameterTypes();
-            if (candidate.getName().equals("main")
-                    && modifiers.contains(JavaModifier.PUBLIC)
-                    && modifiers.contains(JavaModifier.STATIC)
-                    && modifiers.contains(JavaModifier.SYNTHETIC)
-                    && candidate.getRawReturnType().isEquivalentTo(void.class)
-                    && parameters.size() == 1
-                    && parameters.get(0).isEquivalentTo(String[].class)) {
-                return true;
-            }
-        }
-        return false;
+                || (parameters.size() == 1 && parameters.get(0).isEquivalentTo(String[].class));
     }
 }
 
@@ -804,28 +779,23 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
                                 "not access @Deprecated members or depend on @Deprecated classes") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
-                                if (isInDeprecatedClassScope(javaClass)) {
-                                    return;
-                                }
+                                boolean classDeprecated = isInDeprecatedClassScope(javaClass);
                                 for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
-                                    checkAccess(access, events);
+                                    checkAccess(access, classDeprecated, events);
                                 }
                                 for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
-                                    checkDependency(javaClass, dependency, events);
+                                    checkDependency(javaClass, dependency, classDeprecated, events);
                                 }
                             }
                         })
                 .as("Classes should not use deprecated APIs");
     }
 
-    private static void checkAccess(JavaAccess<?> access, ConditionEvents events) {
+    private static void checkAccess(JavaAccess<?> access, boolean classDeprecated, ConditionEvents events) {
         if (KotlinBytecode.isGeneratedDispatchBridge(access.getOrigin())) {
             return;
         }
         JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
-        if (isInDeprecatedMemberScope(origin, new HashSet<>())) {
-            return;
-        }
         Optional<? extends JavaMember> resolved = access.getTarget().resolveMember();
         JavaMember targetMember = resolved.orElse(null);
         if (targetMember != null && ArchitectureRuleSupport.isCompilerGenerated(targetMember)) {
@@ -843,13 +813,23 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
         if (!isDeprecated(target)) {
             return;
         }
+        if (!isDeprecatedForRemoval(target)
+                && (classDeprecated || isInDeprecatedMemberScope(origin, new HashSet<>()))) {
+            return;
+        }
         String description = rewriteAccessDescription(
                 access.getDescription(), access.getOrigin(), origin, resolved.orElse(null), targetMember);
         events.add(SimpleConditionEvent.violated(access, description));
     }
 
-    private static void checkDependency(JavaClass javaClass, Dependency dependency, ConditionEvents events) {
-        if (!isDeprecated(dependency.getTargetClass())) {
+    private static void checkDependency(
+            JavaClass javaClass, Dependency dependency, boolean classDeprecated, ConditionEvents events) {
+        JavaClass targetClass = dependency.getTargetClass();
+        if (!isDeprecated(targetClass)) {
+            return;
+        }
+        boolean forRemoval = isDeprecatedForRemoval(targetClass);
+        if (!forRemoval && classDeprecated) {
             return;
         }
         Set<JavaAccess> accesses = dependency.convertTo(JavaAccess.class);
@@ -861,7 +841,7 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
                     continue;
                 }
                 JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
-                if (isInDeprecatedMemberScope(origin, new HashSet<>())) {
+                if (!forRemoval && isInDeprecatedMemberScope(origin, new HashSet<>())) {
                     continue;
                 }
                 Optional<? extends JavaMember> resolved = access.getTarget().resolveMember();
@@ -895,7 +875,7 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
                 Optional<JavaMethod> suspendDeclared = KotlinBytecode.suspendImplDeclaredMethod(method);
                 if (suspendDeclared.isPresent()) {
                     if (dependency.getSourceCodeLocation().getLineNumber() <= 0
-                            || isInDeprecatedMemberScope(suspendDeclared.get(), new HashSet<>())) {
+                            || (!forRemoval && isInDeprecatedMemberScope(suspendDeclared.get(), new HashSet<>()))) {
                         return;
                     }
                     events.add(SimpleConditionEvent.violated(
@@ -905,9 +885,13 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
                     return;
                 }
             }
-            if (ArchitectureRuleSupport.isCompilerGenerated(member)
-                    || (member instanceof JavaCodeUnit codeUnit && isInDeprecatedMemberScope(codeUnit, new HashSet<>()))
-                    || isDeprecated(member)) {
+            if (ArchitectureRuleSupport.isCompilerGenerated(member)) {
+                return;
+            }
+            if (!forRemoval
+                    && ((member instanceof JavaCodeUnit codeUnit
+                                    && isInDeprecatedMemberScope(codeUnit, new HashSet<>()))
+                            || isDeprecated(member))) {
                 return;
             }
         }
@@ -973,6 +957,17 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
 
     private static boolean isDeprecated(CanBeAnnotated annotated) {
         return annotated.isAnnotatedWith(Deprecated.class) || annotated.isAnnotatedWith(KOTLIN_DEPRECATED);
+    }
+
+    private static boolean isDeprecatedForRemoval(CanBeAnnotated annotated) {
+        if (!(annotated instanceof com.tngtech.archunit.core.domain.properties.HasAnnotations<?> hasAnnotations)) {
+            return false;
+        }
+        return hasAnnotations
+                .tryGetAnnotationOfType(Deprecated.class.getName())
+                .flatMap(annotation -> annotation.get("forRemoval"))
+                .filter(Boolean.TRUE::equals)
+                .isPresent();
     }
 }
 
@@ -3154,9 +3149,6 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
     private static final Set<String> REST_CLIENT_BUILDER_CONFIGURERS = Set.of(
             "org.springframework.boot.restclient.autoconfigure.RestClientBuilderConfigurer",
             "org.springframework.boot.autoconfigure.web.client.RestClientBuilderConfigurer");
-    private static final Set<String> WEB_CLIENT_BUILDER_CONFIGURERS = Set.of(
-            "org.springframework.boot.webclient.autoconfigure.WebClientBuilderConfigurer",
-            "org.springframework.boot.autoconfigure.web.reactive.function.client.WebClientBuilderConfigurer");
 
     private final java.util.function.Predicate<String> classPresent;
 
@@ -3177,8 +3169,7 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
                         + " or WebClientCustomizer, so their calls are invisible to metrics, traces, and BootUI.",
                 "Inject Spring Boot's RestClient.Builder or WebClient.Builder and build from it. The builder bean"
                         + " is a prototype; call clone() before building several clients from one instance. To"
-                        + " start from Boot's defaults on a fresh builder, use RestClientBuilderConfigurer or"
-                        + " WebClientBuilderConfigurer.",
+                        + " start from Boot's defaults on a fresh builder, use RestClientBuilderConfigurer.",
                 "https://docs.spring.io/spring-boot/reference/io/rest-client.html"));
         this.classPresent = classPresent;
     }
@@ -3207,25 +3198,27 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
                 .should(new ArchCondition<JavaClass>("not build HTTP clients from static factories") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        Map<String, Integer> exemptions = new java.util.HashMap<>();
+                        Set<JavaMethodCall> consumedConfigurers = new HashSet<>();
                         for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
-                            report(call, call.getTarget(), exemptions, events);
+                            report(call, call.getTarget(), consumedConfigurers, events);
                         }
                         for (JavaMethodReference reference : javaClass.getMethodReferencesFromSelf()) {
-                            report(reference, reference.getTarget(), exemptions, events);
+                            report(reference, reference.getTarget(), consumedConfigurers, events);
                         }
                     }
 
                     private void report(
                             JavaCodeUnitAccess<?> access,
                             CodeUnitAccessTarget target,
-                            Map<String, Integer> exemptions,
+                            Set<JavaMethodCall> consumedConfigurers,
                             ConditionEvents events) {
                         String owner = target.getOwner().getName();
                         if (!owners.contains(owner) || !FACTORY_METHODS.contains(target.getName())) return;
-                        if (access instanceof JavaMethodCall
+                        if (access instanceof JavaMethodCall call
+                                && REST_CLIENT.equals(owner)
                                 && target.getName().equals("builder")
-                                && consumeConfigurerExemption(access.getOrigin(), owner, exemptions)) {
+                                && target.getRawParameterTypes().isEmpty()
+                                && isConfiguredByRestClientBuilderConfigurer(call, consumedConfigurers)) {
                             return;
                         }
                         JavaCodeUnit origin = KotlinBytecode.unwrapSuspendImplOrigin(access.getOrigin());
@@ -3240,40 +3233,30 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
                 .as("HTTP clients should be built from Spring Boot's auto-configured builder");
     }
 
-    private static boolean consumeConfigurerExemption(
-            JavaCodeUnit origin, String clientOwner, Map<String, Integer> exemptions) {
-        String key = origin.getFullName() + "|" + clientOwner;
-        int remaining = exemptions.computeIfAbsent(key, ignored -> countConfigurerCalls(origin, clientOwner));
-        if (remaining <= 0) {
+    private static boolean isConfiguredByRestClientBuilderConfigurer(
+            JavaMethodCall builderCall, Set<JavaMethodCall> consumedConfigurers) {
+        int builderLine = builderCall.getLineNumber();
+        if (builderLine <= 0) {
             return false;
         }
-        exemptions.put(key, remaining - 1);
-        return true;
-    }
-
-    private static int countConfigurerCalls(JavaCodeUnit origin, String clientOwner) {
-        Set<String> configurers =
-                REST_CLIENT.equals(clientOwner) ? REST_CLIENT_BUILDER_CONFIGURERS : WEB_CLIENT_BUILDER_CONFIGURERS;
-        String simpleName =
-                REST_CLIENT.equals(clientOwner) ? "RestClientBuilderConfigurer" : "WebClientBuilderConfigurer";
-        int count = 0;
-        for (JavaMethodCall call : origin.getMethodCallsFromSelf()) {
-            if (isConfigurerConfigureTarget(call.getTarget(), configurers, simpleName)) {
-                count++;
+        for (JavaMethodCall call : builderCall.getOrigin().getMethodCallsFromSelf()) {
+            if (call.getLineNumber() == builderLine
+                    && isRestClientConfigurerConfigureTarget(call.getTarget())
+                    && consumedConfigurers.add(call)) {
+                return true;
             }
         }
-        return count;
+        return false;
     }
 
-    private static boolean isConfigurerConfigureTarget(
-            CodeUnitAccessTarget target, Set<String> configurers, String simpleName) {
+    private static boolean isRestClientConfigurerConfigureTarget(CodeUnitAccessTarget target) {
         if (!target.getName().equals("configure")) {
             return false;
         }
         String ownerName = target.getOwner().getName();
-        return configurers.contains(ownerName)
-                || ownerName.endsWith("." + simpleName)
-                || ownerName.endsWith("$" + simpleName);
+        return REST_CLIENT_BUILDER_CONFIGURERS.contains(ownerName)
+                || ownerName.endsWith(".RestClientBuilderConfigurer")
+                || ownerName.endsWith("$RestClientBuilderConfigurer");
     }
 
     private static boolean isClassPresent(String name) {

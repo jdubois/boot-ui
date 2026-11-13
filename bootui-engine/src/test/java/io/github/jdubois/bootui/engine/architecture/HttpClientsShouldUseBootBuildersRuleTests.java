@@ -206,25 +206,12 @@ class HttpClientsShouldUseBootBuildersRuleTests {
         }
     }
 
-    static class WebClientBuilderConfigurer {
-        WebClient.Builder configure(WebClient.Builder builder) {
-            return builder;
-        }
-    }
-
     static class ConfigurerConfiguredClients {
 
         RestClient orders(RestClientBuilderConfigurer configurer) {
             return configurer
                     .configure(RestClient.builder())
                     .baseUrl("http://orders")
-                    .build();
-        }
-
-        WebClient events(WebClientBuilderConfigurer configurer) {
-            return configurer
-                    .configure(WebClient.builder())
-                    .baseUrl("http://events")
                     .build();
         }
     }
@@ -236,8 +223,9 @@ class HttpClientsShouldUseBootBuildersRuleTests {
             return RestClient.create("http://orders");
         }
 
-        RestClient wrongConfigurerFamily(WebClientBuilderConfigurer webClientConfigurer) {
-            webClientConfigurer.configure(null);
+        RestClient configureOnDifferentLineFromBuilder(
+                RestClientBuilderConfigurer configurer, RestClient.Builder injected) {
+            configurer.configure(injected);
             return RestClient.builder().build();
         }
 

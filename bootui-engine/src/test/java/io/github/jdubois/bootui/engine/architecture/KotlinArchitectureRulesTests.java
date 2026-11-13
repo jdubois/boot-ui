@@ -246,16 +246,16 @@ class KotlinArchitectureRulesTests {
         ArchitectureRuleResultDto result = evaluate(new NoDeprecatedApiRule());
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.violationCount()).isEqualTo(2);
         assertThat(result.sampleViolations())
-                .singleElement()
-                .asString()
-                .contains("KotlinDeprecated.callOld(kotlin.coroutines.Continuation)")
-                .contains("KotlinDeprecated.oldOp(")
-                .doesNotContain("$suspendImpl")
-                .doesNotContain("$default")
-                .doesNotContain("oldCaller");
-        assertThat(result.sampleLocations()).singleElement().satisfies(location -> {
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("KotlinDeprecated.callOld(kotlin.coroutines.Continuation)")
+                        .contains("KotlinDeprecated.oldOp("))
+                .anySatisfy(sample ->
+                        assertThat(sample).contains("callOldFromInternal").contains("oldInternalOp"))
+                .noneMatch(sample ->
+                        sample.contains("$suspendImpl") || sample.contains("$default") || sample.contains("oldCaller"));
+        assertThat(result.sampleLocations()).anySatisfy(location -> {
             assertThat(location.memberName()).isEqualTo("callOld");
             assertThat(location.kind()).isEqualTo("METHOD");
         });

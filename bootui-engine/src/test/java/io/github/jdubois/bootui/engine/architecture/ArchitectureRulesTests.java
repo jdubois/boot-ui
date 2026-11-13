@@ -1239,6 +1239,13 @@ class ArchitectureRulesTests {
                         .status())
                 .isEqualTo(ArchitectureRuleSupport.PASS);
 
+        ArchitectureRuleResultDto forRemovalResult = evaluate(
+                new NoDeprecatedApiRule(), DeprecatedApiTarget.class, DeprecatedCallerUsingForRemovalTarget.class);
+        assertThat(forRemovalResult.status())
+                .as("@Deprecated(forRemoval = true) targets are still flagged inside @Deprecated callers")
+                .isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(forRemovalResult.violationCount()).isEqualTo(1);
+
         ArchitectureRuleResultDto activeResult =
                 evaluate(new NoDeprecatedApiRule(), DeprecatedApiTarget.class, ActiveDeprecatedCaller.class);
         assertThat(activeResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
@@ -1247,8 +1254,12 @@ class ArchitectureRulesTests {
 
     @Test
     void noSystemExitAllowsJep512PackagePrivateAndInstanceMainEntryPoints() {
-        ArchitectureRuleResultDto result =
-                evaluate(new NoSystemExitRule(), PackagePrivateMainLauncher.class, InstanceMainLauncher.class);
+        ArchitectureRuleResultDto result = evaluate(
+                new NoSystemExitRule(),
+                PackagePrivateMainLauncher.class,
+                InstanceMainLauncher.class,
+                ZeroArgStaticMainLauncher.class,
+                ZeroArgInstanceMainLauncher.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
@@ -1707,8 +1718,8 @@ class ArchitectureRulesTests {
 
     private static class MainOverloadSystemExitCaller {
 
-        public static void main() {
-            System.exit(1);
+        public static void main(int exitCode) {
+            System.exit(exitCode);
         }
     }
 
@@ -2209,6 +2220,11 @@ class ArchitectureRulesTests {
         static String legacyOperation() {
             return "legacy";
         }
+
+        @Deprecated(forRemoval = true)
+        static String scheduledForRemovalOperation() {
+            return "removal";
+        }
     }
 
     @Deprecated
@@ -2216,6 +2232,14 @@ class ArchitectureRulesTests {
 
         String callFromDeprecatedClass() {
             return DeprecatedApiTarget.legacyOperation();
+        }
+    }
+
+    @Deprecated
+    private static class DeprecatedCallerUsingForRemovalTarget {
+
+        String callRemovalTargetFromDeprecatedClass() {
+            return DeprecatedApiTarget.scheduledForRemovalOperation();
         }
     }
 
@@ -2248,6 +2272,20 @@ class ArchitectureRulesTests {
     private static class InstanceMainLauncher {
 
         void main(String[] args) {
+            System.exit(0);
+        }
+    }
+
+    private static class ZeroArgStaticMainLauncher {
+
+        static void main() {
+            System.exit(0);
+        }
+    }
+
+    private static class ZeroArgInstanceMainLauncher {
+
+        void main() {
             System.exit(0);
         }
     }

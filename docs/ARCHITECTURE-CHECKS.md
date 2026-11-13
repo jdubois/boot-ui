@@ -329,9 +329,9 @@ Dismissing a rule removes all of its instances from the score.
 - **Severity**: HIGH
 - **Inspects**: calls to `System.exit(int)`, `Runtime.exit(int)`, or `Runtime.halt(int)`.
 - **Fires when**: a class abruptly terminates the JVM instead of letting the framework manage shutdown.
-  `System.exit(int)` is exempt when called directly from a non-private `void main(String[])` entry point (including
-  JDK 25 / JEP 512 package-private and instance `main(String[])` entry points) or from a Kotlin parameterless
-  `fun main()` entry point (compiled to a 0-arg `main()` paired with a synthetic `main(String[])` wrapper):
+  `System.exit(int)` is exempt when called directly from a non-private, non-abstract `void main(String[])` or `void main()`
+  entry point (including JDK 25 / JEP 512 package-private, instance, and parameterless `main` entry points as well as
+  Kotlin parameterless `fun main()`):
   this is Spring Boot's own officially
   documented pattern for propagating an `ExitCodeGenerator` result from CLI/batch applications,
   `System.exit(SpringApplication.exit(context, ...))` — see the Spring Boot reference docs,
@@ -388,10 +388,11 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: INFO
 - **Inspects**: access to members or types annotated with `@Deprecated`.
-- **Fires when**: a non-deprecated class or member references a deprecated API. Compiler-generated dispatch bridges
-  (`$default`, `ACC_BRIDGE`) and synthetic targets are excluded, Kotlin `$suspendImpl` origins are unwrapped to the
-  declared `open suspend fun`, and accesses originating inside a `@Deprecated` class or member are exempt (matching
-  JLS §9.6.4.6).
+- **Fires when**: a non-deprecated class or member references a deprecated API, or any class or member references an API
+  marked `@Deprecated(forRemoval = true)`. Compiler-generated dispatch bridges (`$default`, `ACC_BRIDGE`) and synthetic
+  targets are excluded, Kotlin `$suspendImpl` origins are unwrapped to the declared `open suspend fun`, and accesses to
+  ordinary (`forRemoval = false`) `@Deprecated` targets originating inside a `@Deprecated` class or member are exempt
+  (matching JLS §9.6.4.6).
 - **Recommendation**: migrate to the recommended replacement API; deprecated members may be removed in future releases.
 
 ### ARCH-CODE-010 - Exceptions should be named ending with Exception
@@ -937,8 +938,8 @@ Dismissing a rule removes all of its instances from the score.
   trace propagation), and every `RestClientCustomizer` or `WebClientCustomizer`. A client from the
   [static factory](https://docs.spring.io/spring-framework/reference/integration/rest-clients.html) works but skips all
   of that, so its calls are missing from metrics, traces, shared interceptors, and BootUI's REST client trace panel.
-- **Not reported**: clients built from an injected builder, `mutate()` on an existing client, `RestClient.builder()` or
-  `WebClient.builder()` passed to `RestClientBuilderConfigurer` or `WebClientBuilderConfigurer` in the same method, and
+- **Not reported**: clients built from an injected builder, `mutate()` on an existing client, `RestClient.builder()`
+  passed to `RestClientBuilderConfigurer#configure(...)`, and
   classes positively identified as generated, such as an OpenAPI Generator `ApiClient` whose default constructor calls
   `RestClient.builder()` when its `@Generated` source is available. Kotlin `$suspendImpl` origins are unwrapped to the
   declared `open suspend fun`. Dismiss the finding for generated code that BootUI cannot identify.
@@ -946,7 +947,7 @@ Dismissing a rule removes all of its instances from the score.
   [SPRING-WIRING-007](SPRING-CHECKS.md#spring-wiring-007-review-resttemplate-migration) already reviews RestTemplate.
 - **Recommendation**: inject `RestClient.Builder` or `WebClient.Builder` and build from it. Call `clone()` before
   building several clients from one builder instance. To start from Boot's defaults on a fresh builder, use
-  `RestClientBuilderConfigurer` or `WebClientBuilderConfigurer`.
+  `RestClientBuilderConfigurer`.
 
 ## Retired rule IDs
 
