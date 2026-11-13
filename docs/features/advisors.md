@@ -697,7 +697,8 @@ an exact advisory id or alias returns that advisory whole.
 Severity is derived from OSV's `severity[]` entries: BootUI computes `CVSS_V4` and `CVSS_V3` vectors, preferring v4 when
 both are valid, and never treats a bare number as CVSS. CVSS `0.0` is `NONE`. An advisory with neither a parseable score
 nor a `database_specific` label renders as `UNKNOWN`. A malicious-package advisory (OSV `MAL-` ID) is always `CRITICAL`:
-removing the dependency, not upgrading it, remediates it.
+removing the dependency, not upgrading it, remediates it, and both its summary and details lead with that removal
+guidance alongside a dedicated badge in the UI.
 
 ::: details How a CVSS score is selected and parsed
 

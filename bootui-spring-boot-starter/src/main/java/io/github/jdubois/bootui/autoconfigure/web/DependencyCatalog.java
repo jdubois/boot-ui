@@ -194,23 +194,41 @@ public final class DependencyCatalog implements DependencyProvider {
         Map<String, DependencyDto> dependencies = new LinkedHashMap<>();
         Set<String> identifiedArchives = new LinkedHashSet<>();
 
-        SbomComponents sbom = sbomComponents();
-        for (DependencyDto dependency : sbom.shipped()) {
-            dependencies.putIfAbsent(key(dependency), dependency);
-        }
         Set<Path> agents = agentJars();
         ArchiveCensus census = archiveCensus(agents);
         List<CensusArchive> archives = census.archives();
+        SbomComponents sbom = sbomComponents(census.repackagedArchives());
+        for (DependencyDto dependency : sbom.shipped()) {
+            dependencies.putIfAbsent(key(dependency), dependency);
+        }
+        List<DependencyDto> appLocationDependencies = new ArrayList<>();
         for (Resource resource : resources(MAVEN_PROPERTIES_PATTERN)) {
-            if (isApplicationDescriptor(resource, census.repackagedArchives())) {
+            DependencyDto dependency = dependency(resource);
+            if (dependency == null) {
                 continue;
             }
-            DependencyDto dependency = dependency(resource);
-            if (dependency != null && !sbom.applicationPackages().contains(dependency.packageName())) {
-                dependencies.putIfAbsent(key(dependency), dependency);
-                String owner = owningArchive(resource);
-                if (owner != null) {
-                    identifiedArchives.add(owner);
+            String owner = owningArchive(resource);
+            if (owner != null) {
+                identifiedArchives.add(owner);
+            }
+            if (sbom.applicationPackages().contains(dependency.packageName())) {
+                continue;
+            }
+            if (isApplicationDescriptor(resource, census.repackagedArchives())) {
+                appLocationDependencies.add(dependency);
+                continue;
+            }
+            dependencies.putIfAbsent(key(dependency), dependency);
+        }
+        long distinctAppPackages = appLocationDependencies.stream()
+                .map(DependencyDto::packageName)
+                .distinct()
+                .count();
+        if (distinctAppPackages > 1) {
+            List<String> packages = applicationBasePackages();
+            for (DependencyDto dependency : appLocationDependencies) {
+                if (!isHostCoordinate(dependency, census.repackagedArchives(), packages)) {
+                    dependencies.putIfAbsent(key(dependency), dependency);
                 }
             }
         }
@@ -789,23 +807,63 @@ public final class DependencyCatalog implements DependencyProvider {
 
     /**
      * Whether a {@code pom.properties} resource comes from the host application's own classes directory
-     * ({@code BOOT-INF/classes/} or {@code WEB-INF/classes/}) or from the outer root of a repackaged
-     * application archive (outside {@code BOOT-INF/lib/} and {@code WEB-INF/lib/}), which is the application
-     * itself rather than a third-party dependency.
+     * ({@code BOOT-INF/classes/}, {@code WEB-INF/classes/}, {@code target/classes/}, or {@code build/classes/})
+     * or from the outer root of a repackaged application archive (outside {@code BOOT-INF/lib/} and
+     * {@code WEB-INF/lib/}), which is the application itself rather than a third-party dependency.
      */
     private static boolean isApplicationDescriptor(Resource resource, Set<String> repackagedArchives) {
         String location = location(resource);
         if (location == null) {
             return false;
         }
-        if (location.contains("/BOOT-INF/classes/")
-                || location.contains("!BOOT-INF/classes/")
-                || location.contains("/WEB-INF/classes/")
-                || location.contains("!WEB-INF/classes/")) {
+        if (isApplicationClassesLocation(location)) {
             return true;
         }
-        int marker = location.indexOf(MAVEN_METADATA_MARKER);
-        if (marker < 0 || repackagedArchives.isEmpty()) {
+        return isOuterRepackagedArchiveRoot(location, MAVEN_METADATA_MARKER, repackagedArchives);
+    }
+
+    private static boolean isHostCoordinate(
+            DependencyDto dependency, Set<String> repackagedArchives, List<String> basePackages) {
+        for (String archive : repackagedArchives) {
+            if (ArchiveNames.matches(archive, dependency.artifactId(), dependency.version())
+                    || archive.equalsIgnoreCase(dependency.artifactId() + ".jar")
+                    || archive.regionMatches(
+                            true,
+                            0,
+                            dependency.artifactId() + "-",
+                            0,
+                            dependency.artifactId().length() + 1)) {
+                return true;
+            }
+        }
+        String group = dependency.groupId();
+        for (String basePackage : basePackages) {
+            if (group.equals(basePackage)
+                    || group.startsWith(basePackage + ".")
+                    || basePackage.startsWith(group + ".")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isApplicationClassesLocation(String location) {
+        return location.contains("/BOOT-INF/classes/")
+                || location.contains("!BOOT-INF/classes/")
+                || location.contains("/WEB-INF/classes/")
+                || location.contains("!WEB-INF/classes/")
+                || location.contains("/target/classes/")
+                || location.contains("/build/classes/")
+                || location.contains("/build/resources/main/");
+    }
+
+    private static boolean isOuterRepackagedArchiveRoot(
+            String location, String markerToken, Set<String> repackagedArchives) {
+        if (repackagedArchives.isEmpty()) {
+            return false;
+        }
+        int marker = location.indexOf(markerToken);
+        if (marker < 0) {
             return false;
         }
         String archivePart = location.substring(0, marker);
@@ -815,6 +873,17 @@ public final class DependencyCatalog implements DependencyProvider {
         int slash = Math.max(archivePart.lastIndexOf('/'), archivePart.lastIndexOf('\\'));
         String archiveName = slash < 0 ? archivePart : archivePart.substring(slash + 1);
         return repackagedArchives.contains(archiveName);
+    }
+
+    private static boolean isHostSbomResource(Resource resource, Set<String> repackagedArchives) {
+        String location = location(resource);
+        if (location == null || isApplicationClassesLocation(location)) {
+            return true;
+        }
+        if (!location.contains("!/") && !location.contains("/!")) {
+            return true;
+        }
+        return isOuterRepackagedArchiveRoot(location, "!/META-INF/sbom/", repackagedArchives);
     }
 
     /**
@@ -866,17 +935,17 @@ public final class DependencyCatalog implements DependencyProvider {
      * &mdash; is returned separately, together with every component nested in it, so that it is only inventoried
      * when the archive census proves its JAR is on the classpath after all.</p>
      */
-    private SbomComponents sbomComponents() {
+    private SbomComponents sbomComponents(Set<String> repackagedArchives) {
         SbomComponents sbom = new SbomComponents(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>());
         for (String pattern : SBOM_PATTERNS) {
             for (Resource resource : resources(pattern)) {
-                readSbom(resource, sbom);
+                readSbom(resource, sbom, repackagedArchives);
             }
         }
         return sbom;
     }
 
-    private void readSbom(Resource resource, SbomComponents sbom) {
+    private void readSbom(Resource resource, SbomComponents sbom, Set<String> repackagedArchives) {
         JsonNode root;
         try (InputStream input = resource.getInputStream()) {
             root = objectMapper.readTree(input);
@@ -891,11 +960,14 @@ public final class DependencyCatalog implements DependencyProvider {
         if (root == null || !root.isObject()) {
             return;
         }
-        // The BOM's own metadata.component is the application itself, not one of its dependencies: record its
-        // package name so a classpath pom.properties for the host application does not re-add it.
-        String applicationPackage = applicationPackage(root.get("metadata"));
-        if (applicationPackage != null) {
-            sbom.applicationPackages().add(applicationPackage);
+        // The host BOM's metadata.component is the application itself, not one of its dependencies: record its
+        // package name so a classpath pom.properties for the host application does not re-add it. A dependency
+        // JAR that ships its own embedded SBOM must not mark itself as the host application.
+        if (isHostSbomResource(resource, repackagedArchives)) {
+            String applicationPackage = applicationPackage(root.get("metadata"));
+            if (applicationPackage != null) {
+                sbom.applicationPackages().add(applicationPackage);
+            }
         }
         collectSbomComponents(root.get("components"), sbom, false);
     }

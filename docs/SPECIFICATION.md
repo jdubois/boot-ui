@@ -1250,7 +1250,7 @@ Features:
   recognized top-level `database_specific.severity` label fallback, otherwise `UNKNOWN`; this is provider compatibility,
   not a universal OSV scale. Normalize MODERATE to MEDIUM and valid zero to NONE. Never reinterpret bare numbers or
   CVSS v2 as v3/v4, and never drop unsupported findings. An advisory whose own OSV ID carries the OpenSSF Malicious
-  Packages `MAL-` prefix is `CRITICAL` with no score, and its details lead with removal guidance.
+  Packages `MAL-` prefix is `CRITICAL` with no score, and its summary and details lead with removal guidance.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
   safety limit of 20 page rounds per chunk is hit, and partition the outgoing package list into batches of at most

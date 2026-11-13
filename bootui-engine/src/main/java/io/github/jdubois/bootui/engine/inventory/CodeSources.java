@@ -160,10 +160,15 @@ final class CodeSources {
         return found;
     }
 
-    /** The coordinates naming the jar itself: the one whose artifact starts its file name, else a lone one. */
+    /** The coordinates naming the jar itself: the one whose artifact matches its file name, else a lone one. */
     private static String[] pick(List<String[]> metadata, String fileName) {
         if (metadata.isEmpty()) {
             return null;
+        }
+        for (String[] gav : metadata) {
+            if (fileNameMatches(fileName, gav[0], gav[1], gav[2])) {
+                return gav;
+            }
         }
         for (String[] gav : metadata) {
             if (fileName != null
