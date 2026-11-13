@@ -51,7 +51,7 @@ class BootUiQuarkusRestApiResourceTest {
                 .isGreaterThan(0);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared REST best-practice ruleset must have run")
-                .isEqualTo(60);
+                .isEqualTo(65);
 
         boolean stateChangingGetFailed = false;
         for (JsonNode result : scanned.path("results")) {
