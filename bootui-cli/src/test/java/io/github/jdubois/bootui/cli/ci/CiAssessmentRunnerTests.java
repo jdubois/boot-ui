@@ -450,6 +450,26 @@ class CiAssessmentRunnerTests {
     }
 
     @Test
+    void aCollectionWindowKeepsEveryReportIncludingSarifAndChecksItsHash() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        Path slot = CiCollection.evidenceDirectory(root, "web");
+
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
+            assertThat(slot.resolve(name)).isRegularFile();
+        }
+        assertThat(Files.readString(slot.resolve("completion.json")))
+                .contains(
+                        "\"sarifSha256\": \"" + CiEvidenceStore.sha256(Files.readAllBytes(slot.resolve("sarif.json"))));
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isZero();
+
+        Files.writeString(slot.resolve("sarif.json"), "{}");
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
     void outputCollisionsNeverOverwriteExistingEvidenceOrProduceACompletedGate() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
