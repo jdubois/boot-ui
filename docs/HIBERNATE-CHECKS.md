@@ -22,7 +22,9 @@ The panel is available when Hibernate ORM and an `EntityManagerFactory` bean are
 metamodel cannot be read, BootUI returns a stable empty report with an explanatory status.
 
 The scan covers the mapped entities your JPA metamodel reports, which includes entities added through `@EntityScan` or
-custom persistence-unit configuration, without scanning the whole classpath. Entities Hibernate Envers adds itself, such
+custom persistence-unit configuration, without scanning the whole classpath. Non-identifier `@Embedded` (`@Embeddable`)
+attributes are expanded recursively (up to a bounded depth, respecting `@AttributeOverride` and `@Convert` overrides) so
+mappings inside embedded value objects are inspected alongside direct entity attributes. Entities Hibernate Envers adds itself, such
 as `DefaultRevisionEntity`, are left out because the application cannot edit them (an application-declared revision
 entity is still scanned); Envers' generated `*_AUD` entities are map-based and never reach the metamodel. An entity
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
@@ -305,8 +307,10 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 ### HIB-ID-005 - Review generated UUID strategy when index locality matters
 
 - **Severity**: LOW
-- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`.
-- **Fires when**: the attribute is not also annotated with `@UuidGenerator`.
+- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue` or `@UuidGenerator`.
+- **Fires when**: the attribute uses `@GeneratedValue` (without a custom/named generator) and omits `@UuidGenerator`,
+  or declares `@UuidGenerator` with a non-monotonic style (`AUTO`, `RANDOM`, or `TIME`). Monotonic styles (`VERSION_7`
+  and `VERSION_6`) pass.
 - **Why it matters**: default random UUID generation can affect index locality, depending on the database and workload.
   This declaration-level check does not establish an effective custom generator or measured index fragmentation.
 - **Recommendation (Hibernate 7.0+)**: annotate the identifier with `@UuidGenerator(style = VERSION_7)` (`VERSION_6` is
@@ -318,8 +322,8 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
   version 1, but with IP address instead of MAC address"), which places the fast-changing `time_low` field first and is
   **not materially more index-friendly than a random (v4) UUID** - it does not yield the monotonic ordering that makes
   `VERSION_6`/`VERSION_7` genuinely index-friendly, so do not treat `TIME` as a fix.
-- **Generator caveat**: `@UuidGenerator` without a style still defaults to AUTO/RANDOM; its presence does not prove
-  ordered UUIDs. String-based, named and custom generators are not fully resolved by this check.
+- **Generator caveat**: `@UuidGenerator` without a style defaults to `AUTO`/`RANDOM` and is flagged accordingly.
+  String-based, named and custom `@IdGeneratorType` generators are exempted rather than guessed.
 - **Version handling**: the check does not read the runtime Hibernate version; every supported runtime uses ORM 7,
   where `VERSION_6`/`VERSION_7` are available.
 
@@ -377,12 +381,14 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 
 - **Severity**: MEDIUM
 - **Inspects**: enum-valued mapped attributes.
-- **Fires when**: an enum attribute lacks an observed storage declaration after supported explicit conversion and
-  `@EnumeratedValue` exclusions. Absence of a member annotation alone does not establish effective ordinal storage.
+- **Fires when**: an enum attribute lacks an observed storage declaration after supported explicit conversion
+  (attribute- or class-level `@Convert`/`@Converts`), non-ordinal Hibernate type codes (`@JdbcTypeCode` with
+  `NAMED_ENUM`, `ENUM`, or character/varchar `SqlTypes`, `@JdbcType`, or `@Type`), and `@EnumeratedValue` exclusions.
+  Absence of a member annotation alone does not establish effective ordinal storage.
 - **Why it matters**: positional ordinal persistence couples stored values to enum order. Persistence 3.2 can infer
-  STRING storage from a String `@EnumeratedValue`, and auto-apply/class-level/XML converters can replace default storage.
-  Full converter resolution remains outside this rule's evidence.
-- **Recommendation**: use `@Enumerated(EnumType.STRING)`, a database-native enum type, or an explicit converter with
+  STRING storage from a String `@EnumeratedValue`, and auto-apply/XML converters can replace default storage.
+  Full auto-apply converter resolution remains outside this rule's evidence.
+- **Recommendation**: use `@Enumerated(EnumType.STRING)`, a database-native enum type (`@JdbcTypeCode(SqlTypes.NAMED_ENUM)` / `SqlTypes.ENUM`), or an explicit converter with
   stable database codes.
 
 ### HIB-MAP-004 - Many-to-many associations should not cascade remove
@@ -576,7 +582,8 @@ upgrade.
 ### HIB-MAP-022 - Explicit ordinal enum mappings should be reviewed
 
 - **Severity**: INFO
-- **Inspects**: enum attributes declaring `@Enumerated(EnumType.ORDINAL)`.
+- **Inspects**: enum attributes declaring `@Enumerated(EnumType.ORDINAL)` without an overriding converter,
+  `@EnumeratedValue`, or non-ordinal `@JdbcTypeCode`/`@JdbcType`/`@Type`.
 - **Fires when**: ordinal storage is explicit, so the mapping is intentional but still carries a schema-evolution risk.
 - **Why it matters**: positional ordinal storage changes meaning when enum constants are inserted or reordered.
   Persistence 3.2 also permits stable numeric codes through `@EnumeratedValue`; numeric storage is not always position.
@@ -792,10 +799,11 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 
 - **Severity**: MEDIUM
 - **Inspects**: Spring Data derived query methods named `deleteBy...` or `removeBy...`.
-- **Fires when**: supported query metadata establishes derivation rather than merely a delete/remove method name.
-  Known annotated, custom/default or unresolved named-query implementations are not assumed derived.
+- **Fires when**: supported query metadata establishes derivation (no `@Query`, `@NativeQuery`, named query, entity
+  `@NamedQuery`/`@NamedNativeQuery`, or query rewriter) and the method is not a single-row equality delete on the
+  entity's `@Id`/`@EmbeddedId` or `@NaturalId`.
 - **Why it matters**: Spring Data implements derived deletes by selecting matching entities first and deleting them one
-  by one, which is expensive on large result sets.
+  by one, which is expensive on large result sets. Single-row key deletes affect at most one entity and are excluded.
 - **Recommendation**: for bulk removals prefer an explicit `@Modifying @Query("delete from ... where ...")` with
   appropriate persistence-context handling; reserve derived `deleteBy` methods for small or cascading deletes.
   Bulk DML changes callbacks, cascades and optimistic-lock behavior, so it is not a drop-in replacement.
@@ -1017,9 +1025,9 @@ activation with richer registration evidence. Keeping both counted one observati
 ### HIB-CONFIG-012 - SQL logging should be off when a production profile is active
 
 - **Severity**: MEDIUM
-- **Inspects**: `spring.jpa.show-sql`/`hibernate.show_sql` (statement output to standard out), the live
-  `org.hibernate.SQL` logger at DEBUG or finer, and the live `org.hibernate.orm.jdbc.bind` logger at TRACE.
-- **Fires when**: any of those are enabled while a profile named `prod`, `production`, `staging`, `prod-*`, or
+- **Inspects**: `spring.jpa.show-sql`/`hibernate.show_sql` (statement output to standard out) and the live
+  `org.hibernate.SQL` logger at DEBUG or finer.
+- **Fires when**: either is enabled while a profile named `prod`, `production`, `staging`, `prod-*`, or
   `*-prod` / `*-production` is active.
 - **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Parameter
   values have a separate binding logger checked by HIB-CONFIG-018; no measured throughput loss is inferred.
@@ -1067,9 +1075,12 @@ activation with richer registration evidence. Keeping both counted one observati
 ### HIB-CONFIG-016 - Fail on pagination over collection fetch
 
 - **Severity**: INFO
-- **Inspects**: the owning unit's effective `hibernate.query.fail_on_pagination_over_collection_fetch` guard.
-- **Fires when**: the guard is disabled. The rule reports one configuration finding per unit and never repeats the
-  repository queries that HIB-FETCH-003 owns, so a risky query is not penalized twice.
+- **Inspects**: the owning unit's effective `hibernate.query.fail_on_pagination_over_collection_fetch` guard when the
+  persistence unit maps at least one collection association (`@OneToMany` or `@ManyToMany`). Units with zero collection
+  associations are skipped.
+- **Fires when**: the guard is disabled on a unit with collection associations. The rule reports one configuration
+  finding per unit and never repeats the repository queries that HIB-FETCH-003 owns, so a risky query is not penalized
+  twice.
 - **Why it matters**: when a limited query fetch-joins a collection and Hibernate cannot apply the limit in SQL, it loads
   every matching row and limits the result in memory with only a warning. The guard turns that into an exception.
   Hibernate 7.4 pushes the limit into SQL where the dialect supports it, but a dialect fallback still reaches the guard,

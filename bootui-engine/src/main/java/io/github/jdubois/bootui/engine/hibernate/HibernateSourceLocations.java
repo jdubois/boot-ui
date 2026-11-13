@@ -42,6 +42,17 @@ final class HibernateSourceLocations {
                     types.putIfAbsent(type.getName(), type);
                     type = type.getSuperclass();
                 }
+                for (HibernateAttributeModel attribute : entity.attributes()) {
+                    if (HibernateEntityModel.isExpandableEmbedded(attribute)) {
+                        Class<?> embeddedType = attribute.rawType();
+                        for (int depth = 0;
+                                embeddedType != null && embeddedType != Object.class && depth < MAX_SUPERCLASS_DEPTH;
+                                depth++) {
+                            types.putIfAbsent(embeddedType.getName(), embeddedType);
+                            embeddedType = embeddedType.getSuperclass();
+                        }
+                    }
+                }
             }
             for (HibernateRepositoryModel repository : unit.repositories()) {
                 for (HibernateRepositoryMethodModel method : repository.methods()) {

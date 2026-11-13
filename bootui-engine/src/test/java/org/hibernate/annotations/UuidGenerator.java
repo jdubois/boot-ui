@@ -11,9 +11,13 @@ public @interface UuidGenerator {
 
     Style style() default Style.AUTO;
 
+    Class<?> algorithm() default void.class;
+
     enum Style {
         AUTO,
         RANDOM,
-        TIME
+        TIME,
+        VERSION_6,
+        VERSION_7
     }
 }
