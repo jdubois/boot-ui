@@ -285,7 +285,7 @@ class MemoryAccuracyTests {
                 () -> {
                     int next = index.incrementAndGet();
                     if (next == 2) throw new IllegalStateException("failed");
-                    long fullGcCount = next >= 4 ? 2L : 1L;
+                    long fullGcCount = next;
                     GcSample sample =
                             new GcSample(next * 100_000L, 1_000L, 10L, Map.of("G1 Old Generation", fullGcCount));
                     return new MemoryContext(
