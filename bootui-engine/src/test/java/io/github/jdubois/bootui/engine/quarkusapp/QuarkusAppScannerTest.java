@@ -727,6 +727,8 @@ class QuarkusAppScannerTest {
                         + "external overrides and unloaded profile-aware files are unavailable."));
         SpringReport report = scan(snap);
         assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.inspected()).anyMatch(item -> item.startsWith(id + " (SKIPPED): "));
+        assertThat(report.evidence().limitations()).singleElement().asString().startsWith(id + ": ");
         assertThat(QuarkusAppChecks.evaluate(snap.build()).skipped())
                 .singleElement()
                 .satisfies(skipped -> {

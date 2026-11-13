@@ -353,6 +353,11 @@ class QuarkusAppMetadataCollectorTest {
         assertThat(result.synchronizedVirtualThreadMethods())
                 .containsExactly(ScheduledVirtualBean.class.getName() + "#tick()");
         assertThat(result.problems()).isEmpty();
+
+        Index dependentOnly = index(DependentResource.class);
+        QuarkusAppMetadata dependentResult =
+                collect(dependentOnly, dependentOnly, arc(dependentOnly, false), List.of(), List.of(), List.of());
+        assertThat(dependentResult.beanCount()).isZero();
     }
 
     @Test
@@ -823,10 +828,14 @@ class QuarkusAppMetadataCollectorTest {
     static class JaxRsApplicationBean extends jakarta.ws.rs.core.Application {}
 
     @Singleton
+    @io.smallrye.common.annotation.RunOnVirtualThread
     static class ScheduledVirtualBean {
         @io.quarkus.scheduler.Scheduled(every = "10s")
         @io.smallrye.common.annotation.RunOnVirtualThread
         public synchronized void tick() {}
+
+        @io.quarkus.scheduler.Scheduled(every = "10s")
+        public synchronized void classLevelOnlyDoesNotDispatchScheduledOnVirtualThread() {}
     }
 
     @ApplicationScoped

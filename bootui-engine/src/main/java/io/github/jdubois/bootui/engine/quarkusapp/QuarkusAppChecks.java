@@ -335,7 +335,7 @@ final class QuarkusAppChecks {
                         }
                     } else {
                         applicableObservation = check.id().equals("QA-CDI-002")
-                                ? metadata.endpointCount() > 0
+                                ? metadata.endpointCount() > 0 && metadata.beanCount() > 0
                                 : metadata.beanCount() > 0;
                         for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
                             String fieldRule = fieldRule(field);

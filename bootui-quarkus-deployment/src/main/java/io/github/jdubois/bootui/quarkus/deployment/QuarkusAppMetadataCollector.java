@@ -56,12 +56,15 @@ final class QuarkusAppMetadataCollector {
     private static final DotName RUN_ON_VIRTUAL_THREAD =
             DotName.createSimple("io.smallrye.common.annotation.RunOnVirtualThread");
     private static final DotName KOTLIN_METADATA = DotName.createSimple("kotlin.Metadata");
-    private static final Set<DotName> NON_REST_VIRTUAL_THREAD_ENTRY_ANNOTATIONS = Set.of(
-            SCHEDULED,
-            SCHEDULES,
+    private static final Set<DotName> METHOD_ONLY_VIRTUAL_THREAD_ENTRY_ANNOTATIONS =
+            Set.of(SCHEDULED, SCHEDULES, DotName.createSimple("io.quarkus.vertx.ConsumeEvent"));
+    private static final Set<DotName> CLASS_OR_METHOD_VIRTUAL_THREAD_ENTRY_ANNOTATIONS = Set.of(
             DotName.createSimple("org.eclipse.microprofile.reactive.messaging.Incoming"),
+            DotName.createSimple("org.eclipse.microprofile.reactive.messaging.Incomings"),
             DotName.createSimple("org.eclipse.microprofile.reactive.messaging.Outgoing"),
-            DotName.createSimple("io.quarkus.vertx.ConsumeEvent"),
+            DotName.createSimple("org.eclipse.microprofile.reactive.messaging.Outgoings"),
+            DotName.createSimple("io.smallrye.reactive.messaging.annotations.Incomings"),
+            DotName.createSimple("io.smallrye.reactive.messaging.annotations.Outgoings"),
             DotName.createSimple("io.quarkus.websockets.next.OnOpen"),
             DotName.createSimple("io.quarkus.websockets.next.OnTextMessage"),
             DotName.createSimple("io.quarkus.websockets.next.OnBinaryMessage"),
@@ -170,7 +173,6 @@ final class QuarkusAppMetadataCollector {
                     .sorted(Comparator.comparing(info -> info.name().toString()))
                     .toList();
             Map<String, BeanInfo> beans = resolvedBeans(application, combined, survivingBeans, state);
-            state.beanCount = beans.size();
             Set<String> resources =
                     registeredEndpoints(application, combined, entries, endpoints, beans.keySet(), state);
             collectBeanVirtualThreadMethods(beans.values(), combined, state);
@@ -181,6 +183,7 @@ final class QuarkusAppMetadataCollector {
                 if (!normal && !scope.equals(SINGLETON)) {
                     continue;
                 }
+                state.beanCount++;
                 String resolvedScope = scope.equals(APPLICATION) ? "APPLICATION" : normal ? "NORMAL" : "SINGLETON";
                 String rule = normal ? "QA-CDI-004" : resources.contains(entry.getKey()) ? "QA-CDI-002" : "QA-CDI-003";
                 try {
@@ -434,12 +437,19 @@ final class QuarkusAppMetadataCollector {
     }
 
     private static boolean isNonRestVirtualThreadEntryMethod(MethodInfo method, boolean classVirtualThread) {
-        if (!classVirtualThread && !method.hasDeclaredAnnotation(RUN_ON_VIRTUAL_THREAD)) {
-            return false;
+        boolean methodVirtualThread = method.hasDeclaredAnnotation(RUN_ON_VIRTUAL_THREAD);
+        if (methodVirtualThread) {
+            for (DotName entryAnnotation : METHOD_ONLY_VIRTUAL_THREAD_ENTRY_ANNOTATIONS) {
+                if (method.hasDeclaredAnnotation(entryAnnotation)) {
+                    return true;
+                }
+            }
         }
-        for (DotName entryAnnotation : NON_REST_VIRTUAL_THREAD_ENTRY_ANNOTATIONS) {
-            if (method.hasDeclaredAnnotation(entryAnnotation)) {
-                return true;
+        if (methodVirtualThread || classVirtualThread) {
+            for (DotName entryAnnotation : CLASS_OR_METHOD_VIRTUAL_THREAD_ENTRY_ANNOTATIONS) {
+                if (method.hasDeclaredAnnotation(entryAnnotation)) {
+                    return true;
+                }
             }
         }
         return false;

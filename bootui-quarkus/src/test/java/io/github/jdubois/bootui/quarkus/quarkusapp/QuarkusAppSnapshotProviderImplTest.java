@@ -76,6 +76,23 @@ class QuarkusAppSnapshotProviderImplTest {
                 collect(builder("dev").withSources(overridden).build(), EMPTY);
         assertThat(values(overriddenSnap, "QA-PROD-002")).containsExactly("validate");
         assertThat(values(overriddenSnap, "QA-CFG-002")).containsExactly("false");
+
+        ConfigSource placeholders = new PropertiesConfigSource(
+                Map.of(
+                        "quarkus.hibernate-orm.schema-management.strategy", "${SCHEMA_STRATEGY:none}",
+                        "quarkus.log.level", "${LOG_LEVEL:INFO}",
+                        "quarkus.datasource.jdbc.url", "${DB_URL:jdbc:postgresql://localhost/db}",
+                        "quarkus.hibernate-orm.log.bind-parameters", "${BIND_PARAMS:false}"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        QuarkusAppSnapshot placeholderSnap =
+                collect(builder("dev").withSources(placeholders).build(), EMPTY);
+        assertThat(values(placeholderSnap, "QA-PROD-002")).isEmpty();
+        assertThat(values(placeholderSnap, "QA-CFG-003")).isEmpty();
+        assertThat(values(placeholderSnap, "QA-PROD-003")).isEmpty();
+        assertThat(values(placeholderSnap, "QA-CFG-005")).isEmpty();
+        assertThat(placeholderSnap.problems())
+                .noneMatch(p -> p.message().equals("Required configuration evidence could not be read or converted."));
     }
 
     @Test

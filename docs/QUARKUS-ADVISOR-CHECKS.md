@@ -43,9 +43,9 @@ Production declarations can produce useful findings while coverage remains incom
 `PARTIAL` reports retain those findings. Each rule has exactly one outcome per scan: a rule with findings is listed in
 `results`, and its incomplete coverage is stated in its description ("Coverage is incomplete: ...") and in
 `evidence.limitations`; a production rule whose loaded declarations have no findings in development or test mode is
-recorded as a `SKIPPED` diagnostic (and in `evidence.limitations`) rather than in `analysisErrors`; a rule that could
-not be evaluated because of a genuine inspection or configuration failure and found nothing is listed in
-`analysisErrors`. `ERROR` means no applicable evidence could be inspected.
+omitted from `analysisErrors`, recorded as a `SKIPPED` diagnostic in `inspected`, and listed in `evidence.limitations`;
+a rule that could not be evaluated because of a genuine inspection or configuration failure and found nothing is listed
+in `analysisErrors`. `ERROR` means no applicable evidence could be inspected.
 Skipped/unknown checks are not counted as successfully evaluated. Dismissing a finding
 does not remove coverage errors or turn an incomplete scan into a complete one.
 Retired rule IDs are never reused, and existing dismissals of surviving IDs still apply.

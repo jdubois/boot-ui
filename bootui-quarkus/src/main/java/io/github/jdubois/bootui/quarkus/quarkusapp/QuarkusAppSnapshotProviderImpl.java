@@ -289,9 +289,19 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
 
         private Config projectProductionDeclarations() {
-            return project((source, name) ->
-                    (isProductionKey(name) || (!name.startsWith("%") && isBaseApplicationFile(source)))
-                            && isProductionSetting(unprofiled(name)));
+            return project((source, name) -> {
+                if (!isProductionSetting(unprofiled(name))) {
+                    return false;
+                }
+                if (isProductionKey(name)) {
+                    return true;
+                }
+                if (!name.startsWith("%") && isBaseApplicationFile(source)) {
+                    String value = source.getValue(name);
+                    return value != null && !value.contains("${");
+                }
+                return false;
+            });
         }
 
         /**
@@ -302,8 +312,17 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         private Config buildTimeBindDeclarations() {
             return project((source, name) -> {
                 String bare = unprofiled(name);
-                return (bare.equals(BIND_PARAMETERS) || bare.equals(LEGACY_BIND_PARAMETERS))
-                        && (isProductionKey(name) || (!name.startsWith("%") && isBaseApplicationFile(source)));
+                if (!bare.equals(BIND_PARAMETERS) && !bare.equals(LEGACY_BIND_PARAMETERS)) {
+                    return false;
+                }
+                if (isProductionKey(name)) {
+                    return true;
+                }
+                if (!name.startsWith("%") && isBaseApplicationFile(source)) {
+                    String value = source.getValue(name);
+                    return value != null && !value.contains("${");
+                }
+                return false;
             });
         }
 
