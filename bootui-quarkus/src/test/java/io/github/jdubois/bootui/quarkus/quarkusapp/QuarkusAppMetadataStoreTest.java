@@ -237,7 +237,7 @@ class QuarkusAppMetadataStoreTest {
         assertThat(result.available()).isFalse();
         assertThat(result.sharedFields()).isEmpty();
         assertThat(result.problems())
-                .hasSize(5)
+                .hasSize(9)
                 .allMatch(problem -> problem.message().equals(QuarkusAppMetadataStore.INVALID_RESOURCE));
     }
 }
