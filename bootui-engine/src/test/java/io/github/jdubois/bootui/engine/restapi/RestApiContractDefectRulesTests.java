@@ -99,7 +99,7 @@ class RestApiContractDefectRulesTests {
         RestApiRuleResultDto result = new ResponseStatusReasonOnBodyHandlersRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.severity()).isEqualTo("HIGH");
         assertThat(result.sampleViolations())
                 .hasSize(3)
                 .anyMatch(detail -> detail.contains("#created"))
@@ -178,6 +178,136 @@ class RestApiContractDefectRulesTests {
                 .asString()
                 .contains("1 of 2 API handler(s)", "#unversioned")
                 .doesNotContain("#docs");
+    }
+
+    @Test
+    void bytecodeParameterNamesAreUsedWhenPathVariableAndRequestParamOmitExplicitNames() {
+        RestApiContext context = context(BytecodeNamedBindingsController.class);
+
+        RestApiRuleResultDto pathVariables = new PathVariablesAreBoundRule().evaluate(context);
+        assertThat(pathVariables.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(pathVariables.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("#mismatchedPathVar", "[id]")
+                .doesNotContain("#matchedPathVar");
+
+        RestApiRuleResultDto pagination = new CollectionReadsArePaginatedRule().evaluate(context);
+        assertThat(pagination.status()).isEqualTo(RestApiRuleSupport.PASS);
+
+        RestApiRuleResultDto vocabulary = new ConsistentPaginationVocabularyRule().evaluate(context);
+        assertThat(vocabulary.status()).isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @Test
+    void unwrapsPagedModelWindowHateoasAndUpperBoundedWildcards() {
+        RestApiContext context = context(ModernSpringEnvelopesController.class, WildcardEntityDto.class);
+
+        RestApiRuleResultDto untypedEnvelope = new NoUntypedResponseEntityRule().evaluate(context);
+        assertThat(untypedEnvelope.status()).isEqualTo(RestApiRuleSupport.PASS);
+
+        RestApiRuleResultDto entities = new NoEntitiesInResponsesRule().evaluate(context);
+        assertThat(entities.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(entities.sampleViolations())
+                .hasSize(3)
+                .anyMatch(detail -> detail.contains("#pagedModelOfEntities"))
+                .anyMatch(detail -> detail.contains("#windowOfEntities"))
+                .anyMatch(detail -> detail.contains("#wildcardListOfEntities"));
+
+        RestApiRuleResultDto pagination = new CollectionReadsArePaginatedRule().evaluate(context);
+        assertThat(pagination.status()).isEqualTo(RestApiRuleSupport.PASS);
+
+        RestApiRuleResultDto returnPaged = new ReturnPagedTypeRule().evaluate(context);
+        assertThat(returnPaged.status()).isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @Test
+    void htmlViewControllersAreExcludedFromRestNamingVersioningAndOpenApiRules() {
+        var model = RestApiHandlerModelBuilder.build(
+                new ClassFileImporter().importClasses(HtmlViewController.class, CleanVersionedRestController.class));
+        RestApiContext context = new RestApiContext(
+                List.of(HtmlViewController.class.getPackageName()),
+                model.controllers(),
+                model.handlers(),
+                model.exceptionHandlers(),
+                true,
+                false,
+                model.hasExceptionHandling(),
+                model.responseStatusExceptionClasses(),
+                model.thrownExceptions(),
+                model.framework());
+
+        assertThat(new StateChangingHandlersNotOnGetRule().evaluate(context).status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new ResourcePathsAreNounsRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new CollectionsUsePluralNounsRule().evaluate(context).status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new PathSegmentsAreKebabCaseRule().evaluate(context).status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new ApiIsVersionedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new MixedVersioningStrategiesRule().evaluate(context).status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new EndpointsAreDocumentedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new ControllersAreTaggedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @Test
+    void duplicateRouteRuleNormalizesPathVariableNamesAndMediaTypes() {
+        RestApiRuleResultDto result =
+                new NoDuplicateRouteMappingsRule().evaluate(context(NormalizedDuplicateRoutesController.class));
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anyMatch(detail ->
+                        detail.contains("/users/{*}") && detail.contains("#byId") && detail.contains("#byUserId"))
+                .anyMatch(detail ->
+                        detail.contains("/items") && detail.contains("#itemsLower") && detail.contains("#itemsUpper"))
+                .noneMatch(detail -> detail.contains("#versionedOne") || detail.contains("#versionedTwo"));
+    }
+
+    @Test
+    void stateChangingGetRuleDoesNotFlagPostPutOrPatchDomainNounPrefixes() {
+        RestApiRuleResultDto result =
+                new StateChangingHandlersNotOnGetRule().evaluate(context(DomainNounGetController.class));
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @Test
+    void optionalPrimitiveRuleFlagsRequestHeaderAndCookieValueButPreservesBooleanExemption() {
+        RestApiRuleResultDto result =
+                new OptionalPrimitiveRequestParamRule().evaluate(context(OptionalHeaderAndCookieController.class));
+
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .hasSize(2)
+                .anyMatch(detail -> detail.contains("#optionalHeaderInt"))
+                .anyMatch(detail -> detail.contains("#optionalCookieLong"))
+                .noneMatch(detail -> detail.contains("#optionalHeaderBoolean")
+                        || detail.contains("#optionalCookieBoolean")
+                        || detail.contains("#defaultedHeaderInt"));
+    }
+
+    @Test
+    void declaredExceptionsRuleRecognizesFrameworkMappedExceptionSubclasses() {
+        RestApiContext context = context(
+                FrameworkExceptionSubclassController.class,
+                CustomErrorResponseException.class,
+                CustomResponseStatusException.class,
+                CustomWebApplicationException.class,
+                UnhandledDomainException.class,
+                ReasonController.class);
+
+        RestApiRuleResultDto result = new DeclaredExceptionsHaveHandlersRule().evaluate(context);
+        assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("UnhandledDomainException")
+                .doesNotContain(
+                        "CustomErrorResponseException",
+                        "CustomResponseStatusException",
+                        "CustomWebApplicationException");
     }
 
     private static RestApiContext context(Class<?>... types) {
@@ -373,6 +503,228 @@ class RestApiContractDefectRulesTests {
         @GetMapping("/v3/api-docs")
         String docs() {
             return "";
+        }
+    }
+
+    @RestController
+    static class BytecodeNamedBindingsController {
+        @GetMapping("/users/{userId}")
+        Payload mismatchedPathVar(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return new Payload(id);
+        }
+
+        @GetMapping("/users/{id}")
+        Payload matchedPathVar(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return new Payload(id);
+        }
+
+        @GetMapping("/users")
+        List<Payload> paginatedByMethodParams(
+                @org.springframework.web.bind.annotation.RequestParam int page,
+                @org.springframework.web.bind.annotation.RequestParam int size) {
+            return List.of();
+        }
+
+        @GetMapping("/users/recent")
+        List<Payload> standaloneLimit(@org.springframework.web.bind.annotation.RequestParam int limit) {
+            return List.of();
+        }
+    }
+
+    @jakarta.persistence.Entity
+    static class WildcardEntityDto {
+        public String id;
+    }
+
+    @RestController
+    static class ModernSpringEnvelopesController {
+        @GetMapping("/bounded-wildcard")
+        ResponseEntity<? extends Payload> boundedWildcard() {
+            return ResponseEntity.ok(new Payload("ok"));
+        }
+
+        @GetMapping("/paged-model-dto")
+        org.springframework.data.web.PagedModel<Payload> pagedModelOfDtos(
+                org.springframework.data.domain.Pageable pageable) {
+            return null;
+        }
+
+        @GetMapping("/paged-model-entity")
+        org.springframework.data.web.PagedModel<WildcardEntityDto> pagedModelOfEntities(
+                org.springframework.data.domain.Pageable pageable) {
+            return null;
+        }
+
+        @GetMapping("/window-entity")
+        org.springframework.data.domain.Window<WildcardEntityDto> windowOfEntities(
+                org.springframework.data.domain.ScrollPosition position, org.springframework.data.domain.Limit limit) {
+            return null;
+        }
+
+        @GetMapping("/scroll-list")
+        List<Payload> scrollList(
+                org.springframework.data.domain.ScrollPosition position, org.springframework.data.domain.Limit limit) {
+            return List.of();
+        }
+
+        @GetMapping("/wildcard-entities")
+        List<? extends WildcardEntityDto> wildcardListOfEntities(
+                @org.springframework.web.bind.annotation.RequestParam int page,
+                @org.springframework.web.bind.annotation.RequestParam int size) {
+            return List.of();
+        }
+    }
+
+    @org.springframework.stereotype.Controller
+    static class HtmlViewController {
+        @GetMapping("/users/createUser")
+        String createUserForm() {
+            return "users/create";
+        }
+
+        @GetMapping("/user_list")
+        List<String> modelAttributes() {
+            return List.of();
+        }
+    }
+
+    @RestController
+    @io.swagger.v3.oas.annotations.tags.Tag(name = "orders")
+    static class CleanVersionedRestController {
+        @GetMapping("/v1/orders/{id}")
+        @io.swagger.v3.oas.annotations.Operation(summary = "Get order")
+        Payload getOrder(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return new Payload(id);
+        }
+    }
+
+    @RestController
+    static class NormalizedDuplicateRoutesController {
+        @GetMapping("/users/{id}")
+        Payload byId(@org.springframework.web.bind.annotation.PathVariable("id") String id) {
+            return new Payload(id);
+        }
+
+        @GetMapping("/users/{userId}")
+        Payload byUserId(@org.springframework.web.bind.annotation.PathVariable("userId") String userId) {
+            return new Payload(userId);
+        }
+
+        @GetMapping(
+                value = {"/items", "/items-alt"},
+                produces = "application/json")
+        Payload itemsLower() {
+            return new Payload("1");
+        }
+
+        @GetMapping(value = "/items", produces = "APPLICATION/JSON;charset=UTF-8")
+        Payload itemsUpper() {
+            return new Payload("2");
+        }
+
+        @GetMapping(
+                value = {"/versioned", "/versioned-alt"},
+                produces = "application/json;version=1")
+        Payload versionedOne() {
+            return new Payload("v1");
+        }
+
+        @GetMapping(value = "/versioned", produces = "application/json;version=2")
+        Payload versionedTwo() {
+            return new Payload("v2");
+        }
+    }
+
+    @RestController
+    static class DomainNounGetController {
+        @GetMapping("/posts/{id}/comments")
+        List<Payload> postComments(
+                @org.springframework.web.bind.annotation.PathVariable String id,
+                org.springframework.data.domain.Pageable pageable) {
+            return List.of();
+        }
+
+        @GetMapping("/releases/{id}/patch-notes")
+        Payload patchNotes(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return new Payload(id);
+        }
+
+        @GetMapping("/options/{id}")
+        Payload putOptions(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return new Payload(id);
+        }
+    }
+
+    @RestController
+    static class OptionalHeaderAndCookieController {
+        @GetMapping("/header-int")
+        Payload optionalHeaderInt(
+                @org.springframework.web.bind.annotation.RequestHeader(required = false) int version) {
+            return new Payload(String.valueOf(version));
+        }
+
+        @GetMapping("/cookie-long")
+        Payload optionalCookieLong(
+                @org.springframework.web.bind.annotation.CookieValue(required = false) long sessionId) {
+            return new Payload(String.valueOf(sessionId));
+        }
+
+        @GetMapping("/header-bool")
+        Payload optionalHeaderBoolean(
+                @org.springframework.web.bind.annotation.RequestHeader(required = false) boolean debug) {
+            return new Payload(String.valueOf(debug));
+        }
+
+        @GetMapping("/cookie-bool")
+        Payload optionalCookieBoolean(
+                @org.springframework.web.bind.annotation.CookieValue(required = false) boolean consent) {
+            return new Payload(String.valueOf(consent));
+        }
+
+        @GetMapping("/header-default")
+        Payload defaultedHeaderInt(
+                @org.springframework.web.bind.annotation.RequestHeader(required = false, defaultValue = "1")
+                        int version) {
+            return new Payload(String.valueOf(version));
+        }
+    }
+
+    static class CustomErrorResponseException extends org.springframework.web.ErrorResponseException {
+        CustomErrorResponseException() {
+            super(HttpStatus.NOT_FOUND);
+        }
+    }
+
+    static class CustomResponseStatusException extends org.springframework.web.server.ResponseStatusException {
+        CustomResponseStatusException() {
+            super(HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    static class CustomWebApplicationException extends jakarta.ws.rs.WebApplicationException {}
+
+    static class UnhandledDomainException extends RuntimeException {}
+
+    @RestController
+    static class FrameworkExceptionSubclassController {
+        @GetMapping("/error-response-ex")
+        Payload throwsErrorResponse() throws CustomErrorResponseException {
+            return new Payload("ok");
+        }
+
+        @GetMapping("/response-status-ex")
+        Payload throwsResponseStatus() throws CustomResponseStatusException {
+            return new Payload("ok");
+        }
+
+        @GetMapping("/jaxrs-web-ex")
+        Payload throwsWebApp() throws CustomWebApplicationException {
+            return new Payload("ok");
+        }
+
+        @GetMapping("/unhandled-ex")
+        Payload throwsUnhandled() throws UnhandledDomainException {
+            return new Payload("ok");
         }
     }
 }

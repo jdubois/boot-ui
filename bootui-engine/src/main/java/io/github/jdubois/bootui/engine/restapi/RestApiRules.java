@@ -236,7 +236,11 @@ final class RestApiRuleHelp {
     }
 
     static boolean isVariable(String segment) {
-        return segment.startsWith("{") || segment.startsWith(":") || segment.contains("${") || segment.contains("#{");
+        return segment.startsWith("{")
+                || segment.startsWith(":")
+                || segment.contains("${")
+                || segment.contains("#{")
+                || (segment.indexOf('{') >= 0 && segment.indexOf('}') > segment.indexOf('{'));
     }
 
     static List<String> staticSegments(String path) {
@@ -543,7 +547,7 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
             String condition = conditionKey(handler);
             for (String method : methods) {
                 for (String path : new LinkedHashSet<>(handler.effectivePaths())) {
-                    RouteKey key = new RouteKey(handler.framework(), method, path, condition);
+                    RouteKey key = new RouteKey(handler.framework(), method, normalizeRoutePath(path), condition);
                     byRoute.computeIfAbsent(key, ignored -> new ArrayList<>()).add(handler);
                 }
             }
@@ -569,6 +573,60 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
     private record RouteKey(RestApiModel.Framework framework, String method, String path, String conditions) {}
 
     /**
+     * Normalizes unconstrained path-variable names ({@code {id}} and {@code {userId}}) to {@code {*}} so
+     * structurally identical route templates collide regardless of variable naming, while preserving regex
+     * constraints ({@code {*:regex}}), catch-all tokens ({@code {**}}), and unresolved property/SpEL
+     * placeholders ({@code ${...}}, {@code #{...}}).
+     */
+    private static String normalizeRoutePath(String path) {
+        StringBuilder normalized = new StringBuilder(path.length());
+        int depth = 0;
+        int start = -1;
+        boolean placeholder = false;
+        for (int i = 0; i < path.length(); i++) {
+            char ch = path.charAt(i);
+            if (ch == '\\' && i + 1 < path.length()) {
+                if (depth == 0) {
+                    normalized.append(ch).append(path.charAt(i + 1));
+                }
+                i++;
+                continue;
+            }
+            if (ch == '{') {
+                if (depth++ == 0) {
+                    placeholder = i > 0 && (path.charAt(i - 1) == '$' || path.charAt(i - 1) == '#');
+                    start = i;
+                }
+            } else if (ch == '}' && depth > 0 && --depth == 0) {
+                if (placeholder) {
+                    normalized.append(path, start, i + 1);
+                } else {
+                    String inner = path.substring(start + 1, i).trim();
+                    if (inner.startsWith("*")) {
+                        normalized.append("{**}");
+                    } else {
+                        int colon = inner.indexOf(':');
+                        if (colon >= 0) {
+                            normalized
+                                    .append("{*:")
+                                    .append(inner.substring(colon + 1).trim())
+                                    .append('}');
+                        } else {
+                            normalized.append("{*}");
+                        }
+                    }
+                }
+            } else if (depth == 0) {
+                normalized.append(ch);
+            }
+        }
+        if (depth > 0 && start >= 0) {
+            normalized.append(path.substring(start));
+        }
+        return normalized.toString();
+    }
+
+    /**
      * Spring rejects identical mappings ("Ambiguous mapping") while the context starts, so a running application can
      * only contain them when at least one controller is not registered, such as profile- or condition-specific
      * alternatives. Only mappings that differ in their method or path alternatives register and fail at request time.
@@ -591,8 +649,8 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
      */
     private static String conditionKey(HandlerMethodModel handler) {
         List<String> parts = new ArrayList<>();
-        addConditionParts(parts, "consumes:", handler.effectiveConsumes());
-        addConditionParts(parts, "produces:", handler.effectiveProduces());
+        addMediaConditionParts(parts, "consumes:", handler.effectiveConsumes());
+        addMediaConditionParts(parts, "produces:", handler.effectiveProduces());
         addConditionParts(parts, "params:", handler.params());
         addConditionParts(parts, "headers:", handler.headers());
         if (!handler.mappingVersion().isBlank()) {
@@ -603,6 +661,46 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
         }
         parts.sort(String::compareTo);
         return " {" + String.join(",", parts) + "}";
+    }
+
+    private static void addMediaConditionParts(List<String> target, String kind, List<String> values) {
+        for (String value : values) {
+            target.add(kind + normalizeDispatchMediaType(value));
+        }
+    }
+
+    /**
+     * Normalizes a media-type expression for dispatch comparison: lower-cases the type/subtype and drops
+     * non-dispatch parameters ({@code charset}, {@code q}), while preserving dispatch-significant parameters
+     * such as {@code version=1} or {@code v=2}.
+     */
+    private static String normalizeDispatchMediaType(String mediaType) {
+        String trimmed = mediaType.trim();
+        int semicolon = trimmed.indexOf(';');
+        if (semicolon < 0) {
+            return trimmed.toLowerCase(Locale.ROOT);
+        }
+        String base = trimmed.substring(0, semicolon).trim().toLowerCase(Locale.ROOT);
+        String[] rawParams = trimmed.substring(semicolon + 1).split(";");
+        List<String> kept = new ArrayList<>();
+        for (String rawParam : rawParams) {
+            String param = rawParam.trim();
+            if (param.isEmpty()) {
+                continue;
+            }
+            int eq = param.indexOf('=');
+            String name = (eq >= 0 ? param.substring(0, eq) : param).trim().toLowerCase(Locale.ROOT);
+            if ("charset".equals(name) || "q".equals(name)) {
+                continue;
+            }
+            String val = eq >= 0 ? param.substring(eq + 1).trim() : "";
+            kept.add(eq >= 0 ? name + "=" + val : name);
+        }
+        if (kept.isEmpty()) {
+            return base;
+        }
+        kept.sort(String::compareTo);
+        return base + ";" + String.join(";", kept);
     }
 
     private static void addConditionParts(List<String> target, String kind, List<String> values) {
@@ -629,9 +727,10 @@ final class StateChangingHandlersNotOnGetRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
-                handler -> handler.httpMethods().contains("GET"),
+                handler -> handler.httpMethods().contains("GET") && handler.serializesBody(),
                 handler -> handler.nameLooksStateChanging()
-                        && handler.httpMethods().contains("GET"),
+                        && handler.httpMethods().contains("GET")
+                        && handler.serializesBody(),
                 "mutation-like name mapped to GET; review safety");
     }
 }
@@ -875,6 +974,9 @@ final class ResourcePathsAreNounsRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
+            if (!handler.serializesBody()) {
+                continue;
+            }
             for (String path : handler.effectivePaths()) {
                 for (String segment : context.targets(RestApiRuleHelp.staticSegments(path))) {
                     if (RestApiRuleHelp.isVerbSegment(segment)) {
@@ -947,7 +1049,8 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
-            if (!handler.httpMethods().contains("GET")
+            if (!handler.serializesBody()
+                    || !handler.httpMethods().contains("GET")
                     || !(handler.returnsCollection() || handler.returnsPageOrSlice())) {
                 continue;
             }
@@ -988,6 +1091,9 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
+            if (!handler.serializesBody()) {
+                continue;
+            }
             for (String path : handler.effectivePaths()) {
                 for (String segment : context.targets(RestApiRuleHelp.staticSegments(path))) {
                     if (RestApiRuleHelp.isNonKebab(segment)) {
@@ -1287,11 +1393,11 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
                 "Optional Spring numeric parameters need a nullable/defaulted binding",
                 RestApiCategory.VALIDATION,
                 "MEDIUM",
-                "An optional Java numeric primitive @RequestParam without a nonblank default can fail binding"
-                        + " when omitted: null cannot be unboxed and blank defaults cannot be converted."
-                        + " Spring supplies false for boolean; uncertain Kotlin defaults are excluded.",
-                "Use the boxed wrapper type (e.g. Integer) or provide a defaultValue for optional primitive query"
-                        + " parameters.",
+                "An optional Java numeric primitive @RequestParam, @RequestHeader or @CookieValue without a nonblank"
+                        + " default can fail binding when omitted: null cannot be unboxed and blank defaults cannot be"
+                        + " converted. Spring supplies false for boolean; uncertain Kotlin defaults are excluded.",
+                "Use the boxed wrapper type (e.g. Integer) or provide a defaultValue for optional primitive"
+                        + " query, header or cookie parameters.",
                 RestApiRuleHelp.REQUEST_PARAM_DOCS));
     }
 
@@ -1301,7 +1407,7 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
                 context,
                 handler -> !handler.jaxRs(),
                 handler -> !handler.jaxRs() && handler.hasUnboundedPrimitiveRequestParam(),
-                "optional primitive @RequestParam can fail binding when omitted");
+                "optional primitive @RequestParam/@RequestHeader/@CookieValue can fail binding when omitted");
     }
 }
 
@@ -1521,7 +1627,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
         List<HandlerMethodModel> versionable = new ArrayList<>();
         List<HandlerMethodModel> unversioned = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
-            if (RestApiRuleHelp.isNonApiEndpoint(handler)) {
+            if (!handler.serializesBody() || RestApiRuleHelp.isNonApiEndpoint(handler)) {
                 continue;
             }
             versionable.add(handler);
@@ -1844,8 +1950,8 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiRule {
         }
         return handlersMatching(
                 context,
-                handler -> !handler.hidden(),
-                handler -> !handler.hasOperationAnnotation(),
+                handler -> !handler.hidden() && handler.serializesBody(),
+                handler -> !handler.hasOperationAnnotation() && handler.serializesBody(),
                 "no @Operation annotation");
     }
 }
@@ -1870,15 +1976,24 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
         if (!context.openApiAnnotationsPresent()) {
             return RestApiRuleSupport.skipped(definition(), "No OpenAPI annotations were found on the host classpath.");
         }
+        Set<String> controllersWithRestHandler = new LinkedHashSet<>();
         Set<String> controllersWithTaggedHandler = new LinkedHashSet<>();
         for (HandlerMethodModel handler : context.handlers()) {
+            if (handler.serializesBody()) {
+                controllersWithRestHandler.add(handler.controllerClassName());
+            }
             if (handler.hasTag()) {
                 controllersWithTaggedHandler.add(handler.controllerClassName());
             }
         }
         AdvisorFindings violations = new AdvisorFindings();
-        for (ControllerModel controller : context.targets(context.controllers(), candidate -> !candidate.hidden())) {
-            if (controller.hidden()) {
+        for (ControllerModel controller : context.targets(
+                context.controllers(),
+                candidate -> !candidate.hidden()
+                        && (candidate.restController()
+                                || controllersWithRestHandler.contains(candidate.className())))) {
+            if (controller.hidden()
+                    || (!controller.restController() && !controllersWithRestHandler.contains(controller.className()))) {
                 continue;
             }
             if (!controller.hasTag() && !controllersWithTaggedHandler.contains(controller.className())) {
@@ -2167,7 +2282,7 @@ final class MixedVersioningStrategiesRule extends AbstractRestApiRule {
         }
         Set<String> strategies = new LinkedHashSet<>();
         for (HandlerMethodModel handler : context.handlers()) {
-            if (RestApiRuleHelp.isNonApiEndpoint(handler)) {
+            if (!handler.serializesBody() || RestApiRuleHelp.isNonApiEndpoint(handler)) {
                 continue;
             }
             context.evidence().markApplicable();

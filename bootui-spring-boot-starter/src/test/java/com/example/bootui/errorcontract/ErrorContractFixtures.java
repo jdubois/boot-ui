@@ -103,6 +103,23 @@ public final class ErrorContractFixtures {
 
         @ExceptionHandler(UnsupportedOperationException.class)
         public void handleVoid() {}
+
+        @ExceptionHandler(IndexOutOfBoundsException.class)
+        public org.springframework.web.ErrorResponse handleErrorResponse() {
+            return null;
+        }
+
+        @ExceptionHandler(ArithmeticException.class)
+        public org.springframework.web.server.ResponseStatusException handleResponseStatusException() {
+            return null;
+        }
+
+        @ExceptionHandler(NullPointerException.class)
+        public Object handleSuspend(
+                NullPointerException ex,
+                kotlin.coroutines.Continuation<? super ResponseEntity<ErrorBody>> continuation) {
+            return null;
+        }
     }
 
     @Controller

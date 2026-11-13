@@ -164,12 +164,88 @@ class ErrorContractServiceTests {
     void bodyCategoriesAreDerivedFromTheDeclarationOnly() {
         assertThat(bodyCategoryOf("org.springframework.http.ProblemDetail", null, false))
                 .isEqualTo("PROBLEM_DETAIL");
+        assertThat(bodyCategoryOf("org.springframework.web.ErrorResponse", null, false))
+                .isEqualTo("PROBLEM_DETAIL");
+        assertThat(bodyCategoryOf("org.springframework.web.ErrorResponseException", null, false))
+                .isEqualTo("PROBLEM_DETAIL");
+        assertThat(bodyCategoryOf("org.springframework.web.server.ResponseStatusException", null, false))
+                .isEqualTo("PROBLEM_DETAIL");
         assertThat(bodyCategoryOf("com.acme.ErrorBody", null, false)).isEqualTo("CUSTOM_OBJECT");
         assertThat(bodyCategoryOf("java.lang.String", null, false)).isEqualTo("STRING");
         assertThat(bodyCategoryOf(null, "void", false)).isEqualTo("EMPTY");
+        assertThat(bodyCategoryOf("kotlin.Unit", "kotlin.Unit", false)).isEqualTo("EMPTY");
         assertThat(bodyCategoryOf("java.util.Map", null, false)).isEqualTo("DYNAMIC");
+        assertThat(bodyCategoryOf("com.fasterxml.jackson.databind.JsonNode", null, false))
+                .isEqualTo("DYNAMIC");
+        assertThat(bodyCategoryOf("com.fasterxml.jackson.databind.node.ObjectNode", null, false))
+                .isEqualTo("DYNAMIC");
+        assertThat(bodyCategoryOf("tools.jackson.databind.JsonNode", null, false))
+                .isEqualTo("DYNAMIC");
+        assertThat(bodyCategoryOf("tools.jackson.databind.node.ObjectNode", null, false))
+                .isEqualTo("DYNAMIC");
         assertThat(bodyCategoryOf(null, "jakarta.ws.rs.core.Response", true)).isEqualTo("DYNAMIC");
         assertThat(bodyCategoryOf(null, "com.acme.Unknown", false)).isEqualTo("UNRESOLVED");
+    }
+
+    @Test
+    void problemDetailAndErrorResponseTypesDefaultToDynamicStatusSourceWhenUnannotated() {
+        ErrorHandlerDescriptor problemDetail = new ErrorHandlerDescriptor(
+                ADVICE,
+                "com.acme.Advice",
+                "handleProblem",
+                List.of("com.acme.BadInput"),
+                ErrorHandlerDescriptor.SCOPE_GLOBAL,
+                null,
+                null,
+                false,
+                null,
+                false,
+                "org.springframework.http.ProblemDetail",
+                "org.springframework.http.ProblemDetail",
+                List.of());
+        ErrorHandlerDescriptor errorResponse = new ErrorHandlerDescriptor(
+                ADVICE,
+                "com.acme.Advice",
+                "handleErrorResponse",
+                List.of("com.acme.Conflict"),
+                ErrorHandlerDescriptor.SCOPE_GLOBAL,
+                null,
+                null,
+                false,
+                null,
+                false,
+                "org.springframework.web.ErrorResponseException",
+                "org.springframework.web.ErrorResponseException",
+                List.of());
+
+        ErrorHandlerDescriptor httpEntityProblem = new ErrorHandlerDescriptor(
+                ADVICE,
+                "com.acme.Advice",
+                "handleHttpEntityProblem",
+                List.of("com.acme.HeaderOnly"),
+                ErrorHandlerDescriptor.SCOPE_GLOBAL,
+                null,
+                null,
+                false,
+                null,
+                false,
+                "org.springframework.http.HttpEntity",
+                "org.springframework.http.ProblemDetail",
+                List.of());
+
+        List<ErrorContractEntryDto> entries = service(List.of(problemDetail, errorResponse, httpEntityProblem))
+                .report(null, null, null)
+                .entries();
+
+        assertThat(entries)
+                .extracting(
+                        ErrorContractEntryDto::method,
+                        ErrorContractEntryDto::statusSource,
+                        ErrorContractEntryDto::bodyCategory)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("handleProblem", "DYNAMIC", "PROBLEM_DETAIL"),
+                        org.assertj.core.groups.Tuple.tuple("handleErrorResponse", "DYNAMIC", "PROBLEM_DETAIL"),
+                        org.assertj.core.groups.Tuple.tuple("handleHttpEntityProblem", "UNRESOLVED", "PROBLEM_DETAIL"));
     }
 
     @Test

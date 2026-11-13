@@ -2,10 +2,15 @@ package io.github.jdubois.bootui.engine.archunit;
 
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.MethodVisitor;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -62,5 +67,73 @@ public record ClassFileFacts(String sourceFile, String sourceMap) {
                         },
                         ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES);
         return new ClassFileFacts(facts[0], facts[1]);
+    }
+
+    /**
+     * Reads the compiled {@code MethodParameters} names of every method in {@code classFile}, keyed by
+     * {@code name + descriptor}. A synthetic, mandated, blank, or {@code argN} parameter name is recorded as
+     * {@code ""}, preserving parameter indices. Returns an empty map when the class file cannot be read or
+     * was compiled without {@code -parameters}.
+     */
+    public static Map<String, List<String>> methodParameterNames(URI classFile) {
+        if (classFile == null) return Map.of();
+        try {
+            java.net.URLConnection connection = classFile.toURL().openConnection();
+            connection.setUseCaches(false);
+            try (InputStream input = connection.getInputStream()) {
+                byte[] bytes = input.readNBytes(MAX_CLASS_BYTES + 1);
+                if (bytes.length > MAX_CLASS_BYTES) return Map.of();
+                return parseMethodParameters(bytes);
+            }
+        } catch (IOException | RuntimeException | LinkageError ex) {
+            return Map.of();
+        }
+    }
+
+    static Map<String, List<String>> parseMethodParameters(byte[] bytes) {
+        Map<String, List<String>> methods = new LinkedHashMap<>();
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                List<String> names = new ArrayList<>();
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public void visitParameter(String paramName, int paramAccess) {
+                                        if (paramName == null
+                                                || paramName.isBlank()
+                                                || (paramAccess & (Opcodes.ACC_SYNTHETIC | Opcodes.ACC_MANDATED)) != 0
+                                                || isSyntheticArgName(paramName)) {
+                                            names.add("");
+                                        } else {
+                                            names.add(paramName);
+                                        }
+                                    }
+
+                                    @Override
+                                    public void visitEnd() {
+                                        if (!names.isEmpty()) {
+                                            methods.put(name + descriptor, List.copyOf(names));
+                                        }
+                                    }
+                                };
+                            }
+                        },
+                        ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES);
+        return Map.copyOf(methods);
+    }
+
+    private static boolean isSyntheticArgName(String name) {
+        if (!name.startsWith("arg") || name.length() <= 3) {
+            return false;
+        }
+        for (int i = 3; i < name.length(); i++) {
+            if (!Character.isDigit(name.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }

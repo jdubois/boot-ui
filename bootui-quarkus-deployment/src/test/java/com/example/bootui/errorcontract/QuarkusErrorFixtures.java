@@ -78,4 +78,19 @@ public final class QuarkusErrorFixtures {
             return Uni.createFrom().nullItem();
         }
     }
+
+    public static class MethodOnlyJaxRsResource {
+
+        @jakarta.ws.rs.GET
+        @Path("/items")
+        public String list() {
+            return "items";
+        }
+
+        @ServerExceptionMapper(SampleNotFound.class)
+        public Object handleSuspend(
+                SampleNotFound exception, kotlin.coroutines.Continuation<? super RestResponse<String>> continuation) {
+            return null;
+        }
+    }
 }

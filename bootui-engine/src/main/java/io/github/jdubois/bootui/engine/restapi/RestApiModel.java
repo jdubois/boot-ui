@@ -47,6 +47,7 @@ final class RestApiModel {
                 "org.springframework.http.server.reactive.ServerHttpResponse";
         static final String SERVER_WEB_EXCHANGE = "org.springframework.web.server.ServerWebExchange";
         static final String REQUEST_HEADER = "org.springframework.web.bind.annotation.RequestHeader";
+        static final String COOKIE_VALUE = "org.springframework.web.bind.annotation.CookieValue";
         static final String REQUEST_PART = "org.springframework.web.bind.annotation.RequestPart";
         static final String REQUEST_ENTITY = "org.springframework.http.RequestEntity";
 
@@ -62,6 +63,8 @@ final class RestApiModel {
         static final String HTTP_ENTITY = "org.springframework.http.HttpEntity";
         static final String PROBLEM_DETAIL = "org.springframework.http.ProblemDetail";
         static final String ERROR_RESPONSE = "org.springframework.web.ErrorResponse";
+        static final String ERROR_RESPONSE_EXCEPTION = "org.springframework.web.ErrorResponseException";
+        static final String RESPONSE_STATUS_EXCEPTION = "org.springframework.web.server.ResponseStatusException";
 
         static final String MULTI_VALUE_MAP = "org.springframework.util.MultiValueMap";
         static final String DATE = "java.util.Date";
@@ -71,6 +74,14 @@ final class RestApiModel {
         static final String PAGEABLE = "org.springframework.data.domain.Pageable";
         static final String PAGE = "org.springframework.data.domain.Page";
         static final String SLICE = "org.springframework.data.domain.Slice";
+        static final String PAGED_MODEL = "org.springframework.data.web.PagedModel";
+        static final String WINDOW = "org.springframework.data.domain.Window";
+        static final String SCROLL_POSITION = "org.springframework.data.domain.ScrollPosition";
+        static final String LIMIT = "org.springframework.data.domain.Limit";
+        static final String HATEOAS_PAGED_MODEL = "org.springframework.hateoas.PagedModel";
+        static final String HATEOAS_COLLECTION_MODEL = "org.springframework.hateoas.CollectionModel";
+        static final String HATEOAS_ENTITY_MODEL = "org.springframework.hateoas.EntityModel";
+        static final String PANACHE_PAGE = "io.quarkus.panache.common.Page";
 
         static final String OPERATION = "io.swagger.v3.oas.annotations.Operation";
         static final String TAG = "io.swagger.v3.oas.annotations.tags.Tag";
@@ -97,6 +108,8 @@ final class RestApiModel {
         static final String JAXRS_FORM_PARAM = "jakarta.ws.rs.FormParam";
         static final String JAXRS_BEAN_PARAM = "jakarta.ws.rs.BeanParam";
         static final String JAXRS_CONTEXT = "jakarta.ws.rs.core.Context";
+        static final String JAXRS_SUSPENDED = "jakarta.ws.rs.container.Suspended";
+        static final String JAXRS_WEB_APPLICATION_EXCEPTION = "jakarta.ws.rs.WebApplicationException";
         static final String JAXRS_PRODUCES = "jakarta.ws.rs.Produces";
         static final String JAXRS_CONSUMES = "jakarta.ws.rs.Consumes";
         static final String JAXRS_PROVIDER = "jakarta.ws.rs.ext.Provider";

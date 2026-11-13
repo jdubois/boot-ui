@@ -19,7 +19,7 @@ final class ResponseStatusReasonOnBodyHandlersRule extends AbstractRestApiRule {
                 "RAPI-RESP-010",
                 "Do not set @ResponseStatus reason on body-returning REST handlers",
                 RestApiCategory.RESPONSES,
-                "MEDIUM",
+                "HIGH",
                 "On Spring MVC a non-blank @ResponseStatus reason makes Spring call HttpServletResponse.sendError and"
                         + " skip return-value handling: the handler's returned body, even a ResponseEntity, is"
                         + " discarded and an error response is rendered instead. Spring documents reason as unsuitable"

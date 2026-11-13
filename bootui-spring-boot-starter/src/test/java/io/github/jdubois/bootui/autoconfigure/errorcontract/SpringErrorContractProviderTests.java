@@ -61,7 +61,7 @@ class SpringErrorContractProviderTests {
                         ErrorHandlerDescriptor.SCOPE_GLOBAL,
                         10,
                         "404",
-                        false));
+                        true));
         ErrorHandlerDescriptor handler = handlers.get(0);
         assertThat(handler.componentClassName()).isEqualTo(GlobalAdvice.class.getName());
         assertThat(handler.exceptionTypeNames()).containsExactly(IllegalStateException.class.getName());
@@ -115,6 +115,12 @@ class SpringErrorContractProviderTests {
                 .containsExactly(
                         tuple("handleAsync", true, ErrorContractFixtures.ErrorBody.class.getName()),
                         tuple("handleDynamic", true, ErrorContractFixtures.ErrorBody.class.getName()),
+                        tuple("handleErrorResponse", true, org.springframework.web.ErrorResponse.class.getName()),
+                        tuple(
+                                "handleResponseStatusException",
+                                true,
+                                org.springframework.web.server.ResponseStatusException.class.getName()),
+                        tuple("handleSuspend", true, ErrorContractFixtures.ErrorBody.class.getName()),
                         tuple("handleVoid", false, "void"));
     }
 

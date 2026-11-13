@@ -281,4 +281,76 @@ class JaxRsRestApiModelTests {
                 .contains("Spring Data Pageable")
                 .contains("Page/Slice");
     }
+
+    @Test
+    void quarkusUnannotatedPathVariablesAndContextParametersAreNotMisclassifiedAsRequestBodies() {
+        JavaClasses classes = new ClassFileImporter().importClasses(QuarkusUnannotatedBindingsResource.class);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        HandlerMethodModel byId = model.handlers().stream()
+                .filter(h -> h.methodName().equals("byId"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(byId.hasRequestBody()).isFalse();
+        assertThat(byId.pathVariableNames()).containsExactly("id");
+        assertThat(byId.hasResponseParam()).isFalse();
+
+        HandlerMethodModel listWithContext = model.handlers().stream()
+                .filter(h -> h.methodName().equals("listWithContext"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(listWithContext.hasRequestBody()).isFalse();
+        assertThat(listWithContext.hasExplicitPageParam()).isTrue();
+        assertThat(listWithContext.paginationParamFamily()).isEqualTo("PAGE_SIZE");
+
+        HandlerMethodModel streamImperative = model.handlers().stream()
+                .filter(h -> h.methodName().equals("streamImperative"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(streamImperative.hasRequestBody()).isFalse();
+        assertThat(streamImperative.hasResponseParam()).isTrue();
+
+        RestApiContext context = new RestApiContext(
+                java.util.List.of(QuarkusUnannotatedBindingsResource.class.getPackageName()),
+                model.controllers(),
+                model.handlers(),
+                model.exceptionHandlers(),
+                false,
+                false,
+                model.hasExceptionHandling(),
+                model.responseStatusExceptionClasses(),
+                model.thrownExceptions(),
+                model.framework());
+        assertThat(new NoRequestBodyOnBodylessMethodsRule().evaluate(context).status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new RequestBodyIsValidatedRule().evaluate(context).status()).isEqualTo(RestApiRuleSupport.PASS);
+        assertThat(new CollectionReadsArePaginatedRule().evaluate(context).status())
+                .isEqualTo(RestApiRuleSupport.PASS);
+    }
+
+    @jakarta.ws.rs.Path("/fruits")
+    static class QuarkusUnannotatedBindingsResource {
+        @jakarta.ws.rs.GET
+        @jakarta.ws.rs.Path("/{id}")
+        public io.github.jdubois.bootui.engine.restapi.jaxrs.WidgetDto byId(
+                Long id,
+                jakarta.ws.rs.core.UriInfo uriInfo,
+                jakarta.ws.rs.core.HttpHeaders headers,
+                jakarta.ws.rs.ext.Providers providers,
+                java.security.Principal principal) {
+            return new io.github.jdubois.bootui.engine.restapi.jaxrs.WidgetDto(String.valueOf(id), "apple");
+        }
+
+        @jakarta.ws.rs.GET
+        public java.util.List<io.github.jdubois.bootui.engine.restapi.jaxrs.WidgetDto> listWithContext(
+                @org.jboss.resteasy.reactive.RestQuery int page,
+                @org.jboss.resteasy.reactive.RestQuery int size,
+                jakarta.ws.rs.core.UriInfo uriInfo) {
+            return java.util.List.of();
+        }
+
+        @jakarta.ws.rs.GET
+        @jakarta.ws.rs.Path("/sse")
+        public void streamImperative(jakarta.ws.rs.sse.SseEventSink sink) {}
+    }
 }

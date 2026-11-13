@@ -10,8 +10,10 @@ import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
 import com.tngtech.archunit.core.domain.JavaType;
+import com.tngtech.archunit.core.domain.JavaWildcardType;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitLocations;
+import io.github.jdubois.bootui.engine.archunit.ClassFileFacts;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
@@ -23,6 +25,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -38,6 +41,7 @@ final class RestApiHandlerModelBuilder {
             Types.RESPONSE_ENTITY,
             Types.HTTP_ENTITY,
             Types.OPTIONAL,
+            Types.HATEOAS_ENTITY_MODEL,
             "java.util.concurrent.Callable",
             "java.util.concurrent.CompletableFuture",
             "java.util.concurrent.CompletionStage",
@@ -63,17 +67,28 @@ final class RestApiHandlerModelBuilder {
             // Quarkus/SmallRye Mutiny's async stream type: https://smallrye.io/smallrye-mutiny/latest/concepts/multi/
             "io.smallrye.mutiny.Multi",
             // Kotlin coroutines' cold stream, which Spring adapts exactly like a Flux.
-            "kotlinx.coroutines.flow.Flow");
+            "kotlinx.coroutines.flow.Flow",
+            Types.HATEOAS_COLLECTION_MODEL);
+
+    private static final Set<String> PAGED_TYPES =
+            Set.of(Types.PAGE, Types.SLICE, Types.PAGED_MODEL, Types.WINDOW, Types.HATEOAS_PAGED_MODEL);
+
+    private static final Set<String> PAGINATION_INPUT_TYPES =
+            Set.of(Types.PAGEABLE, Types.SCROLL_POSITION, Types.LIMIT, Types.PANACHE_PAGE);
 
     private static final Set<String> UNTYPED_TYPES = Set.of(
             "java.lang.Object",
             "java.util.Map",
             "java.util.HashMap",
+            "java.util.LinkedHashMap",
+            "java.util.TreeMap",
             "com.fasterxml.jackson.databind.JsonNode",
+            "com.fasterxml.jackson.databind.node.ObjectNode",
             // Spring Boot 4 ships Jackson 3 under the new tools.jackson.* package/artifact; Quarkus still ships
             // Jackson 2 (com.fasterxml.jackson.*, above). See the Jackson 3 migration guide:
             // https://github.com/FasterXML/jackson/blob/main/jackson3/MIGRATING_TO_JACKSON_3.md
-            "tools.jackson.databind.JsonNode");
+            "tools.jackson.databind.JsonNode",
+            "tools.jackson.databind.node.ObjectNode");
 
     private static final Set<String> STREAM_TYPES = Set.of(
             "java.util.stream.Stream", "reactor.core.publisher.Flux",
@@ -92,21 +107,8 @@ final class RestApiHandlerModelBuilder {
             "java.lang.Double",
             "java.lang.Character");
 
-    private static final Set<String> STATE_CHANGING_PREFIXES = Set.of(
-            "create",
-            "update",
-            "delete",
-            "remove",
-            "save",
-            "add",
-            "insert",
-            "modify",
-            "patch",
-            "put",
-            "post",
-            "register",
-            "edit");
-    private static final Set<String> NON_MUTATING_METHOD_PREFIXES = Set.of("postprocess", "putaside", "patchversion");
+    private static final Set<String> STATE_CHANGING_PREFIXES =
+            Set.of("create", "update", "delete", "remove", "save", "add", "insert", "modify", "register", "edit");
 
     private static final List<String> MAPPING_ANNOTATIONS = List.of(
             Types.GET_MAPPING,
@@ -120,8 +122,14 @@ final class RestApiHandlerModelBuilder {
     private static final Set<String> SIMPLE_BODY_TYPES = Set.of(
             "java.lang.String",
             "java.lang.CharSequence",
+            "java.util.UUID",
+            "java.math.BigDecimal",
+            "java.math.BigInteger",
+            "java.net.URI",
             "org.springframework.core.io.Resource",
             "org.springframework.web.multipart.MultipartFile",
+            "org.springframework.http.codec.multipart.FilePart",
+            "org.jboss.resteasy.reactive.multipart.FileUpload",
             "jakarta.servlet.http.Part",
             "java.io.InputStream",
             "byte[]");
@@ -135,7 +143,7 @@ final class RestApiHandlerModelBuilder {
     // pagination guidance that a single API should commit to one dialect.
     private static final Set<String> PAGE_SIZE_PARAM_NAMES =
             Set.of("page", "size", "pagenumber", "pagesize", "perpage");
-    private static final Set<String> OFFSET_LIMIT_PARAM_NAMES = Set.of("offset", "limit");
+    private static final Set<String> OFFSET_LIMIT_PARAM_NAMES = Set.of("offset");
     private static final Set<String> CURSOR_PARAM_NAMES = Set.of("cursor", "after", "before");
 
     /** Parameter annotations that bind a non-body source; any param carrying one is not the request entity. */
@@ -148,6 +156,7 @@ final class RestApiHandlerModelBuilder {
             Types.JAXRS_FORM_PARAM,
             Types.JAXRS_BEAN_PARAM,
             Types.JAXRS_CONTEXT,
+            Types.JAXRS_SUSPENDED,
             Types.REST_PATH,
             Types.REST_QUERY,
             Types.REST_HEADER,
@@ -155,13 +164,44 @@ final class RestApiHandlerModelBuilder {
             Types.REST_COOKIE,
             Types.REST_MATRIX);
 
+    /**
+     * JAX-RS and Quarkus REST context/security types that are injected without an explicit {@code @Context}
+     * annotation; parameters of these types are never request entity bodies.
+     */
+    private static final Set<String> JAXRS_CONTEXT_PARAMETER_TYPES = Set.of(
+            "jakarta.ws.rs.core.UriInfo",
+            "jakarta.ws.rs.core.HttpHeaders",
+            "jakarta.ws.rs.core.Request",
+            "jakarta.ws.rs.core.SecurityContext",
+            "jakarta.ws.rs.core.Configuration",
+            "jakarta.ws.rs.core.Application",
+            "jakarta.ws.rs.container.ResourceContext",
+            "jakarta.ws.rs.container.ResourceInfo",
+            "jakarta.ws.rs.container.AsyncResponse",
+            "jakarta.ws.rs.ext.Providers",
+            "jakarta.ws.rs.sse.Sse",
+            "jakarta.ws.rs.sse.SseEventSink",
+            "org.jboss.resteasy.reactive.server.SimpleResourceInfo",
+            "org.jboss.resteasy.reactive.server.spi.ResteasyReactiveResourceInfo",
+            "org.jboss.resteasy.reactive.server.spi.ServerRequestContext",
+            "org.jboss.resteasy.reactive.server.multipart.MultipartFormDataInput",
+            "io.vertx.core.http.HttpServerRequest",
+            "io.vertx.core.http.HttpServerResponse",
+            "io.vertx.ext.web.RoutingContext",
+            "io.quarkus.security.identity.SecurityIdentity",
+            "java.security.Principal");
+
     private static final Set<String> RESPONSE_PARAMETER_TYPES = Set.of(
             Types.HTTP_SERVLET_RESPONSE,
             "jakarta.servlet.ServletResponse",
             "java.io.OutputStream",
             "java.io.Writer",
             Types.REACTIVE_SERVER_HTTP_RESPONSE,
-            Types.SERVER_WEB_EXCHANGE);
+            Types.SERVER_WEB_EXCHANGE,
+            "io.vertx.core.http.HttpServerResponse",
+            "io.vertx.ext.web.RoutingContext",
+            "jakarta.ws.rs.sse.SseEventSink",
+            "jakarta.ws.rs.container.AsyncResponse");
 
     /** Spring handler parameters that read the request body without {@code @RequestBody} (RAPI-VER-007). */
     private static final Set<String> BODY_ACCESS_PARAMETER_TYPES =
@@ -292,11 +332,15 @@ final class RestApiHandlerModelBuilder {
                 .orElse("");
 
         int handlerCount = 0;
+        Map<String, List<String>> classParameterNames = methodParameterNames(type);
         for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             try {
+                List<String> methodParamNames =
+                        classParameterNames.getOrDefault(method.getName() + method.getDescriptor(), List.of());
                 HandlerMethodModel model = toHandler(
                         type,
                         method,
+                        methodParamNames,
                         restController,
                         classValidated,
                         classResponseBody,
@@ -357,10 +401,20 @@ final class RestApiHandlerModelBuilder {
         List<String> typeLevelConsumes = mappingAttribute(type, Types.JAXRS_CONSUMES, "value");
 
         int handlerCount = 0;
+        Map<String, List<String>> classParameterNames = methodParameterNames(type);
         for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
             try {
+                List<String> methodParamNames =
+                        classParameterNames.getOrDefault(method.getName() + method.getDescriptor(), List.of());
                 HandlerMethodModel model = toJaxRsHandler(
-                        type, method, classValidated, hidden, typeLevelPaths, typeLevelProduces, typeLevelConsumes);
+                        type,
+                        method,
+                        methodParamNames,
+                        classValidated,
+                        hidden,
+                        typeLevelPaths,
+                        typeLevelProduces,
+                        typeLevelConsumes);
                 if (model != null) {
                     handlers.add(located(model, method));
                     handlerCount++;
@@ -387,6 +441,7 @@ final class RestApiHandlerModelBuilder {
     private HandlerMethodModel toJaxRsHandler(
             JavaClass type,
             JavaMethod method,
+            List<String> methodParamNames,
             boolean classValidated,
             boolean classHidden,
             List<String> typeLevelPaths,
@@ -428,11 +483,18 @@ final class RestApiHandlerModelBuilder {
         JavaClass bodyErasure = bodyType.toErasure();
         boolean returnsStream = STREAM_TYPES.contains(bodyErasure.getName());
         boolean returnsCollection = isCollection(bodyErasure);
+        boolean returnsPageOrSlice = PAGED_TYPES.contains(bodyErasure.getName());
         if (returnsCollection) {
             JavaType element = elementType(bodyType);
             if (element != null) {
-                bodyType = element;
-                bodyErasure = element.toErasure();
+                bodyType = unwrapWrappers(element);
+                bodyErasure = bodyType.toErasure();
+            }
+        } else if (returnsPageOrSlice) {
+            JavaType element = firstTypeArgument(bodyType);
+            if (element != null) {
+                bodyType = unwrapWrappers(element);
+                bodyErasure = bodyType.toErasure();
             }
         }
         String bodyTypeName = bodyErasure.getName();
@@ -447,31 +509,47 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyIsEntity = false;
         boolean requestBodyIsSimple = false;
         boolean hasConstrainedSimpleParam = false;
+        boolean hasPageable = false;
         boolean hasExplicitPageParam = false;
         List<String> pathVariableNames = new ArrayList<>();
         List<String> pageQueryParamNames = new ArrayList<>();
         List<String> versionBindings = new ArrayList<>();
+        Set<String> declaredPathTokens = declaredPathTokens(typeLevelPaths, mappingPaths, effectivePaths);
 
         for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
-            if (isJaxRsEntityParam(parameter)) {
+            String paramTypeName = parameter.getRawType().getName();
+            String compiledName = compiledParameterName(parameter, methodParamNames);
+            if (PAGINATION_INPUT_TYPES.contains(paramTypeName)) {
+                hasExplicitPageParam = true;
+            }
+            if (Types.PAGEABLE.equals(paramTypeName) || Types.PANACHE_PAGE.equals(paramTypeName)) {
+                hasPageable = true;
+            }
+            if (isJaxRsEntityParam(parameter, compiledName, declaredPathTokens)) {
                 hasRequestBody = true;
-                requestBodyValidated |= parameter.isAnnotatedWith(Types.VALID);
+                requestBodyValidated |= hasCascadeValidation(parameter);
                 JavaClass payload = requestPayload(parameter);
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
             } else if (hasConstraintAnnotation(parameter)) {
                 hasConstrainedSimpleParam = true;
             }
-            String pathName = explicitBindingName(parameter, Types.JAXRS_PATH_PARAM);
+            String pathName = resolvedBindingName(parameter, Types.JAXRS_PATH_PARAM, methodParamNames);
             if (pathName == null) {
-                pathName = explicitBindingName(parameter, Types.REST_PATH);
+                pathName = resolvedBindingName(parameter, Types.REST_PATH, methodParamNames);
+            }
+            if (pathName == null
+                    && !hasJaxRsBoundAnnotation(parameter)
+                    && compiledName != null
+                    && declaredPathTokens.contains(compiledName)) {
+                pathName = compiledName;
             }
             if (pathName != null) {
                 pathVariableNames.add(pathName);
             }
-            String query = explicitBindingName(parameter, Types.JAXRS_QUERY_PARAM);
+            String query = resolvedBindingName(parameter, Types.JAXRS_QUERY_PARAM, methodParamNames);
             if (query == null) {
-                query = explicitBindingName(parameter, Types.REST_QUERY);
+                query = resolvedBindingName(parameter, Types.REST_QUERY, methodParamNames);
             }
             if (query != null) {
                 pageQueryParamNames.add(query);
@@ -506,7 +584,7 @@ final class RestApiHandlerModelBuilder {
         collectThrownExceptions(type, method);
         boolean isDeprecated = type.isAnnotatedWith(Types.DEPRECATED) || method.isAnnotatedWith(Types.DEPRECATED);
         boolean operationMarkedDeprecated = operationMarkedDeprecated(method);
-        String paginationParamFamily = paginationFamily(false, pageQueryParamNames);
+        String paginationParamFamily = paginationFamily(hasPageable, pageQueryParamNames);
 
         return new HandlerMethodModel(
                 type.getName(),
@@ -525,7 +603,7 @@ final class RestApiHandlerModelBuilder {
                 returnsVoid,
                 returnsResponseEntity,
                 returnsCollection,
-                false,
+                returnsPageOrSlice,
                 bodyTypeName,
                 bodyIsEntity,
                 bodyIsUntyped,
@@ -536,7 +614,7 @@ final class RestApiHandlerModelBuilder {
                 requestBodyValidated,
                 requestBodyIsEntity,
                 hasConstrainedSimpleParam,
-                false,
+                hasPageable,
                 false,
                 false,
                 hasExplicitPageParam,
@@ -556,7 +634,7 @@ final class RestApiHandlerModelBuilder {
                 requestBodyIsSimple,
                 hasTagAnnotation(method),
                 hidden,
-                false,
+                hasResponseParameter(method),
                 paginationParamFamily,
                 isDeprecated,
                 operationMarkedDeprecated,
@@ -572,14 +650,46 @@ final class RestApiHandlerModelBuilder {
                 consumes.isEmpty() && !typeLevelConsumes.isEmpty());
     }
 
-    /** A JAX-RS body parameter is one with neither a binding annotation nor {@code @Context}. */
-    private static boolean isJaxRsEntityParam(JavaParameter parameter) {
+    /**
+     * A JAX-RS / Quarkus REST body parameter is one with neither a binding annotation, an injectable
+     * framework context/security/response type, nor an unannotated Quarkus path-variable match.
+     */
+    private static boolean isJaxRsEntityParam(
+            JavaParameter parameter, String compiledName, Set<String> declaredPathTokens) {
+        if (hasJaxRsBoundAnnotation(parameter)) {
+            return false;
+        }
+        String paramTypeName = parameter.getRawType().getName();
+        if (JAXRS_CONTEXT_PARAMETER_TYPES.contains(paramTypeName)
+                || RESPONSE_PARAMETER_TYPES.contains(paramTypeName)
+                || PAGINATION_INPUT_TYPES.contains(paramTypeName)) {
+            return false;
+        }
+        return compiledName == null || !declaredPathTokens.contains(compiledName);
+    }
+
+    private static boolean hasJaxRsBoundAnnotation(JavaParameter parameter) {
         for (JavaAnnotation<JavaParameter> annotation : parameter.getAnnotations()) {
             if (JAXRS_BOUND_PARAM_ANNOTATIONS.contains(annotation.getRawType().getName())) {
-                return false;
+                return true;
             }
         }
-        return true;
+        return false;
+    }
+
+    private static Set<String> declaredPathTokens(
+            List<String> typeLevelPaths, List<String> mappingPaths, List<String> effectivePaths) {
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String path : effectivePaths) {
+            tokens.addAll(RestApiRuleHelp.pathVariableTokens(path));
+        }
+        for (String path : mappingPaths) {
+            tokens.addAll(RestApiRuleHelp.pathVariableTokens(path));
+        }
+        for (String path : typeLevelPaths) {
+            tokens.addAll(RestApiRuleHelp.pathVariableTokens(path));
+        }
+        return tokens;
     }
 
     /** Models a JAX-RS {@code @Provider ExceptionMapper<X>} implementation as a centralized exception handler. */
@@ -779,6 +889,7 @@ final class RestApiHandlerModelBuilder {
     private HandlerMethodModel toHandler(
             JavaClass type,
             JavaMethod method,
+            List<String> methodParamNames,
             boolean restController,
             boolean classValidated,
             boolean classResponseBody,
@@ -837,19 +948,18 @@ final class RestApiHandlerModelBuilder {
         JavaClass bodyErasure = bodyType.toErasure();
         boolean returnsStream = STREAM_TYPES.contains(bodyErasure.getName());
         boolean returnsCollection = isCollection(bodyErasure);
-        boolean returnsPageOrSlice =
-                Types.PAGE.equals(bodyErasure.getName()) || Types.SLICE.equals(bodyErasure.getName());
+        boolean returnsPageOrSlice = PAGED_TYPES.contains(bodyErasure.getName());
         if (returnsCollection) {
             JavaType element = elementType(bodyType);
             if (element != null) {
-                bodyType = element;
-                bodyErasure = element.toErasure();
+                bodyType = unwrapWrappers(element);
+                bodyErasure = bodyType.toErasure();
             }
         } else if (returnsPageOrSlice) {
             JavaType element = firstTypeArgument(bodyType);
             if (element != null) {
-                bodyType = element;
-                bodyErasure = element.toErasure();
+                bodyType = unwrapWrappers(element);
+                bodyErasure = bodyType.toErasure();
             }
         }
         String bodyTypeName = bodyErasure.getName();
@@ -894,31 +1004,34 @@ final class RestApiHandlerModelBuilder {
             if (simpleBinding && hasConstraintAnnotation(parameter)) {
                 hasConstrainedSimpleParam = true;
             }
+            if (isPrimitive(parameter.getRawType())
+                    && !"boolean".equals(paramTypeName)
+                    && !annotated(type, "kotlin.Metadata")
+                    && isOptionalNamedValueBinding(parameter)) {
+                hasUnboundedPrimitiveRequestParam = true;
+            }
             if (parameter.isAnnotatedWith(Types.REQUEST_PARAM)) {
-                if (isPrimitive(parameter.getRawType())
-                        && !"boolean".equals(paramTypeName)
-                        && !annotated(type, "kotlin.Metadata")
-                        && isOptionalRequestParam(parameter)) {
-                    hasUnboundedPrimitiveRequestParam = true;
-                }
                 String paramTypeName2 = parameter.getRawType().getName();
                 if (("java.util.Map".equals(paramTypeName2) || Types.MULTI_VALUE_MAP.equals(paramTypeName2))
                         && explicitBindingName(parameter, Types.REQUEST_PARAM) == null) {
                     hasUnboundedMapRequestParam = true;
                 }
-                String explicitName = explicitBindingName(parameter, Types.REQUEST_PARAM);
-                if (explicitName != null) {
-                    pageQueryParamNames.add(explicitName);
-                    if (PAGE_PARAM_NAMES.contains(explicitName.toLowerCase(Locale.ROOT))) {
+                String resolvedName = resolvedBindingName(parameter, Types.REQUEST_PARAM, methodParamNames);
+                if (resolvedName != null) {
+                    pageQueryParamNames.add(resolvedName);
+                    if (PAGE_PARAM_NAMES.contains(resolvedName.toLowerCase(Locale.ROOT))) {
                         hasExplicitPageParam = true;
                     }
                 }
             }
             if (parameter.isAnnotatedWith(Types.PATH_VARIABLE)) {
-                String explicitName = explicitBindingName(parameter, Types.PATH_VARIABLE);
-                if (explicitName != null && requiredPathVariable(parameter)) {
-                    pathVariableNames.add(explicitName);
+                String resolvedName = resolvedBindingName(parameter, Types.PATH_VARIABLE, methodParamNames);
+                if (resolvedName != null && requiredPathVariable(parameter)) {
+                    pathVariableNames.add(resolvedName);
                 }
+            }
+            if (PAGINATION_INPUT_TYPES.contains(paramTypeName)) {
+                hasExplicitPageParam = true;
             }
             if (Types.PAGEABLE.equals(paramTypeName)) {
                 hasPageable = true;
@@ -954,7 +1067,7 @@ final class RestApiHandlerModelBuilder {
         List<String> headers = union(typeLevelHeaders, mappingStrings(method, "headers"));
         List<String> versionBindings = new ArrayList<>();
         for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
-            String query = explicitBindingName(parameter, Types.REQUEST_PARAM);
+            String query = resolvedBindingName(parameter, Types.REQUEST_PARAM, methodParamNames);
             if (query != null && RestApiRuleHelp.VERSION_PARAM_NAMES.contains(query.toLowerCase(Locale.ROOT))) {
                 versionBindings.add("query:" + query);
             }
@@ -1328,10 +1441,22 @@ final class RestApiHandlerModelBuilder {
         if (type instanceof JavaParameterizedType parameterized) {
             List<JavaType> arguments = parameterized.getActualTypeArguments();
             if (!arguments.isEmpty()) {
-                return arguments.get(0);
+                return unwrapWildcardUpperBound(arguments.get(0));
             }
         }
         return null;
+    }
+
+    private static JavaType unwrapWildcardUpperBound(JavaType argument) {
+        if (argument instanceof JavaWildcardType wildcard
+                && wildcard.getLowerBounds().isEmpty()
+                && !wildcard.getUpperBounds().isEmpty()) {
+            JavaType upper = wildcard.getUpperBounds().get(0);
+            if (!"java.lang.Object".equals(upper.toErasure().getName())) {
+                return upper;
+            }
+        }
+        return argument;
     }
 
     /**
@@ -1359,10 +1484,10 @@ final class RestApiHandlerModelBuilder {
     private String resolveBodyTypeName(JavaType returnType) {
         JavaType body = unwrapWrappers(returnType);
         JavaClass erasure = body.toErasure();
-        if (isCollection(erasure) || Types.PAGE.equals(erasure.getName()) || Types.SLICE.equals(erasure.getName())) {
+        if (isCollection(erasure) || PAGED_TYPES.contains(erasure.getName())) {
             JavaType element = elementType(body);
             if (element != null) {
-                return element.toErasure().getName();
+                return unwrapWrappers(element).toErasure().getName();
             }
         }
         return erasure.getName();
@@ -1389,8 +1514,14 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
-    private static boolean isOptionalRequestParam(JavaParameter parameter) {
-        Optional<JavaAnnotation<JavaParameter>> annotation = parameter.tryGetAnnotationOfType(Types.REQUEST_PARAM);
+    private static boolean isOptionalNamedValueBinding(JavaParameter parameter) {
+        return isOptionalNamedValueAnnotation(parameter, Types.REQUEST_PARAM)
+                || isOptionalNamedValueAnnotation(parameter, Types.REQUEST_HEADER)
+                || isOptionalNamedValueAnnotation(parameter, Types.COOKIE_VALUE);
+    }
+
+    private static boolean isOptionalNamedValueAnnotation(JavaParameter parameter, String annotationName) {
+        Optional<JavaAnnotation<JavaParameter>> annotation = parameter.tryGetAnnotationOfType(annotationName);
         if (annotation.isEmpty()) {
             return false;
         }
@@ -1421,6 +1552,46 @@ final class RestApiHandlerModelBuilder {
         return null;
     }
 
+    /**
+     * Resolves a parameter's binding name from its annotation {@code value}/{@code name} attribute, falling
+     * back to the compiled {@code MethodParameters} parameter name ({@code -parameters}) unless the parameter
+     * is an unnamed aggregate {@code Map}/{@code MultiValueMap}.
+     */
+    private static String resolvedBindingName(
+            JavaParameter parameter, String annotationName, List<String> methodParamNames) {
+        String explicit = explicitBindingName(parameter, annotationName);
+        if (explicit != null) {
+            return explicit;
+        }
+        if (!parameter.isAnnotatedWith(annotationName)) {
+            return null;
+        }
+        String paramTypeName = parameter.getRawType().getName();
+        if ("java.util.Map".equals(paramTypeName) || Types.MULTI_VALUE_MAP.equals(paramTypeName)) {
+            return null;
+        }
+        return compiledParameterName(parameter, methodParamNames);
+    }
+
+    private static String compiledParameterName(JavaParameter parameter, List<String> methodParamNames) {
+        int index = parameter.getIndex();
+        if (index < 0 || index >= methodParamNames.size()) {
+            return null;
+        }
+        String name = methodParamNames.get(index);
+        return name.isEmpty() ? null : name;
+    }
+
+    private static Map<String, List<String>> methodParameterNames(JavaClass type) {
+        try {
+            return ArchUnitLocations.classFile(type)
+                    .map(ClassFileFacts::methodParameterNames)
+                    .orElse(Map.of());
+        } catch (RuntimeException | LinkageError ex) {
+            return Map.of();
+        }
+    }
+
     private static Set<String> jaxRsHttpMethods(JavaMethod method) {
         Set<String> methods = new LinkedHashSet<>();
         for (JavaAnnotation<JavaMethod> annotation : method.getAnnotations()) {
@@ -1445,18 +1616,17 @@ final class RestApiHandlerModelBuilder {
     }
 
     private static boolean isSimpleBodyType(JavaClass type) {
-        if (type.isArray() || type.isPrimitive()) {
+        if (type.isArray() || type.isPrimitive() || safeIsEnum(type)) {
             return true;
         }
         String name = type.getName();
-        return SIMPLE_BODY_TYPES.contains(name) || SCALAR_TYPES.contains(name) || UNTYPED_TYPES.contains(name);
+        return name.startsWith("java.time.")
+                || SIMPLE_BODY_TYPES.contains(name)
+                || SCALAR_TYPES.contains(name)
+                || UNTYPED_TYPES.contains(name);
     }
 
     private static boolean nameLooksStateChanging(String methodName) {
-        String lower = methodName.toLowerCase(Locale.ROOT);
-        if (NON_MUTATING_METHOD_PREFIXES.stream().anyMatch(lower::startsWith)) {
-            return false;
-        }
         return startsWithWord(methodName, STATE_CHANGING_PREFIXES);
     }
 
@@ -1762,6 +1932,9 @@ final class RestApiHandlerModelBuilder {
                 for (JavaClass ancestor : thrown.getAllRawSuperclasses()) {
                     superTypes.add(ancestor.getName());
                 }
+                for (JavaClass iface : thrown.getAllRawInterfaces()) {
+                    superTypes.add(iface.getName());
+                }
                 thrownExceptions.add(located(
                         new ThrownExceptionModel(
                                 type.getSimpleName(), method.getName(), name, thrown.getSimpleName(), superTypes),
@@ -1801,6 +1974,10 @@ final class RestApiHandlerModelBuilder {
 
     private static boolean safeIsRecord(JavaClass type) {
         return type.isRecord();
+    }
+
+    private static boolean safeIsEnum(JavaClass type) {
+        return type.isEnum();
     }
 
     private static boolean safeIsInterface(JavaClass type) {
@@ -1861,7 +2038,7 @@ final class RestApiHandlerModelBuilder {
      */
     private void scanResponseStatusException(JavaClass type) {
         try {
-            if (!type.isAnnotatedWith(Types.RESPONSE_STATUS)) {
+            if (!annotated(type, Types.RESPONSE_STATUS) && !metaAnnotated(type, Types.RESPONSE_STATUS)) {
                 return;
             }
             if (extendsClass(type, "java.lang.Throwable")) {

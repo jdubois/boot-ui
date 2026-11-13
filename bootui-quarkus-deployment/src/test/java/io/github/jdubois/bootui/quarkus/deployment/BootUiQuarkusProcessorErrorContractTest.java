@@ -116,4 +116,23 @@ class BootUiQuarkusProcessorErrorContractTest {
             assertThat(handler.produces()).containsExactly(MediaType.APPLICATION_JSON);
         });
     }
+
+    @Test
+    void unwrapsKotlinSuspendServerExceptionMapperAndDetectsMethodLevelJaxRsResourceScope() throws IOException {
+        List<RawErrorHandler> handlers = BootUiQuarkusProcessor.scanErrorHandlers(indexOf(
+                com.example.bootui.errorcontract.QuarkusErrorFixtures.MethodOnlyJaxRsResource.class,
+                SampleNotFound.class));
+
+        assertThat(handlers).singleElement().satisfies(handler -> {
+            assertThat(handler.source()).isEqualTo(ErrorHandlerDescriptor.QUARKUS_SERVER_EXCEPTION_MAPPER);
+            assertThat(handler.scope()).isEqualTo(ErrorHandlerDescriptor.SCOPE_CONTROLLER);
+            assertThat(handler.scopeTarget())
+                    .isEqualTo(
+                            com.example.bootui.errorcontract.QuarkusErrorFixtures.MethodOnlyJaxRsResource.class
+                                    .getName());
+            assertThat(handler.dynamicStatus()).isTrue();
+            assertThat(handler.returnTypeName()).isEqualTo("org.jboss.resteasy.reactive.RestResponse");
+            assertThat(handler.bodyTypeName()).isEqualTo("java.lang.String");
+        });
+    }
 }
