@@ -4148,8 +4148,9 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
             }
             String defaultAccess = resolveHierarchyDefaultAccessType(entityType);
             Set<Class<?>> visited = new HashSet<>();
+            Set<String> inspectedPrefixes = new HashSet<>();
             visited.add(entityType);
-            inspectHierarchy(context, entity, entityType, "", defaultAccess, visited, 0, details);
+            inspectHierarchy(context, entity, entityType, "", defaultAccess, visited, inspectedPrefixes, 0, details);
         }
         return violation(context, details);
     }
@@ -4161,30 +4162,30 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
             String prefix,
             String fallbackAccess,
             Set<Class<?>> visited,
+            Set<String> inspectedPrefixes,
             int depth,
             AdvisorFindings details) {
         for (Class<?> current = rootType;
                 current != null && current != Object.class;
                 current = current.getSuperclass()) {
-            if (!isManagedClass(current)) {
+            if (!isManagedClass(current) || current.isRecord() || isFrameworkClass(current)) {
                 continue;
             }
             String classAccess = explicitAccessType(current.getDeclaredAnnotations());
-            String effectiveAccess = classAccess != null ? classAccess : fallbackAccess;
+            String effectiveAccess = classAccess != null
+                    ? classAccess
+                    : fallbackAccess != null ? fallbackAccess : inferClassAccessFromMappings(current);
             if ("FIELD".equals(effectiveAccess)) {
                 for (java.lang.reflect.Method method : current.getDeclaredMethods()) {
-                    if (Modifier.isStatic(method.getModifiers())
-                            || method.isSynthetic()
-                            || method.isBridge()
-                            || method.getParameterCount() != 0
-                            || method.getReturnType() == Void.TYPE) {
+                    if (!isGetterMethod(method)) {
                         continue;
                     }
                     if ("PROPERTY".equals(explicitAccessType(method.getDeclaredAnnotations()))
                             || "PROPERTY".equals(counterpartFieldAccessType(current, method))) {
                         continue;
                     }
-                    List<String> matched = allowlistedAnnotationNames(method.getDeclaredAnnotations());
+                    List<String> matched = allowlistedAnnotationNames(
+                            method.getDeclaredAnnotations(), counterpartField(current, method));
                     if (!matched.isEmpty()) {
                         String memberName = method.getName() + "()";
                         String qualified = prefix.isEmpty() ? memberName : prefix + "." + memberName;
@@ -4205,7 +4206,8 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
                             || "FIELD".equals(counterpartGetterAccessType(current, field))) {
                         continue;
                     }
-                    List<String> matched = allowlistedAnnotationNames(field.getDeclaredAnnotations());
+                    List<String> matched = allowlistedAnnotationNames(
+                            field.getDeclaredAnnotations(), counterpartGetter(current, field));
                     if (!matched.isEmpty()) {
                         String qualified = prefix.isEmpty() ? field.getName() : prefix + "." + field.getName();
                         details.add(
@@ -4218,7 +4220,16 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
                 }
             }
             if (depth + 1 < HibernateEntityModel.MAX_EMBEDDED_DEPTH && effectiveAccess != null) {
-                inspectEmbeddedMembers(context, entity, current, prefix, effectiveAccess, visited, depth + 1, details);
+                inspectEmbeddedMembers(
+                        context,
+                        entity,
+                        current,
+                        prefix,
+                        effectiveAccess,
+                        visited,
+                        inspectedPrefixes,
+                        depth + 1,
+                        details);
             }
         }
     }
@@ -4230,6 +4241,7 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
             String prefix,
             String enclosingAccess,
             Set<Class<?>> visited,
+            Set<String> inspectedPrefixes,
             int nextDepth,
             AdvisorFindings details) {
         for (java.lang.reflect.Field field : declaringClass.getDeclaredFields()) {
@@ -4238,12 +4250,19 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
                     || hasAnnotation(field.getDeclaredAnnotations(), "jakarta.persistence.Transient")) {
                 continue;
             }
+            String memberAccess = explicitAccessType(field.getDeclaredAnnotations());
+            boolean persistentField = "FIELD".equals(memberAccess)
+                    || ("FIELD".equals(enclosingAccess)
+                            && !"PROPERTY".equals(memberAccess)
+                            && !"PROPERTY".equals(counterpartGetterAccessType(declaringClass, field)));
+            if (!persistentField) {
+                continue;
+            }
             Class<?> embeddedType =
                     resolveEmbeddedType(field.getType(), field.getGenericType(), field.getDeclaredAnnotations());
-            if (embeddedType != null && visited.add(embeddedType)) {
+            String childPrefix = prefix.isEmpty() ? field.getName() : prefix + "." + field.getName();
+            if (embeddedType != null && inspectedPrefixes.add(childPrefix) && visited.add(embeddedType)) {
                 try {
-                    String memberAccess = explicitAccessType(field.getDeclaredAnnotations());
-                    String childPrefix = prefix.isEmpty() ? field.getName() : prefix + "." + field.getName();
                     inspectHierarchy(
                             context,
                             entity,
@@ -4251,6 +4270,7 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
                             childPrefix,
                             memberAccess != null ? memberAccess : enclosingAccess,
                             visited,
+                            inspectedPrefixes,
                             nextDepth,
                             details);
                 } finally {
@@ -4259,21 +4279,24 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
             }
         }
         for (java.lang.reflect.Method method : declaringClass.getDeclaredMethods()) {
-            if (Modifier.isStatic(method.getModifiers())
-                    || method.isSynthetic()
-                    || method.isBridge()
-                    || method.getParameterCount() != 0
-                    || method.getReturnType() == Void.TYPE
+            if (!isGetterMethod(method)
                     || hasAnnotation(method.getDeclaredAnnotations(), "jakarta.persistence.Transient")) {
+                continue;
+            }
+            String memberAccess = explicitAccessType(method.getDeclaredAnnotations());
+            boolean persistentGetter = "PROPERTY".equals(memberAccess)
+                    || ("PROPERTY".equals(enclosingAccess)
+                            && !"FIELD".equals(memberAccess)
+                            && !"FIELD".equals(counterpartFieldAccessType(declaringClass, method)));
+            if (!persistentGetter) {
                 continue;
             }
             Class<?> embeddedType = resolveEmbeddedType(
                     method.getReturnType(), method.getGenericReturnType(), method.getDeclaredAnnotations());
-            if (embeddedType != null && visited.add(embeddedType)) {
+            String prop = HibernateAttributeModel.propertyNameFromMethodName(method.getName());
+            String childPrefix = prefix.isEmpty() ? prop : prefix + "." + prop;
+            if (embeddedType != null && inspectedPrefixes.add(childPrefix) && visited.add(embeddedType)) {
                 try {
-                    String memberAccess = explicitAccessType(method.getDeclaredAnnotations());
-                    String prop = HibernateAttributeModel.propertyNameFromMethodName(method.getName());
-                    String childPrefix = prefix.isEmpty() ? prop : prefix + "." + prop;
                     inspectHierarchy(
                             context,
                             entity,
@@ -4281,6 +4304,7 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
                             childPrefix,
                             memberAccess != null ? memberAccess : enclosingAccess,
                             visited,
+                            inspectedPrefixes,
                             nextDepth,
                             details);
                 } finally {
@@ -4320,26 +4344,21 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
         for (Class<?> current = entityType;
                 current != null && current != Object.class;
                 current = current.getSuperclass()) {
-            String classAccess = explicitAccessType(current.getDeclaredAnnotations());
+            if (explicitAccessType(current.getDeclaredAnnotations()) != null) {
+                continue;
+            }
             for (java.lang.reflect.Field field : current.getDeclaredFields()) {
-                if (!Modifier.isStatic(field.getModifiers()) && hasIdAnnotation(field.getDeclaredAnnotations())) {
-                    if (!"PROPERTY".equals(classAccess)
-                            || !"FIELD".equals(explicitAccessType(field.getDeclaredAnnotations()))) {
-                        fieldId = true;
-                    }
+                if (!Modifier.isStatic(field.getModifiers())
+                        && explicitAccessType(field.getDeclaredAnnotations()) == null
+                        && hasIdAnnotation(field.getDeclaredAnnotations())) {
+                    fieldId = true;
                 }
             }
             for (java.lang.reflect.Method method : current.getDeclaredMethods()) {
-                if (!Modifier.isStatic(method.getModifiers())
-                        && !method.isSynthetic()
-                        && !method.isBridge()
-                        && method.getParameterCount() == 0
-                        && method.getReturnType() != Void.TYPE
+                if (isGetterMethod(method)
+                        && explicitAccessType(method.getDeclaredAnnotations()) == null
                         && hasIdAnnotation(method.getDeclaredAnnotations())) {
-                    if (!"FIELD".equals(classAccess)
-                            || !"PROPERTY".equals(explicitAccessType(method.getDeclaredAnnotations()))) {
-                        propertyId = true;
-                    }
+                    propertyId = true;
                 }
             }
         }
@@ -4349,28 +4368,88 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
         if (propertyId && !fieldId) {
             return "PROPERTY";
         }
-        for (Class<?> current = entityType;
-                current != null && current != Object.class;
-                current = current.getSuperclass()) {
-            String classAccess = explicitAccessType(current.getDeclaredAnnotations());
-            if (classAccess != null) {
-                return classAccess;
+        return null;
+    }
+
+    private static String inferClassAccessFromMappings(Class<?> type) {
+        boolean hasFieldMapping = false;
+        boolean hasMethodMapping = false;
+        for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+            if (!Modifier.isStatic(field.getModifiers())
+                    && explicitAccessType(field.getDeclaredAnnotations()) == null
+                    && (hasIdAnnotation(field.getDeclaredAnnotations())
+                            || hasNonTransientAllowlistedAnnotation(field.getDeclaredAnnotations()))) {
+                hasFieldMapping = true;
+            }
+        }
+        for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+            if (isGetterMethod(method)
+                    && explicitAccessType(method.getDeclaredAnnotations()) == null
+                    && (hasIdAnnotation(method.getDeclaredAnnotations())
+                            || hasNonTransientAllowlistedAnnotation(method.getDeclaredAnnotations()))) {
+                hasMethodMapping = true;
+            }
+        }
+        if (hasFieldMapping && !hasMethodMapping) {
+            return "FIELD";
+        }
+        if (hasMethodMapping && !hasFieldMapping) {
+            return "PROPERTY";
+        }
+        return null;
+    }
+
+    private static boolean hasNonTransientAllowlistedAnnotation(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            String name = annotation.annotationType().getName();
+            if (!"jakarta.persistence.Transient".equals(name) && ATTRIBUTE_MAPPING_ANNOTATIONS.contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isGetterMethod(java.lang.reflect.Method method) {
+        if (Modifier.isStatic(method.getModifiers())
+                || method.isSynthetic()
+                || method.isBridge()
+                || method.getParameterCount() != 0
+                || method.getReturnType() == Void.TYPE) {
+            return false;
+        }
+        String name = method.getName();
+        if (name.startsWith("get") && name.length() > 3 && Character.isUpperCase(name.charAt(3))) {
+            return true;
+        }
+        return name.startsWith("is")
+                && name.length() > 2
+                && Character.isUpperCase(name.charAt(2))
+                && (method.getReturnType() == boolean.class || method.getReturnType() == Boolean.class);
+    }
+
+    private static boolean isFrameworkClass(Class<?> type) {
+        String name = type.getName();
+        return name.startsWith("org.springframework.")
+                || name.startsWith("org.hibernate.")
+                || name.startsWith("io.quarkus.");
+    }
+
+    private static java.lang.reflect.Field counterpartField(Class<?> declaringClass, java.lang.reflect.Method getter) {
+        String property = HibernateAttributeModel.propertyNameFromMethodName(getter.getName());
+        for (String candidate : List.of(property, getter.getName())) {
+            try {
+                java.lang.reflect.Field field = declaringClass.getDeclaredField(candidate);
+                if (!Modifier.isStatic(field.getModifiers()) && !field.isSynthetic()) {
+                    return field;
+                }
+            } catch (NoSuchFieldException ex) {
+                // Try next field name candidate.
             }
         }
         return null;
     }
 
-    private static String counterpartFieldAccessType(Class<?> declaringClass, java.lang.reflect.Method getter) {
-        String property = HibernateAttributeModel.propertyNameFromMethodName(getter.getName());
-        try {
-            java.lang.reflect.Field field = declaringClass.getDeclaredField(property);
-            return explicitAccessType(field.getDeclaredAnnotations());
-        } catch (NoSuchFieldException ex) {
-            return null;
-        }
-    }
-
-    private static String counterpartGetterAccessType(Class<?> declaringClass, java.lang.reflect.Field field) {
+    private static java.lang.reflect.Method counterpartGetter(Class<?> declaringClass, java.lang.reflect.Field field) {
         String name = field.getName();
         if (name.isEmpty()) {
             return null;
@@ -4379,15 +4458,24 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
         for (String candidate : List.of("get" + capitalized, "is" + capitalized, name)) {
             try {
                 java.lang.reflect.Method getter = declaringClass.getDeclaredMethod(candidate);
-                String access = explicitAccessType(getter.getDeclaredAnnotations());
-                if (access != null) {
-                    return access;
+                if (isGetterMethod(getter)) {
+                    return getter;
                 }
             } catch (NoSuchMethodException ex) {
                 // Try next accessor convention.
             }
         }
         return null;
+    }
+
+    private static String counterpartFieldAccessType(Class<?> declaringClass, java.lang.reflect.Method getter) {
+        java.lang.reflect.Field field = counterpartField(declaringClass, getter);
+        return field == null ? null : explicitAccessType(field.getDeclaredAnnotations());
+    }
+
+    private static String counterpartGetterAccessType(Class<?> declaringClass, java.lang.reflect.Field field) {
+        java.lang.reflect.Method getter = counterpartGetter(declaringClass, field);
+        return getter == null ? null : explicitAccessType(getter.getDeclaredAnnotations());
     }
 
     private static boolean isManagedClass(Class<?> type) {
@@ -4427,13 +4515,27 @@ final class MismatchedAccessPlacementRule extends AbstractHibernateRule {
         return null;
     }
 
-    private static List<String> allowlistedAnnotationNames(Annotation[] annotations) {
+    private static List<String> allowlistedAnnotationNames(
+            Annotation[] annotations, java.lang.reflect.AnnotatedElement counterpart) {
+        Annotation[] counterpartAnnotations =
+                counterpart == null ? new Annotation[0] : counterpart.getDeclaredAnnotations();
         List<String> matched = new ArrayList<>();
         for (Annotation annotation : annotations) {
             String typeName = annotation.annotationType().getName();
-            if (ATTRIBUTE_MAPPING_ANNOTATIONS.contains(typeName)) {
-                matched.add("@" + annotation.annotationType().getSimpleName());
+            if (!ATTRIBUTE_MAPPING_ANNOTATIONS.contains(typeName)) {
+                continue;
             }
+            if (hasAnnotation(counterpartAnnotations, typeName)) {
+                continue;
+            }
+            if ("jakarta.persistence.Transient".equals(typeName)) {
+                // @Transient on a computed helper getter (no backing field in FIELD access) or an unexposed helper
+                // field (no getter in PROPERTY access) does not leave a persistent attribute mapped by mistake.
+                if (counterpart == null || hasAnnotation(counterpartAnnotations, "jakarta.persistence.Transient")) {
+                    continue;
+                }
+            }
+            matched.add("@" + annotation.annotationType().getSimpleName());
         }
         return matched;
     }
@@ -4701,7 +4803,10 @@ final class MultipleLazyLobSameGroupRule extends AbstractHibernateRule {
     }
 
     private static boolean isLazyLob(HibernateAttributeModel attribute) {
-        return attribute.isLob() && attribute.hasBasicLazy() && !attribute.isTransient();
+        Class<?> type = attribute.rawType();
+        boolean locator = type != null
+                && (java.sql.Blob.class.isAssignableFrom(type) || java.sql.Clob.class.isAssignableFrom(type));
+        return attribute.isLob() && attribute.hasBasicLazy() && !attribute.isTransient() && !locator;
     }
 }
 
@@ -4734,6 +4839,9 @@ final class OpenProjectionValueRule extends AbstractHibernateRule {
             for (HibernateRepositoryMethodModel method : context.targets(
                     repository.methods(),
                     candidate -> !candidate.modifying()
+                            && !candidate.nativeQuery()
+                            && (!candidate.hasQuery()
+                                    || HibernateRuleModelSupport.selectsWholeRootEntity(candidate.query()))
                             && (!context.observed() || candidate.evidence().verifiedQueryMethod())
                             && isProjectionInterface(projectionType(candidate), candidate, repository))) {
                 Class<?> projection = projectionType(method);
@@ -4776,24 +4884,34 @@ final class OpenProjectionValueRule extends AbstractHibernateRule {
         if (projectionInterface == null) {
             return List.of();
         }
-        List<String> openMethods = new ArrayList<>();
-        for (java.lang.reflect.Method method : projectionInterface.getMethods()) {
+        Set<String> openMethods = new LinkedHashSet<>();
+        Set<Class<?>> visited = new HashSet<>();
+        collectValueAnnotatedMethods(projectionInterface, visited, openMethods);
+        return List.copyOf(openMethods);
+    }
+
+    private static void collectValueAnnotatedMethods(Class<?> iface, Set<Class<?>> visited, Set<String> openMethods) {
+        if (iface == null || !visited.add(iface)) {
+            return;
+        }
+        for (java.lang.reflect.Method method : iface.getDeclaredMethods()) {
             if (Modifier.isStatic(method.getModifiers())
-                    || method.isDefault()
                     || method.isSynthetic()
                     || method.isBridge()
                     || method.getParameterCount() != 0
                     || method.getReturnType() == Void.TYPE) {
                 continue;
             }
-            for (Annotation annotation : method.getAnnotations()) {
+            for (Annotation annotation : method.getDeclaredAnnotations()) {
                 if (SPRING_VALUE.equals(annotation.annotationType().getName())) {
                     openMethods.add(method.getName() + "()");
                     break;
                 }
             }
         }
-        return openMethods;
+        for (Class<?> superIface : iface.getInterfaces()) {
+            collectValueAnnotatedMethods(superIface, visited, openMethods);
+        }
     }
 }
 

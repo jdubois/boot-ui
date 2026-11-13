@@ -2632,9 +2632,23 @@ class HibernateRulesTests {
                 .evaluate(context(
                         new TestEnvironment(),
                         FieldAccessWithLifecycleAndExplicitPropertyAccessEntity.class,
-                        PropertyAccessWithExplicitFieldAccessEntity.class));
+                        PropertyAccessWithExplicitFieldAccessEntity.class,
+                        FieldAccessSubclassOfExplicitFieldBaseWithOwnPropertyMappings.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void mismatchedAccessPlacementFlagsBackingFieldTransientMismatchAndDeduplicatesEmbeddedGetter() {
+        HibernateRuleResultDto result = new MismatchedAccessPlacementRule()
+                .evaluate(context(new TestEnvironment(), FieldAccessWithBackingFieldTransientOnGetterEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("FieldAccessWithBackingFieldTransientOnGetterEntity#getSecret() places @Transient");
     }
 
     // --- HIB-MAP-027 --------------------------------------------------------
@@ -2667,16 +2681,19 @@ class HibernateRulesTests {
                         io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinConstructorAssociationEntity
                                 .class,
                         io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinBodyAssociationEntity.class,
+                        io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinValueClassPropertyDataEntity
+                                .class,
                         KotlinLateinitEntity.class,
                         io.github.jdubois.bootui.engine.hibernate.kotlinfixtures.KotlinNullableVersionEntity.class,
                         SequenceEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
-        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.violationCount()).isEqualTo(3);
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("KotlinConstructorAssociationEntity"))
-                .anySatisfy(sample -> assertThat(sample).contains("KotlinBodyAssociationEntity"));
+                .anySatisfy(sample -> assertThat(sample).contains("KotlinBodyAssociationEntity"))
+                .anySatisfy(sample -> assertThat(sample).contains("KotlinValueClassPropertyDataEntity"));
     }
 
     // --- HIB-ENTITY-012 -----------------------------------------------------
@@ -2734,6 +2751,7 @@ class HibernateRulesTests {
                         enhanced,
                         SharedDefaultLazyLobGroupEntity.class,
                         DistinctLazyLobGroupsEntity.class,
+                        LazyBlobLocatorsEntity.class,
                         LazyLobEntity.class));
 
         assertThat(violation.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
@@ -2752,7 +2770,7 @@ class HibernateRulesTests {
     // --- HIB-QUERY-009 ------------------------------------------------------
 
     @Test
-    void openProjectionValueRuleFlagsSpelValueProjectionAndPassesClosedProjection() {
+    void openProjectionValueRuleFlagsSpelValueProjectionAndPassesClosedAndScalarQueryProjections() {
         HibernateRepositoryModel repository = new HibernateRepositoryModel(
                 "com.example.OrderProjectionRepository",
                 SequenceEntity.class,
@@ -2761,8 +2779,21 @@ class HibernateRulesTests {
                                 "com.example.OrderProjectionRepository",
                                 "findOpenById",
                                 SequenceEntity.class,
-                                OpenOrderProjection.class,
+                                RedeclaredChildOpenOrderProjection.class,
                                 null,
+                                false,
+                                null,
+                                false,
+                                false,
+                                false,
+                                false,
+                                List.of(Long.class)),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.OrderProjectionRepository",
+                                "findScalarOpenById",
+                                SequenceEntity.class,
+                                OpenOrderProjection.class,
+                                "select s.id as id from SequenceEntity s where s.id = :id",
                                 false,
                                 null,
                                 false,
@@ -2793,7 +2824,7 @@ class HibernateRulesTests {
         assertThat(result.sampleViolations())
                 .singleElement()
                 .asString()
-                .contains("findOpenById", "OpenOrderProjection", "@Value on getDisplayLabel()");
+                .contains("findOpenById", "RedeclaredChildOpenOrderProjection", "@Value on getDisplayLabel()");
     }
 
     // --- HIB-CACHE-004 ------------------------------------------------------
@@ -2872,6 +2903,9 @@ class HibernateRulesTests {
         }
     }
 
+    @jakarta.persistence.Embeddable
+    record RecordZipEmbeddable(@Column(length = 16) String zip) {}
+
     @Entity
     static class FieldAccessWithEmbeddedGetterColumnEntity {
         @Id
@@ -2879,6 +2913,40 @@ class HibernateRulesTests {
 
         @jakarta.persistence.Embedded
         MismatchedAddressEmbeddable address;
+
+        public MismatchedAddressEmbeddable getAddress() {
+            return address;
+        }
+    }
+
+    @Entity
+    static class FieldAccessWithBackingFieldTransientOnGetterEntity {
+        @Id
+        Long id;
+
+        private String secret;
+
+        @Transient
+        public String getSecret() {
+            return secret;
+        }
+    }
+
+    @jakarta.persistence.MappedSuperclass
+    @jakarta.persistence.Access(jakarta.persistence.AccessType.FIELD)
+    abstract static class ExplicitFieldBaseSuperclass {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class FieldAccessSubclassOfExplicitFieldBaseWithOwnPropertyMappings extends ExplicitFieldBaseSuperclass {
+        private String extra;
+
+        @Column(name = "extra_col")
+        public String getExtra() {
+            return extra;
+        }
     }
 
     @Entity
@@ -2889,10 +2957,18 @@ class HibernateRulesTests {
         @Transient
         private String rawCode;
 
+        @jakarta.persistence.Embedded
+        RecordZipEmbeddable zip;
+
         @jakarta.persistence.Access(jakarta.persistence.AccessType.PROPERTY)
         @Column(name = "code", nullable = false)
         public String getCode() {
             return rawCode;
+        }
+
+        @Transient
+        public boolean isNew() {
+            return id == null;
         }
 
         @jakarta.persistence.PrePersist
@@ -2965,10 +3041,29 @@ class HibernateRulesTests {
         byte[] body;
     }
 
+    @Entity
+    static class LazyBlobLocatorsEntity {
+        @Id
+        Long id;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        java.sql.Blob firstBlob;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        java.sql.Clob secondClob;
+    }
+
     interface OpenOrderProjection {
         Long getId();
 
         @org.springframework.beans.factory.annotation.Value("#{target.id + '-' + target.name}")
+        String getDisplayLabel();
+    }
+
+    interface RedeclaredChildOpenOrderProjection extends OpenOrderProjection {
+        @Override
         String getDisplayLabel();
     }
 

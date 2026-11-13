@@ -253,8 +253,8 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 ### HIB-FETCH-009 - Multiple lazy @Lob attributes should use distinct @LazyGroup names
 
 - **Severity**: LOW
-- **Inspects**: `@Lob @Basic(fetch = FetchType.LAZY)` attributes and their `@org.hibernate.annotations.LazyGroup`
-  declarations on bytecode-enhanced entities.
+- **Inspects**: materialized `@Lob @Basic(fetch = FetchType.LAZY)` attributes (excluding JDBC `Blob`/`Clob` locators)
+  and their `@org.hibernate.annotations.LazyGroup` declarations on bytecode-enhanced entities.
 - **Fires when**: a bytecode-enhanced entity declares two or more lazy `@Lob` attributes in the same `@LazyGroup`
   (including the default `"DEFAULT"` group when `@LazyGroup` is omitted).
 - **Why it matters**: Hibernate initializes all attributes in the same bytecode-enhancement lazy group together, so
@@ -635,7 +635,7 @@ upgrade.
 ### HIB-MAP-025 - JPA mapping annotations should match the class access type
 
 - **Severity**: HIGH
-- **Inspects**: `@Entity`, `@MappedSuperclass`, and `@Embeddable` classes, their default or explicit `@Access`
+- **Inspects**: `@Entity`, `@MappedSuperclass`, and non-record `@Embeddable` classes, their default or explicit `@Access`
   (`AccessType.FIELD` vs `AccessType.PROPERTY`) placement, and an explicit allowlist of attribute-mapping annotations
   (`@Column`, `@Formula`, `@Enumerated`, `@Lob`, `@Temporal`, `@Transient`, `@Convert`, `@Converts`, `@JdbcTypeCode`,
   `@JoinColumn`, `@JoinColumns`, `@JoinTable`, `@OneToOne`, `@ManyToOne`, `@OneToMany`, `@ManyToMany`,
@@ -643,7 +643,8 @@ upgrade.
 - **Fires when**: an allowlisted mapping annotation is placed on a getter method while the class uses `AccessType.FIELD`
   (without `@Access(AccessType.PROPERTY)` on the member), or on a backing field while the class uses
   `AccessType.PROPERTY` (for example `@get:Id` in Kotlin without `@Access(AccessType.FIELD)` on the field). Lifecycle
-  callback methods (`@PrePersist`, `@PostLoad`, etc.) are never flagged.
+  callback methods (`@PrePersist`, `@PostLoad`, etc.), record embeddables, framework base classes, and `@Transient`
+  helper getters/fields without a persistent counterpart are never flagged.
 - **Why it matters**: Hibernate silently ignores attribute-mapping annotations placed on the wrong member kind unless
   explicit `@Access` overrides the access type for that attribute.
 - **Recommendation**: move the mapping annotations to match the class's access type (field vs getter), or annotate the
@@ -928,9 +929,11 @@ legitimate domain reads that need managed entity state.
 ### HIB-QUERY-009 - Spring Data interface projections should avoid @Value SpEL
 
 - **Severity**: MEDIUM
-- **Inspects**: Spring Data JPA repository query methods returning interface projections and the methods declared on
-  those projection interfaces.
-- **Fires when**: a projection interface getter is annotated with `@org.springframework.beans.factory.annotation.Value`.
+- **Inspects**: Spring Data JPA derived or whole-entity repository query methods returning interface projections and the
+  methods declared or inherited on those projection interfaces.
+- **Fires when**: a projection interface method (including inherited or `default` methods) is annotated with
+  `@org.springframework.beans.factory.annotation.Value`, and the repository method does not supply an explicit scalar or
+  native query.
 - **Why it matters**: `@Value` SpEL expressions turn an interface projection into an *open projection*. Spring Data JPA
   cannot derive a narrow SQL `SELECT` list for open projections and must load the entire root entity to evaluate the
   SpEL expression in memory.

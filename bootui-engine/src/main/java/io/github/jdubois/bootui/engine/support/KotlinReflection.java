@@ -53,11 +53,12 @@ public final class KotlinReflection {
             boolean hasCopyDefault = false;
             boolean hasComponent1 = false;
             for (Method method : type.getDeclaredMethods()) {
-                if (method.getName().startsWith("copy$default")
+                String name = method.getName();
+                if ((name.startsWith("copy$default") || (name.startsWith("copy-") && name.contains("$default")))
                         && Modifier.isStatic(method.getModifiers())
                         && method.isSynthetic()) {
                     hasCopyDefault = true;
-                } else if ("component1".equals(method.getName())
+                } else if (("component1".equals(name) || name.startsWith("component1-"))
                         && method.getParameterCount() == 0
                         && !Modifier.isStatic(method.getModifiers())) {
                     hasComponent1 = true;

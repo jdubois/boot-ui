@@ -70,3 +70,13 @@ data class KotlinConstructorAssociationEntity(
 data class KotlinBodyAssociationEntity(@field:Id val id: Long? = null) {
     @field:ManyToOne var owner: KotlinNullableVersionEntity? = null
 }
+
+@JvmInline
+value class OrderToken(val raw: String)
+
+@Entity
+data class KotlinValueClassPropertyDataEntity(
+    val token: OrderToken = OrderToken(""),
+    @field:Id val id: Long? = null,
+)
+
