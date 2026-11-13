@@ -71,4 +71,33 @@ test.describe('HTTP Probe view', () => {
     await page.getByLabel('Method').selectOption('POST')
     await expect(page.getByLabel('Request body')).toBeVisible()
   })
+
+  test('picks a declared route from Mappings and highlights path placeholders without auto-sending', async ({
+    openView,
+    page
+  }) => {
+    const probeRequests = []
+    page.on('request', (request) => {
+      if (request.url().endsWith('/bootui/api/http-probe')) probeRequests.push(request)
+    })
+
+    await openView('http-probe', 'HTTP Probe')
+
+    const picker = page.getByLabel('Pick a declared route')
+    await expect(picker).toBeVisible()
+    await picker.fill('/api/sample/hello')
+
+    const options = page.locator('.http-probe-route-option')
+    await expect(options).toHaveCount(1)
+    await expect(options.first()).toContainText('/api/sample/hello')
+    await picker.press('ArrowDown')
+    await picker.press('Enter')
+
+    await expect(page.getByLabel('Method')).toHaveValue('GET')
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue('/api/sample/hello')
+    expect(probeRequests).toHaveLength(0)
+
+    await page.getByLabel('Path', {exact: true}).fill('/api/orders/{id}')
+    await expect(page.locator('.http-probe-placeholder-hint')).toContainText('{id}')
+  })
 })

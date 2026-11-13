@@ -95,7 +95,7 @@ public final class DeclaredRouteTemplates {
     }
 
     /** The live {@code quarkus.http.root-path} followed by {@code quarkus.rest.path}, or {@code ""}. */
-    static String mountPrefix() {
+    public static String mountPrefix() {
         try {
             Config config = ConfigProvider.getConfig();
             return normalize(

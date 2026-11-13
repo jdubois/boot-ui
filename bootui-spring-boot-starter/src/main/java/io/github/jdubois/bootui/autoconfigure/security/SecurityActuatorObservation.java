@@ -52,7 +52,8 @@ public final class SecurityActuatorObservation {
             "mappings",
             "httpexchanges",
             "startup",
-            "logfile");
+            "logfile",
+            "sessions");
 
     private SecurityActuatorObservation() {}
 

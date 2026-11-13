@@ -30,4 +30,22 @@ test.describe('HTTP Probe (Quarkus)', () => {
     await page.getByRole('button', {name: 'Clear'}).click()
     await expect(page.locator('.card', {hasText: 'Response'})).toHaveCount(0)
   })
+
+  test('picks a declared Quarkus route from Mappings without auto-sending', async ({openView, page}) => {
+    await openView('http-probe', 'HTTP Probe')
+
+    const picker = page.getByLabel('Pick a declared route')
+    await expect(picker).toBeVisible()
+    await picker.fill('/api/sample/hello')
+
+    const options = page.locator('.http-probe-route-option')
+    await expect(options).toHaveCount(1)
+    await expect(options.first()).toContainText('/api/sample/hello')
+    await picker.press('ArrowDown')
+    await picker.press('Enter')
+
+    await expect(page.getByLabel('Method')).toHaveValue('GET')
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue('/api/sample/hello')
+    await expect(page.locator('.card', {hasText: 'Response'})).toHaveCount(0)
+  })
 })

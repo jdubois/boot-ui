@@ -32,6 +32,7 @@ public final class MappingsService {
         if (provider == null || !provider.available()) {
             return new MappingsReport(0, List.of());
         }
+        String basePath = composeBasePath(provider.basePath());
         List<MappingDto> mappings = new ArrayList<>(provider.mappings());
         Comparator<String> nullSafeString = Comparator.nullsLast(String::compareTo);
         mappings.sort(Comparator.comparing(MappingDto::pattern, nullSafeString)
@@ -39,15 +40,79 @@ public final class MappingsService {
                 .thenComparing(MappingDto::handler, nullSafeString));
         String normalizedQuery = PagedList.normalize(query);
         PagedList.Result<MappingDto> page =
-                PagedList.from(mappings, mapping -> matchesQuery(mapping, normalizedQuery), offset, limit);
-        return new MappingsReport(mappings.size(), page.items(), page.page());
+                PagedList.from(mappings, mapping -> matchesQuery(mapping, basePath, normalizedQuery), offset, limit);
+        return new MappingsReport(mappings.size(), basePath, page.items(), page.page());
     }
 
-    private static boolean matchesQuery(MappingDto mapping, String query) {
+    /**
+     * Normalizes and joins one or more configured base-path segments (such as
+     * {@code server.servlet.context-path} and {@code spring.mvc.servlet.path},
+     * {@code spring.webflux.base-path}, or {@code quarkus.http.root-path} and
+     * {@code quarkus.rest.path}) into a single leading-slash prefix with no trailing slash, or
+     * {@code ""} when the effective mount is {@code /}.
+     */
+    public static String composeBasePath(String... segments) {
+        if (segments == null || segments.length == 0) {
+            return "";
+        }
+        StringBuilder composed = new StringBuilder();
+        for (String segment : segments) {
+            String normalized = normalizePrefix(segment);
+            if (!normalized.isEmpty()) {
+                composed.append(normalized);
+            }
+        }
+        return composed.toString();
+    }
+
+    private static String normalizePrefix(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        while (trimmed.endsWith("*")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        if (trimmed.isBlank()) {
+            return "";
+        }
+        if (!trimmed.startsWith("/")) {
+            trimmed = "/" + trimmed;
+        }
+        StringBuilder collapsed = new StringBuilder(trimmed.length());
+        boolean previousSlash = false;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char ch = trimmed.charAt(i);
+            if (ch == '/') {
+                if (!previousSlash) {
+                    collapsed.append(ch);
+                }
+                previousSlash = true;
+            } else {
+                collapsed.append(ch);
+                previousSlash = false;
+            }
+        }
+        while (collapsed.length() > 1 && collapsed.charAt(collapsed.length() - 1) == '/') {
+            collapsed.setLength(collapsed.length() - 1);
+        }
+        return "/".equals(collapsed.toString()) ? "" : collapsed.toString();
+    }
+
+    private static boolean matchesQuery(MappingDto mapping, String basePath, String query) {
         return PagedList.contains(mapping.method(), query)
                 || PagedList.contains(mapping.pattern(), query)
+                || (!basePath.isEmpty() && PagedList.contains(composePattern(basePath, mapping.pattern()), query))
                 || PagedList.contains(mapping.handler(), query)
                 || PagedList.contains(mapping.produces(), query)
                 || PagedList.contains(mapping.consumes(), query);
+    }
+
+    private static String composePattern(String basePath, String pattern) {
+        if (pattern == null || pattern.isBlank()) {
+            return basePath;
+        }
+        String normalizedPattern = pattern.startsWith("/") ? pattern : "/" + pattern;
+        return "/".equals(normalizedPattern) ? basePath : basePath + normalizedPattern;
     }
 }

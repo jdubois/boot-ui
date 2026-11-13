@@ -66,6 +66,9 @@ public final class SpringReactiveSecurityObservationCollector {
     private static final int MAX_DEPTH = 8;
     private static final Pattern SECRET_KEY = Pattern.compile(
             "(?i)(?:^|.*[.\\[\\]-])(?:password|passwd|secret|secret-key|token|api-key|apikey|client-secret|private-key)$");
+    private static final Pattern NON_SECRET_VALUE_KEY_SUFFIX = Pattern.compile(
+            "(?i).*[.-](?:expiration|expiry|expires|ttl|timeout|duration|validity|max-age|maxage|refresh-interval)$");
+    private static final Pattern NUMERIC_LITERAL = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?");
     private static final Pattern SAFE_KEY = Pattern.compile("[A-Za-z0-9_.\\[\\]-]{1,200}");
     private static final List<String> FILTER_TYPES = List.of(
             SECURITY + "authorization.AuthorizationWebFilter",
@@ -1028,16 +1031,24 @@ public final class SpringReactiveSecurityObservationCollector {
                     messages.add("Property source inventory limit reached.");
                     return result;
                 }
-                if (SecurityEnvironmentSnapshot.generatedValues(source)) {
+                if (SecurityEnvironmentSnapshot.generatedValues(source)
+                        || SecurityEnvironmentSnapshot.isDevToolsDefaults(environment, source)) {
                     continue;
                 }
                 Map<?, ?> values = safeMap(source);
                 if (values == null) {
                     Set<String> keys = SecurityEnvironmentSnapshot.incompleteKeys(source);
-                    if (keys != null
-                            && keys.stream()
-                                    .noneMatch(key -> SECRET_KEY.matcher(key).matches())) {
-                        continue;
+                    if (keys != null) {
+                        for (String key : keys) {
+                            shadowed.add(key.toLowerCase(Locale.ROOT).replaceAll("[_.-]", ""));
+                        }
+                        if (keys.stream()
+                                .noneMatch(key -> SECRET_KEY.matcher(key).matches()
+                                        && !NON_SECRET_VALUE_KEY_SUFFIX
+                                                .matcher(key)
+                                                .matches())) {
+                            continue;
+                        }
                     }
                     if (!incomplete) {
                         messages.add(
@@ -1065,13 +1076,15 @@ public final class SpringReactiveSecurityObservationCollector {
                             || !SAFE_KEY.matcher(key).matches()
                             || key.toLowerCase(Locale.ROOT).startsWith("bootui.")
                             || !SECRET_KEY.matcher(key).matches()
+                            || NON_SECRET_VALUE_KEY_SUFFIX.matcher(key).matches()
                             || !(rawValue instanceof String text)
                             || text.isBlank()
                             || text.contains("${")
                             || text.length() > MAX_TEXT
-                            || "true".equalsIgnoreCase(text)
-                            || "false".equalsIgnoreCase(text)
-                            || text.contains("://")) {
+                            || "true".equalsIgnoreCase(text.trim())
+                            || "false".equalsIgnoreCase(text.trim())
+                            || text.contains("://")
+                            || NUMERIC_LITERAL.matcher(text.trim()).matches()) {
                         continue;
                     }
                     try {

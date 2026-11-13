@@ -107,6 +107,15 @@ test.describe('HTTP Exchanges view (Quarkus)', () => {
     expect(copied).not.toContain('beta')
     expect(copied.toLowerCase()).not.toContain('x-api-key')
     expect(copied).not.toContain('e2e-must-not-be-copied')
+
+    const probeLink = curlAction.locator('.http-exchanges-probe-link')
+    await expect(probeLink).toBeVisible()
+    await probeLink.click()
+    await expect(page).toHaveURL(/#\/http-probe\?/)
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue(
+      '/api/sample/products?curlProbe=VALUE&curlProbe=VALUE'
+    )
+    await expect(page.locator('#http-probe-accept')).toHaveValue('application/json')
   })
 
   test('ranks routes over the retained window and drills down to one route and a request profile', async ({

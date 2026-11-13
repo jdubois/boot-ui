@@ -30,7 +30,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 72 rules. Nine retired identifiers stay documented below so old links and persisted
+The active catalog contains 69 rules. Twelve retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -56,7 +56,7 @@ The report's `results` list still contains findings only; the scan message summa
 `discovery` for an unavailable factory, metamodel, repository metadata or unit attribution), `unit` is the
 persistence-unit label (`application` for application-wide rules), and `level` is `ERROR` for a failed rule,
 `WARNING` for unavailable evidence, or `INFO` when the only missing evidence is something this advisor does not observe
-by design (such as pool auto-commit guarantees or a provider-selected cache strategy). The `message` says whether the
+by design (such as pool auto-commit guarantees). The `message` says whether the
 rule reached no conclusion, was partly evaluated with no findings, or reported findings from the evaluated part only,
 and names the missing evidence kinds with occurrence counts and up to three sanitized examples such as
 `OrderRepository#findRecent` or an entity name (for example query provenance, a JPQL shape outside the readable subset,
@@ -65,19 +65,17 @@ exception messages. A failed evaluation is counted as failed, not also as unavai
 excludes both. The array holds at most 200 entries: when more are produced, the last entry has source `diagnostics`
 and states how many were omitted, every rule and every distinct discovery reason keeps at least one entry (an `ERROR`
 when it has one), remaining slots go to further `ERROR`s and then round-robin by rule, and `scan.message` states
-"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-011 gaps are reported at `INFO` level because they are advisor limits, as are HIB-CONFIG-008 and
-HIB-CONFIG-021 gaps for a unit whose connection pool cannot be attributed; they still make the scan `PARTIAL` (see
-below). A rule that
-reports findings but could not evaluate every unit or query carries a `coverageNote` on its `results` entry (for
-example `Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed.
-Platform inapplicability is distinct from a failed applicable check, and
+"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and HIB-CONFIG-021 gaps for a unit
+whose connection pool cannot be attributed are reported at `INFO` level because they are advisor limits; they still make
+the scan `PARTIAL` (see below). A rule that reports findings but could not evaluate every unit or query carries a
+`coverageNote` on its `results` entry (for example `Incomplete in [default]: …`) naming up to ten affected units and
+why, including units where the rule failed. Platform inapplicability is distinct from a failed applicable check, and
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
-Two things are only partly observable: the pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021), which is read
-only when a persistence unit can be attributed to a HikariCP or Agroal pool, and effective cache access strategy
-(HIB-CONFIG-011). Where they apply, they and unsupported query-plan evidence can make an ordinary scan `PARTIAL` even
-when entity discovery succeeded. That is coverage disclosure, not a claim that the application is
-broken.
+The pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021) is only partly observable: it is read only when a
+persistence unit can be attributed to a HikariCP or Agroal pool. Where it applies, it and unsupported query-plan
+evidence can make an ordinary scan `PARTIAL` even when entity discovery succeeded. That is coverage disclosure, not a
+claim that the application is broken.
 
 The declaration-based mapping checks are not a complete runtime mapping interpreter. XML overrides, auto-apply
 converters, custom generators, physical naming, runtime query changes, and some collection classifications cannot be
@@ -824,15 +822,9 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 
 ### HIB-QUERY-006 - Paged or streamed reads should prefer DTO projections over whole entities
 
-- **Severity**: INFO
-- **Inspects**: Spring Data JPQL `@Query` methods that are paged or streamed (a `Pageable` parameter, or a `Page`,
-  `Slice`, or `Stream` return type).
-- **Fires when**: the query selects the whole root entity (for example `select o from Entity o`) rather than a
-  constructor expression (`select new ...(...)`) or an interface/DTO projection.
-- **Why it matters**: whole managed entities can load and track more state than a read model needs. Enhanced lazy basic
-  attributes and read-only settings change that cost; whole-entity reads can be intentional.
-- **Recommendation**: return a DTO/interface projection so Hibernate selects only the columns the caller needs; reserve
-  whole-entity reads for cases that mutate the loaded entities.
+**Retired.** Flagged every paged or streamed JPQL `@Query` returning whole entities (`Page<Entity>`, `Slice<Entity>`,
+or `Stream<Entity>`), including the second query of the two-step pagination pattern recommended by HIB-FETCH-003 and
+legitimate domain reads that need managed entity state.
 
 ### HIB-QUERY-007 - Queries should not JOIN FETCH more than one collection
 
@@ -926,17 +918,9 @@ activation with richer registration evidence. Keeping both counted one observati
 
 ### HIB-CONFIG-007 - Hibernate statistics should be enabled when tuning
 
-- **Severity**: INFO
-- **Inspects**: the live statistics-enabled state of the owning factory.
-- **Fires when**: statistics are observed disabled.
-- **Why it matters**: statistics expose query counts, fetch counts, and cache hit ratios useful during performance tuning.
-- **Recommendation**: enable statistics in development or performance-test profiles when investigating data-access
-  behavior. Leaving statistics disabled outside tuning sessions can intentionally avoid collection overhead.
-- **Quarkus**: `quarkus.hibernate-orm.statistics` enables the same live factory statistics, so this rule does not
-  report a unit whose statistics are enabled with the native Quarkus property name.
-- **UI consumer**: the standalone Hibernate Statistics panel (Database group) reads these same live counters once
-  enabled — see the [feature guide](features/database.md#hibernate-statistics) and the
-  [specification](SPECIFICATION.md#_5-17-1-1-hibernate-statistics-panel) for the panel this recommendation unlocks.
+**Retired.** Fired in every profile, including production environments where Hibernate and Quarkus advise keeping
+`hibernate.generate_statistics=false` to avoid runtime collection overhead, and duplicated the standalone
+[Hibernate Statistics](features/database.md#hibernate-statistics) panel and its runtime enable action.
 
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
@@ -996,17 +980,9 @@ activation with richer registration evidence. Keeping both counted one observati
 
 ### HIB-CONFIG-011 - Review effective cache concurrency strategy
 
-- **Severity**: MEDIUM
-- **Inspects**: observed cache activation and available concurrency-strategy evidence.
-- **Fires when**: supported evidence establishes a strategy problem, not merely absence of a Hibernate `@Cache`
-  annotation. Providers may supply a valid default; unresolved effective strategy/eligibility is unknown. Neither
-  adapter observes the provider-selected strategy today, so when a cache-enabled unit has `@Cacheable` entities without
-  `@Cache` the check is skipped with an `INFO` diagnostic rather than reporting findings.
-- **Why it matters**: concurrency behavior must fit the data, but an explicit annotation is not mandatory.
-- **Recommendation**: review the effective strategy and data mutability before adding annotations or changing cache use.
-- **Quarkus**: the effective factory second-level-cache state reflects the same
-  `quarkus.hibernate-orm.second-level-caching-enabled` toggle as HIB-CONFIG-010, so the precondition check for
-  "second-level caching appears configured" is read correctly on Quarkus too.
+**Retired.** Neither adapter observes provider-selected cache access strategies or entity eligibility, so in observed
+mode this rule could never emit a finding and only forced scans of applications using standard
+`@jakarta.persistence.Cacheable` without Hibernate's `@Cache` into `PARTIAL` status.
 
 ### HIB-CONFIG-002 - Schema generation should not mutate non-test databases
 

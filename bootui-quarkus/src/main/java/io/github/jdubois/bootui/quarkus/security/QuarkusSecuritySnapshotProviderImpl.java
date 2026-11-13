@@ -86,8 +86,10 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         inventory();
         List<QuarkusSecurityEndpoint> endpoints = endpoints();
         boolean endpointMetadata = bool("bootui.internal.sec.endpoint-metadata", false);
-        if (!endpointMetadata || bool("bootui.internal.sec.incomplete", false)) {
+        if (!endpointMetadata) {
             unknown("REST endpoint metadata", "QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004");
+        } else if (bool("bootui.internal.sec.incomplete", false)) {
+            unknown("REST endpoint metadata", "QS-AUTH-001", "QS-AUTHZ-001");
         }
         if (!"/".equals(normalizeRootPath(str("quarkus.http.root-path", "/")))
                 || !"/".equals(normalizeRootPath(str("quarkus.rest.path", "/")))) {
@@ -1129,10 +1131,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 if (access == QuarkusSecurityEndpoint.Access.UNKNOWN) {
                     unknown("unknown endpoint authorization", "QS-AUTH-001", "QS-AUTHZ-001");
                 }
-                if (access == QuarkusSecurityEndpoint.Access.UNKNOWN
-                        || path == null
-                        || method == null
-                        || path.contains("{")) {
+                if (access == QuarkusSecurityEndpoint.Access.UNKNOWN || path == null || method == null) {
                     unknown("unsupported REST endpoint declaration");
                 }
                 endpoints.add(new QuarkusSecurityEndpoint(path, method, access, bool(prefix + ".document", false)));

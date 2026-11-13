@@ -230,6 +230,33 @@ class McpAgentViewsTests {
                 .containsExactly("risky");
         assertThat(artifacts(McpAgentViews.vulnerabilities(report, "org.other", 10)))
                 .containsExactly("fine");
+
+        DependencyVulnerabilityDto malware = new DependencyVulnerabilityDto(
+                "MAL-2025-191470",
+                "Malicious code in org.example:risky (Maven)",
+                "Known malicious package: remove this dependency.",
+                "CRITICAL",
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                false);
+        DependenciesReport withMalware = new DependenciesReport(
+                true,
+                1,
+                1,
+                List.of(),
+                null,
+                null,
+                List.of(dependency("org.example", "risky", List.of(malware))),
+                null,
+                null);
+        Map<String, Object> compactMalware = McpAgentViews.vulnerabilities(withMalware, null, 10);
+        DependencyDto listedDep = ((List<DependencyDto>) compactMalware.get("dependencies")).get(0);
+        assertThat(listedDep.vulnerabilities().get(0).details()).isNull();
+        assertThat(listedDep.vulnerabilities().get(0).summary())
+                .startsWith("Known malicious package: remove this dependency rather than upgrading it")
+                .endsWith("Malicious code in org.example:risky (Maven)");
     }
 
     @Test

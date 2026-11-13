@@ -37,10 +37,31 @@ class HibernateRuleCatalogueTests {
                         HibernateRuleRegistry.activeRules(),
                         "io.github.jdubois.bootui.engine.hibernate.HibernateIdentities",
                         Set.of("of", "setting", "idClass"),
-                        // Only ever skips or passes, so it has no finding to key.
-                        Set.of("CacheableWithoutCacheStrategyRule")))
+                        Set.of()))
                 .as("Hibernate rules that never build a canonical finding identity")
                 .isEmpty();
+    }
+
+    @Test
+    void retiredRuleIdsAreNeverRegisteredAgain() {
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(69);
+        assertThat(HibernateRuleRegistry.RETIRED_RULE_IDS)
+                .containsExactlyInAnyOrder(
+                        "HIB-FETCH-004",
+                        "HIB-MAP-012",
+                        "HIB-MAP-017",
+                        "HIB-MAP-019",
+                        "HIB-MAP-021",
+                        "HIB-ENTITY-002",
+                        "HIB-ENTITY-003",
+                        "HIB-ENTITY-004",
+                        "HIB-QUERY-006",
+                        "HIB-CONFIG-001",
+                        "HIB-CONFIG-007",
+                        "HIB-CONFIG-011");
+        assertThat(HibernateRuleRegistry.activeRules())
+                .extracting(rule -> rule.definition().id())
+                .doesNotContainAnyElementsOf(HibernateRuleRegistry.RETIRED_RULE_IDS);
     }
 
     @Test

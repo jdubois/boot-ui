@@ -902,9 +902,22 @@ class BootUiQuarkusProcessor {
             return; // production: the console is dark, so nothing reads the key
         }
         Set<String> coordinates = new LinkedHashSet<>();
+        int skipped =
+                collectRuntimeDependencies(curateOutcome.getApplicationModel().getRuntimeDependencies(), coordinates);
+        if (!coordinates.isEmpty()) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusDependencyProvider.DEPENDENCIES_KEY, String.join(",", coordinates)));
+        }
+        if (skipped > 0) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusDependencyProvider.SKIPPED_KEY, Integer.toString(skipped)));
+        }
+    }
+
+    static int collectRuntimeDependencies(Iterable<ResolvedDependency> dependencies, Set<String> coordinates) {
         int skipped = 0;
-        for (ResolvedDependency dependency : curateOutcome.getApplicationModel().getRuntimeDependencies()) {
-            if (!"jar".equals(dependency.getType())) {
+        for (ResolvedDependency dependency : dependencies) {
+            if (!"jar".equals(dependency.getType()) || dependency.isWorkspaceModule()) {
                 continue;
             }
             String coordinate =
@@ -918,14 +931,7 @@ class BootUiQuarkusProcessor {
             }
             coordinates.add(coordinate);
         }
-        if (!coordinates.isEmpty()) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    QuarkusDependencyProvider.DEPENDENCIES_KEY, String.join(",", coordinates)));
-        }
-        if (skipped > 0) {
-            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
-                    QuarkusDependencyProvider.SKIPPED_KEY, Integer.toString(skipped)));
-        }
+        return skipped;
     }
 
     /**
