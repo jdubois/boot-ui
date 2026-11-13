@@ -21,6 +21,24 @@ class BootUiQuarkusProcessorHibernateTest {
         assertThat(BootUiQuarkusProcessor.hasPanacheExtension(List.of())).isFalse();
     }
 
+    @Test
+    void runtimeDependencyInventoryExcludesWorkspaceModules() {
+        ResolvedDependency workspaceModule = ResolvedDependencyBuilder.newInstance()
+                .setGroupId("com.example")
+                .setArtifactId("local-module")
+                .setVersion("1.0.0-SNAPSHOT")
+                .setWorkspaceModule()
+                .build();
+        ResolvedDependency thirdParty = dependency("quarkus-core", false);
+        java.util.Set<String> coordinates = new java.util.LinkedHashSet<>();
+
+        int skipped =
+                BootUiQuarkusProcessor.collectRuntimeDependencies(List.of(workspaceModule, thirdParty), coordinates);
+
+        assertThat(skipped).isZero();
+        assertThat(coordinates).containsExactly("io.quarkus:quarkus-core:3.33.3.1");
+    }
+
     private static ResolvedDependency dependency(String artifact, boolean extension) {
         ResolvedDependencyBuilder builder = ResolvedDependencyBuilder.newInstance()
                 .setGroupId("io.quarkus")

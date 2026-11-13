@@ -500,12 +500,68 @@ class OsvAdvisoryInterpreterTests {
         Result malware = OsvAdvisoryInterpreter.interpret("MAL-2025-1", PACKAGE, "1.5", List.of(), List.of(), null);
         Result advisory = interpret("1.5", entry("1", "2", LOW));
 
+        assertThat(OsvAdvisoryInterpreter.summary(malware, "Malicious code in org.example:library (Maven)"))
+                .startsWith("Known malicious package: remove this dependency rather than upgrading it")
+                .endsWith("Malicious code in org.example:library (Maven)");
+        assertThat(OsvAdvisoryInterpreter.summary(malware, null)).startsWith("Known malicious package");
+        assertThat(OsvAdvisoryInterpreter.summary(advisory, "Upstream summary."))
+                .isEqualTo("Upstream summary.");
+        assertThat(OsvAdvisoryInterpreter.summary(advisory, null)).isNull();
         assertThat(OsvAdvisoryInterpreter.details(malware, "Upstream text."))
                 .startsWith("Known malicious package: remove this dependency rather than upgrading it")
                 .endsWith("\n\nUpstream text.");
         assertThat(OsvAdvisoryInterpreter.details(malware, null)).startsWith("Known malicious package");
         assertThat(OsvAdvisoryInterpreter.details(advisory, "Upstream text.")).isEqualTo("Upstream text.");
         assertThat(OsvAdvisoryInterpreter.details(advisory, null)).isNull();
+    }
+
+    @Test
+    void collectsStructuredSymbolsOnlyFromMatchedOrFallbackUnresolvedEntries() {
+        Affected matchedBranch = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(range(event("introduced", "1"), event("fixed", "1.9"))),
+                List.of(LOW),
+                List.of("org.example.v1.Parser"));
+        Affected unmatchedBranch = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(range(event("introduced", "2"), event("fixed", "2.4"))),
+                List.of(CRITICAL),
+                List.of("org.example.v2.NewParser"));
+        Affected unresolvedBranch = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(new Range("SEMVER", List.of(event("introduced", "0"), event("fixed", "3")))),
+                List.of(CRITICAL),
+                List.of("org.example.unresolved.FallbackParser"));
+
+        Result matched = interpret("1.5", matchedBranch, unmatchedBranch, unresolvedBranch);
+        assertThat(matched.symbols()).containsExactly("org.example.v1.Parser");
+
+        Result fallback = interpret("1.5", unmatchedBranch, unresolvedBranch);
+        assertThat(fallback.symbols()).containsExactly("org.example.unresolved.FallbackParser");
+    }
+
+    @Test
+    void evaluatesSubsequentFixedEventsInATimelineWhenTheFirstFixRemainsAffected() {
+        Affected botchedFirstFix = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of("1.2.0"),
+                List.of(range(
+                        event("introduced", "1.0.0"),
+                        event("fixed", "1.2.0"),
+                        event("introduced", "1.2.1"),
+                        event("fixed", "1.2.2"))),
+                List.of(CRITICAL));
+
+        Result result = interpret("1.1.0", botchedFirstFix);
+
+        assertThat(result.fixedVersions()).containsExactly("1.2.2");
     }
 
     private static Result interpret(String version, Affected... affected) {

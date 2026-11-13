@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.vulnerabilities;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * File-name policy for attributing a classpath JAR archive to a resolved Maven coordinate.
@@ -18,6 +19,10 @@ import java.util.Locale;
 public final class ArchiveNames {
 
     private static final String JAR_SUFFIX = ".jar";
+
+    private static final Pattern VERSION_QUALIFIER = Pattern.compile(
+            "^(?:(?:alpha|beta|milestone|rc|cr|sp)(?:[.-]?\\d+)?|snapshot|ga|final|release|[abm]\\d+|\\d{8}\\.\\d{6}-\\d+)(?:[-.].*)?$",
+            Pattern.CASE_INSENSITIVE);
 
     private ArchiveNames() {}
 
@@ -61,10 +66,18 @@ public final class ArchiveNames {
         if (archiveFileName.equalsIgnoreCase(base + JAR_SUFFIX)) {
             return true;
         }
-        // artifactId-version-classifier.jar; the classifier must be non-empty.
+        // artifactId-version-classifier.jar; the classifier must be non-empty and not a pre-release version suffix.
         String classified = base + "-";
-        return archiveFileName.length() > classified.length() + JAR_SUFFIX.length()
-                && archiveFileName.regionMatches(true, 0, classified, 0, classified.length())
-                && isJar(archiveFileName);
+        if (archiveFileName.length() <= classified.length() + JAR_SUFFIX.length()
+                || !archiveFileName.regionMatches(true, 0, classified, 0, classified.length())
+                || !isJar(archiveFileName)) {
+            return false;
+        }
+        String classifier =
+                archiveFileName.substring(classified.length(), archiveFileName.length() - JAR_SUFFIX.length());
+        return !classifier.isBlank()
+                && classifier.charAt(0) != '-'
+                && classifier.charAt(0) != '.'
+                && !VERSION_QUALIFIER.matcher(classifier).matches();
     }
 }
