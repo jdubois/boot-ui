@@ -630,6 +630,7 @@ class SpringBootProvenanceTests {
 
     @Test
     void virtualThreadTaskExecutionBackoffPoolAndShutdownRulesVerifyRealBootAutoConfiguration() {
+        boolean virtualThreadsSupported = Runtime.version().feature() >= 21;
         ApplicationContextRunner taskRunner = new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(
                         org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration.class,
@@ -642,9 +643,11 @@ class SpringBootProvenanceTests {
                     assertThat(context).doesNotHaveBean("applicationTaskExecutor");
                     var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
                     var backoff = new VirtualThreadsExecutorBackoffRule().evaluate(snapshot);
-                    assertThat(backoff.status()).isEqualTo("VIOLATION");
-                    assertThat(backoff.sampleViolations().get(0))
-                            .contains("customExecutor", "spring.task.execution.mode=force");
+                    assertThat(backoff.status()).isEqualTo(virtualThreadsSupported ? "VIOLATION" : "SKIPPED");
+                    if (virtualThreadsSupported) {
+                        assertThat(backoff.sampleViolations().get(0))
+                                .contains("customExecutor", "spring.task.execution.mode=force");
+                    }
                 });
 
         taskRunner
@@ -663,10 +666,12 @@ class SpringBootProvenanceTests {
                     assertThat(new VirtualThreadsExecutorBackoffRule()
                                     .evaluate(snapshot)
                                     .status())
-                            .isEqualTo("PASS");
+                            .isEqualTo(virtualThreadsSupported ? "PASS" : "SKIPPED");
                     var ignoredPool = new IgnoredVirtualThreadPoolPropertiesRule().evaluate(snapshot);
-                    assertThat(ignoredPool.status()).isEqualTo("VIOLATION");
-                    assertThat(ignoredPool.violationCount()).isEqualTo(2);
+                    assertThat(ignoredPool.status()).isEqualTo(virtualThreadsSupported ? "VIOLATION" : "SKIPPED");
+                    if (virtualThreadsSupported) {
+                        assertThat(ignoredPool.violationCount()).isEqualTo(2);
+                    }
                     var incompleteShutdown = new IncompleteTaskShutdownTerminationRule().evaluate(snapshot);
                     assertThat(incompleteShutdown.status()).isEqualTo("VIOLATION");
                     assertThat(incompleteShutdown.violationCount()).isEqualTo(1);
