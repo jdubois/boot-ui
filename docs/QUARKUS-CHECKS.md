@@ -6,8 +6,10 @@ The Security panel, on Quarkus, runs a fixed, on-demand **45-rule** ruleset agai
 `quarkus.security.users.embedded.*`, `quarkus.rest-csrf.*` (the CSRF extension), `quarkus.grpc.server.*`,
 `quarkus.smallrye-graphql.*`, `quarkus-elytron-security-jdbc` principal-query settings, and Kafka/SmallRye
 Reactive Messaging channel security settings, plus build-time counts of the standard authorization
-annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed`, and
-`@AuthorizationPolicy`) discovered in the application's own classes. It never intercepts live traffic,
+annotations (`@RolesAllowed`, `@PermitAll`, `@DenyAll`, `@Authenticated`, `@PermissionsAllowed` including repeatable
+`@PermissionsAllowed$List`, `@AuthorizationPolicy`, and Quarkus 3.x HTTP authentication mechanism annotations
+`@BasicAuthentication`, `@FormAuthentication`, `@MTLSAuthentication`, `@BearerTokenAuthentication`,
+`@AuthorizationCodeFlow`, and `@HttpAuthenticationMechanism`) discovered in the application's own classes. It never intercepts live traffic,
 exposes credentials or secrets, or modifies the
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
@@ -256,8 +258,11 @@ Dismissed rules remove all of their findings from the score.
   restrictions: a more-specific permit in one phase cannot override denial in the other.
   A matched path with no matching method mapping **denies** that method; a GET-only mapping does not
   establish that POST is public. Method annotations override class annotations, and explicit `@PermitAll` declarations
-  are not counted as accidentally unannotated. Custom policies, unresolved route templates, inherited/transformed
-  metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
+  are not counted as accidentally unannotated. Parameterized `{param}` routes are evaluated against prefix permissions
+  when no deeper permission path overlaps the template segment, benign interfaces/superclasses without JAX-RS or
+  security metadata do not mark endpoint capture incomplete, and proven uncovered endpoints are retained even when
+  another endpoint's authorization is unknown. Custom policies, overlapping route templates, inherited/transformed
+  security metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
   treated as public.
 - **Recommendation**: Set `deny-unannotated-endpoints=true` (or default roles) and mark public endpoints `@PermitAll`.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>

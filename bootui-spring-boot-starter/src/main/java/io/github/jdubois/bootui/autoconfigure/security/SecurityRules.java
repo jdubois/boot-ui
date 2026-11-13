@@ -53,15 +53,17 @@ abstract class AbstractSecurityRule implements SecurityRule {
                 return skipped("Custom, conditional or multiple header writers leave delivered policy unknown.");
             }
             // Property, method, provider and header-writer observations are not invalidated by an
-            // unrelated custom filter. Chain-dependent absence still needs a complete inventory.
-            boolean filtersKnown = !context.evidence().evaluation().hasApplicableTargets()
+            // unrelated custom filter. Chain-dependent absence still needs a supported chain inventory.
+            boolean chainsSupported = !context.evidence().evaluation().hasApplicableTargets()
+                    || Set.of("SEC-SESSION-002", "SEC-SESSION-003", "SEC-SESSION-004")
+                            .contains(definition.id())
                     || switch (definition.category()) {
                         case AUTHORIZATION, CSRF, SESSION ->
                             context.required(context.chains().stream()
-                                    .allMatch(chain -> chain.details().filtersKnown()));
+                                    .allMatch(chain -> chain.details().chainSupported()));
                         default -> true;
                     };
-            if (SecurityRuleSupport.PASS.equals(result.status()) && !filtersKnown) {
+            if (SecurityRuleSupport.PASS.equals(result.status()) && !chainsSupported) {
                 return skipped("Some ordered chains are unsupported; absence cannot be established.");
             }
             return result;
@@ -371,10 +373,20 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
+        boolean unknown = false;
         for (FilterChainModel chain : context.chains()) {
-            if (context.applies(chain.details().filtersKnown()) && !chain.hasAuthorizationFilter()) {
+            if (chain.hasAuthorizationFilter()) {
+                context.applies(true);
+            } else if (context.applies(chain.details().filtersKnown())) {
                 details.add(chain.describe() + " installs no authorization filter.");
+            } else {
+                context.applies(true);
+                unknown = true;
             }
+        }
+        context.required(!unknown);
+        if (details.isEmpty() && unknown) {
+            return skipped("Some ordered chains are unsupported; absence cannot be established.");
         }
         return violation(context, details);
     }
@@ -429,13 +441,20 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityRule {
         if (chains.isEmpty()) {
             return pass();
         }
+        boolean allChainsSupported =
+                chains.stream().allMatch(chain -> chain.details().chainSupported());
+        boolean anyRestricted = chains.stream().anyMatch(chain -> Boolean.FALSE.equals(chain.permitsAllAnonymous()));
+        boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasRealAuthenticationFilter);
+        if (allChainsSupported && (anyRestricted || anyAuthentication)) {
+            return pass();
+        }
         if (chains.stream()
                 .anyMatch(chain ->
                         chain.permitsAllAnonymous() == null || !chain.details().filtersKnown())) {
+            context.required(false);
             return skipped("Complete structural authorization coverage is unavailable.");
         }
         boolean allOpen = chains.stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
-        boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasRealAuthenticationFilter);
         if (allOpen && !anyAuthentication && chains.stream().anyMatch(FilterChainModel::matchesAnyRequest)) {
             return violation(
                     context,
@@ -470,7 +489,9 @@ final class CatchAllChainOrderingRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         for (int i = 0; i < chains.size() - 1; i++) {
             FilterChainModel chain = chains.get(i);
-            context.required(chain.details().unconditional() || chain.details().matcher() != null);
+            context.required(chain.details().unconditional()
+                    || (chain.details().matcher() != null
+                            && chain.details().matcher().complete()));
             if (chain.matchesAnyRequest()) {
                 details.add(chain.describe()
                         + " matches any request but is not the last chain; later chains are unreachable.");
@@ -507,10 +528,13 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
                 for (int index = 0; index < mappings.size() - 1; index++) {
                     var mapping = mappings.get(index);
                     if (!mapping.matcher().unconditional()) continue;
-                    decision = Boolean.TRUE.equals(mapping.grant())
-                            ? "an unconditional grant"
-                            : Boolean.FALSE.equals(mapping.grant()) ? "an unconditional denial" : decision;
-                    permissiveShadow |= Boolean.TRUE.equals(mapping.grant())
+                    decision = switch (mapping.state()) {
+                        case PERMIT_ALL -> "an unconditional grant";
+                        case DENY_ALL -> "an unconditional denial";
+                        case RESTRICTED_NON_ANONYMOUS -> "an authenticated or authority restriction";
+                        case UNKNOWN -> decision;
+                    };
+                    permissiveShadow |= mapping.state() == SecurityModel.GrantState.PERMIT_ALL
                             && mappings.subList(index + 1, mappings.size()).stream()
                                     .anyMatch(later -> Boolean.FALSE.equals(later.grant()));
                     break;
@@ -1319,7 +1343,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
         }
         if (context.actuator().separateManagementPort())
             return skipped("Separate management context authorization is not observed.");
-        List<String> details = new ArrayList<>();
+        Set<String> details = new java.util.LinkedHashSet<>();
         boolean unknown = !context.evidence().operationsKnown();
         for (SecurityContext.Operation operation : context.evidence().operations()) {
             if (operation.endpoint().equals("health")
@@ -1352,7 +1376,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
             if (!matched) unknown = true;
         }
         context.required(!unknown);
-        if (!details.isEmpty()) return violation(context, details);
+        if (!details.isEmpty()) return violation(context, List.copyOf(details));
         return unknown
                 ? skipped("Exact operation or ordered authorization metadata is incomplete; no callback was executed.")
                 : pass();

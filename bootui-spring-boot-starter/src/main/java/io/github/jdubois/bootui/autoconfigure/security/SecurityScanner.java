@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.Authorizati
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.ChainDetails;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.GrantState;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.MatcherFacts;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
@@ -564,7 +565,8 @@ final class SecurityScanner {
         String matcher = matcherDescription(chain);
         MatcherFacts matcherFacts = matcherFacts(readField(chain, "requestMatcher"), 0);
         AuthorizationManager<HttpServletRequest> authorizationManager = authorizationManager(filters);
-        List<AuthorizationMapping> mappings = authorizationMappings(authorizationManager);
+        List<AuthorizationMapping> mappings =
+                authorizationMappings(authorizationManager, defaultAnonymousAuthorities(filters));
         Boolean permitsAllAnonymous = blanketGrant(mappings);
         SessionFixationFacts sessionFixation = detectSessionFixation(filters);
         Boolean sessionFixationDisabled = sessionFixation.disabled();
@@ -1161,7 +1163,7 @@ final class SecurityScanner {
                 null,
                 null,
                 null,
-                new ChainDetails(false, false, false, unknownMatcher(), List.of(), null, false));
+                new ChainDetails(false, false, false, false, unknownMatcher(), List.of(), null, false, false, false));
     }
 
     private static String frameworkTypeName(Object value) {
@@ -1235,12 +1237,13 @@ final class SecurityScanner {
         return unknownMatcher();
     }
 
-    private static List<AuthorizationMapping> authorizationMappings(AuthorizationManager<HttpServletRequest> manager) {
+    private static List<AuthorizationMapping> authorizationMappings(
+            AuthorizationManager<HttpServletRequest> manager, boolean defaultAnonymousAuthorities) {
         Object unwrapped = unwrapObservationAuthorizationManager(manager);
         if (unwrapped == null) return List.of();
-        if (unwrapped.getClass() == SingleResultAuthorizationManager.class) {
-            return List.of(
-                    new AuthorizationMapping(new MatcherFacts("any", null, null, List.of()), constantGrant(unwrapped)));
+        GrantState direct = grantState(unwrapped, defaultAnonymousAuthorities);
+        if (direct != GrantState.UNKNOWN) {
+            return List.of(new AuthorizationMapping(new MatcherFacts("any", null, null, List.of()), direct));
         }
         if (unwrapped.getClass() != RequestMatcherDelegatingAuthorizationManager.class
                 || !(readField(unwrapped, "mappings") instanceof List<?> mappings)
@@ -1249,20 +1252,140 @@ final class SecurityScanner {
         for (Object value : mappings) {
             if (!(value instanceof RequestMatcherEntry<?> entry)) return List.of();
             result.add(new AuthorizationMapping(
-                    matcherFacts(entry.getRequestMatcher(), 0), constantGrant(entry.getEntry())));
+                    matcherFacts(entry.getRequestMatcher(), 0),
+                    grantState(entry.getEntry(), defaultAnonymousAuthorities)));
         }
         return List.copyOf(result);
     }
 
-    private static Boolean constantGrant(Object manager) {
-        if (manager == null || manager.getClass() != SingleResultAuthorizationManager.class) return null;
-        Object result = readField(manager, "result");
-        if (result == null
-                || result.getClass() != org.springframework.security.authorization.AuthorizationDecision.class) {
-            return null;
+    private static boolean defaultAnonymousAuthorities(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if (filter == null
+                    || !filter.getClass()
+                            .getName()
+                            .equals("org.springframework.security.web.authentication.AnonymousAuthenticationFilter")) {
+                continue;
+            }
+            if (!(readField(filter, "authorities") instanceof List<?> authorities)
+                    || authorities.isEmpty()
+                    || authorities.size() > 16) {
+                return false;
+            }
+            for (Object authority : authorities) {
+                if (authority == null
+                        || !authority
+                                .getClass()
+                                .getName()
+                                .equals("org.springframework.security.core.authority.SimpleGrantedAuthority")
+                        || !"ROLE_ANONYMOUS".equals(readField(authority, "role"))) {
+                    return false;
+                }
+            }
         }
-        Object granted = readField(result, "granted");
-        return granted instanceof Boolean decision ? decision : null;
+        return true;
+    }
+
+    private static GrantState grantState(Object manager) {
+        return grantState(manager, true);
+    }
+
+    private static GrantState grantState(Object manager, boolean defaultAnonymousAuthorities) {
+        if (manager instanceof AuthorizationManager<?> typed) {
+            @SuppressWarnings("unchecked")
+            AuthorizationManager<HttpServletRequest> unwrapped =
+                    unwrapObservationAuthorizationManager((AuthorizationManager<HttpServletRequest>) typed);
+            manager = unwrapped;
+        }
+        if (manager == null) return GrantState.UNKNOWN;
+        String type = manager.getClass().getName();
+        if (manager.getClass() == SingleResultAuthorizationManager.class) {
+            Object result = readField(manager, "result");
+            if (result == null
+                    || result.getClass() != org.springframework.security.authorization.AuthorizationDecision.class) {
+                return GrantState.UNKNOWN;
+            }
+            Object granted = readField(result, "granted");
+            if (granted instanceof Boolean decision) {
+                return decision ? GrantState.PERMIT_ALL : GrantState.DENY_ALL;
+            }
+            return GrantState.UNKNOWN;
+        }
+        if (type.equals("org.springframework.security.authorization.AuthenticatedAuthorizationManager")) {
+            Object strategy = readField(manager, "authorizationStrategy");
+            if (strategy != null
+                    && Set.of(
+                                    "org.springframework.security.authorization.AuthenticatedAuthorizationManager$AuthenticatedAuthorizationStrategy",
+                                    "org.springframework.security.authorization.AuthenticatedAuthorizationManager$FullyAuthenticatedAuthorizationStrategy",
+                                    "org.springframework.security.authorization.AuthenticatedAuthorizationManager$RememberMeAuthorizationStrategy")
+                            .contains(strategy.getClass().getName())) {
+                Object trustResolver = readField(strategy, "trustResolver");
+                if (trustResolver != null
+                        && trustResolver
+                                .getClass()
+                                .getName()
+                                .equals("org.springframework.security.authentication.AuthenticationTrustResolverImpl")
+                        && readField(trustResolver, "anonymousClass") instanceof Class<?> anonymousClass
+                        && anonymousClass
+                                .getName()
+                                .equals("org.springframework.security.authentication.AnonymousAuthenticationToken")
+                        && readField(trustResolver, "rememberMeClass") instanceof Class<?> rememberMeClass
+                        && rememberMeClass
+                                .getName()
+                                .equals("org.springframework.security.authentication.RememberMeAuthenticationToken")) {
+                    return GrantState.RESTRICTED_NON_ANONYMOUS;
+                }
+            }
+            return GrantState.UNKNOWN;
+        }
+        if (type.equals("org.springframework.security.authorization.AuthorityAuthorizationManager")) {
+            Object delegate = readField(manager, "delegate");
+            Object roleHierarchy = delegate != null
+                            && delegate.getClass()
+                                    .getName()
+                                    .equals(
+                                            "org.springframework.security.authorization.AuthoritiesAuthorizationManager")
+                    ? readField(delegate, "roleHierarchy")
+                    : null;
+            if (defaultAnonymousAuthorities
+                    && isNullRoleHierarchy(roleHierarchy)
+                    && readField(manager, "authorities") instanceof Set<?> authorities
+                    && !authorities.isEmpty()
+                    && authorities.size() <= 128
+                    && authorities.stream()
+                            .allMatch(authority -> authority instanceof String name
+                                    && !name.isBlank()
+                                    && !"ROLE_ANONYMOUS".equalsIgnoreCase(name.trim()))) {
+                return GrantState.RESTRICTED_NON_ANONYMOUS;
+            }
+            return GrantState.UNKNOWN;
+        }
+        if (type.equals("org.springframework.security.authorization.AllAuthoritiesAuthorizationManager")) {
+            if (defaultAnonymousAuthorities
+                    && isNullRoleHierarchy(readField(manager, "roleHierarchy"))
+                    && readField(manager, "requiredAuthorities") instanceof java.util.Collection<?> authorities
+                    && !authorities.isEmpty()
+                    && authorities.size() <= 128
+                    && authorities.stream()
+                            .allMatch(authority -> authority instanceof String name
+                                    && !name.isBlank()
+                                    && !"ROLE_ANONYMOUS".equalsIgnoreCase(name.trim()))) {
+                return GrantState.RESTRICTED_NON_ANONYMOUS;
+            }
+            return GrantState.UNKNOWN;
+        }
+        return GrantState.UNKNOWN;
+    }
+
+    private static boolean isNullRoleHierarchy(Object roleHierarchy) {
+        return roleHierarchy != null
+                && roleHierarchy
+                        .getClass()
+                        .getName()
+                        .equals("org.springframework.security.access.hierarchicalroles.NullRoleHierarchy");
+    }
+
+    private static Boolean constantGrant(Object manager) {
+        return grantState(manager).grant();
     }
 
     private static Boolean blanketGrant(List<AuthorizationMapping> mappings) {
@@ -1616,7 +1739,7 @@ final class SecurityScanner {
                                 operationsKnown = false;
                                 continue;
                             }
-                            if (operationPath.contains("{") || operationPath.contains("*")) {
+                            if (hasUnsupportedOperationPath(base, operationPath)) {
                                 operationsKnown = false;
                                 continue;
                             }
@@ -1628,7 +1751,7 @@ final class SecurityScanner {
                                     endpointId,
                                     httpMethod.name(),
                                     (base.endsWith("/") ? base.substring(0, base.length() - 1) : base)
-                                            + (operationPath.startsWith("/") ? "" : "/")
+                                            + (operationPath.startsWith("/") || operationPath.isEmpty() ? "" : "/")
                                             + operationPath,
                                     access.name()));
                         }
@@ -1643,6 +1766,34 @@ final class SecurityScanner {
             errors.add("Actuator operation inventory includes unsupported or parameterized operations.");
         }
         return new SecurityContext.Evidence(operations, operationsKnown, bootJwt, enabled, used, methodKnown);
+    }
+
+    private static boolean hasUnsupportedOperationPath(String base, String operationPath) {
+        if (base == null
+                || operationPath == null
+                || base.contains("{")
+                || base.contains("}")
+                || base.contains("*")
+                || base.contains("?")
+                || operationPath.contains("?")) {
+            return true;
+        }
+        int depth = 0;
+        for (int i = 0; i < operationPath.length(); i++) {
+            char ch = operationPath.charAt(i);
+            if (ch == '{') {
+                if (depth > 0) return true;
+                depth = 1;
+            } else if (ch == '}') {
+                if (depth != 1) return true;
+                depth = 0;
+            } else if (ch == '*') {
+                if (depth != 1 || i == 0 || operationPath.charAt(i - 1) != '{') {
+                    return true;
+                }
+            }
+        }
+        return depth != 0;
     }
 
     private static final Map<String, List<String>> METHOD_ANNOTATIONS = Map.of(
