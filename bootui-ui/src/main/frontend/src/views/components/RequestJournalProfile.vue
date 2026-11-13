@@ -56,23 +56,12 @@ const springSecurityUsable = computed(() => {
   return !!panel && panel.available !== false && panel.enabled !== false
 })
 
-function routeMethodAndPath(route) {
-  if (typeof route !== 'string') return null
-  const space = route.indexOf(' ')
-  if (space <= 0) return null
-  const method = route.slice(0, space).trim().toUpperCase()
-  const path = route.slice(space + 1).trim()
-  if (!HTTP_METHODS.has(method) || !path.startsWith('/')) return null
-  return {method, path}
-}
-
 const springSecurityExplainLink = computed(() => {
   const status = props.profile.status ?? props.status
   if ((status !== 401 && status !== 403) || !springSecurityUsable.value) return null
-  const parsed = routeMethodAndPath(props.profile.route)
-  const method = (props.method || parsed?.method || '').trim().toUpperCase()
-  const path = (props.path || parsed?.path || '').trim()
-  if (!method || !path) return null
+  const method = (props.method || '').trim().toUpperCase()
+  const path = (props.path || '').trim()
+  if (!HTTP_METHODS.has(method) || !path.startsWith('/')) return null
   return {path: '/spring-security', query: {method, path}}
 })
 

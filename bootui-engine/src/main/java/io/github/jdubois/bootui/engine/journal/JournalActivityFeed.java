@@ -991,6 +991,7 @@ public final class JournalActivityFeed {
 
     /** An authorization decision's authentication state, authority count, and rule as {@code text} allows. */
     static String authorizationDetail(AuthorizationPayload decision, JournalTextExposure text) {
+        JournalTextExposure exposure = text == null ? JournalTextExposure.masked() : text;
         StringBuilder detail = new StringBuilder(
                 decision.authentication() == null ? AuthorizationPayload.UNKNOWN : decision.authentication());
         if (decision.authorities() > 0) {
@@ -998,7 +999,7 @@ public final class JournalActivityFeed {
                     .append(decision.authorities())
                     .append(decision.authorities() == 1 ? " authority)" : " authorities)");
         }
-        String rule = text == null ? decision.rule() : text.authorizationRule(decision.rule());
+        String rule = exposure.authorizationRule(decision.rule());
         if (rule != null) {
             detail.append(" · ").append(rule);
         }

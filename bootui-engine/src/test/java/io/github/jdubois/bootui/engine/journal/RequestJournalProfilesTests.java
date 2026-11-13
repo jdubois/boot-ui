@@ -460,7 +460,7 @@ class RequestJournalProfilesTests {
                             "OrderService#check" + i,
                             null,
                             AuthorizationPayload.AUTHENTICATED,
-                            true,
+                            i < RequestJournalProfiles.MAX_AUTHORIZATIONS + 4,
                             1)));
         }
         offer(http("r-many", 2_000, 90_000_000, null));
@@ -519,12 +519,20 @@ class RequestJournalProfilesTests {
 
         RequestJournalProfileDto capped = profiles(null).profile("r-many");
         assertThat(capped.authorizations()).hasSize(RequestJournalProfiles.MAX_AUTHORIZATIONS);
+        assertThat(capped.authorizations().get(RequestJournalProfiles.MAX_AUTHORIZATIONS - 1))
+                .as("a late denial past the cap is retained and kept in start order")
+                .satisfies(decision -> {
+                    assertThat(decision.granted()).isFalse();
+                    assertThat(decision.subject())
+                            .isEqualTo("OrderService#check" + (RequestJournalProfiles.MAX_AUTHORIZATIONS + 4));
+                });
+        assertThat(capped.timeline()).hasSize(RequestJournalProfiles.MAX_AUTHORIZATIONS);
         assertThat(capped.notes())
-                .contains("Showing the first "
+                .contains("Showing "
                         + RequestJournalProfiles.MAX_AUTHORIZATIONS
                         + " of "
                         + (RequestJournalProfiles.MAX_AUTHORIZATIONS + 5)
-                        + " authorization decisions.");
+                        + " authorization decisions (denied decisions retained first).");
     }
 
     @Test

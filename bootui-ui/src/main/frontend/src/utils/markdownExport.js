@@ -447,8 +447,7 @@ function authorizationsSection(doc, profile, journalProfile, level) {
   })
   push(doc, lines.join('\n'))
   const truncationNote = (journalProfile?.notes ?? profile?.notes ?? []).find(
-    (note) =>
-      typeof note === 'string' && note.startsWith('Showing the first ') && note.endsWith('authorization decisions.')
+    (note) => typeof note === 'string' && note.startsWith('Showing ') && note.includes(' authorization decisions')
   )
   if (truncationNote) {
     push(doc, escapeMarkdown(truncationNote))

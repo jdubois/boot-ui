@@ -332,15 +332,20 @@ describe('RequestJournalProfile', () => {
     })
   })
 
-  it('hides the Spring Security explain link when the spring-security panel is disabled or on 200 requests', () => {
+  it('hides the Spring Security explain link when the spring-security panel is disabled, on 200 requests, or without a concrete path', () => {
     const okWrapper = mount(RequestJournalProfile, {
-      props: {profile: journalProfile({status: 200, authorizations: []})}
+      props: {profile: journalProfile({status: 200, authorizations: []}), method: 'GET', path: '/api/orders/42'}
     })
     expect(okWrapper.text()).not.toContain('Authorization decisions')
     expect(okWrapper.text()).not.toContain('Explain in Spring Security')
 
+    const templateOnlyWrapper = mount(RequestJournalProfile, {
+      props: {profile: journalProfile({status: 403, route: 'GET /api/orders/{id}'})}
+    })
+    expect(templateOnlyWrapper.text()).not.toContain('Explain in Spring Security')
+
     const disabledWrapper = mount(RequestJournalProfile, {
-      props: {profile: journalProfile({status: 401})},
+      props: {profile: journalProfile({status: 401}), method: 'GET', path: '/api/orders/42'},
       global: {
         provide: {
           panels: {
