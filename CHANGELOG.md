@@ -26,7 +26,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tagged with `X-BootUI-Assessment-Id` have their short probes (1 to 3 characters) checked too, and each of their matches
   is shown only once a second request confirms the text varies with the value, so a probe equal to a constant is never
   reported; Spring MVC now checks form values a handler binds as parameters
-  ([Security sinks](docs/features/java-agent.md#driving-it-from-a-dast-tool); [#1629](https://github.com/jdubois/boot-ui/issues/1629)).
+  ([Security sinks](docs/features/java-agent.md#driving-it-from-a-dast-tool); [#1701](https://github.com/jdubois/boot-ui/pull/1701)).
 
 ## [2.4.0] - 2026-11-12
 
