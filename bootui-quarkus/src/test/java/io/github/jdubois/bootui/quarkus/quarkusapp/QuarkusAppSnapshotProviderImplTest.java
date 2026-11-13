@@ -417,9 +417,8 @@ class QuarkusAppSnapshotProviderImplTest {
         QuarkusAppSnapshot snapshot = snapshot("dev", Map.of());
         assertThat(values(snapshot, "QA-WEB-001")).containsExactly("default-disabled");
         assertThat(values(snapshot, "QA-WEB-004")).containsExactly("absent");
-        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-001", "QA-WEB-002", "QA-WEB-004");
-        assertThat(snapshot("prod", Map.of()).evaluatedConfigurationRules())
-                .contains("QA-WEB-001", "QA-WEB-002", "QA-WEB-004");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-001", "QA-WEB-004");
+        assertThat(snapshot("prod", Map.of()).evaluatedConfigurationRules()).contains("QA-WEB-001", "QA-WEB-004");
     }
 
     @Test
@@ -449,7 +448,15 @@ class QuarkusAppSnapshotProviderImplTest {
                                 Map.of(
                                         "quarkus.shutdown.timeout", "10s",
                                         "%prod.quarkus.shutdown.timeout", "0")),
-                        "QA-WEB-002"))
+                        "QA-WEB-004"))
+                .containsExactly("zero");
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        "quarkus.shutdown.timeout", "10s",
+                                        "%prod.quarkus.shutdown.timeout", "PT0.0005S")),
+                        "QA-WEB-004"))
                 .containsExactly("zero");
         assertThat(values(snapshot("dev", Map.of("quarkus.shutdown.timeout", "10s")), "QA-WEB-004"))
                 .containsExactly("positive");
@@ -461,13 +468,15 @@ class QuarkusAppSnapshotProviderImplTest {
         QuarkusAppSnapshot snapshot =
                 snapshot("dev", Map.of("%prod.quarkus.shutdown.timeout", "${drain.timeout}", "drain.timeout", "5s"));
         assertThat(values(snapshot, "QA-WEB-004")).isEmpty();
-        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-002", "QA-WEB-004");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-004");
     }
 
     @Test
     void shutdownUsesNativeQuarkusDurationsAndDistinguishesAbsence() {
         assertThat(values(snapshot("prod", Map.of()), "QA-WEB-004")).containsExactly("absent");
-        assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "0")), "QA-WEB-002"))
+        assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "0")), "QA-WEB-004"))
+                .containsExactly("zero");
+        assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "PT0.0005S")), "QA-WEB-004"))
                 .containsExactly("zero");
         assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "10s")), "QA-WEB-004"))
                 .containsExactly("positive");
@@ -481,7 +490,7 @@ class QuarkusAppSnapshotProviderImplTest {
                         "%prod.quarkus.shutdown.timeout", "secret-unparseable-duration",
                         "%prod.quarkus.hibernate-orm.schema-management.strategy", "drop"));
         assertThat(values(snapshot, "QA-PROD-002")).containsExactly("drop");
-        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-002", "QA-WEB-004");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-004");
         assertThat(snapshot.toString()).doesNotContain("secret-unparseable-duration");
     }
 
@@ -577,7 +586,7 @@ class QuarkusAppSnapshotProviderImplTest {
         properties.put("quarkus.shutdown.timeout", "0");
         QuarkusAppSnapshot snapshot = snapshot("prod", properties);
         assertThat(snapshot.problems()).anyMatch(p -> p.message().contains("inspection limit"));
-        assertThat(values(snapshot, "QA-WEB-002")).containsExactly("zero");
+        assertThat(values(snapshot, "QA-WEB-004")).containsExactly("zero");
         assertThat(snapshot.evaluatedConfigurationRules()).isEmpty();
     }
 
