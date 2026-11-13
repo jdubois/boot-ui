@@ -17,7 +17,8 @@ import java.util.Map;
 import java.util.Set;
 
 /** Strict, bounded policy input for the live-target CI assessment. */
-public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights, String sha256) {
+public record CiPolicy(
+        Map<Advisor, Selection> advisors, boolean includeInsights, List<String> failOnObservations, String sha256) {
 
     public static final int MAX_POLICY_BYTES = 64 * 1024;
     private static final Set<String> REQUIRED_ROOT_KEYS = Set.of("schemaVersion", "advisors");
@@ -26,6 +27,7 @@ public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights
 
     public CiPolicy {
         advisors = Map.copyOf(advisors);
+        failOnObservations = List.copyOf(failOnObservations);
     }
 
     public static CiPolicy read(Path path) throws IOException {
@@ -63,14 +65,17 @@ public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights
         }
         JsonValue runtimeContext = root.get("runtimeContext");
         boolean includeInsights = false;
+        List<String> failOnObservations = List.of();
         if (!runtimeContext.isMissing()) {
             requireObject(runtimeContext, "runtimeContext");
-            rejectUnknown(runtimeContext, Set.of("includeInsights"), "runtimeContext");
+            rejectUnknownOnly(runtimeContext, Set.of("includeInsights", "failOnObservations"), "runtimeContext");
+            requireKeys(runtimeContext, Set.of("includeInsights"), "runtimeContext");
             JsonValue include = runtimeContext.get("includeInsights");
             if (!include.isBoolean()) {
                 throw new IllegalArgumentException("runtimeContext.includeInsights must be a boolean");
             }
             includeInsights = include.asBoolean(false);
+            failOnObservations = failOnObservations(runtimeContext.get("failOnObservations"), includeInsights);
         }
         JsonValue entries = root.get("advisors");
         requireObject(entries, "advisors");
@@ -96,7 +101,37 @@ public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights
         if (selected.values().stream().noneMatch(Selection::required)) {
             throw new IllegalArgumentException("Policy must include at least one required advisor");
         }
-        return new CiPolicy(selected, includeInsights, sha256);
+        return new CiPolicy(selected, includeInsights, failOnObservations, sha256);
+    }
+
+    private static List<String> failOnObservations(JsonValue value, boolean includeInsights) {
+        if (value.isMissing()) {
+            return List.of();
+        }
+        String label = "runtimeContext.failOnObservations";
+        if (!value.isArray()) {
+            throw new IllegalArgumentException(label + " must be an array of observation kinds");
+        }
+        if (value.size() == 0) {
+            throw new IllegalArgumentException(label + " must name at least one observation kind");
+        }
+        List<String> kinds = new ArrayList<>();
+        for (JsonValue entry : value.values()) {
+            String kind = entry.asString(null);
+            if (kind == null || !CiRuntimeGate.GATEABLE_KINDS.contains(kind)) {
+                throw new IllegalArgumentException(label + " cannot gate on " + kind + "; supported kinds: "
+                        + String.join(", ", CiRuntimeGate.GATEABLE_KINDS));
+            }
+            if (kinds.contains(kind)) {
+                throw new IllegalArgumentException(label + " has a duplicate kind: " + kind);
+            }
+            if (!includeInsights && CiRuntimeGate.RUNTIME_INSIGHTS_KINDS.contains(kind)) {
+                throw new IllegalArgumentException(
+                        label + " requires runtimeContext.includeInsights to be true for " + kind);
+            }
+            kinds.add(kind);
+        }
+        return kinds;
     }
 
     public List<Advisor> orderedAdvisors() {

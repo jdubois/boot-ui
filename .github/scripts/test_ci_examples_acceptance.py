@@ -26,6 +26,7 @@ class ExampleAcceptanceTests(unittest.TestCase):
         (reports / "bundle.json").write_text(json.dumps({"status": status}))
         (reports / "summary.md").write_text("Assessment")
         (reports / "junit.xml").write_text("<testsuite/>")
+        (reports / "sarif.json").write_text('{"version":"2.1.0"}')
         return reports
 
     def test_candidate_materialization_does_not_create_release_metadata(self):

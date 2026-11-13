@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -81,6 +82,8 @@ public final class CiBundleEvaluator {
             "checksNotRunCount",
             "notExercisedRouteCount",
             "limitationsCount");
+    private static final Set<String> RUNTIME_CONTEXT_KEYS_WITH_GATE = union(RUNTIME_CONTEXT_KEYS, "gate");
+    private static final Set<String> RUNTIME_GATE_KEYS = Set.of("kind", "result", "reason", "affected", "callSites");
     private static final Set<String> RUNTIME_COVERAGE_KEYS = Set.of(
             "sources", "retainedEvents", "byRequestId", "byExecutionId", "byTraceId", "unlinked", "droppedEvents");
     private static final Set<String> RUNTIME_OBSERVATION_KEYS = Set.of("kind", "status", "eligible", "affected");
@@ -179,14 +182,14 @@ public final class CiBundleEvaluator {
                 || !isRunId(bundle.get("runId").asString(null))) {
             throw invalid();
         }
-        validateRuntimeContext(bundle.get("runtimeContext"), policy);
+        boolean gateViolation = validateRuntimeContext(bundle.get("runtimeContext"), policy);
 
         JsonValue advisors = bundle.get("advisors");
         if (!advisors.isArray() || advisors.size() != policy.advisors().size()) {
             throw invalid();
         }
         Set<CiPolicy.Advisor> seen = new HashSet<>();
-        boolean violation = false;
+        boolean violation = gateViolation;
         long totalFindingCount = 0;
         for (JsonValue advisor : advisors.values()) {
             CiPolicy.Advisor name = validateAdvisor(advisor, policy);
@@ -329,15 +332,17 @@ public final class CiBundleEvaluator {
         return violation;
     }
 
-    private static void validateRuntimeContext(JsonValue context, CiPolicy policy) {
+    /** Validates the runtime context and returns whether its runtime gate holds a violation. */
+    private static boolean validateRuntimeContext(JsonValue context, CiPolicy policy) {
         if (context.isMissing()) {
-            if (policy.includeInsights()) {
+            if (policy.includeInsights() || !policy.failOnObservations().isEmpty()) {
                 throw invalid();
             }
-            return;
+            return false;
         }
         requireObject(context);
-        requireKeys(context, RUNTIME_CONTEXT_KEYS);
+        requireKeys(
+                context, policy.failOnObservations().isEmpty() ? RUNTIME_CONTEXT_KEYS : RUNTIME_CONTEXT_KEYS_WITH_GATE);
         String status = context.get("status").asString(null);
         if (status == null
                 || !"UNVERIFIED".equals(context.get("workloadAttribution").asString(null))
@@ -415,6 +420,50 @@ public final class CiBundleEvaluator {
                         || limitationsCount != 0)) {
             throw invalid();
         }
+        return validateRuntimeGate(context.get("gate"), policy);
+    }
+
+    /** A completed assessment's gate rows: one per policy kind, in order, each passed or violated. */
+    private static boolean validateRuntimeGate(JsonValue gate, CiPolicy policy) {
+        List<String> kinds = policy.failOnObservations();
+        if (kinds.isEmpty()) {
+            return false;
+        }
+        if (!gate.isArray() || gate.size() != kinds.size()) {
+            throw invalid();
+        }
+        boolean violation = false;
+        for (int index = 0; index < kinds.size(); index++) {
+            JsonValue row = gate.get(index);
+            requireObject(row);
+            requireKeys(row, RUNTIME_GATE_KEYS);
+            String result = row.get("result").asString(null);
+            long affected = nonnegative(integer(row.get("affected")));
+            JsonValue callSites = row.get("callSites");
+            if (!callSites.isArray() || callSites.size() > CiRuntimeGate.MAX_CALL_SITES) {
+                throw invalid();
+            }
+            for (JsonValue callSite : callSites.values()) {
+                if (!CiRuntimeGate.CALL_SITE.matcher(callSite.asString("")).matches()) {
+                    throw invalid();
+                }
+            }
+            boolean passed = CiRuntimeGate.PASS.equals(result) && affected == 0 && callSites.size() == 0;
+            boolean violated = CiRuntimeGate.VIOLATION.equals(result);
+            if (!kinds.get(index).equals(row.get("kind").asString(null))
+                    || !"-".equals(row.get("reason").asString(null))
+                    || !passed && !violated) {
+                throw invalid();
+            }
+            violation |= violated;
+        }
+        return violation;
+    }
+
+    private static Set<String> union(Set<String> keys, String key) {
+        Set<String> all = new HashSet<>(keys);
+        all.add(key);
+        return Set.copyOf(all);
     }
 
     private static long nonnegative(long value) {

@@ -15,6 +15,14 @@ import java.util.List;
  * @param rows the matching rows, at most {@code limit}
  * @param omitted how many matching rows were left out past the limit
  * @param limitations what the rows cannot see
+ * @param requestValueMatching whether request values are matched against sinks this run (the setting is on and the
+ *     {@code security-sinks} sensor's holder is active), or {@code null} when side effects are unavailable
+ * @param unconfirmedSinkMatches the security-sinks matches not shown yet because a second request has not confirmed
+ *     them; a count, never a value
+ * @param requestValuesHeld how many request values the holder has kept for matching since the JVM started; zero means
+ *     no request was checked, not that no input reached a sink
+ * @param requestValueChecksSkipped how many requests or checks request-value matching skipped since the JVM started:
+ *     a full holder table, a request's check budget spent, or a check that found its slot busy
  */
 public record SideEffectsAgentReport(
         boolean available,
@@ -24,7 +32,11 @@ public record SideEffectsAgentReport(
         int matched,
         List<SideEffectsRowDto> rows,
         int omitted,
-        List<String> limitations) {
+        List<String> limitations,
+        Boolean requestValueMatching,
+        long unconfirmedSinkMatches,
+        long requestValuesHeld,
+        long requestValueChecksSkipped) {
 
     /** The rows an agent gets when it asks for no limit. */
     public static final int DEFAULT_LIMIT = 20;

@@ -129,6 +129,39 @@ class SecuritySinksServiceTests {
     }
 
     @Test
+    void theAgentReportStatesRequestValueMatchingAndUnconfirmedMatchesAsFields() {
+        start();
+        var before = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        inRequest(
+                FIRST,
+                "sort",
+                seeded("created_at"),
+                () -> Launcher.sql("select * from orders order by created_at", context.get()));
+
+        var pending = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(pending.requestValueMatching()).isTrue();
+        assertThat(pending.unconfirmedSinkMatches()).isEqualTo(1);
+        assertThat(pending.requestValuesHeld()).isEqualTo(before.requestValuesHeld() + 1);
+        assertThat(pending.requestValueChecksSkipped()).isEqualTo(before.requestValueChecksSkipped());
+
+        inRequest(
+                SECOND,
+                "sort",
+                seeded("updated_at"),
+                () -> Launcher.sql("select * from orders order by updated_at", context.get()));
+        var confirmed = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(confirmed.unconfirmedSinkMatches()).isZero();
+        assertThat(confirmed.rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.kind()).isEqualTo(SideEffectsCatalog.SQL_TEXT));
+
+        AgentRequestValues.configure(false);
+        assertThat(service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null)
+                        .requestValueMatching())
+                .isFalse();
+    }
+
+    @Test
     void aMatchOutsideALiteralWaitsForConfirmationAndOneThatNeverVariesIsNotShown() {
         start();
         // A column the statement always names: coincidental, never confirmed.

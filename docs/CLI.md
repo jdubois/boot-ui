@@ -746,7 +746,7 @@ if [ "$workload_status" -ne 0 ]; then exit "$workload_status"; fi
 exit "$assessment_status"
 ```
 
-The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
+The assessment writes a bounded `bundle.json`, `summary.md`, `junit.xml`, and `sarif.json`; report prose and raw finding text are
 not copied into these outputs. The Markdown summary lists up to 50 retained rule IDs, severities, counts, and whether
 they meet their advisor's threshold. Threshold-meeting findings appear first; any omitted rule summaries remain in
 `bundle.json`. Stable assessment error codes also appear in the summary. With `runtimeContext.includeInsights: true`,

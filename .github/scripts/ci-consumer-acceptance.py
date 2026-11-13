@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / ".github/scripts/fixtures/ci-consumer"
 ACTION = ROOT / ".github/actions/bootui"
 API_PATH = "/diagnostics/api"
-REPORT_FILES = {"bundle.json", "summary.md", "junit.xml"}
+REPORT_FILES = {"bundle.json", "summary.md", "junit.xml", "sarif.json"}
 FINDING_SENTINEL = "bootui-ci-private-finding-payload"
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 SERVERS = {
@@ -591,6 +591,12 @@ def verify_reports(reports, status, sentinel, expected_advisor="rest-api"):
     require(
         (reports / "summary.md").read_text(encoding="utf-8").startswith(f"# BootUI assessment: {status}\n"),
         "Summary does not expose the assessment status",
+    )
+    sarif = json.loads((reports / "sarif.json").read_text(encoding="utf-8"))
+    require(sarif["version"] == "2.1.0", "SARIF is not version 2.1.0")
+    require(
+        sarif["runs"][0]["invocations"][0]["executionSuccessful"] == (status != "NOT_ASSESSED"),
+        "SARIF execution status disagrees with the bundle",
     )
     suite = ET.parse(reports / "junit.xml").getroot()
     require(suite.tag == "testsuite" and suite.get("name") == "bootui-ci", "Invalid JUnit suite")

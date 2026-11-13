@@ -31,8 +31,8 @@ import java.util.regex.Pattern;
 public final class CiCollection {
 
     private static final Set<String> ROOT_ENTRIES = Set.of("plan.json", "policy.json", "slots");
-    private static final Set<String> SLOT_ENTRIES =
-            Set.of("claim.json", "completion.json", "witness.json", "bundle.json", "summary.md", "junit.xml");
+    private static final Set<String> SLOT_ENTRIES = Set.of(
+            "claim.json", "completion.json", "witness.json", "bundle.json", "summary.md", "junit.xml", "sarif.json");
     private static final Set<String> CLAIM_KEYS =
             Set.of("schemaVersion", "planSha256", "assessmentId", "contextId", "attemptId");
     private static final Set<String> COMPLETION_KEYS = Set.of(
@@ -47,7 +47,8 @@ public final class CiCollection {
             "witnessSha256",
             "bundleSha256",
             "summarySha256",
-            "junitSha256");
+            "junitSha256",
+            "sarifSha256");
     private static final Pattern ERROR_CODE = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
     private static final int MAX_WITNESS_BYTES = 16 * 1024;
     private static final int MAX_JUNIT_BYTES = 256 * 1024;
@@ -289,6 +290,7 @@ public final class CiCollection {
                 readMatching(slot, "bundle.json", CiAssessmentRunner.MAX_BUNDLE_BYTES, completion, "bundleSha256");
         readMatching(slot, "summary.md", CiAssessmentRunner.MAX_SUMMARY_BYTES, completion, "summarySha256");
         readMatching(slot, "junit.xml", MAX_JUNIT_BYTES, completion, "junitSha256");
+        readMatching(slot, "sarif.json", CiAssessmentRunner.MAX_SARIF_BYTES, completion, "sarifSha256");
         int exitCode = verifyEvidence(snapshot, assessmentId, witness, bundle);
         if ((exitCode == 0) != "PASS".equals(status)) {
             throw new IllegalArgumentException("The collection verdict does not match its evidence");
@@ -469,6 +471,7 @@ public final class CiCollection {
                     CiEvidenceStore.writeNew(slot, "bundle.json", evidence.bundle());
                     CiEvidenceStore.writeNew(slot, "summary.md", evidence.summary());
                     CiEvidenceStore.writeNew(slot, "junit.xml", evidence.junit());
+                    CiEvidenceStore.writeNew(slot, "sarif.json", evidence.sarif());
                 }
                 int resultExitCode = error == null ? assessmentExit : 1;
                 Map<String, JsonValue> completion = claim(snapshot, contextId, assessmentId, attemptId);
@@ -488,6 +491,8 @@ public final class CiCollection {
                         JsonValue.of(evidence == null ? "" : CiEvidenceStore.sha256(evidence.summary())));
                 completion.put(
                         "junitSha256", JsonValue.of(evidence == null ? "" : CiEvidenceStore.sha256(evidence.junit())));
+                completion.put(
+                        "sarifSha256", JsonValue.of(evidence == null ? "" : CiEvidenceStore.sha256(evidence.sarif())));
                 CiEvidenceStore.writeNew(slot, "completion.json", recordBytes(completion));
                 exitCode = resultExitCode;
                 return exitCode;
@@ -495,7 +500,7 @@ public final class CiCollection {
         }
     }
 
-    private record Evidence(byte[] witness, byte[] bundle, byte[] summary, byte[] junit) {
+    private record Evidence(byte[] witness, byte[] bundle, byte[] summary, byte[] junit, byte[] sarif) {
         static Evidence read(Path staging) throws IOException {
             Path reports = staging.resolve("reports");
             return new Evidence(
@@ -504,7 +509,8 @@ public final class CiCollection {
                             reports.resolve("bundle.json"), CiAssessmentRunner.MAX_BUNDLE_BYTES),
                     CiEvidenceStore.readRegularPath(
                             reports.resolve("summary.md"), CiAssessmentRunner.MAX_SUMMARY_BYTES),
-                    CiEvidenceStore.readRegularPath(reports.resolve("junit.xml"), MAX_JUNIT_BYTES));
+                    CiEvidenceStore.readRegularPath(reports.resolve("junit.xml"), MAX_JUNIT_BYTES),
+                    CiEvidenceStore.readRegularPath(reports.resolve("sarif.json"), CiAssessmentRunner.MAX_SARIF_BYTES));
         }
     }
 
@@ -532,7 +538,7 @@ public final class CiCollection {
                 if (!attributes.isDirectory()) {
                     throw new IOException("The temporary CI report directory changed");
                 }
-                for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+                for (String name : CiAssessmentRunner.REPORT_FILES) {
                     Files.deleteIfExists(reports.resolve(name));
                 }
                 Files.delete(reports);

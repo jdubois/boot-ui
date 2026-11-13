@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **SARIF report from CI assessments** writes `sarif.json` beside `bundle.json`, `summary.md`, and `junit.xml`: the
+  same retained rule summaries as SARIF 2.1.0, with skipped advisors and assessment errors as tool notifications
+  ([CI reference](docs/ci/reference.md#reports-and-failures); [#1629](https://github.com/jdubois/boot-ui/issues/1629)).
+- **Opt-in runtime gate for CI assessments**: `runtimeContext.failOnObservations` fails the assessment on the Runtime
+  Insights security observations `anonymous-success-on-restricted-route` and `anonymous-data-reach`, and on the BootUI
+  agent's confirmed `request-input-in-sink` rows, and reports a check without complete evidence as not assessed rather
+  than passed; `get_side_effects` now states `requestValueMatching` and `unconfirmedSinkMatches`
+  ([Runtime gate](docs/ci/reference.md#runtime-gate); [#1629](https://github.com/jdubois/boot-ui/issues/1629)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

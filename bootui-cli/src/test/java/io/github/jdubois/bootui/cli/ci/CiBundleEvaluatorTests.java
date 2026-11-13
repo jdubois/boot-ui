@@ -309,6 +309,72 @@ class CiBundleEvaluatorTests {
     }
 
     @Test
+    void revalidatesTheRuntimeGateAgainstThePolicy() throws Exception {
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":true,"failOnObservations":["anonymous-data-reach"]}}
+                """);
+        policyHash = CiPolicy.read(policy).sha256();
+        JsonValue violated = gateRow("anonymous-data-reach", "VIOLATION", "-", 2);
+        JsonValue passed = gateRow("anonymous-data-reach", "PASS", "-", 0);
+
+        assertThat(check(withGate(bundle("VIOLATION", List.of(), policyHash), violated), "test-assessment"))
+                .isEqualTo(3);
+        assertThat(check(withGate(bundle("PASS", List.of(), policyHash), passed), "test-assessment"))
+                .isZero();
+        // forged: a violation reported as a pass, a gate that does not match the policy, or no gate at all
+        assertThat(check(withGate(bundle("PASS", List.of(), policyHash), violated), "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("PASS", List.of(), policyHash),
+                                gateRow("anonymous-success-on-restricted-route", "PASS", "-", 0)),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("PASS", List.of(), policyHash),
+                                gateRow("anonymous-data-reach", "NOT_ASSESSED", "INSUFFICIENT", 0)),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withRuntimeContext(bundle("PASS", List.of(), policyHash), runtimeContext("CAPTURED")),
+                        "test-assessment"))
+                .isEqualTo(1);
+        // call sites: only on a violation, and only as Class#method
+        assertThat(check(
+                        withGate(
+                                bundle("PASS", List.of(), policyHash),
+                                withMember(passed, "callSites", JsonValue.array(List.of(JsonValue.of("a.B#c"))))),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("VIOLATION", List.of(), policyHash),
+                                withMember(
+                                        violated, "callSites", JsonValue.array(List.of(JsonValue.of("private text"))))),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("VIOLATION", List.of(), policyHash),
+                                withMember(violated, "callSites", JsonValue.array(List.of(JsonValue.of("a.B#c"))))),
+                        "test-assessment"))
+                .isEqualTo(3);
+    }
+
+    private JsonValue withGate(JsonValue bundle, JsonValue row) {
+        return withRuntimeContext(
+                bundle, withMember(runtimeContext("CAPTURED"), "gate", JsonValue.array(List.of(row))));
+    }
+
+    private static JsonValue gateRow(String kind, String result, String reason, long affected) {
+        return JsonValue.parseStrict("""
+                {"kind":"%s","result":"%s","reason":"%s","affected":%d,"callSites":[]}
+                """.formatted(kind, result, reason, affected));
+    }
+
+    @Test
     void rejectsRequiredSkipsAndUnknownFindingSeverities() throws Exception {
         JsonValue skipped = advisor("SKIPPED", "UNAVAILABLE", List.of(), false, false, 0);
         assertThat(check(bundle("PASS", List.of(), policyHash, skipped), "test-assessment"))
