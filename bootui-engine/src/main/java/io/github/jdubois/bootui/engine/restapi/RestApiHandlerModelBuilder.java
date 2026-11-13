@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.restapi;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
-import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaEnumConstant;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMember;
@@ -267,6 +266,7 @@ final class RestApiHandlerModelBuilder {
     private final List<String> responseStatusExceptionClasses = new ArrayList<>();
     private final List<ThrownExceptionModel> thrownExceptions = new ArrayList<>();
     private final IdentityHashMap<Object, RestApiLocations.Element> locations = new IdentityHashMap<>();
+    private final Map<String, Map<String, Set<String>>> typeAnnotationsCache = new java.util.HashMap<>();
     private boolean hasExceptionHandling;
     private boolean springDataPageViaDtoConfigured;
     private int springControllerCount;
@@ -590,7 +590,7 @@ final class RestApiHandlerModelBuilder {
         for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             String paramTypeName = parameter.getRawType().getName();
             String compiledName = compiledParameterName(parameter, methodParamNames);
-            hasMultipartOrFormParam |= isMultipartOrFormParameter(parameter);
+            hasMultipartOrFormParam |= safeIsMultipartOrFormParameter(parameter);
             if (PAGINATION_INPUT_TYPES.contains(paramTypeName)) {
                 hasExplicitPageParam = true;
             }
@@ -605,7 +605,7 @@ final class RestApiHandlerModelBuilder {
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
                 if (cascadeValidated) {
-                    collectMissingNestedValidFields(payload, missingNestedValidFields, new LinkedHashSet<>(), 0);
+                    safeCollectMissingNestedValidFields(payload, missingNestedValidFields);
                 }
             } else if (hasConstraintAnnotation(parameter)) {
                 hasConstrainedSimpleParam = true;
@@ -1076,7 +1076,7 @@ final class RestApiHandlerModelBuilder {
         boolean hasMultipartOrFormParam = false;
         for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             String paramTypeName = parameter.getRawType().getName();
-            boolean multipartOrForm = isMultipartOrFormParameter(parameter);
+            boolean multipartOrForm = safeIsMultipartOrFormParameter(parameter);
             hasMultipartOrFormParam |= multipartOrForm;
             if (BODY_ACCESS_PARAMETER_TYPES.contains(paramTypeName)
                     || parameter.isAnnotatedWith(Types.REQUEST_PART)
@@ -1095,7 +1095,7 @@ final class RestApiHandlerModelBuilder {
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
                 if (cascadeValidated) {
-                    collectMissingNestedValidFields(payload, missingNestedValidFields, new LinkedHashSet<>(), 0);
+                    safeCollectMissingNestedValidFields(payload, missingNestedValidFields);
                 }
             }
             boolean simpleBinding =
@@ -1136,7 +1136,7 @@ final class RestApiHandlerModelBuilder {
                     }
                 }
             }
-            if (hasNoBindingAnnotation(parameter) && isUnannotatedSimpleRequestParamType(parameter.getRawType())) {
+            if (hasNoBindingAnnotation(parameter) && isUnannotatedSimpleRequestParamParameter(parameter)) {
                 String compiledName = compiledParameterName(parameter, methodParamNames);
                 if (compiledName != null) {
                     candidateUnannotatedSimpleParams.add(compiledName);
@@ -2214,6 +2214,8 @@ final class RestApiHandlerModelBuilder {
             if (name.startsWith(Types.CONSTRAINT_PACKAGE)
                     || Types.VALID.equals(name)
                     || Types.VALIDATED.equals(name)
+                    || name.startsWith("io.swagger.v3.oas.annotations.")
+                    || name.startsWith("org.eclipse.microprofile.openapi.annotations.")
                     || name.endsWith(".Nullable")
                     || name.endsWith(".NonNull")
                     || name.endsWith(".NotNull")) {
@@ -2224,6 +2226,18 @@ final class RestApiHandlerModelBuilder {
         return true;
     }
 
+    private static boolean isUnannotatedSimpleRequestParamParameter(JavaParameter parameter) {
+        JavaClass raw = parameter.getRawType();
+        if (Types.OPTIONAL.equals(raw.getName())) {
+            JavaType inner = firstTypeArgument(parameter.getType());
+            if (inner == null) {
+                return false;
+            }
+            raw = inner.toErasure();
+        }
+        return isUnannotatedSimpleRequestParamType(raw);
+    }
+
     private static boolean isUnannotatedSimpleRequestParamType(JavaClass type) {
         if (type.isPrimitive()) {
             return true;
@@ -2232,10 +2246,19 @@ final class RestApiHandlerModelBuilder {
         if (SCALAR_TYPES.contains(name) || SIMPLE_PATH_SCALAR_TYPES.contains(name)) {
             return true;
         }
-        if (name.startsWith("java.time.") && !"java.time.ZoneId".equals(name)) {
+        if (name.startsWith("java.time.") && !"java.time.ZoneId".equals(name) && !"java.time.Clock".equals(name)) {
             return true;
         }
         return safeIsEnum(type) && !name.startsWith("org.springframework.") && !name.startsWith("jakarta.");
+    }
+
+    private boolean safeIsMultipartOrFormParameter(JavaParameter parameter) {
+        try {
+            return isMultipartOrFormParameter(parameter);
+        } catch (RuntimeException | LinkageError ex) {
+            incomplete = true;
+            return false;
+        }
     }
 
     private boolean isMultipartOrFormParameter(JavaParameter parameter) {
@@ -2252,6 +2275,15 @@ final class RestApiHandlerModelBuilder {
         if (raw.isArray()
                 && MULTIPART_PARAMETER_TYPES.contains(raw.getComponentType().getName())) {
             return true;
+        }
+        if ((NESTED_MAP_TYPES.contains(raw.getName()) || Types.MULTI_VALUE_MAP.equals(raw.getName()))
+                && parameter.getType() instanceof JavaParameterizedType parameterized) {
+            for (JavaType argument : parameterized.getActualTypeArguments()) {
+                if (MULTIPART_PARAMETER_TYPES.contains(
+                        unwrapWildcardUpperBound(argument).toErasure().getName())) {
+                    return true;
+                }
+            }
         }
         JavaClass unwrapped = requestPayload(parameter);
         if (MULTIPART_PARAMETER_TYPES.contains(unwrapped.getName())) {
@@ -2275,6 +2307,17 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
+    private void safeCollectMissingNestedValidFields(
+            JavaClass payload, List<MissingNestedValidField> missingNestedValidFields) {
+        try {
+            collectMissingNestedValidFields(payload, missingNestedValidFields, new LinkedHashSet<>(), 0);
+        } catch (RuntimeException | LinkageError ex) {
+            incomplete = true;
+        }
+    }
+
+    private record NestedCandidate(JavaClass type, Integer typeArgumentIndex, boolean isMapKey) {}
+
     private void collectMissingNestedValidFields(
             JavaClass currentDto, List<MissingNestedValidField> sink, Set<String> visited, int depth) {
         if (depth >= MAX_NESTED_DTO_DEPTH || currentDto == null || !visited.add(currentDto.getName())) {
@@ -2295,13 +2338,15 @@ final class RestApiHandlerModelBuilder {
                         && !"java.lang.Record".equals(cursor.getName());
                 superDepth++) {
             Map<String, Set<String>> typeAnnotations = memberTypeAnnotations(cursor);
-            for (JavaField field : KotlinBytecode.declaredFields(cursor)) {
+            List<JavaField> fields = new ArrayList<>(KotlinBytecode.declaredFields(cursor));
+            fields.sort(java.util.Comparator.comparing(JavaField::getName));
+            for (JavaField field : fields) {
                 if (field.getModifiers().contains(JavaModifier.STATIC)
                         || field.getModifiers().contains(JavaModifier.TRANSIENT)) {
                     continue;
                 }
-                boolean cascaded = hasValidCascadeOnField(cursor, field, typeAnnotations);
-                for (JavaClass childType : nestedCandidateTypes(field)) {
+                for (NestedCandidate candidate : nestedCandidateTypes(field)) {
+                    JavaClass childType = candidate.type();
                     if (childType == null
                             || isSimpleBodyType(childType)
                             || safeIsInterface(childType)
@@ -2310,9 +2355,10 @@ final class RestApiHandlerModelBuilder {
                             || isFrameworkOrJdkType(childType.getName())) {
                         continue;
                     }
+                    boolean cascaded = hasValidCascadeOnField(cursor, field, candidate, typeAnnotations);
                     if (cascaded) {
                         collectMissingNestedValidFields(childType, sink, new LinkedHashSet<>(visited), depth + 1);
-                    } else if (declaresValidationConstraints(childType, new LinkedHashSet<>(), 0)) {
+                    } else if (declaresValidationConstraints(childType, new LinkedHashSet<>(visited), depth + 1)) {
                         sink.add(new MissingNestedValidField(
                                 safeSimpleName(currentDto) + "." + field.getName(),
                                 currentDto.getName(),
@@ -2324,69 +2370,78 @@ final class RestApiHandlerModelBuilder {
         }
     }
 
-    private static List<JavaClass> nestedCandidateTypes(JavaField field) {
+    private static List<NestedCandidate> nestedCandidateTypes(JavaField field) {
         JavaClass raw = field.getRawType();
         if (raw.isArray()) {
-            return List.of(raw.getComponentType());
+            return List.of(new NestedCandidate(raw.getComponentType(), null, false));
         }
         String rawName = raw.getName();
         if (NESTED_COLLECTION_TYPES.contains(rawName)) {
             JavaType element = firstTypeArgument(field.getType());
-            return element != null ? List.of(element.toErasure()) : List.of();
+            return element != null ? List.of(new NestedCandidate(element.toErasure(), 0, false)) : List.of();
         }
         if (NESTED_MAP_TYPES.contains(rawName)) {
             if (field.getType() instanceof JavaParameterizedType parameterized) {
-                List<JavaClass> candidates = new ArrayList<>();
-                for (JavaType argument : parameterized.getActualTypeArguments()) {
-                    candidates.add(unwrapWildcardUpperBound(argument).toErasure());
+                List<JavaType> arguments = parameterized.getActualTypeArguments();
+                List<NestedCandidate> candidates = new ArrayList<>();
+                for (int i = 0; i < arguments.size(); i++) {
+                    candidates.add(new NestedCandidate(
+                            unwrapWildcardUpperBound(arguments.get(i)).toErasure(), i, i == 0));
                 }
                 return candidates;
             }
             return List.of();
         }
-        return List.of(raw);
+        return List.of(new NestedCandidate(raw, null, false));
     }
 
     private static boolean hasValidCascadeOnField(
-            JavaClass owner, JavaField field, Map<String, Set<String>> typeAnnotations) {
-        if (field.isAnnotatedWith(Types.VALID) || field.isAnnotatedWith(Types.VALIDATED)) {
-            return true;
-        }
-        if (typeAnnotations.getOrDefault("field:" + field.getName(), Set.of()).contains(Types.VALID)) {
-            return true;
-        }
+            JavaClass owner, JavaField field, NestedCandidate candidate, Map<String, Set<String>> typeAnnotations) {
         String fieldName = field.getName();
         String capitalized = Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1);
         Set<String> accessorNames = Set.of(fieldName, "get" + capitalized, "is" + capitalized);
-        for (JavaMethod method : KotlinBytecode.declaredMethods(owner)) {
-            if (method.getRawParameterTypes().isEmpty() && accessorNames.contains(method.getName())) {
-                if (method.isAnnotatedWith(Types.VALID)
-                        || method.isAnnotatedWith(Types.VALIDATED)
-                        || typeAnnotations
-                                .getOrDefault("method:" + method.getName(), Set.of())
-                                .contains(Types.VALID)) {
-                    return true;
-                }
+        if (!candidate.isMapKey()) {
+            if (field.isAnnotatedWith(Types.VALID)
+                    || typeAnnotations
+                            .getOrDefault("field:" + fieldName + ":root", Set.of())
+                            .contains(Types.VALID)) {
+                return true;
             }
-        }
-        if (KotlinBytecode.isKotlinClass(owner)) {
-            for (JavaConstructor constructor : KotlinBytecode.declaredConstructors(owner)) {
-                for (JavaParameter parameter : constructor.getParameters()) {
-                    if (parameter
-                                    .getRawType()
-                                    .getName()
-                                    .equals(field.getRawType().getName())
-                            && (parameter.isAnnotatedWith(Types.VALID) || parameter.isAnnotatedWith(Types.VALIDATED))) {
+            for (JavaMethod method : KotlinBytecode.declaredMethods(owner)) {
+                if (method.getRawParameterTypes().isEmpty() && accessorNames.contains(method.getName())) {
+                    if (method.isAnnotatedWith(Types.VALID)
+                            || typeAnnotations
+                                    .getOrDefault("method:" + method.getName() + ":root", Set.of())
+                                    .contains(Types.VALID)) {
                         return true;
                     }
                 }
             }
         }
+        if (candidate.typeArgumentIndex() != null) {
+            String pathKey = candidate.typeArgumentIndex() + ";";
+            if (typeAnnotations
+                    .getOrDefault("field:" + fieldName + ":" + pathKey, Set.of())
+                    .contains(Types.VALID)) {
+                return true;
+            }
+            for (JavaMethod method : KotlinBytecode.declaredMethods(owner)) {
+                if (method.getRawParameterTypes().isEmpty()
+                        && accessorNames.contains(method.getName())
+                        && typeAnnotations
+                                .getOrDefault("method:" + method.getName() + ":" + pathKey, Set.of())
+                                .contains(Types.VALID)) {
+                    return true;
+                }
+            }
+        } else if (typeAnnotations.getOrDefault("field:" + fieldName, Set.of()).contains(Types.VALID)) {
+            return true;
+        }
         return false;
     }
 
-    private static boolean declaresValidationConstraints(JavaClass type, Set<String> visited, int depth) {
-        if (depth >= MAX_NESTED_DTO_DEPTH
+    private boolean declaresValidationConstraints(JavaClass type, Set<String> visited, int depth) {
+        if (depth > MAX_NESTED_DTO_DEPTH
                 || type == null
                 || !visited.add(type.getName())
                 || isFrameworkOrJdkType(type.getName())) {
@@ -2422,9 +2477,19 @@ final class RestApiHandlerModelBuilder {
                     return true;
                 }
             }
-            for (JavaConstructor constructor : KotlinBytecode.declaredConstructors(cursor)) {
-                for (JavaParameter parameter : constructor.getParameters()) {
-                    if (hasValidationConstraintOrCascade(parameter.getAnnotations())) {
+            for (JavaField field : KotlinBytecode.declaredFields(cursor)) {
+                if (field.getModifiers().contains(JavaModifier.STATIC)
+                        || field.getModifiers().contains(JavaModifier.TRANSIENT)) {
+                    continue;
+                }
+                for (NestedCandidate child : nestedCandidateTypes(field)) {
+                    JavaClass childType = child.type();
+                    if (childType != null
+                            && !isSimpleBodyType(childType)
+                            && !safeIsInterface(childType)
+                            && !safeIsEnum(childType)
+                            && !isPrimitive(childType)
+                            && declaresValidationConstraints(childType, new LinkedHashSet<>(visited), depth + 1)) {
                         return true;
                     }
                 }
@@ -2447,14 +2512,16 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
-    private static Map<String, Set<String>> memberTypeAnnotations(JavaClass type) {
-        try {
-            return ArchUnitLocations.classFile(type)
-                    .map(ClassFileFacts::memberTypeAnnotations)
-                    .orElse(Map.of());
-        } catch (RuntimeException | LinkageError ex) {
-            return Map.of();
-        }
+    private Map<String, Set<String>> memberTypeAnnotations(JavaClass type) {
+        return typeAnnotationsCache.computeIfAbsent(type.getName(), ignored -> {
+            try {
+                return ArchUnitLocations.classFile(type)
+                        .map(ClassFileFacts::memberTypeAnnotations)
+                        .orElse(Map.of());
+            } catch (RuntimeException | LinkageError ex) {
+                return Map.of();
+            }
+        });
     }
 
     private static boolean isFrameworkOrJdkType(String className) {
@@ -2463,9 +2530,20 @@ final class RestApiHandlerModelBuilder {
                 || className.startsWith("jakarta.")
                 || className.startsWith("kotlin.")
                 || className.startsWith("kotlinx.")
-                || className.startsWith("org.springframework.")
-                || className.startsWith("io.quarkus.")
-                || className.startsWith("org.jboss.")
+                || className.startsWith("org.springframework.web.")
+                || className.startsWith("org.springframework.http.")
+                || className.startsWith("org.springframework.data.")
+                || className.startsWith("org.springframework.core.")
+                || className.startsWith("org.springframework.beans.")
+                || className.startsWith("org.springframework.context.")
+                || className.startsWith("org.springframework.security.")
+                || className.startsWith("org.springframework.validation.")
+                || className.startsWith("org.springframework.stereotype.")
+                || className.startsWith("io.quarkus.arc.")
+                || className.startsWith("io.quarkus.security.")
+                || className.startsWith("io.quarkus.resteasy.")
+                || className.startsWith("io.quarkus.panache.")
+                || className.startsWith("org.jboss.resteasy.")
                 || className.startsWith("io.smallrye.")
                 || className.startsWith("io.vertx.")
                 || className.startsWith("reactor.")

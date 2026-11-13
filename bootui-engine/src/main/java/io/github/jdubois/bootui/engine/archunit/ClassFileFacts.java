@@ -173,7 +173,7 @@ public record ClassFileFacts(String sourceFile, String sourceMap) {
                                     @Override
                                     public AnnotationVisitor visitTypeAnnotation(
                                             int typeRef, TypePath typePath, String desc, boolean visible) {
-                                        recordTypeAnnotation(annotations, "field:" + name, desc);
+                                        recordTypeAnnotation(annotations, "field:" + name, typePath, desc);
                                         return null;
                                     }
                                 };
@@ -189,7 +189,7 @@ public record ClassFileFacts(String sourceFile, String sourceMap) {
                                     @Override
                                     public AnnotationVisitor visitTypeAnnotation(
                                             int typeRef, TypePath typePath, String desc, boolean visible) {
-                                        recordTypeAnnotation(annotations, "method:" + name, desc);
+                                        recordTypeAnnotation(annotations, "method:" + name, typePath, desc);
                                         return null;
                                     }
                                 };
@@ -199,10 +199,14 @@ public record ClassFileFacts(String sourceFile, String sourceMap) {
         return Map.copyOf(annotations);
     }
 
-    private static void recordTypeAnnotation(Map<String, Set<String>> target, String key, String descriptor) {
+    private static void recordTypeAnnotation(
+            Map<String, Set<String>> target, String key, TypePath typePath, String descriptor) {
         if (descriptor != null && descriptor.length() > 2 && descriptor.startsWith("L") && descriptor.endsWith(";")) {
             String className = descriptor.substring(1, descriptor.length() - 1).replace('/', '.');
             target.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(className);
+            String pathSuffix = typePath == null ? "root" : typePath.toString();
+            target.computeIfAbsent(key + ":" + pathSuffix, ignored -> new LinkedHashSet<>())
+                    .add(className);
         }
     }
 }

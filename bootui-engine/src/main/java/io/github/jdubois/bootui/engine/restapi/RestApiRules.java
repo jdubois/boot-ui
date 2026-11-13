@@ -2499,7 +2499,7 @@ final class NestedDtoValidationCascadeRule extends AbstractRestApiRule {
             if (!missing.isEmpty()) {
                 violations.add(
                         handler.describe()
-                                + " — validated request payload omits @Valid on constrained nested DTO field(s): "
+                                + " — omits @Valid on constrained nested DTO field(s): "
                                 + String.join(", ", missing),
                         context.location(handler));
             }
@@ -2569,7 +2569,6 @@ final class MultipartAndFormConsumesCompatibilityRule extends AbstractRestApiRul
         return media.equals("*")
                 || media.equals("*/*")
                 || media.startsWith("multipart/")
-                || media.equals("application/*")
                 || media.equals("application/x-www-form-urlencoded");
     }
 }
@@ -2582,11 +2581,12 @@ final class AvoidDirectSpringDataPageSerializationRule extends AbstractRestApiRu
                 RestApiCategory.PAGINATION,
                 "LOW",
                 "A Spring handler returns org.springframework.data.domain.Page directly without"
-                        + " @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO) in the imported application"
-                        + " model. Direct PageImpl serialization exposes unstable internal structure and logs a"
-                        + " runtime warning in Spring Data.",
+                        + " @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO) (or"
+                        + " spring.data.web.pageable.serialization-mode=via_dto). Direct PageImpl serialization"
+                        + " exposes unstable internal structure and logs a runtime warning in Spring Data.",
                 "Return org.springframework.data.web.PagedModel<T>, or configure"
-                        + " @EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO).",
+                        + " @EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO) /"
+                        + " spring.data.web.pageable.serialization-mode=via_dto.",
                 RestApiRuleHelp.PAGINATION_DOCS));
     }
 
@@ -2601,7 +2601,8 @@ final class AvoidDirectSpringDataPageSerializationRule extends AbstractRestApiRu
                 handler -> !handler.jaxRs()
                         && handler.serializesBody()
                         && handler.returnsSpringDataPage()
-                        && !handler.springDataPageViaDtoConfigured(),
+                        && !handler.springDataPageViaDtoConfigured()
+                        && !context.evidence().springDataPageViaDtoConfigured(),
                 "returns org.springframework.data.domain.Page directly without"
                         + " @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO) or PagedModel");
     }

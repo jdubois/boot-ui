@@ -588,11 +588,13 @@ dismissal ID remains reserved.
 - **Severity**: LOW
 - **Detects**: A Spring body-serializing handler returns `org.springframework.data.domain.Page` (or `PageImpl`) directly
   (or inside `ResponseEntity`/`HttpEntity` or an async wrapper) when no imported class declares
-  `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)`. Direct `PageImpl` JSON serialization exposes internal
-  Spring Data structure and logs a runtime warning in Spring Data 3.3+/4.x.
+  `@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)` and
+  `spring.data.web.pageable.serialization-mode=via_dto` is not configured. Direct `PageImpl` JSON serialization exposes
+  internal Spring Data structure and logs a runtime warning in Spring Data 3.3+/4.x.
 - **Not evaluated**: JAX-RS has no Spring Data `Page` return representation.
 - **Recommendation**: Wrap the result in `org.springframework.data.web.PagedModel<T>` or configure
-  `@EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO)`.
+  `@EnableSpringDataWebSupport(pageSerializationMode = PageSerializationMode.VIA_DTO)` /
+  `spring.data.web.pageable.serialization-mode=via_dto`.
 - **Learn more**: [Spring Data stable page representations][spring-paging].
 
 ## Versioning & content negotiation
@@ -684,9 +686,9 @@ controller inconsistent. The dismissal ID remains reserved.
 - **Severity**: HIGH
 - **Detects**: A Spring or JAX-RS/Quarkus handler that binds multipart or form parameters (`@RequestPart`,
   `MultipartFile`, `FilePart`, `@RestForm`, `@FormParam`, `@MultipartForm`, or `FileUpload`) while its non-empty
-  effective `consumes` condition contains no `multipart/*`, `application/x-www-form-urlencoded`, `application/*`, or
-  `*/*` media range (typically because the controller declares a class-level `consumes = "application/json"`). Multipart
-  or form requests are rejected with 415 Unsupported Media Type, while JSON requests fail multipart parameter resolution.
+  effective `consumes` condition contains no `multipart/*`, `application/x-www-form-urlencoded`, or `*/*` media range
+  (typically because the controller declares a class-level `consumes = "application/json"`). Multipart or form requests
+  are rejected with 415 Unsupported Media Type, while JSON requests fail multipart parameter resolution.
 - **Recommendation**: Override `consumes` on the handler with `multipart/form-data` (or
   `application/x-www-form-urlencoded`), or remove the restrictive class-level `consumes` declaration.
 - **Learn more**: [Spring consumable media types][spring-consumes]; [Jakarta REST media declarations][jaxrs-media].

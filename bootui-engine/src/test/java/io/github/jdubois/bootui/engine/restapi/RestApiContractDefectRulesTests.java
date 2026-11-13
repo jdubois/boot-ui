@@ -325,13 +325,16 @@ class RestApiContractDefectRulesTests {
         assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo("HIGH");
         assertThat(result.sampleViolations())
-                .hasSize(2)
+                .hasSize(4)
                 .anyMatch(detail -> detail.contains("#getOrder") && detail.contains("[id]"))
                 .anyMatch(detail -> detail.contains("#getByUuid") && detail.contains("[orderId]"))
+                .anyMatch(detail -> detail.contains("#getOptionalId") && detail.contains("[id]"))
+                .anyMatch(detail -> detail.contains("#getOpenApiDocumentedId") && detail.contains("[id]"))
                 .noneMatch(detail -> detail.contains("#boundOrder")
                         || detail.contains("#explicitQuery")
                         || detail.contains("#modelAttributeComplex")
-                        || detail.contains("#zoneIdContext"));
+                        || detail.contains("#zoneIdContext")
+                        || detail.contains("#clockContext"));
     }
 
     @Test
@@ -367,11 +370,13 @@ class RestApiContractDefectRulesTests {
     void missingValidCascadeOnConstrainedNestedDtoFieldsIsReported() {
         RestApiContext context = context(
                 NestedValidationController.class,
-                CreateOrderWithMissingCascadeRequest.class,
-                CreateOrderWithValidCascadeRequest.class,
+                BrokenOrderRequest.class,
+                ValidOrderRequest.class,
                 ConstrainedAddressDto.class,
                 ConstrainedLineItemDto.class,
-                UnconstrainedMetadataDto.class);
+                UnconstrainedMetadataDto.class,
+                IntermediateCustomerDto.class,
+                CyclicNodeDto.class);
         RestApiRuleResultDto result = new NestedDtoValidationCascadeRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
@@ -381,9 +386,11 @@ class RestApiContractDefectRulesTests {
                 .singleElement()
                 .asString()
                 .contains("#createBroken")
-                .contains("CreateOrderWithMissingCascadeRequest.shippingAddress")
-                .contains("CreateOrderWithMissingCascadeRequest.items")
-                .doesNotContain("metadata", "#createValid");
+                .contains("BrokenOrderRequest.shippingAddress")
+                .contains("BrokenOrderRequest.items")
+                .contains("BrokenOrderRequest.keyOnlyMap")
+                .contains("BrokenOrderRequest.customer")
+                .doesNotContain("metadata", "cycle", "#createValid");
     }
 
     // --- RAPI-VER-008 --------------------------------------------------------------------------------------------
@@ -396,9 +403,10 @@ class RestApiContractDefectRulesTests {
         assertThat(result.status()).isEqualTo(RestApiRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo("HIGH");
         assertThat(result.sampleViolations())
-                .hasSize(3)
+                .hasSize(4)
                 .anyMatch(detail -> detail.contains("MultipartConsumesController#uploadPart"))
                 .anyMatch(detail -> detail.contains("MultipartConsumesController#uploadFile"))
+                .anyMatch(detail -> detail.contains("MultipartConsumesController#uploadFileMapWithApplicationStar"))
                 .anyMatch(detail -> detail.contains("JaxRsFormConsumesResource#submitForm"))
                 .noneMatch(detail -> detail.contains("#uploadMultipartAllowed")
                         || detail.contains("#jsonOnlyEndpoint")
@@ -424,6 +432,13 @@ class RestApiContractDefectRulesTests {
         RestApiRuleResultDto withViaDto = new AvoidDirectSpringDataPageSerializationRule()
                 .evaluate(context(DirectPageController.class, ViaDtoWebConfig.class));
         assertThat(withViaDto.status()).isEqualTo(RestApiRuleSupport.PASS);
+
+        RestApiContext withEnvViaDto = context(DirectPageController.class);
+        withEnvViaDto.evidence().springDataPageViaDtoConfigured(true);
+        assertThat(new AvoidDirectSpringDataPageSerializationRule()
+                        .evaluate(withEnvViaDto)
+                        .status())
+                .isEqualTo(RestApiRuleSupport.PASS);
     }
 
     private static RestApiContext context(Class<?>... types) {
@@ -879,6 +894,21 @@ class RestApiContractDefectRulesTests {
         Payload zoneIdContext(java.time.ZoneId zoneId) {
             return new Payload(zoneId.getId());
         }
+
+        @GetMapping("/orders/clock/{clock}")
+        Payload clockContext(java.time.Clock clock) {
+            return new Payload(clock.toString());
+        }
+
+        @GetMapping("/orders/opt/{id}")
+        Payload getOptionalId(Optional<Long> id) {
+            return new Payload(id.map(String::valueOf).orElse(""));
+        }
+
+        @GetMapping("/orders/openapi/{id}")
+        Payload getOpenApiDocumentedId(@io.swagger.v3.oas.annotations.Parameter(description = "Order id") Long id) {
+            return new Payload(String.valueOf(id));
+        }
     }
 
     @RestController
@@ -917,27 +947,37 @@ class RestApiContractDefectRulesTests {
 
     record UnconstrainedMetadataDto(String source) {}
 
-    record CreateOrderWithMissingCascadeRequest(
+    record IntermediateCustomerDto(ConstrainedAddressDto address) {}
+
+    record CyclicNodeDto(String name, CyclicNodeDto parent) {}
+
+    record BrokenOrderRequest(
             @jakarta.validation.constraints.NotBlank String customerId,
             ConstrainedAddressDto shippingAddress,
             List<ConstrainedLineItemDto> items,
-            UnconstrainedMetadataDto metadata) {}
+            Map<@jakarta.validation.Valid ConstrainedAddressDto, ConstrainedLineItemDto> keyOnlyMap,
+            IntermediateCustomerDto customer,
+            UnconstrainedMetadataDto metadata,
+            CyclicNodeDto cycle) {}
 
-    record CreateOrderWithValidCascadeRequest(
+    record ValidOrderRequest(
             @jakarta.validation.constraints.NotBlank String customerId,
             @jakarta.validation.Valid ConstrainedAddressDto shippingAddress,
             List<@jakarta.validation.Valid ConstrainedLineItemDto> items,
-            UnconstrainedMetadataDto metadata) {}
+            Map<@jakarta.validation.Valid ConstrainedAddressDto, @jakarta.validation.Valid ConstrainedLineItemDto>
+                    bothValidMap,
+            UnconstrainedMetadataDto metadata,
+            CyclicNodeDto cycle) {}
 
     @RestController
     static class NestedValidationController {
         @PostMapping("/orders/broken")
-        Payload createBroken(@jakarta.validation.Valid @RequestBody CreateOrderWithMissingCascadeRequest request) {
+        Payload createBroken(@jakarta.validation.Valid @RequestBody BrokenOrderRequest request) {
             return new Payload(request.customerId());
         }
 
         @PostMapping("/orders/valid")
-        Payload createValid(@jakarta.validation.Valid @RequestBody CreateOrderWithValidCascadeRequest request) {
+        Payload createValid(@jakarta.validation.Valid @RequestBody ValidOrderRequest request) {
             return new Payload(request.customerId());
         }
     }
@@ -953,6 +993,13 @@ class RestApiContractDefectRulesTests {
         @PostMapping("/file")
         Payload uploadFile(org.springframework.web.multipart.MultipartFile file) {
             return new Payload(file.getName());
+        }
+
+        @PostMapping(path = "/file-map", consumes = "application/*")
+        Payload uploadFileMapWithApplicationStar(
+                @org.springframework.web.bind.annotation.RequestParam
+                        Map<String, org.springframework.web.multipart.MultipartFile> files) {
+            return new Payload(String.valueOf(files.size()));
         }
 
         @PostMapping(path = "/multipart-ok", consumes = "multipart/form-data")
