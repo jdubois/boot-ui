@@ -5,7 +5,7 @@ the panel ID remains `spring`, the endpoint remains `/bootui/api/spring`, and th
 `SpringReport` JSON and dismissal contract are unchanged. It is separate from the
 [Quarkus Security advisor](QUARKUS-CHECKS.md).
 
-The advisor has **14 active rules**. It inspects application-owned build metadata and
+The advisor has **13 active rules**. It inspects application-owned build metadata and
 selected configuration only when the user requests a scan. It never invokes application
 beans, constructs REST clients, executes scheduled work, reads JDBC data, intercepts
 traffic, or changes configuration. Findings are review prompts, not proof of a race,
@@ -236,12 +236,11 @@ universally necessary. Upstream compression, client negotiation, response media 
 
 ### QA-WEB-002 - HTTP request-draining timeout is zero
 
-- **Severity**: LOW
-
-`quarkus.shutdown.timeout=0` disables HTTP request-draining grace; zero does not mean waiting without
-limit. Set a **positive duration**, for example `10s`, if requests should be allowed to finish. Removing the override
-is not equivalent: the framework default also leaves draining disabled, which is why the behaviourally identical
-default is only the INFO prompt QA-WEB-004. This does not promise completion of every scheduled or messaging operation.
+**Retired.** Folded into QA-WEB-004 (`INFO`). In Quarkus (`ShutdownConfig.isTimeoutEnabled()`), an explicit
+`quarkus.shutdown.timeout=0` (or sub-millisecond duration where `timeout.toMillis() <= 0L`) has the exact same runtime
+behavior as an absent `quarkus.shutdown.timeout` (request draining disabled), so penalizing an explicit zero at `LOW`
+while reporting the identical default at `INFO` split one runtime state across two severities. The ID remains reserved
+in `RETIRED_RULES` so existing `.bootui/boot-ui.yml` dismissals do not target an unrelated rule.
 
 ### QA-WEB-003 - Registered REST client timer is disabled
 
@@ -266,12 +265,13 @@ extension produces incomplete coverage, not a claim that no clients exist.
 
 - **Severity**: INFO
 
-The shutdown timeout is known to be absent. Quarkus request-draining grace is
-opt-in, so configure a positive `quarkus.shutdown.timeout` if required. Development mode never drains, even with a
-positive timeout, so a visible `%prod.quarkus.shutdown.timeout` declaration is preferred over the active value for both
-shutdown rules, and both report incomplete production coverage unless `prod` is the sole active profile.
-This rule is mutually exclusive with QA-WEB-002. An unreadable duration is an analysis
-error, not an absent value.
+The shutdown timeout is known to be absent or non-positive (`timeout == null || timeout.toMillis() <= 0L`, matching
+Quarkus `ShutdownConfig.isTimeoutEnabled()`). Quarkus request-draining grace is opt-in, so configure a positive
+`quarkus.shutdown.timeout` (for example `10s`) if required; removing a zero override does not enable draining, and zero
+does not mean waiting without limit. Development mode never drains, even with a positive timeout, so a visible
+`%prod.quarkus.shutdown.timeout` declaration is preferred over the active value, and the rule reports incomplete
+production coverage unless `prod` is the sole active profile. An unreadable or negative duration is an analysis error,
+not an absent value.
 
 Sources: [compression default](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/VertxHttpBuildTimeConfig.java#L72-L80),
 [shutdown default](https://github.com/quarkusio/quarkus/blob/3.33.3.1/core/runtime/src/main/java/io/quarkus/runtime/shutdown/ShutdownConfig.java#L18-L23),
@@ -341,7 +341,7 @@ and [Agroal default maximum](https://github.com/quarkusio/quarkus/blob/3.33.3.1/
 ## Second audit disposition
 
 A second audit re-checked every surviving rule against Quarkus 3.33.3.x sources and CDI 4.1. Twenty-one IDs are now
-accounted for: 14 active and 7 retired. Each added rule and severity change was reviewed independently by three
+accounted for: 13 active and 8 retired. Each added rule and severity change was reviewed independently by three
 models before implementation.
 
 | Rule | Disposition | Reason |
@@ -353,8 +353,8 @@ models before implementation.
 | QA-CFG-004 | Updated | Also detects the deprecated `create-schemas` and `halt-on-error` keys, names each replacement and reports once per unit. |
 | QA-CFG-005 | Added | Build-time bind-parameter logging in the production view; complements HIB-CONFIG-018, which reads only an active production profile. |
 | QA-WEB-001 | Updated | Explicit `false` suppresses the prompt; a visible `%prod.` declaration is preferred in development mode. |
-| QA-WEB-002 | Updated | MEDIUM to LOW: an explicit zero behaves like the INFO default; visible `%prod.` declaration preferred. |
-| QA-WEB-004 | Updated | False positive fixed: `%prod.quarkus.shutdown.timeout` was invisible to the development profile. |
+| QA-WEB-002 | Retired | Folded into QA-WEB-004 (`INFO`): `quarkus.shutdown.timeout=0` and sub-millisecond durations (`timeout.toMillis() <= 0L`) behave identically to the absent default (`ShutdownConfig.isTimeoutEnabled()`). |
+| QA-WEB-004 | Updated | Covers both absent and non-positive (`timeout.toMillis() <= 0L`) shutdown timeouts; `%prod.quarkus.shutdown.timeout` preferred in development mode. |
 | Others | Retained | QA-CFG-002, QA-CFG-003, QA-PROD-002, QA-PROD-003, QA-WEB-003 and QA-PERF-002 were re-verified. |
 
 Not added: a REST client without a URL (Quarkus already fails with a precise message on first use), a log category

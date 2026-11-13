@@ -19,17 +19,19 @@ import java.util.stream.Collectors;
 /** Fixed, evidence-based Quarkus application checks. Retired identifiers are never reused. */
 final class QuarkusAppChecks {
 
+    static final Set<String> RETIRED_RULES = Set.of(
+            "QA-CDI-001",
+            "QA-CFG-001",
+            "QA-RX-001",
+            "QA-SCH-001",
+            "QA-PROD-001",
+            "QA-PROF-001",
+            "QA-DB-001",
+            "QA-WEB-002");
     private static final String GUIDE = "https://quarkus.io/guides/";
     private static final int MAX_SAMPLES = 20;
-    private static final Set<String> PRODUCTION_RULES = Set.of(
-            "QA-CFG-002",
-            "QA-CFG-003",
-            "QA-CFG-005",
-            "QA-PROD-002",
-            "QA-PROD-003",
-            "QA-WEB-001",
-            "QA-WEB-002",
-            "QA-WEB-004");
+    private static final Set<String> PRODUCTION_RULES =
+            Set.of("QA-CFG-002", "QA-CFG-003", "QA-CFG-005", "QA-PROD-002", "QA-PROD-003", "QA-WEB-001", "QA-WEB-004");
     private static final List<Check> CHECKS = List.of(
             new Check(
                     "QA-CDI-002",
@@ -165,19 +167,6 @@ final class QuarkusAppChecks {
                     Set.of("default-disabled", "disabled", "enabled"),
                     Set.of("default-disabled")),
             new Check(
-                    "QA-WEB-002",
-                    "HTTP request-draining timeout is zero",
-                    "Web",
-                    "LOW",
-                    "The configured zero shutdown timeout disables waiting for in-flight HTTP requests; zero does not"
-                            + " mean waiting without limit. This is not a statement about completion of every"
-                            + " background operation.",
-                    "Set a positive supported duration, for example quarkus.shutdown.timeout=10s, if HTTP request"
-                            + " draining is needed. Removing the override does not enable draining.",
-                    "http-reference",
-                    Set.of("zero", "positive", "absent"),
-                    Set.of("zero")),
-            new Check(
                     "QA-WEB-003",
                     "Registered REST client timer is disabled",
                     "Web",
@@ -194,12 +183,15 @@ final class QuarkusAppChecks {
                     "HTTP request draining is not configured",
                     "Web",
                     "INFO",
-                    "The shutdown timeout is known to be absent. By default, Quarkus does not wait for in-flight"
-                            + " HTTP requests; this does not describe completion of all background operations.",
-                    "If request draining is needed, configure a positive duration such as quarkus.shutdown.timeout=10s.",
+                    "The shutdown timeout is known to be absent or non-positive (zero milliseconds). Quarkus does not"
+                            + " wait for in-flight HTTP requests when quarkus.shutdown.timeout is unset or zero; zero"
+                            + " does not mean waiting without limit. This does not describe completion of all"
+                            + " background operations.",
+                    "If request draining is needed, configure a positive duration such as quarkus.shutdown.timeout=10s."
+                            + " Removing the override does not enable draining.",
                     "http-reference",
                     Set.of("zero", "positive", "absent"),
-                    Set.of("absent")),
+                    Set.of("zero", "absent")),
             new Check(
                     "QA-PERF-002",
                     "Synchronized virtual-thread entry method on JDK 21–23",
