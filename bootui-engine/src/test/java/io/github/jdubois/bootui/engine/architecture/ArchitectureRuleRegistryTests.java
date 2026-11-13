@@ -12,7 +12,7 @@ class ArchitectureRuleRegistryTests {
     void everyRuleHasACompleteAndUniqueDefinition() {
         List<ArchitectureRule> rules = ArchitectureRuleRegistry.activeRules();
 
-        assertThat(rules).hasSize(39);
+        assertThat(rules).hasSize(42);
         assertThat(rules).extracting(rule -> rule.definition().id()).doesNotHaveDuplicates();
         assertThat(rules).allSatisfy(rule -> {
             ArchitectureRuleDefinition definition = rule.definition();
@@ -59,7 +59,10 @@ class ArchitectureRuleRegistryTests {
                         "ARCH-SPRING-023",
                         "ARCH-SPRING-024",
                         "ARCH-SPRING-025",
+                        "ARCH-SPRING-027",
+                        "ARCH-SPRING-031",
                         "ARCH-CODE-017",
+                        "ARCH-CODE-019",
                         "ARCH-MOD-001");
     }
 
@@ -80,15 +83,18 @@ class ArchitectureRuleRegistryTests {
 
     @Test
     void severitiesReflectTheAuditedImpact() {
-        Map<String, String> expected = Map.of(
-                "ARCH-CODE-007", "MEDIUM",
-                "ARCH-CODE-010", "INFO",
-                "ARCH-CODE-016", "MEDIUM",
-                "ARCH-SPRING-002", "LOW",
-                "ARCH-SPRING-011", "HIGH",
-                "ARCH-SPRING-023", "HIGH",
-                "ARCH-SPRING-024", "HIGH",
-                "ARCH-SPRING-025", "LOW");
+        Map<String, String> expected = Map.ofEntries(
+                Map.entry("ARCH-CODE-007", "MEDIUM"),
+                Map.entry("ARCH-CODE-010", "INFO"),
+                Map.entry("ARCH-CODE-016", "MEDIUM"),
+                Map.entry("ARCH-CODE-019", "MEDIUM"),
+                Map.entry("ARCH-SPRING-002", "LOW"),
+                Map.entry("ARCH-SPRING-011", "HIGH"),
+                Map.entry("ARCH-SPRING-023", "HIGH"),
+                Map.entry("ARCH-SPRING-024", "HIGH"),
+                Map.entry("ARCH-SPRING-025", "LOW"),
+                Map.entry("ARCH-SPRING-027", "HIGH"),
+                Map.entry("ARCH-SPRING-031", "MEDIUM"));
         assertThat(ArchitectureRuleRegistry.activeRules())
                 .filteredOn(rule -> expected.containsKey(rule.definition().id()))
                 .hasSize(expected.size())

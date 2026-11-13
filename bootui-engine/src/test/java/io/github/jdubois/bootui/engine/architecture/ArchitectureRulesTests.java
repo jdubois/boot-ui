@@ -1246,6 +1246,126 @@ class ArchitectureRulesTests {
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
+    @Test
+    void cacheableAndCachePutRuleFlagsVoidAndBoxedVoidAndExemptsEvictAndValuedMethods() {
+        ArchitectureRuleResultDto violation = evaluate(
+                new CacheableAndCachePutMethodsShouldNotReturnVoidRule(),
+                VoidCacheableComponent.class,
+                ClassLevelVoidCacheableComponent.class);
+
+        assertThat(violation.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(violation.id()).isEqualTo("ARCH-SPRING-027");
+        assertThat(violation.severity()).isEqualTo("HIGH");
+        assertThat(violation.violationCount()).isEqualTo(5);
+        assertThat(violation.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("voidCacheable"))
+                .anySatisfy(sample -> assertThat(sample).contains("boxedVoidCachePut"))
+                .anySatisfy(sample -> assertThat(sample).contains("cachingWithPut"))
+                .anySatisfy(sample -> assertThat(sample).contains("metaVoidCacheable"))
+                .anySatisfy(sample -> assertThat(sample).contains("inheritedClassLevelVoid"))
+                .noneSatisfy(sample -> assertThat(sample).contains("evictOnly"))
+                .noneSatisfy(sample -> assertThat(sample).contains("cachingEvictOnly"))
+                .noneSatisfy(sample -> assertThat(sample).contains("valuedCacheable"))
+                .noneSatisfy(sample -> assertThat(sample).contains("privateMethodCacheable"))
+                .noneSatisfy(sample -> assertThat(sample).contains("javaContinuationValued"))
+                .noneSatisfy(sample -> assertThat(sample).contains("classLevelEvictOverride"))
+                .noneSatisfy(sample -> assertThat(sample).contains("classLevelPostConstruct"))
+                .noneSatisfy(sample -> assertThat(sample).contains("privateHelper"));
+
+        assertThat(evaluate(new CacheableAndCachePutMethodsShouldNotReturnVoidRule(), ValidCacheableComponent.class)
+                        .status())
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void scheduledAndEventListenerMethodsRuleFlagsUnmanagedTopLevelClassesAndAllowsManagedBeans() {
+        ArchitectureRuleResultDto violation = evaluate(
+                new ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule(),
+                TopLevelUnmanagedScheduledTask.class,
+                TopLevelUnmanagedEventListener.class,
+                TopLevelUnmanagedRunnableScheduledTask.class,
+                TopLevelSchedulerConfiguration.class);
+
+        assertThat(violation.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(violation.id()).isEqualTo("ARCH-SPRING-031");
+        assertThat(violation.severity()).isEqualTo("MEDIUM");
+        assertThat(violation.violationCount()).isEqualTo(3);
+        assertThat(violation.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("TopLevelUnmanagedScheduledTask")
+                        .contains("runTask"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("TopLevelUnmanagedEventListener")
+                        .contains("onEvent"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("TopLevelUnmanagedRunnableScheduledTask")
+                        .contains("runTask"));
+
+        ArchitectureRuleResultDto pass = evaluate(
+                new ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule(),
+                TopLevelComponentScheduledTask.class,
+                TopLevelAbstractScheduledBase.class,
+                TopLevelScheduledBaseWithSubclass.class,
+                TopLevelScheduledSubclassBean.class,
+                TopLevelBeanFactoryScheduledTask.class,
+                TopLevelInterfaceScheduledTaskImpl.class,
+                TopLevelImportedEventListener.class,
+                TopLevelSchedulerConfiguration.class);
+        assertThat(pass.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+
+        JavaClasses quarkusClasses = new ClassFileImporter().importClasses(TopLevelUnmanagedScheduledTask.class);
+        ArchitectureRuleResultDto quarkusResult = new ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule()
+                .evaluate(new ArchitectureContext(
+                        quarkusClasses,
+                        List.of(ArchitectureRulesTests.class.getPackageName()),
+                        ArchitecturePlatform.QUARKUS));
+        assertThat(quarkusResult.status()).isEqualTo(ArchitectureRuleSupport.SKIPPED);
+    }
+
+    @Test
+    void noSharedStatefulJdkFormattersAndParsersRuleFlagsStaticAndSharedBeanFieldsOnly() {
+        ArchitectureRuleResultDto violation = evaluate(
+                new NoSharedStatefulJdkFormattersAndParsersRule(),
+                StaticFormatterHolder.class,
+                SharedBeanWithStatefulFormatters.class);
+
+        assertThat(violation.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(violation.id()).isEqualTo("ARCH-CODE-019");
+        assertThat(violation.severity()).isEqualTo("MEDIUM");
+        assertThat(violation.violationCount()).isEqualTo(9);
+        assertThat(violation.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("STATIC_DATE_FORMAT"))
+                .anySatisfy(sample -> assertThat(sample).contains("dateFormat"))
+                .anySatisfy(sample -> assertThat(sample).contains("decimalFormat"))
+                .anySatisfy(sample -> assertThat(sample).contains("numberFormat"))
+                .anySatisfy(sample -> assertThat(sample).contains("messageFormat"))
+                .anySatisfy(sample -> assertThat(sample).contains("documentBuilder"))
+                .anySatisfy(sample -> assertThat(sample).contains("saxParser"))
+                .anySatisfy(sample -> assertThat(sample).contains("transformer"))
+                .anySatisfy(sample -> assertThat(sample).contains("xmlValidator"));
+
+        ArchitectureRuleResultDto inheritedAndRefreshViolation = evaluate(
+                new NoSharedStatefulJdkFormattersAndParsersRule(),
+                RefreshScopedFormatterBean.class,
+                BaseClassWithFormatterField.class,
+                SharedSubclassInheritingFormatterField.class);
+        assertThat(inheritedAndRefreshViolation.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(inheritedAndRefreshViolation.violationCount()).isEqualTo(2);
+        assertThat(inheritedAndRefreshViolation.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("refreshDateFormat"))
+                .anySatisfy(sample -> assertThat(sample).contains("inheritedDateFormat"));
+
+        ArchitectureRuleResultDto pass = evaluate(
+                new NoSharedStatefulJdkFormattersAndParsersRule(),
+                SafeFormatterAndValidatorBean.class,
+                PrototypeFormatterBean.class,
+                RequestScopedFormatterBean.class,
+                UnscopedCdiProducerHolder.class,
+                UnscopedProducedFormatterHolder.class,
+                PlainUnmanagedFormatterDto.class);
+        assertThat(pass.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
     // Fixtures compile into target/test-classes, which ARCH-CODE-013 deliberately ignores; copy them to main output.
     private ArchitectureRuleResultDto evaluateMainOutput(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = CompiledOutputFixtures.importFrom(tempDir, "target/classes", classes);
@@ -2256,5 +2376,234 @@ class ArchitectureRulesTests {
         void main() {
             System.exit(0);
         }
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @org.springframework.cache.annotation.Cacheable("composed")
+    private @interface ComposedCacheable {}
+
+    @Service
+    private static class VoidCacheableComponent {
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        public void voidCacheable(String id) {}
+
+        @CachePut("items")
+        public Void boxedVoidCachePut(String id) {
+            return null;
+        }
+
+        @Caching(put = @CachePut("items"), evict = @CacheEvict("other"))
+        public void cachingWithPut(String id) {}
+
+        @ComposedCacheable
+        public void metaVoidCacheable(String id) {}
+
+        @CacheEvict("items")
+        public void evictOnly(String id) {}
+
+        @Caching(evict = @CacheEvict("items"))
+        public void cachingEvictOnly(String id) {}
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        public String valuedCacheable(String id) {
+            return id;
+        }
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        private void privateMethodCacheable(String id) {}
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        public Object javaContinuationValued(kotlin.coroutines.Continuation<? super kotlin.Unit> continuation) {
+            return "not-a-kotlin-class";
+        }
+    }
+
+    @Service
+    @org.springframework.cache.annotation.Cacheable("class-items")
+    private static class ClassLevelVoidCacheableComponent {
+
+        public void inheritedClassLevelVoid(String id) {}
+
+        @CacheEvict("class-items")
+        public void classLevelEvictOverride(String id) {}
+
+        @PostConstruct
+        public void classLevelPostConstruct() {}
+
+        private void privateHelper(String id) {}
+    }
+
+    @Service
+    private static class ValidCacheableComponent {
+
+        @org.springframework.cache.annotation.Cacheable("items")
+        public String findItem(String id) {
+            return id;
+        }
+
+        @CacheEvict("items")
+        public void clearItem(String id) {}
+    }
+
+    private static class StaticFormatterHolder {
+
+        private static final java.text.SimpleDateFormat STATIC_DATE_FORMAT =
+                new java.text.SimpleDateFormat("yyyy-MM-dd");
+    }
+
+    @Service
+    private static class SharedBeanWithStatefulFormatters {
+
+        private java.text.DateFormat dateFormat;
+        private java.text.DecimalFormat decimalFormat;
+        private java.text.NumberFormat numberFormat;
+        private java.text.MessageFormat messageFormat;
+        private javax.xml.parsers.DocumentBuilder documentBuilder;
+        private javax.xml.parsers.SAXParser saxParser;
+        private javax.xml.transform.Transformer transformer;
+        private javax.xml.validation.Validator xmlValidator;
+    }
+
+    @Service
+    private static class SafeFormatterAndValidatorBean {
+
+        private static final java.time.format.DateTimeFormatter ISO_FORMATTER =
+                java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
+        private static final ThreadLocal<java.text.SimpleDateFormat> THREAD_LOCAL_FORMAT =
+                ThreadLocal.withInitial(() -> new java.text.SimpleDateFormat("yyyy-MM-dd"));
+        private jakarta.validation.Validator beanValidator;
+        private javax.xml.parsers.DocumentBuilderFactory documentBuilderFactory;
+    }
+
+    @Component
+    @org.springframework.context.annotation.Scope("prototype")
+    private static class PrototypeFormatterBean {
+
+        private final java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd");
+    }
+
+    @Component
+    @org.springframework.web.context.annotation.RequestScope
+    private static class RequestScopedFormatterBean {
+
+        private final java.text.DecimalFormat decimalFormat = new java.text.DecimalFormat("#0.00");
+    }
+
+    @Component
+    @org.springframework.context.annotation.Scope("refresh")
+    private static class RefreshScopedFormatterBean {
+
+        private java.text.SimpleDateFormat refreshDateFormat;
+    }
+
+    private static class BaseClassWithFormatterField {
+
+        protected java.text.SimpleDateFormat inheritedDateFormat;
+    }
+
+    @Service
+    private static class SharedSubclassInheritingFormatterField extends BaseClassWithFormatterField {}
+
+    private static class UnscopedProducedFormatterHolder {
+
+        private java.text.SimpleDateFormat dateFormat;
+    }
+
+    private static class UnscopedCdiProducerHolder {
+
+        @jakarta.enterprise.inject.Produces
+        UnscopedProducedFormatterHolder produceDependent() {
+            return new UnscopedProducedFormatterHolder();
+        }
+    }
+
+    private static class PlainUnmanagedFormatterDto {
+
+        private java.text.SimpleDateFormat dateFormat;
+    }
+}
+
+class TopLevelUnmanagedScheduledTask {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+class TopLevelUnmanagedEventListener {
+
+    @EventListener
+    void onEvent(String event) {}
+}
+
+class TopLevelUnmanagedRunnableScheduledTask implements Runnable {
+
+    @Override
+    public void run() {}
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+@Component
+class TopLevelComponentScheduledTask {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+abstract class TopLevelAbstractScheduledBase {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+class TopLevelScheduledBaseWithSubclass {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+@Component
+class TopLevelScheduledSubclassBean extends TopLevelScheduledBaseWithSubclass {}
+
+class TopLevelBeanFactoryScheduledTask {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+interface TopLevelScheduledTaskContract {}
+
+class TopLevelInterfaceScheduledTaskImpl implements TopLevelScheduledTaskContract {
+
+    @Scheduled(fixedRate = 5000)
+    void runTask() {}
+}
+
+class TopLevelImportedEventListener {
+
+    @TransactionalEventListener
+    void onCommitted(String event) {}
+}
+
+@Configuration
+@org.springframework.context.annotation.Import(TopLevelImportedEventListener.class)
+class TopLevelSchedulerConfiguration {
+
+    @Bean
+    TopLevelBeanFactoryScheduledTask scheduledTask() {
+        return new TopLevelBeanFactoryScheduledTask();
+    }
+
+    @Bean
+    TopLevelScheduledTaskContract scheduledContractTask() {
+        return new TopLevelInterfaceScheduledTaskImpl();
+    }
+
+    @Bean
+    Runnable unrelatedRunnableBean() {
+        return () -> {};
     }
 }

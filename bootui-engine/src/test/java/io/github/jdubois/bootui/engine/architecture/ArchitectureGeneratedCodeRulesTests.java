@@ -92,6 +92,7 @@ class ArchitectureGeneratedCodeRulesTests {
                         public static org.slf4j.Logger logger;
                         public static java.util.logging.Logger jul = java.util.logging.Logger.getLogger("example");
                         public static java.util.Date date;
+                        private static final java.text.SimpleDateFormat dateFormat = null;
                         public static boolean flag;
                         public static void run() {
                             System.out.println("example");
@@ -130,7 +131,7 @@ class ArchitectureGeneratedCodeRulesTests {
         var rules = ArchitectureRuleRegistry.activeRules().stream()
                 .filter(rule -> rule.definition().category() == ArchitectureCategory.CODING_PRACTICES)
                 .toList();
-        assertThat(rules).hasSize(14);
+        assertThat(rules).hasSize(15);
         for (var platform : ArchitecturePlatform.values()) {
             for (var rule : rules) {
                 if (platform == ArchitecturePlatform.QUARKUS
