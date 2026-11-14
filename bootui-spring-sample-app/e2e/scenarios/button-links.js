@@ -41,7 +41,7 @@ export function registerButtonLinkTests(test, expect) {
           await expect(link.locator('.bi')).toBeHidden()
         }
 
-        const action = page.getByRole('button', {name: 'Run all scanners', exact: true})
+        const action = page.getByRole('button', {name: /^(?:Re-run|Run) all scanners$/})
         expect(await action.evaluate((element) => getComputedStyle(element, '::before').content)).toBe('none')
 
         await panel.focus()
