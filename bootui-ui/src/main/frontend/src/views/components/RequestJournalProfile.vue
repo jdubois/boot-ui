@@ -172,10 +172,16 @@ const baselineComparison = computed(() => {
     requestId: candidate.requestId,
     label: `${candidate.requestId} · ${formatDuration(micros(candidate.durationMicros))} (${candidate.status})`
   }))
+  const targetMicros = Math.max(1, props.profile.durationMicros ?? 0)
+  const baseMicros = Math.max(1, b.baselineDurationMicros ?? 0)
+  const maxMicros = Math.max(targetMicros, baseMicros, 1)
   return {
     baselineRequestId: b.baselineRequestId,
     baselineDuration: formatDuration(micros(b.baselineDurationMicros)),
+    targetDuration: formatDuration(micros(props.profile.durationMicros)),
     routeP50: b.routeP50Micros != null ? formatDuration(micros(b.routeP50Micros)) : null,
+    targetPct: Math.min(100, Math.max(4, Math.round((targetMicros / maxMicros) * 100))),
+    baselinePct: Math.min(100, Math.max(4, Math.round((baseMicros / maxMicros) * 100))),
     deltas,
     distinctSqlShapes: b.distinctSqlShapesOnlyInTarget ?? [],
     candidates
@@ -297,42 +303,115 @@ function onBaselineChange(event) {
 
 <template>
   <section class="mb-3 request-journal" aria-labelledby="request-journal-title">
-    <h3 id="request-journal-title" class="h6">Recorded by the runtime journal</h3>
-    <p v-if="!profile.available" class="small text-muted mb-0">{{ profile.unavailableReason }}</p>
-    <template v-else>
-      <dl class="row small mb-2">
-        <dt class="col-4">Route</dt>
-        <dd class="col-8">
-          <code>{{ profile.route }}</code>
-        </dd>
-        <template v-if="comparison">
-          <dt class="col-4">Against its route</dt>
+    <div class="request-journal__card mb-3">
+      <h3 id="request-journal-title" class="request-journal__section-title">
+        <span class="request-journal__section-icon" aria-hidden="true">
+          <i class="bi bi-journal-code"></i>
+        </span>
+        <span>Recorded by the runtime journal</span>
+      </h3>
+      <p v-if="!profile.available" class="small text-muted mb-0">{{ profile.unavailableReason }}</p>
+      <template v-else>
+        <dl class="row small mb-2 request-journal__meta">
+          <dt class="col-4">Route</dt>
           <dd class="col-8">
-            <span :class="{'request-journal__slow': comparison.slow}">{{ comparison.standing }}</span>
-            <span class="text-muted"> · {{ comparison.figures }}</span>
+            <code>{{ profile.route }}</code>
           </dd>
-        </template>
-        <template v-if="ormSummary">
-          <dt class="col-4">Hibernate</dt>
-          <dd class="col-8">
-            <span :class="{'request-journal__slow': ormSummary.flushing}">{{ ormSummary.sessions }}</span>
-            <span class="text-muted"> · {{ ormSummary.details }}</span>
-          </dd>
-        </template>
-        <template v-if="resourcesSummary">
-          <dt class="col-4">Resources</dt>
-          <dd class="col-8">{{ resourcesSummary }}</dd>
-        </template>
-      </dl>
-      <RouteWhySlow
-        v-if="profile.route && !profile.route.startsWith('Scheduled:') && !profile.route.startsWith('Message:')"
-        :route="profile.route"
-      />
+          <template v-if="comparison">
+            <dt class="col-4">Against its route</dt>
+            <dd class="col-8">
+              <span :class="{'request-journal__slow': comparison.slow}">{{ comparison.standing }}</span>
+              <span class="text-muted"> · {{ comparison.figures }}</span>
+            </dd>
+          </template>
+          <template v-if="ormSummary">
+            <dt class="col-4">Hibernate</dt>
+            <dd class="col-8">
+              <span :class="{'request-journal__slow': ormSummary.flushing}">{{ ormSummary.sessions }}</span>
+              <span class="text-muted"> · {{ ormSummary.details }}</span>
+            </dd>
+          </template>
+          <template v-if="resourcesSummary">
+            <dt class="col-4">Resources</dt>
+            <dd class="col-8">{{ resourcesSummary }}</dd>
+          </template>
+        </dl>
+        <RouteWhySlow
+          v-if="profile.route && !profile.route.startsWith('Scheduled:') && !profile.route.startsWith('Message:')"
+          :route="profile.route"
+        />
+      </template>
+    </div>
 
-      <div v-if="baselineComparison" class="request-journal__baseline mb-2">
-        <div class="request-journal__baseline-header mb-1">
+    <template v-if="profile.available">
+      <div class="request-journal__card mb-3">
+        <h4 class="request-journal__section-title">
+          <span class="request-journal__section-icon" aria-hidden="true">
+            <i class="bi bi-bar-chart-steps"></i>
+          </span>
+          <span>Timeline</span>
+        </h4>
+        <p v-if="!timeline.length && !gcPauses.length" class="small text-muted mb-0">
+          No work of this request was recorded.
+        </p>
+        <ol v-else class="list-unstyled small mb-0 request-journal__timeline">
+          <li class="request-journal__row request-journal__ruler" aria-hidden="true">
+            <span>Source</span>
+            <span>Work</span>
+            <span class="request-journal__ticks">
+              <span>0</span>
+              <span>{{ formatDuration(durationMillis * 500000) }}</span>
+              <span>{{ formatDuration(durationMillis * 1000000) }}</span>
+            </span>
+            <span class="text-end">Time</span>
+          </li>
+          <li v-for="(item, index) in timeline" :key="index" class="request-journal__row">
+            <span class="request-journal__source">{{ item.source }}</span>
+            <span class="request-journal__label" :title="item.label">
+              <code>{{ item.label }}</code>
+              <span v-if="item.detail" class="text-muted"> · {{ item.detail }}</span>
+            </span>
+            <span class="request-journal__track" aria-hidden="true">
+              <span
+                class="request-journal__bar"
+                :class="[
+                  `request-journal__bar--${(item.severity || 'OK').toLowerCase()}`,
+                  {'request-journal__bar--instant': item.durationMicros == null}
+                ]"
+                :style="barStyle(item.offsetMillis, item.durationMicros)"
+              ></span>
+            </span>
+            <span class="request-journal__when">{{ itemTitle(item) }}</span>
+          </li>
+          <li v-for="pause in gcPauses" :key="`${pause.collector}-${pause.gcId}`" class="request-journal__row">
+            <span class="request-journal__source">gc</span>
+            <span class="request-journal__label">
+              {{ pause.collector }} #{{ pause.gcId }} completed during this request
+              <span v-if="pause.cause" class="text-muted"> · {{ pause.cause }}</span>
+            </span>
+            <span class="request-journal__track" aria-hidden="true">
+              <span
+                v-if="pause.retained"
+                class="request-journal__bar request-journal__bar--gc"
+                :style="barStyle(pause.offsetMillis, (pause.pauseMillis ?? 0) * 1000)"
+              ></span>
+            </span>
+            <span class="request-journal__when">
+              {{ pause.retained ? `${formatNumber(pause.pauseMillis)} ms pause` : 'no longer retained' }}
+            </span>
+          </li>
+        </ol>
+      </div>
+
+      <div v-if="baselineComparison" class="request-journal__card request-journal__baseline mb-3">
+        <div class="request-journal__baseline-header mb-2">
           <div class="d-flex flex-wrap align-items-center gap-2">
-            <h4 class="h6 small text-muted mb-0">Compared with baseline request</h4>
+            <h4 class="request-journal__section-title mb-0">
+              <span class="request-journal__section-icon" aria-hidden="true">
+                <i class="bi bi-arrow-left-right"></i>
+              </span>
+              <span>Compared with baseline request</span>
+            </h4>
             <button
               type="button"
               class="btn btn-outline-secondary btn-sm request-journal__baseline-link"
@@ -367,6 +446,28 @@ function onBaselineChange(event) {
             </select>
           </div>
         </div>
+        <div class="request-journal__dual-track mb-2" aria-hidden="true">
+          <div class="request-journal__dual-row">
+            <span class="request-journal__dual-label">This request</span>
+            <span class="request-journal__dual-bar-wrap">
+              <span
+                class="request-journal__dual-bar request-journal__dual-bar--target"
+                :style="{width: `${baselineComparison.targetPct}%`}"
+              ></span>
+            </span>
+            <code class="request-journal__dual-time">{{ baselineComparison.targetDuration }}</code>
+          </div>
+          <div class="request-journal__dual-row">
+            <span class="request-journal__dual-label">Baseline</span>
+            <span class="request-journal__dual-bar-wrap">
+              <span
+                class="request-journal__dual-bar request-journal__dual-bar--baseline"
+                :style="{width: `${baselineComparison.baselinePct}%`}"
+              ></span>
+            </span>
+            <code class="request-journal__dual-time">{{ baselineComparison.baselineDuration }}</code>
+          </div>
+        </div>
         <dl v-if="baselineComparison.deltas.length" class="row small mb-1 request-journal__baseline-deltas">
           <template v-for="delta in baselineComparison.deltas" :key="delta.label">
             <dt class="col-4">{{ delta.label }}</dt>
@@ -375,8 +476,8 @@ function onBaselineChange(event) {
             </dd>
           </template>
         </dl>
-        <div v-if="baselineComparison.distinctSqlShapes.length" class="small mt-1">
-          <div class="text-muted mb-1">Distinguishing SQL shapes in this request</div>
+        <div v-if="baselineComparison.distinctSqlShapes.length" class="small mt-2 pt-2 border-top">
+          <div class="fw-semibold mb-1">Distinguishing SQL shapes in this request</div>
           <ul class="list-unstyled mb-0 request-journal__baseline-shapes">
             <li v-for="(shape, index) in baselineComparison.distinctSqlShapes" :key="index">
               <code>{{ shape }}</code>
@@ -385,9 +486,51 @@ function onBaselineChange(event) {
         </div>
       </div>
 
-      <template v-if="authorizations.length">
-        <h4 class="h6 small text-muted mb-1">Authorization decisions</h4>
-        <div class="table-responsive mb-2">
+      <div v-if="handoffs.length || lateHandoffs" class="request-journal__card mb-3">
+        <h4 class="request-journal__section-title">
+          <span class="request-journal__section-icon" aria-hidden="true">
+            <i class="bi bi-signpost-split"></i>
+          </span>
+          <span>Handoffs</span>
+        </h4>
+        <ul class="list-unstyled small mb-0 request-journal__handoffs">
+          <li v-for="handoff in handoffs" :key="handoff.key" class="request-journal__handoff">
+            <div>
+              <code :title="handoff.taskClass">{{ handoff.task }}</code>
+              <span class="text-muted"> on </span>
+              <code>{{ handoff.thread }}</code>
+              <span v-if="handoff.afterResponse" class="badge rounded-pill text-bg-warning ms-2">{{
+                handoff.afterResponse
+              }}</span>
+              <span
+                v-if="handoff.capped"
+                class="badge rounded-pill text-bg-secondary ms-2"
+                title="Ended more than bootui.agent.executors.max-handoff after it started: its later work is not attributed to this request"
+                >past deadline</span
+              >
+            </div>
+            <div class="text-muted">
+              {{ handoff.timing }} · {{ handoff.did }} ·
+              <span :class="{'request-journal__failed': handoff.failed}">{{ handoff.outcome }}</span>
+              <template v-if="handoff.allocated"> · {{ handoff.allocated }} allocated</template>
+              <template v-if="handoff.hook"> · via {{ handoff.hook }}</template>
+            </div>
+          </li>
+        </ul>
+        <p v-if="lateHandoffs" class="small text-muted mb-0 mt-2 request-journal__late-handoffs">
+          {{ plural(lateHandoffs, 'later task') }} started more than bootui.agent.executors.max-handoff after this
+          request ended: counted, not shown.
+        </p>
+      </div>
+
+      <div v-if="authorizations.length || springSecurityExplainLink" class="request-journal__card mb-3">
+        <h4 v-if="authorizations.length" class="request-journal__section-title">
+          <span class="request-journal__section-icon" aria-hidden="true">
+            <i class="bi bi-shield-check"></i>
+          </span>
+          <span>Authorization decisions</span>
+        </h4>
+        <div v-if="authorizations.length" class="table-responsive mb-2">
           <table class="table table-sm small align-middle mb-0 request-journal__authorizations">
             <thead>
               <tr>
@@ -428,101 +571,25 @@ function onBaselineChange(event) {
             </tbody>
           </table>
         </div>
-      </template>
-      <div v-if="springSecurityExplainLink" class="small mb-2 request-journal__security-explain">
-        <router-link :to="springSecurityExplainLink" class="btn btn-outline-secondary btn-sm">
-          Explain in Spring Security
-        </router-link>
-        <p class="text-muted mb-0 mt-1">
-          Static filter-chain matching for this method and path; does not replay runtime credentials or method security.
-        </p>
+        <div v-if="springSecurityExplainLink" class="small request-journal__security-explain">
+          <router-link :to="springSecurityExplainLink" class="btn btn-outline-secondary btn-sm">
+            Explain in Spring Security
+          </router-link>
+          <p class="text-muted mb-0 mt-1">
+            Static filter-chain matching for this method and path; does not replay runtime credentials or method
+            security.
+          </p>
+        </div>
       </div>
 
-      <h4 class="h6 small text-muted mb-1">Timeline</h4>
-      <p v-if="!timeline.length && !gcPauses.length" class="small text-muted">No work of this request was recorded.</p>
-      <ol v-else class="list-unstyled small mb-2 request-journal__timeline">
-        <li class="request-journal__row request-journal__ruler" aria-hidden="true">
-          <span>Source</span>
-          <span>Work</span>
-          <span class="request-journal__ticks">
-            <span>0</span>
-            <span>{{ formatDuration(durationMillis * 500000) }}</span>
-            <span>{{ formatDuration(durationMillis * 1000000) }}</span>
+      <div v-if="touched.length" class="request-journal__card mb-3">
+        <h4 class="request-journal__section-title">
+          <span class="request-journal__section-icon" aria-hidden="true">
+            <i class="bi bi-diagram-3"></i>
           </span>
-          <span class="text-end">Time</span>
-        </li>
-        <li v-for="(item, index) in timeline" :key="index" class="request-journal__row">
-          <span class="request-journal__source">{{ item.source }}</span>
-          <span class="request-journal__label" :title="item.label">
-            <code>{{ item.label }}</code>
-            <span v-if="item.detail" class="text-muted"> · {{ item.detail }}</span>
-          </span>
-          <span class="request-journal__track" aria-hidden="true">
-            <span
-              class="request-journal__bar"
-              :class="[
-                `request-journal__bar--${(item.severity || 'OK').toLowerCase()}`,
-                {'request-journal__bar--instant': item.durationMicros == null}
-              ]"
-              :style="barStyle(item.offsetMillis, item.durationMicros)"
-            ></span>
-          </span>
-          <span class="request-journal__when">{{ itemTitle(item) }}</span>
-        </li>
-        <li v-for="pause in gcPauses" :key="`${pause.collector}-${pause.gcId}`" class="request-journal__row">
-          <span class="request-journal__source">gc</span>
-          <span class="request-journal__label">
-            {{ pause.collector }} #{{ pause.gcId }} completed during this request
-            <span v-if="pause.cause" class="text-muted"> · {{ pause.cause }}</span>
-          </span>
-          <span class="request-journal__track" aria-hidden="true">
-            <span
-              v-if="pause.retained"
-              class="request-journal__bar request-journal__bar--gc"
-              :style="barStyle(pause.offsetMillis, (pause.pauseMillis ?? 0) * 1000)"
-            ></span>
-          </span>
-          <span class="request-journal__when">
-            {{ pause.retained ? `${formatNumber(pause.pauseMillis)} ms pause` : 'no longer retained' }}
-          </span>
-        </li>
-      </ol>
-
-      <template v-if="handoffs.length || lateHandoffs">
-        <h4 class="h6 small text-muted mb-1">Handoffs</h4>
-        <ul class="list-unstyled small mb-2 request-journal__handoffs">
-          <li v-for="handoff in handoffs" :key="handoff.key" class="request-journal__handoff">
-            <div>
-              <code :title="handoff.taskClass">{{ handoff.task }}</code>
-              <span class="text-muted"> on </span>
-              <code>{{ handoff.thread }}</code>
-              <span v-if="handoff.afterResponse" class="badge rounded-pill text-bg-warning ms-2">{{
-                handoff.afterResponse
-              }}</span>
-              <span
-                v-if="handoff.capped"
-                class="badge rounded-pill text-bg-secondary ms-2"
-                title="Ended more than bootui.agent.executors.max-handoff after it started: its later work is not attributed to this request"
-                >past deadline</span
-              >
-            </div>
-            <div class="text-muted">
-              {{ handoff.timing }} · {{ handoff.did }} ·
-              <span :class="{'request-journal__failed': handoff.failed}">{{ handoff.outcome }}</span>
-              <template v-if="handoff.allocated"> · {{ handoff.allocated }} allocated</template>
-              <template v-if="handoff.hook"> · via {{ handoff.hook }}</template>
-            </div>
-          </li>
-        </ul>
-        <p v-if="lateHandoffs" class="small text-muted request-journal__late-handoffs">
-          {{ plural(lateHandoffs, 'later task') }} started more than bootui.agent.executors.max-handoff after this
-          request ended: counted, not shown.
-        </p>
-      </template>
-
-      <template v-if="touched.length">
-        <h4 class="h6 small text-muted mb-1">Touched</h4>
-        <dl class="row small mb-2">
+          <span>Touched</span>
+        </h4>
+        <dl class="row small mb-0">
           <template v-for="group in touched" :key="group.key">
             <dt class="col-4">{{ group.label }}</dt>
             <dd class="col-8">
@@ -532,7 +599,7 @@ function onBaselineChange(event) {
             </dd>
           </template>
         </dl>
-      </template>
+      </div>
 
       <ul v-if="notes.length" class="small text-muted mb-0">
         <li v-for="(note, index) in notes" :key="index">{{ note }}</li>
@@ -542,16 +609,46 @@ function onBaselineChange(event) {
 </template>
 
 <style scoped>
+.request-journal__card {
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.request-journal__section-title {
+  align-items: center;
+  color: var(--bootui-text);
+  display: flex;
+  font-size: 1rem;
+  font-weight: 700;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.request-journal__section-icon {
+  align-items: center;
+  background: var(--bootui-nav-hover-bg);
+  border-radius: var(--bootui-radius-xs);
+  color: var(--bootui-green-dark);
+  display: inline-flex;
+  font-size: 1rem;
+  height: 1.75rem;
+  justify-content: center;
+  width: 1.75rem;
+}
+
 .request-journal__timeline {
+  background: var(--bootui-surface-solid);
   border: 1px solid var(--bootui-border);
   border-radius: var(--bootui-radius-sm);
   overflow: hidden;
-  font-size: 0.8125rem;
+  font-size: 0.85rem;
 }
 
 .request-journal__row {
   display: grid;
-  grid-template-columns: 6.75rem minmax(0, 1fr) 34% 6.5rem;
+  grid-template-columns: 6.75rem minmax(0, 1.15fr) minmax(140px, 1fr) 6.5rem;
   gap: 0.75rem;
   align-items: center;
   min-height: 2rem;
@@ -574,7 +671,7 @@ function onBaselineChange(event) {
   background: var(--bootui-surface-alt);
   border-bottom-color: var(--bootui-border);
   color: var(--bootui-text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.72rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -592,7 +689,7 @@ function onBaselineChange(event) {
   background: var(--bootui-surface-alt);
   border: 1px solid var(--bootui-border);
   font-family: var(--bs-font-monospace);
-  font-size: 0.6875rem;
+  font-size: 0.72rem;
   color: var(--bootui-text-muted);
 }
 
@@ -696,12 +793,61 @@ function onBaselineChange(event) {
 
 .request-journal__baseline-link {
   padding: 0.05rem 0.4rem;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
 }
 
 .request-journal__baseline-select {
   min-width: 11rem;
   font-family: var(--bs-font-monospace);
-  font-size: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.request-journal__dual-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--bootui-surface-solid);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-xs);
+}
+
+.request-journal__dual-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) 4.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.request-journal__dual-label {
+  color: var(--bootui-text-muted);
+}
+
+.request-journal__dual-bar-wrap {
+  position: relative;
+  height: 0.6rem;
+  background: var(--bootui-surface-alt);
+  border-radius: var(--bootui-radius-pill);
+  overflow: hidden;
+}
+
+.request-journal__dual-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--bootui-radius-pill);
+}
+
+.request-journal__dual-bar--target {
+  background: var(--bootui-warning);
+}
+
+.request-journal__dual-bar--baseline {
+  background: var(--bootui-green);
+}
+
+.request-journal__dual-time {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
 }
 </style>

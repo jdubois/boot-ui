@@ -9,13 +9,15 @@ export const THEMES = [
   {
     id: 'time',
     label: 'Time',
+    icon: 'bi-stopwatch',
     kinds: ['route-time-breakdown', 'route-latency-outliers', 'event-loop-blocking', 'work-after-response']
   },
   // Garbage collection and heap rows are reached from the Memory panel, which links here (docs/PLAN-v2.md M4-19).
-  {id: 'memory', label: 'Memory', kinds: MEMORY_KINDS},
+  {id: 'memory', label: 'Memory', icon: 'bi-memory', kinds: MEMORY_KINDS},
   {
     id: 'queries',
     label: 'Queries',
+    icon: 'bi-database',
     kinds: [
       'repeated-selects',
       'safe-method-dml',
@@ -27,10 +29,11 @@ export const THEMES = [
       'slow-flush'
     ]
   },
-  {id: 'errors', label: 'Errors', kinds: ['exception-hotspots', 'errors-behind-2xx']},
+  {id: 'errors', label: 'Errors', icon: 'bi-exclamation-octagon', kinds: ['exception-hotspots', 'errors-behind-2xx']},
   {
     id: 'transactions',
     label: 'Transactions',
+    icon: 'bi-arrow-repeat',
     kinds: [
       'connections-per-request',
       'connection-reacquisition',
@@ -41,9 +44,14 @@ export const THEMES = [
       'readonly-candidate-transaction'
     ]
   },
-  {id: 'access', label: 'Access', kinds: ['anonymous-data-reach', 'anonymous-success-on-restricted-route']},
-  {id: 'framework', label: 'Framework', kinds: ['framework-warnings-by-route', 'proxy-bypass']},
-  {id: 'ai', label: 'AI', kinds: ['ai-usage-by-route']}
+  {
+    id: 'access',
+    label: 'Access',
+    icon: 'bi-shield-lock',
+    kinds: ['anonymous-data-reach', 'anonymous-success-on-restricted-route']
+  },
+  {id: 'framework', label: 'Framework', icon: 'bi-boxes', kinds: ['framework-warnings-by-route', 'proxy-bypass']},
+  {id: 'ai', label: 'AI', icon: 'bi-cpu', kinds: ['ai-usage-by-route']}
 ]
 
 const STATUS_ORDER = {OBSERVED: 0, PARTIAL: 1, INSUFFICIENT: 2}
@@ -120,13 +128,98 @@ export function groupObservations(report, {query = '', theme = ''} = {}) {
   return [...groups.values()]
     .filter((group) => group.observations.length > 0)
     .sort((a, b) => (GROUP_ORDER.get(a.kind) ?? GROUP_ORDER.size) - (GROUP_ORDER.get(b.kind) ?? GROUP_ORDER.size))
-    .map((group) => ({
-      ...group,
-      summary: GROUP_ORDER.has(group.kind) ? GROUP_SUMMARIES[group.kind] : '',
-      observations: [...group.observations].sort(
+    .map((group) => {
+      const observations = [...group.observations].sort(
         (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || b.affected - a.affected
       )
-    }))
+      const subjects = [
+        ...new Set(observations.map((observation) => observation.subject).filter((subject) => Boolean(subject?.trim())))
+      ]
+      return {
+        ...group,
+        summary: GROUP_ORDER.has(group.kind) ? GROUP_SUMMARIES[group.kind] : '',
+        subjects,
+        subjectPreview: subjects.slice(0, 2),
+        moreSubjects: Math.max(0, subjects.length - 2),
+        observations
+      }
+    })
+}
+
+/**
+ * Symmetric subject-first grouping ("Group by: Subject"): groups matching observations by their route, job, bean, or
+ * run-wide subject. Subjects that carry specific review candidates appear before subjects that only carry broad timing
+ * or usage summaries; inside each subject, observations follow the same suggested review order (GROUP_ORDER).
+ */
+export function groupObservationsBySubject(report, {query = '', theme = ''} = {}) {
+  const checkGroups = groupObservations(report, {query, theme})
+  const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
+  const bySubject = new Map()
+
+  for (const group of checkGroups) {
+    for (const observation of group.observations) {
+      const subject = observation.subject?.trim() || 'No subject recorded'
+      if (!bySubject.has(subject)) {
+        bySubject.set(subject, {
+          kind: `subject:${subject}`,
+          subject,
+          title: subject,
+          observations: []
+        })
+      }
+      bySubject.get(subject).observations.push({
+        ...observation,
+        checkTitle: titles.get(observation.kind) ?? group.title ?? observation.kind
+      })
+    }
+  }
+
+  const rankOf = (kind) => GROUP_ORDER.get(kind) ?? GROUP_ORDER.size
+  return [...bySubject.values()]
+    .map((entry) => {
+      const observations = [...entry.observations].sort(
+        (a, b) =>
+          rankOf(a.kind) - rankOf(b.kind) ||
+          (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
+          b.affected - a.affected
+      )
+      const checkTitles = [...new Set(observations.map((obs) => obs.checkTitle).filter(Boolean))]
+      const bestRank = observations.reduce((min, obs) => Math.min(min, rankOf(obs.kind)), GROUP_ORDER.size)
+      return {
+        ...entry,
+        summary: checkTitles.slice(0, 2).join(' · '),
+        checkTitles,
+        subjectPreview: checkTitles.slice(0, 2),
+        moreSubjects: Math.max(0, checkTitles.length - 2),
+        bestRank,
+        observations
+      }
+    })
+    .sort(
+      (a, b) =>
+        a.bestRank - b.bestRank || b.observations.length - a.observations.length || a.title.localeCompare(b.title)
+    )
+}
+
+/**
+ * Extracts a concise summary for an exemplar request ID when the loaded evidence table includes a Request column.
+ */
+export function exemplarSummary(detail, requestId) {
+  if (!detail?.columns || !detail?.rows || !requestId) return ''
+  const reqCol = detail.columns.indexOf('Request')
+  if (reqCol < 0) return ''
+  const row = detail.rows.find((candidate) => candidate?.cells?.[reqCol] === requestId)
+  if (!row) return ''
+  const parts = []
+  detail.columns.forEach((col, index) => {
+    if (index === reqCol) return
+    const val = String(row.cells?.[index] ?? '').trim()
+    if (!val || val === '—' || val.length > 36) return
+    if (parts.length < 2) {
+      parts.push(`${col}: ${val}`)
+    }
+  })
+  return parts.join(' · ')
 }
 
 /**
@@ -135,13 +228,51 @@ export function groupObservations(report, {query = '', theme = ''} = {}) {
 export function themeFilters(report, {theme = ''} = {}) {
   const observations = report?.observations ?? []
   return [
-    {id: '', label: 'Any topic', count: observations.length},
+    {id: '', label: 'Any topic', icon: 'bi-grid', count: observations.length},
     ...THEMES.map((entry) => ({
       id: entry.id,
       label: entry.label,
+      icon: entry.icon ?? 'bi-circle',
       count: observations.filter((observation) => themeOf(observation.kind) === entry.id).length
     })).filter((entry) => entry.count > 0 || entry.id === theme)
   ]
+}
+
+/** Semantic icon and tone for a check group or subject group in Runtime Insights. */
+export function groupVisual(kind) {
+  if (String(kind).startsWith('subject:')) {
+    const subject = String(kind).slice('subject:'.length)
+    if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s/.test(subject)) {
+      return {icon: 'bi-signpost-split', tone: 'primary'}
+    }
+    if (subject.startsWith('Scheduled:') || subject.startsWith('@Scheduled')) {
+      return {icon: 'bi-clock-history', tone: 'info'}
+    }
+    return {icon: 'bi-bullseye', tone: 'secondary'}
+  }
+  const t = themeOf(kind)
+  return (
+    {
+      errors: {icon: 'bi-exclamation-octagon', tone: 'danger'},
+      queries: {icon: 'bi-database', tone: 'success'},
+      transactions: {icon: 'bi-arrow-repeat', tone: 'warning'},
+      time: {icon: 'bi-stopwatch', tone: 'primary'},
+      memory: {icon: 'bi-memory', tone: 'info'},
+      access: {icon: 'bi-shield-lock', tone: 'warning'},
+      framework: {icon: 'bi-boxes', tone: 'secondary'},
+      ai: {icon: 'bi-cpu', tone: 'primary'}
+    }[t] ?? {icon: 'bi-lightbulb', tone: 'secondary'}
+  )
+}
+
+/** Splits a route subject like "POST /api/orders" into {method: "POST", rest: "/api/orders"} when applicable. */
+export function splitSubjectBadge(subject) {
+  const text = String(subject ?? '').trim()
+  const match = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/.exec(text)
+  if (match) {
+    return {method: match[1], rest: match[2]}
+  }
+  return {method: null, rest: text}
 }
 
 // Garbage collections belong to the JVM, never to one request: a request's pauses are joined to it by collection id.

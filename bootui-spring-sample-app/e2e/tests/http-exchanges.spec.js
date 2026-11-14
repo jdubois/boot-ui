@@ -2,6 +2,57 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('HTTP Exchanges view', () => {
+  test('keeps blank drawer space interactive and blocks the background command palette', async ({openView, page}) => {
+    expect((await page.request.get('/api/sample/hello')).ok()).toBeTruthy()
+    await page.setViewportSize({width: 1600, height: 900})
+    await openView('http-exchanges', 'HTTP Exchanges')
+    await page.locator('[data-route-id="GET /api/sample/hello"] .http-routes-exchanges-link').click()
+    const drawer = page.getByRole('dialog', {name: 'Route exchanges'})
+    await expect(drawer).toBeVisible()
+    const routeLabel = await drawer.locator('#http-route-drawer-route').boundingBox()
+    await page.mouse.move(routeLabel.x + 10, routeLabel.y + routeLabel.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(100, routeLabel.y + routeLabel.height / 2, {steps: 5})
+    await page.mouse.up()
+    await expect(drawer).toBeVisible()
+    await drawer.getByRole('button', {name: 'Close route exchanges'}).focus()
+    await page.keyboard.press('Meta+k')
+    await expect(page.locator('.cp-backdrop')).toHaveCount(0)
+    await expect(drawer.getByRole('button', {name: 'Close route exchanges'})).toBeFocused()
+
+    await drawer.locator('#http-exchanges-filter').fill('no-retained-request-for-this-filter')
+    await expect(drawer).toContainText('No HTTP exchanges match your filters')
+    await drawer.click({position: {x: 400, y: 850}})
+    await expect(drawer).toBeVisible()
+    await page.mouse.click(100, 700)
+    await expect(drawer).toHaveCount(0)
+  })
+
+  test('opens a route deep link as a full-width drawer on mobile with a persistent close control', async ({page}) => {
+    expect((await page.request.get('/api/sample/hello')).ok()).toBeTruthy()
+    await page.setViewportSize({width: 390, height: 844})
+    await page.goto(`/bootui/#/http-exchanges?${new URLSearchParams({route: 'GET /api/sample/hello'})}`)
+    const drawer = page.getByRole('dialog', {name: 'Route exchanges'})
+    await expect(drawer).toBeVisible()
+    await expect(drawer.getByRole('button', {name: 'Close route exchanges'})).toBeFocused()
+    await drawer.locator('.http-exchanges-detail-toggle').first().click()
+    await expect(drawer.locator('.http-exchanges-detail')).toContainText('Request headers')
+    expect(
+      await drawer.evaluate((el) => {
+        const body = el.querySelector('.http-route-drawer-body')
+        return el.scrollWidth <= el.clientWidth && body.scrollWidth <= body.clientWidth
+      })
+    ).toBe(true)
+    await drawer.locator('.http-route-drawer-body').evaluate((el) => {
+      el.scrollTop = el.scrollHeight
+    })
+    await expect(drawer.getByRole('button', {name: 'Close route exchanges'})).toBeInViewport()
+    await drawer.getByRole('button', {name: 'Close route exchanges'}).click()
+    await expect(drawer).toHaveCount(0)
+    await expect(page).not.toHaveURL(/route=/)
+    await expect(page.locator('[data-route-id="GET /api/sample/hello"] .http-routes-exchanges-link')).toBeFocused()
+  })
+
   test('shows recent sample app requests', async ({openView, page}) => {
     const apiResponse = await page.request.get('/api/sample/hello')
     expect(apiResponse.ok()).toBeTruthy()
@@ -135,12 +186,23 @@ test.describe('HTTP Exchanges view', () => {
     await expect(page.locator('.http-routes-table')).not.toContainText('/bootui')
 
     await routeRow.locator('.http-routes-exchanges-link').click()
+    const drawer = page.getByRole('dialog', {name: 'Route exchanges'})
+    await expect(drawer).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+    await expect(drawer.getByRole('button', {name: 'Close route exchanges'})).toBeFocused()
     await expect(page.locator('.http-exchanges-route-filter')).toContainText('GET /api/sample/hello')
     const rows = page.locator('.http-exchanges-table tbody tr')
     await expect(rows.first()).toContainText('/api/sample/hello')
     await expect(page.locator('.http-exchanges-table')).not.toContainText('/api/secure')
 
-    await rows.first().locator('.http-exchanges-profile-link').click()
+    await rows.first().locator('.http-exchanges-detail-toggle').click()
+    await expect(drawer.locator('.http-exchanges-detail')).toContainText('Request headers')
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+    await expect(routeRow.locator('.http-routes-exchanges-link')).toBeFocused()
+    await routeRow.locator('.http-routes-exchanges-link').click()
+    await drawer.locator('.http-exchanges-detail-toggle').first().click()
+    await drawer.locator('.http-exchanges-profile-link').click()
     await expect(page).toHaveURL(/\/activity\?request=/)
     await expect(page.locator('.activity-drawer')).toBeVisible()
   })

@@ -585,9 +585,18 @@ test.describe('BootUI on Spring WebFlux', () => {
 
     await routeRow.locator('.http-routes-exchanges-link').click()
     await expect(page).toHaveURL(/route=GET/)
+    const drawer = page.getByRole('dialog', {name: 'Route exchanges'})
+    await expect(drawer).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+    await expect(drawer.getByRole('button', {name: 'Close route exchanges'})).toBeFocused()
     await expect(page.locator('.http-exchanges-route-filter')).toContainText('GET /api/greetings/{name}')
     await expect(page.locator('.http-exchanges-table tbody tr').first()).toContainText('/api/greetings/')
     await expect(page.locator('.http-exchanges-table')).not.toContainText('/api/notes')
+    await drawer.locator('.http-exchanges-detail-toggle').first().click()
+    await expect(drawer.locator('.http-exchanges-detail')).toContainText('Request headers')
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+    await expect(routeRow.locator('.http-routes-exchanges-link')).toBeFocused()
   })
 
   test('panels with no reactive equivalent yet explain why in the sidebar and panel alert', async ({page}) => {
