@@ -1,6 +1,6 @@
 # Runtime Insights
 
-![Runtime Insights: compact observation groups in suggested review order, with search, Topic, and stable run totals](../images/bootui-runtime-insights.webp)
+![Runtime Insights: route observations with topic filters, check or subject grouping, and event linkage](../images/bootui-runtime-insights.webp)
 
 **Runtime Insights** answers what this run did that no single panel shows. It reads the
 [runtime journal](live-activity.md#runtime-journal) and projects its retained events into observations. Each one names
@@ -26,6 +26,11 @@ Five tabs follow:
 | **Change impact**     | What a changed route, bean, class, table, cache, or host reaches            | `?tab=impact`, `?impact=<symbol>` |
 | **JFR profile**       | The on-demand resource profiler                                             | `?tab=profile`                    |
 | **Coverage & limits** | How events were linked, checks that did not fully run, routes not exercised | `?tab=coverage`                   |
+
+Use **Group by → Check** to review one kind of observation across the run, or **Subject** to bring together the
+observations about one route or resource. Topic pills show their counts; an open group offers quick-switch buttons
+and an observation selector when it has several matches. The subject action on an observation pivots to the other
+observations on that subject without starting a capture.
 
 Opening a group immediately shows its first matching observation and loads its evidence. Filters alone load no
 evidence; a deep link selects the exact observation, topic, tab, or change impact it names. Agents read the same facts

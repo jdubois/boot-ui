@@ -7,31 +7,48 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-14
+
+This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.
+It also adds local CLI discovery and setup, expands advisor coverage, and removes noisy checks.
+
 ### Added
 
-- **Intra-route baseline comparison in Request Profile and Runtime Insights** compares slow or failed HTTP requests
-  against a retained warm `2xx` baseline on the same route (`route-latency-outliers`, drawer, MCP/CLI, and exports; [#1670](https://github.com/jdubois/boot-ui/issues/1670)).
-- **Six OWASP Top 10:2025 Pentesting Advisor checks** detect `__Host-`/`__Secure-` cookie prefix violations (`PT-A02-007`),
-  publicly cacheable `Set-Cookie` responses (`PT-A02-008`), exposed CORS authentication/token headers (`PT-A05-073`),
-  plaintext HTTP Basic/Digest challenges (`PT-A07-008`), unsafe Jackson 2/3 polymorphic default typing or unrejected
-  `jdk.serialFilter` wildcards (`PT-A08-001`), and unhandled `5xx` errors on the synthetic missing-resource probe
-  (`PT-A10-001`) ([Pentesting checks](docs/PENTEST-CHECKS.md); [#1657](https://github.com/jdubois/boot-ui/issues/1657)).
-- **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
-  and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
-- **Memory advisor rules for cgroup v2 throttling/OOM, ClassLoader/proxy bloat, and external `System.gc()` pauses** add
-  `MEM-FOOTPRINT-005`, `MEM-CONTENT-005`, and `MEM-GC-009` ([Memory checks](docs/MEMORY-CHECKS.md); [#1653](https://github.com/jdubois/boot-ui/issues/1653)).
-- **HTTP Probe route picker and prefill links** let you pick declared routes with base-path composition or open routes from
-  Mappings and HTTP Exchanges without auto-sending ([HTTP Probe](docs/features/diagnostics.md#http-probe); [#1668](https://github.com/jdubois/boot-ui/issues/1668)).
-- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
-  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
-- **Local instance discovery and `bootui init`** list and target running local applications with `bootui instances` and
-  `bootui --app <name>`, and idempotently write or preview MCP client configurations ([CLI guide](docs/CLI.md); [#1673](https://github.com/jdubois/boot-ui/issues/1673)).
-- **Loopback-gated `X-BootUI-Request-Id` response header** links local application responses directly to their HTTP
-  Exchanges row and Live Activity request profile by default (`bootui.http-exchanges.expose-request-id-header`)
-  ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1674](https://github.com/jdubois/boot-ui/issues/1674)).
-- **Per-request authorization decisions in Live Activity and request profiles** surface denied checks in the feed, list
-  request and method decisions on the journal profile and timeline, and link `401`/`403` requests to Spring Security
-  ([Live Activity](docs/features/live-activity.md#the-per-request-profiler); [#1669](https://github.com/jdubois/boot-ui/issues/1669)).
+- **Same-route request baselines** compare slow or failed requests with retained warm successes in the UI, CLI, MCP, and exports
+  ([Request profiles](docs/features/live-activity.md#the-per-request-profiler); [#1688](https://github.com/jdubois/boot-ui/pull/1688)).
+- **Local CLI discovery and setup** find running applications, target them by name, and preview or write MCP client configurations
+  ([CLI guide](docs/CLI.md); [#1687](https://github.com/jdubois/boot-ui/pull/1687)).
+- **HTTP Probe route picker** selects declared routes or prefills them from Mappings and HTTP Exchanges without sending a request
+  ([HTTP Probe](docs/features/diagnostics.md#http-probe); [#1676](https://github.com/jdubois/boot-ui/pull/1676)).
+- **Binding and authorization evidence** explains validation failures without rejected input and shows captured authorization decisions per request
+  ([Diagnostics](docs/features/diagnostics.md#exceptions); [#1679](https://github.com/jdubois/boot-ui/pull/1679), [#1677](https://github.com/jdubois/boot-ui/pull/1677)).
+- **Virtual-thread pinning attribution** connects JFR pinning events to routes and hot frames on JDK 21+
+  ([JFR profile](docs/features/runtime-insights.md#jfr-profile); [#1685](https://github.com/jdubois/boot-ui/pull/1685)).
+- **Broader advisor coverage** adds architecture, REST API, database, Hibernate, memory, Spring, Quarkus, security, and pentesting checks
+  ([Advisors](docs/features/advisors.md); [#1708](https://github.com/jdubois/boot-ui/pull/1708), [#1709](https://github.com/jdubois/boot-ui/pull/1709)).
+
+### Changed
+
+- **Investigation navigation** adds subject grouping, clearer request profiles, route-exchange drawers, and recognizable cross-panel links
+  ([Runtime Insights](docs/features/runtime-insights.md); [#1711](https://github.com/jdubois/boot-ui/pull/1711), [#1712](https://github.com/jdubois/boot-ui/pull/1712), [#1713](https://github.com/jdubois/boot-ui/pull/1713)).
+- **Request ID response header** is enabled by default for loopback and trusted-peer requests while HTTP Exchanges is enabled, with an opt-out
+  ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1675](https://github.com/jdubois/boot-ui/pull/1675)).
+
+### Removed
+
+- **Noisy security and pentesting checks** no longer report duplicate or unsupported findings; retired identifiers remain documented
+  ([Pentesting checks](docs/PENTEST-CHECKS.md); [#1702](https://github.com/jdubois/boot-ui/pull/1702), [#1704](https://github.com/jdubois/boot-ui/pull/1704)).
+- **Noisy database, Hibernate, and memory checks** no longer penalize valid configurations or lifetime counters
+  ([Memory checks](docs/MEMORY-CHECKS.md#retired-rules); [#1693](https://github.com/jdubois/boot-ui/pull/1693), [#1695](https://github.com/jdubois/boot-ui/pull/1695), [#1699](https://github.com/jdubois/boot-ui/pull/1699)).
+- **Obsolete architecture, REST API, Spring, and Quarkus checks** are retired, with shutdown-timeout guidance consolidated
+  ([Advisors](docs/features/advisors.md); [#1678](https://github.com/jdubois/boot-ui/pull/1678), [#1680](https://github.com/jdubois/boot-ui/pull/1680), [#1683](https://github.com/jdubois/boot-ui/pull/1683), [#1684](https://github.com/jdubois/boot-ui/pull/1684)).
+
+### Fixed
+
+- **Advisor accuracy** reduces false positives and improves vulnerability upgrade guidance, SBOM reconciliation, and scan deadlines
+  ([Vulnerabilities checks](docs/VULNERABILITIES-CHECKS.md); [#1691](https://github.com/jdubois/boot-ui/pull/1691), [#1703](https://github.com/jdubois/boot-ui/pull/1703)).
+- **Startup and CI diagnostics** explain unsupported runtime combinations and collect Spring CI evidence more reliably
+  ([Compatibility](docs/FRAMEWORK-SUPPORT.md); [#1697](https://github.com/jdubois/boot-ui/pull/1697), [#1700](https://github.com/jdubois/boot-ui/pull/1700)).
 
 ## [2.4.0] - 2026-11-12
 
@@ -3068,7 +3085,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/jdubois/boot-ui/compare/v2.4.0...v2.5.0
 [2.0.0]: https://github.com/jdubois/boot-ui/compare/v1.21.0...v2.0.0
 [1.20.0]: https://github.com/jdubois/boot-ui/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/jdubois/boot-ui/compare/v1.18.0...v1.19.0

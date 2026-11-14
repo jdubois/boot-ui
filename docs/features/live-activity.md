@@ -130,6 +130,11 @@ Clicking a request opens a Symfony-style drawer that correlates that request's S
 client calls, and cache accesses. It never fabricates data. Every section is labelled with the tier that correlated it,
 and the whole profile is marked approximate whenever a time-window match was used.
 
+Choose **Wide** for more room, use the previous/next arrows to step through profileable entries in the current feed,
+and filter the sheet with its section tabs. **What stands out** links to the retained evidence behind each highlight;
+the work breakdown separates measured SQL and outbound calls from the rest of the request. When arriving from
+Runtime Insights, **Back to Runtime Insights** restores the observation you came from.
+
 | Tier           | How it matches                                                                                   | Adapters            | Labelled        |
 | -------------- | ------------------------------------------------------------------------------------------------ | ------------------- | --------------- |
 | Request id     | The BootUI request id stamped on the signal when it was recorded                                 | All                 | **exact**       |
@@ -155,6 +160,8 @@ is open. Opening a profile only reads evidence BootUI already captured. It captu
 service, and changes no state. Open Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's
 **Profile** link does, to open a request's profile directly.
 
+![Request profile showing a captured authorization decision with its rule, outcome, and duration](../images/bootui-activity-authorization.webp)
+
 An exception's type in the profile links to its **exact exception group**, opening the stack trace and cause chain.
 The EXCEPTION feed row uses the same group link. **Back to request profile** preserves the originating request ID.
 Older entries without a group ID open a class-name search instead; BootUI never guesses a group. Cleared, evicted,
@@ -176,6 +183,8 @@ verified JDBC executions and SQL time, connection wait, cache hits and misses, o
 flushes and peak entities in context, JVM-wide GC pauses that completed during each request, and up to five literal-free
 distinguishing SQL shapes. A compact selector (`?compareWith=<requestId>`) lets you switch to another retained baseline
 request on the same route, and the comparison is included in **Copy profile** and **Copy for AI**.
+
+![Request profile comparing a slow request with a retained warm baseline on the same route](../images/bootui-activity-baseline.webp)
 
 Each section shows at most 200 entries and states how many more were correlated. A section whose source panel is
 disabled or not capturing explains why instead of looking empty.

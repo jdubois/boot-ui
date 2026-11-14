@@ -1,6 +1,6 @@
 # BootUI Roadmap
 
-Current as of **2026-11-12**, after **2.4.0**. This is the current roadmap, not a release commitment.
+Current as of **2026-11-14**, for **2.5.0**. This is the current roadmap, not a release commitment.
 [CHANGELOG.md](https://github.com/jdubois/boot-ui/blob/main/CHANGELOG.md) records shipped behavior;
 [PLAN-v2.md](PLAN-v2.md) is the historical 2.0 design and
 delivery record. Its section identifiers remain valid, but its branch instructions, milestone statuses, and deferred
@@ -16,8 +16,8 @@ command-line interface reach the same diagnostics without a browser.
 
 BootUI 2.0 shipped on 2026-10-12, and current development is on `main`. Exact correlation, the bounded runtime
 journal, Runtime Insights, change impact, run comparison, and the optional Java agent are released capabilities,
-not future milestones. Releases 2.1–2.4 extended them with low-footprint controls, deeper database diagnostics,
-thread investigations, agent playbooks, and CI assessments (§2).
+not future milestones. Releases 2.1–2.5 extend them with low-footprint controls, deeper database diagnostics,
+thread investigations, agent playbooks, CI assessments, request baselines, and local CLI setup (§2).
 
 The direction is to make local runtime evidence more useful and trustworthy for developers and agents, including
 explicitly invoked dev/test CI workflows, without becoming production monitoring or requiring external infrastructure.
@@ -80,6 +80,7 @@ Recent releases establish the baseline for future work:
 | 2.2.0 | Expanded Database advisor and Runtime Insights checks, advisor finding changes/dismissals, CLI severity gates, and MCP/CLI low-footprint controls | [Database checks](DATABASE-ADVISOR-CHECKS.md), [Runtime Insights](features/runtime-insights.md), [CLI](CLI.md) |
 | 2.3.0 | Bounded thread investigations, six application-improvement playbooks, and grouped Runtime Insights observations | [Threads](features/runtime.md#threads), [AI agents](AI-AGENTS.md#application-improvement-playbooks), [Runtime Insights](features/runtime-insights.md) |
 | 2.4.0 | Live/offline CI assessments and GitHub Action, incomplete-evidence gates, static analyzer declaration checks, offline CLI documentation, and installation-aware updates | [CI](CI.md), [Framework-managed tests](ci/framework-tests.md), [CLI](CLI.md), [Security checks](SECURITY-CHECKS.md) |
+| 2.5.0 | Same-route request baselines, clearer investigation navigation, local CLI discovery and MCP setup, expanded advisor coverage, and retired noisy checks | [Live Activity](features/live-activity.md), [Runtime Insights](features/runtime-insights.md), [CLI](CLI.md), [Advisors](features/advisors.md) |
 
 Availability remains capability-specific across Spring MVC, Spring WebFlux, and Quarkus; see
 [Framework support](FRAMEWORK-SUPPORT.md). Later maintenance commits are recorded separately from these released
