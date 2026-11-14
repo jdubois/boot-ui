@@ -5,6 +5,8 @@ import {
   childTierLabel,
   securityEventExact,
   profileSections,
+  requestHighlights,
+  requestWorkBreakdown,
   restCallSummary,
   tierLabel,
   tierTitle,
@@ -134,5 +136,55 @@ describe('requestProfile helpers', () => {
       'POST localhost/x → failed'
     )
     expect(cacheAccessSummary({operation: 'MISS', cacheName: 'orders', keyHash: 'abc'})).toBe('MISS orders')
+  })
+
+  it('computes a recorded-work breakdown without fabricating SQL timing when SQL is unavailable', () => {
+    const breakdown = requestWorkBreakdown(
+      {
+        request: {durationMs: 200},
+        timing: {sqlCount: 6, sqlMs: 120, restCallCount: 1, restCallMs: 40},
+        sqlGroups: [{potentialNPlusOne: true}]
+      },
+      {orm: {flushMicros: 10000, autoFlushMicros: 10000, autoFlushes: 3}}
+    )
+    expect(breakdown.totalMs).toBe(200)
+    expect(breakdown.segments.map((s) => s.id)).toEqual(['sql', 'orm', 'rest', 'other'])
+    expect(breakdown.segments[0]).toMatchObject({id: 'sql', tone: 'danger'})
+
+    const unavailableSql = requestWorkBreakdown(
+      {
+        request: {durationMs: 100},
+        timing: {sqlCount: 0, sqlMs: 0, restCallCount: 1, restCallMs: 25},
+        sections: [{type: 'SQL', available: false}]
+      },
+      null
+    )
+    expect(unavailableSql.segments.map((s) => s.id)).toEqual(['rest', 'other'])
+  })
+
+  it('extracts deterministic What Stands Out highlights from recorded facts', () => {
+    const items = requestHighlights(
+      {
+        exceptions: [{exceptionClassName: 'java.lang.IllegalStateException', message: 'boom'}],
+        sqlGroups: [
+          {
+            sql: 'select * from order_items where order_id = ?',
+            executions: 12,
+            potentialNPlusOne: true,
+            callSites: ['OrderService.enrich(OrderService.java:42)']
+          }
+        ]
+      },
+      {
+        authorizations: [{target: 'REQUEST', subject: '/api/admin', granted: false}],
+        baselineComparison: {
+          baselineRequestId: 'req-warm-1',
+          durationDeltaMicros: 280000,
+          sqlExecutionsDelta: 10
+        }
+      }
+    )
+    expect(items.map((item) => item.id)).toEqual(['exception', 'auth-denied', 'n-plus-one', 'baseline-delta'])
+    expect(items[2].detail).toBe('at OrderService.enrich(OrderService.java:42)')
   })
 })

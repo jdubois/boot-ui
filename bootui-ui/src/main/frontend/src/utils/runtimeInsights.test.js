@@ -4,12 +4,14 @@ import {
   THEMES,
   availableThemes,
   evidenceShares,
+  exemplarSummary,
   numericColumns,
   checksWithReasons,
   coverageSources,
   coverageSummary,
   emptyState,
   groupObservations,
+  groupObservationsBySubject,
   isMachineColumn,
   textParts,
   themeFilters,
@@ -67,6 +69,25 @@ describe('runtimeInsights helpers', () => {
     expect(groups.map((group) => group.title)).toEqual(['Repeated SELECTs', 'Route time breakdown'])
     expect(groups[0].observations.map((observation) => observation.id)).toEqual(['b', 'a'])
     expect(groups[0].summary).toBe('The same SELECT repeated after another statement.')
+    expect(groups[0].subjectPreview).toEqual(['GET /api/owners', 'GET /api/orders'])
+    expect(groups[0].moreSubjects).toBe(0)
+  })
+
+  it('groups observations by subject with specific review candidates before timing summaries', () => {
+    const bySubject = groupObservationsBySubject(report)
+    expect(bySubject.map((g) => g.title)).toEqual(['GET /api/orders', 'GET /api/owners'])
+    expect(bySubject[0].observations.map((o) => o.id)).toEqual(['a', 'c'])
+    expect(bySubject[0].subjectPreview).toEqual(['Repeated SELECTs', 'Route time breakdown'])
+  })
+
+  it('summarizes exemplar request rows when the evidence table carries a Request column', () => {
+    const d = {
+      columns: ['Request', 'Executions', 'Total (ms)'],
+      rows: [{cells: ['r-1', '12', '284.0']}]
+    }
+    expect(exemplarSummary(d, 'r-1')).toBe('Executions: 12 · Total (ms): 284.0')
+    expect(exemplarSummary(d, 'r-99')).toBe('')
+    expect(exemplarSummary({columns: ['Phase', 'Share'], rows: []}, 'r-1')).toBe('')
   })
 
   it('filters by route, sentence text, and theme', () => {

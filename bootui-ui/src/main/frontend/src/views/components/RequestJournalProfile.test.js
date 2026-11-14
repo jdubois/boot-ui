@@ -317,6 +317,9 @@ describe('RequestJournalProfile', () => {
 
     await wrapper.get('.request-journal__baseline-link').trigger('click')
     expect(wrapper.emitted('open-request')).toEqual([['req-warm-1']])
+    expect(wrapper.find('.request-journal__dual-track').exists()).toBe(true)
+    expect(wrapper.get('.request-journal__dual-track').text()).toContain('40.0 ms')
+    expect(wrapper.get('.request-journal__dual-track').text()).toContain('12.0 ms')
 
     const select = wrapper.get('.request-journal__baseline-select')
     await select.setValue('req-warm-2')

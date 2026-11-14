@@ -12,8 +12,12 @@ import {
   coverageSummary,
   emptyState,
   evidenceShares,
+  exemplarSummary as summarizeExemplar,
   groupObservations,
+  groupObservationsBySubject,
+  groupVisual,
   numericColumns,
+  splitSubjectBadge,
   themeFilters
 } from '../utils/runtimeInsights.js'
 import {insightMarkdown} from '../utils/markdownExport.js'
@@ -45,6 +49,7 @@ const lastFetched = ref(null)
 const route = useRoute()
 const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
 const theme = ref(typeof route?.query?.theme === 'string' ? route.query.theme : '')
+const groupBy = ref(route?.query?.groupBy === 'subject' ? 'subject' : 'check')
 const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
 const searchInput = ref(null)
 let deepLinkChecked = false
@@ -84,6 +89,9 @@ const changedMethods = computed(() =>
   (code.value?.rows ?? []).filter((row) => row.checkable).map((row) => ({symbol: row.key, name: row.name}))
 )
 const changedTotal = computed(() => (code.value?.rows?.length ?? 0) + (code.value?.more ?? 0))
+const changedRoutes = computed(
+  () => new Set((code.value?.rows ?? []).flatMap((row) => row.routes ?? []).filter(Boolean))
+)
 
 function onComparisonLoaded(value) {
   comparison.value = value
@@ -117,12 +125,29 @@ const filters = computed(() => ({
   query: query.value,
   theme: theme.value
 }))
-const groups = computed(() => groupObservations(report.value, filters.value))
-const filteredObservations = computed(() => groups.value.flatMap((group) => group.observations))
+const checkGroups = computed(() => groupObservations(report.value, filters.value))
+const subjectGroups = computed(() => groupObservationsBySubject(report.value, filters.value))
+const groups = computed(() => (groupBy.value === 'subject' ? subjectGroups.value : checkGroups.value))
+const filteredObservations = computed(() => checkGroups.value.flatMap((group) => group.observations))
 const themes = computed(() => themeFilters(report.value, {theme: theme.value}))
 const filtersActive = computed(() => query.value.trim() !== '' || theme.value !== '')
 // The verdict speaks for the run, whatever the list is filtered to.
 const counts = computed(() => ({total: report.value?.observations?.length ?? 0}))
+
+function groupTouchesChangedRoute(group) {
+  if (!changedRoutes.value.size) return false
+  return (group?.observations ?? []).some((obs) => obs.subject && changedRoutes.value.has(obs.subject))
+}
+
+function subjectObservationCount(subject) {
+  if (!subject) return 0
+  return (report.value?.observations ?? []).filter((obs) => obs.subject === subject).length
+}
+
+function pivotToSubject() {
+  if (!selected.value?.subject) return
+  groupBy.value = 'subject'
+}
 
 async function clearFilters() {
   query.value = ''
@@ -145,11 +170,16 @@ const notExercisedCount = computed(
 const selected = computed(() => filteredObservations.value.find((observation) => observation.id === selectedId.value))
 watch(selectedId, () => (aiExport.value = null))
 function groupExpanded(kind) {
-  return selected.value?.kind === kind
+  if (!selected.value || !kind) return false
+  if (String(kind).startsWith('subject:')) {
+    const subject = selected.value.subject?.trim() || 'No subject recorded'
+    return kind === `subject:${subject}`
+  }
+  return selected.value.kind === kind
 }
 
 function groupId(kind) {
-  return `insight-group-${kind}`
+  return `insight-group-${String(kind).replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }
 
 function toggleGroup(group) {
@@ -178,7 +208,22 @@ function observationLabel(observation) {
     observation.status === 'OBSERVED'
       ? ''
       : ` - Evidence limit: ${observation.status === 'PARTIAL' ? 'Some source events were dropped' : statusLabel(observation.status)}`
-  return (observation.subject ?? 'No subject recorded') + limit
+  const base =
+    groupBy.value === 'subject' && observation.checkTitle
+      ? observation.checkTitle
+      : (observation.subject ?? 'No subject recorded')
+  return base + limit
+}
+
+function observationPillLabel(observation) {
+  if (groupBy.value === 'subject' && observation.checkTitle) {
+    return observation.checkTitle
+  }
+  return observation.subject ?? 'No subject recorded'
+}
+
+function exemplarSummary(requestId) {
+  return summarizeExemplar(detail.value, requestId)
 }
 
 const tabs = computed(() => [
@@ -343,6 +388,10 @@ provide(
     shares,
     numeric,
     windowText,
+    query,
+    theme,
+    groupBy,
+    exemplarSummary,
     showTab,
     openAiExport,
     statusLabel,
@@ -394,47 +443,80 @@ provide(
       <template v-else>
         <section class="card mb-3 insight-verdict" aria-labelledby="insight-verdict-title">
           <div class="card-body">
-            <h2 id="insight-verdict-title" class="insight-verdict-title">
-              <template v-if="empty === 'no-requests'">No HTTP requests recorded in this run yet</template>
-              <template v-else-if="empty === 'nothing-observed'">Nothing to report {{ scope }}</template>
-              <template v-else>
-                {{ formatNumber(counts.total) }} {{ counts.total === 1 ? 'observation' : 'observations' }} recorded
-                {{ scope }}
-              </template>
-            </h2>
-            <ul class="insight-verdict-facts">
-              <li v-if="empty === 'nothing-observed'">
-                <i class="bi bi-check2-all" aria-hidden="true"></i>
-                {{ evaluated.length }} of {{ report.checks.length }} checks ran
-              </li>
-              <li v-if="coverage.events > 0">
-                <i class="bi bi-link-45deg" aria-hidden="true"></i>
-                {{ linkedShare }} % of events linked to their request
-              </li>
-              <li class="insight-comparison-banner">
-                <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
-                <button
-                  v-if="compared"
-                  type="button"
-                  class="btn btn-outline-secondary btn-sm align-baseline insight-comparison-link"
-                  @click="showTab('changes', 'insight-comparison')"
-                >
-                  {{ comparisonText }}
-                </button>
-                <template v-else>{{ comparisonReady ? comparisonText : 'Comparing with the previous run…' }}</template>
-              </li>
-            </ul>
-            <p v-if="report.limitations?.length" class="small text-muted mb-0 mt-2 insight-verdict-limits">
-              {{ formatNumber(report.limitations.length) }}
-              {{ report.limitations.length === 1 ? 'limit' : 'limits' }} on what this run can show:
-              <button
-                type="button"
-                class="btn btn-outline-secondary btn-sm align-baseline"
-                @click="showTab('coverage')"
-              >
-                see Coverage &amp; limits
-              </button>
-            </p>
+            <div class="row g-3 align-items-center">
+              <div :class="coverage.events > 0 ? 'col-lg-7' : 'col-12'">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="insight-verdict-icon" aria-hidden="true">
+                    <i class="bi bi-lightbulb-fill"></i>
+                  </span>
+                  <h2 id="insight-verdict-title" class="insight-verdict-title mb-0">
+                    <template v-if="empty === 'no-requests'">No HTTP requests recorded in this run yet</template>
+                    <template v-else-if="empty === 'nothing-observed'">Nothing to report {{ scope }}</template>
+                    <template v-else>
+                      {{ formatNumber(counts.total) }}
+                      {{ counts.total === 1 ? 'observation' : 'observations' }} recorded {{ scope }}
+                    </template>
+                  </h2>
+                </div>
+                <ul class="insight-verdict-facts">
+                  <li v-if="empty === 'nothing-observed'" class="insight-verdict-pill">
+                    <i class="bi bi-check2-all" aria-hidden="true"></i>
+                    {{ evaluated.length }} of {{ report.checks.length }} checks ran
+                  </li>
+                  <li v-if="coverage.events > 0" class="insight-verdict-pill">
+                    <i class="bi bi-link-45deg" aria-hidden="true"></i>
+                    {{ linkedShare }} % of events linked to their request
+                  </li>
+                  <li class="insight-comparison-banner insight-verdict-pill">
+                    <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+                    <button
+                      v-if="compared"
+                      type="button"
+                      class="btn btn-outline-secondary btn-sm align-baseline insight-comparison-link"
+                      @click="showTab('changes', 'insight-comparison')"
+                    >
+                      {{ comparisonText }}
+                    </button>
+                    <template v-else>{{
+                      comparisonReady ? comparisonText : 'Comparing with the previous run…'
+                    }}</template>
+                  </li>
+                </ul>
+                <p v-if="report.limitations?.length" class="small text-muted mb-0 mt-2 insight-verdict-limits">
+                  {{ formatNumber(report.limitations.length) }}
+                  {{ report.limitations.length === 1 ? 'limit' : 'limits' }} on what this run can show:
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm align-baseline"
+                    @click="showTab('coverage')"
+                  >
+                    see Coverage &amp; limits
+                  </button>
+                </p>
+              </div>
+              <div v-if="coverage.events > 0" class="col-lg-5" aria-hidden="true">
+                <div class="insight-verdict-coverage">
+                  <div class="d-flex justify-content-between small mb-1">
+                    <span class="fw-semibold">Event linkage across {{ formatNumber(coverage.events) }} events</span>
+                    <span class="text-muted">{{ evaluated.length }} / {{ report.checks.length }} checks ran</span>
+                  </div>
+                  <div class="insight-verdict-bar">
+                    <span
+                      v-for="seg in coverage.segments.filter((s) => s.count > 0)"
+                      :key="seg.id"
+                      :class="`insight-verdict-seg insight-verdict-seg--${seg.id}`"
+                      :style="{flexGrow: seg.count}"
+                    ></span>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mt-1 small text-muted">
+                    <span v-for="seg in coverage.segments.filter((s) => s.count > 0)" :key="seg.id">
+                      <span :class="`insight-verdict-dot insight-verdict-seg--${seg.id}`"></span>
+                      {{ seg.label }} <strong>{{ seg.share }}%</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -509,6 +591,33 @@ provide(
                   <option v-for="topic in themes" :key="topic.id" :value="topic.id">{{ topic.label }}</option>
                 </select>
               </div>
+              <div class="insight-groupby-field">
+                <span id="insight-groupby-label" class="form-label small mb-1 d-block">Group by</span>
+                <div
+                  class="btn-group btn-group-sm insight-groupby"
+                  role="group"
+                  aria-labelledby="insight-groupby-label"
+                >
+                  <button
+                    type="button"
+                    class="btn insight-groupby-btn"
+                    :class="groupBy === 'check' ? 'btn-primary' : 'btn-outline-secondary'"
+                    :aria-pressed="groupBy === 'check' ? 'true' : 'false'"
+                    @click="groupBy = 'check'"
+                  >
+                    Check
+                  </button>
+                  <button
+                    type="button"
+                    class="btn insight-groupby-btn"
+                    :class="groupBy === 'subject' ? 'btn-primary' : 'btn-outline-secondary'"
+                    :aria-pressed="groupBy === 'subject' ? 'true' : 'false'"
+                    @click="groupBy = 'subject'"
+                  >
+                    Subject
+                  </button>
+                </div>
+              </div>
               <button
                 v-if="filtersActive"
                 type="button"
@@ -516,6 +625,21 @@ provide(
                 @click="clearFilters"
               >
                 Clear filters
+              </button>
+            </div>
+            <div v-if="themes.length > 1" class="d-flex flex-wrap gap-1 mb-2 insight-topic-pills" aria-hidden="true">
+              <button
+                v-for="topic in themes"
+                :key="topic.id"
+                type="button"
+                tabindex="-1"
+                class="btn btn-sm insight-topic-pill"
+                :class="theme === topic.id ? 'btn-primary' : 'btn-outline-secondary'"
+                @click="theme = topic.id"
+              >
+                <i :class="['bi', topic.icon, 'me-1']"></i>
+                <span>{{ topic.label }}</span>
+                <span class="insight-topic-pill__count ms-1">{{ formatNumber(topic.count) }}</span>
               </button>
             </div>
             <p id="insight-result-count" class="text-muted small mb-1" role="status">
@@ -555,10 +679,42 @@ provide(
                     :aria-describedby="group.summary ? `${groupId(group.kind)}-summary` : undefined"
                     @click="toggleGroup(group)"
                   >
+                    <span
+                      class="insight-group-icon"
+                      :class="`insight-group-icon--${groupVisual(group.kind).tone}`"
+                      aria-hidden="true"
+                    >
+                      <i :class="['bi', groupVisual(group.kind).icon]"></i>
+                    </span>
                     <span class="insight-group-main">
                       <span :id="`${groupId(group.kind)}-title`" class="insight-group-title">{{ group.title }}</span>
                       <span v-if="group.summary" :id="`${groupId(group.kind)}-summary`" class="insight-group-summary">
                         {{ group.summary }}
+                      </span>
+                      <span
+                        v-if="
+                          !groupExpanded(group.kind) &&
+                          (group.subjectPreview?.length || groupTouchesChangedRoute(group))
+                        "
+                        class="insight-group-subjects"
+                        aria-hidden="true"
+                      >
+                        <span v-for="preview in group.subjectPreview" :key="preview" class="insight-subject-chip">
+                          <template v-if="splitSubjectBadge(preview).method">
+                            <span
+                              class="insight-subject-method"
+                              :class="`insight-subject-method--${splitSubjectBadge(preview).method.toLowerCase()}`"
+                              >{{ splitSubjectBadge(preview).method }}</span
+                            >{{ ' ' }}
+                          </template>
+                          <code>{{ splitSubjectBadge(preview).rest }}</code>
+                        </span>
+                        <span v-if="group.moreSubjects > 0" class="insight-subject-more">
+                          +{{ formatNumber(group.moreSubjects) }} more
+                        </span>
+                        <span v-if="groupTouchesChangedRoute(group)" class="insight-changed-cue">
+                          <i class="bi bi-code-slash me-1"></i>Reaches changed method
+                        </span>
                       </span>
                     </span>
                     <span :id="`${groupId(group.kind)}-count`" class="insight-group-count">
@@ -581,6 +737,24 @@ provide(
                     aria-labelledby="insight-sentence"
                   >
                     <div v-if="group.observations.length > 1" class="insight-observation-navigation mb-3">
+                      <div
+                        v-if="group.observations.length <= 6"
+                        class="insight-observation-pills d-flex flex-wrap gap-1 mb-2"
+                        role="group"
+                        aria-label="Quick-switch observations in this group"
+                      >
+                        <button
+                          v-for="observation in group.observations"
+                          :key="observation.id"
+                          type="button"
+                          class="btn btn-sm insight-observation-pill"
+                          :class="observation.id === selectedId ? 'btn-primary' : 'btn-outline-secondary'"
+                          :aria-pressed="observation.id === selectedId ? 'true' : 'false'"
+                          @click="selectedId = observation.id"
+                        >
+                          <code>{{ observationPillLabel(observation) }}</code>
+                        </button>
+                      </div>
                       <div class="insight-observation-field">
                         <div class="d-flex justify-content-between gap-2 mb-1">
                           <label :for="`${groupId(group.kind)}-observation`" class="small">Observation</label>
@@ -625,9 +799,23 @@ provide(
                         </button>
                       </div>
                     </div>
-                    <p v-else class="insight-observation-subject mb-3">
-                      <code class="bootui-break-anywhere">{{ selected.subject }}</code>
-                    </p>
+                    <div v-else class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                      <p class="insight-observation-subject mb-0">
+                        <code class="bootui-break-anywhere">{{
+                          groupBy === 'subject' && selected.checkTitle ? selected.checkTitle : selected.subject
+                        }}</code>
+                      </p>
+                      <button
+                        v-if="groupBy === 'check' && subjectObservationCount(selected.subject) > 1"
+                        type="button"
+                        class="btn btn-outline-secondary btn-sm insight-pivot-subject-btn"
+                        @click="pivotToSubject"
+                      >
+                        <i class="bi bi-signpost-split me-1" aria-hidden="true"></i>All
+                        {{ formatNumber(subjectObservationCount(selected.subject)) }} observations on
+                        <code>{{ selected.subject }}</code>
+                      </button>
+                    </div>
                     <p v-if="selected.status !== 'OBSERVED'" class="insight-row-limit mb-3">
                       Evidence limit:
                       {{
@@ -743,19 +931,102 @@ provide(
   margin-bottom: 0.5rem;
 }
 
+.insight-verdict-icon {
+  align-items: center;
+  background: var(--bootui-nav-hover-bg);
+  border-radius: var(--bootui-radius-sm);
+  color: var(--bootui-green);
+  display: inline-flex;
+  font-size: 1.15rem;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
 .insight-verdict-facts {
   color: var(--bootui-text-muted);
   display: flex;
   flex-wrap: wrap;
   font-size: 0.875rem;
-  gap: 0.35rem 1.25rem;
+  gap: 0.45rem;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
+.insight-verdict-pill {
+  align-items: center;
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-pill);
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem 0.65rem;
+}
+
 .insight-verdict-facts .bi {
   margin-right: 0.25rem;
+}
+
+.insight-verdict-coverage {
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  padding: 0.65rem 0.85rem;
+}
+
+.insight-verdict-bar {
+  background: var(--bs-secondary-bg);
+  border-radius: var(--bootui-radius-pill);
+  display: flex;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+.insight-verdict-seg {
+  flex-basis: 0;
+  min-width: 3px;
+}
+
+.insight-verdict-seg--request {
+  background: var(--bootui-green);
+}
+
+.insight-verdict-seg--trace {
+  background: var(--bootui-blue);
+}
+
+.insight-verdict-seg--execution {
+  background: var(--bs-secondary-color);
+}
+
+.insight-verdict-seg--none {
+  background: var(--bs-border-color);
+}
+
+.insight-verdict-dot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.5rem;
+  margin-right: 0.2rem;
+  width: 0.5rem;
+}
+
+.insight-topic-pill {
+  border-radius: var(--bootui-radius-pill);
+  font-size: 0.85rem;
+  padding: 0.2rem 0.65rem;
+}
+
+.insight-topic-pill__count {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: var(--bootui-radius-pill);
+  font-size: 0.72rem;
+  padding: 0.05rem 0.4rem;
+}
+
+.btn-primary .insight-topic-pill__count {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .insight-search-field {
@@ -822,12 +1093,55 @@ provide(
   display: grid;
   font-size: 1rem;
   font-weight: 400;
-  gap: 0.35rem 1rem;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.35rem 0.85rem;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   padding: 0.85rem 1rem;
   text-align: start;
   transition: background-color 150ms ease;
   width: 100%;
+}
+
+.insight-group-icon {
+  align-items: center;
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-sm);
+  color: var(--bootui-text-muted);
+  display: inline-flex;
+  font-size: 1rem;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
+.insight-group-icon--danger {
+  background: rgba(220, 53, 69, 0.1);
+  border-color: rgba(220, 53, 69, 0.25);
+  color: var(--bootui-danger-text);
+}
+
+.insight-group-icon--success {
+  background: rgba(25, 135, 84, 0.1);
+  border-color: rgba(25, 135, 84, 0.25);
+  color: var(--bootui-green-dark);
+}
+
+.insight-group-icon--warning {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: rgba(255, 193, 7, 0.35);
+  color: var(--bootui-warning-text-strong);
+}
+
+.insight-group-icon--primary {
+  background: rgba(13, 110, 253, 0.1);
+  border-color: rgba(13, 110, 253, 0.25);
+  color: var(--bootui-blue);
+}
+
+.insight-group-icon--info {
+  background: rgba(13, 202, 240, 0.12);
+  border-color: rgba(13, 202, 240, 0.3);
+  color: var(--bootui-info-text);
 }
 
 .insight-group-toggle:focus-visible {
@@ -856,8 +1170,81 @@ provide(
   font-size: 0.875rem;
 }
 
+.insight-group-subjects {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.insight-subject-chip {
+  align-items: center;
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-xs);
+  color: var(--bootui-text);
+  display: inline-flex;
+  font-size: 0.85rem;
+  gap: 0.35rem;
+  padding: 0.12rem 0.5rem;
+}
+
+.insight-subject-method {
+  border-radius: var(--bootui-radius-xs);
+  font-family: var(--bs-font-monospace);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.05rem 0.32rem;
+}
+
+.insight-subject-method--get {
+  background: rgba(25, 135, 84, 0.15);
+  color: var(--bootui-green-dark);
+}
+
+.insight-subject-method--post {
+  background: rgba(13, 110, 253, 0.15);
+  color: var(--bootui-blue);
+}
+
+.insight-subject-method--put,
+.insight-subject-method--patch {
+  background: rgba(255, 193, 7, 0.2);
+  color: var(--bootui-warning-text-strong);
+}
+
+.insight-subject-method--delete {
+  background: rgba(220, 53, 69, 0.15);
+  color: var(--bootui-danger-text);
+}
+
+.insight-subject-more {
+  color: var(--bootui-text-muted);
+  font-size: 0.85rem;
+}
+
+.insight-changed-cue {
+  color: var(--bootui-green-dark);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.insight-observation-pills {
+  grid-column: 1 / -1;
+}
+
+.insight-observation-pill {
+  font-size: 0.85rem;
+  padding: 0.18rem 0.55rem;
+}
+
 .insight-group-count {
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-pill);
   font-variant-numeric: tabular-nums;
+  padding: 0.18rem 0.65rem;
   white-space: nowrap;
 }
 

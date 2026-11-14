@@ -2052,6 +2052,43 @@ describe('LiveActivity', () => {
       expect(wrapper.find('.activity-why-slow').exists()).toBe(false)
     })
 
+    it('renders the back-to-insights link, What stands out summary, section tabs, and width toggle in the request drawer', async () => {
+      routeState.query = {
+        request: 'req-1',
+        fromInsight: 'repeated-selects:0123456789',
+        fromQuery: '/api/todos',
+        fromGroupBy: 'subject'
+      }
+      const fetchMock = stubFetch(
+        activityReport({
+          entries: [requestEntry({id: 'req-1'}), requestEntry({id: 'req-2', path: '/api/other'})]
+        }),
+        requestProfile()
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      wrapper = mountLiveActivity({global: {stubs: {RouterLink: RouterLinkStub}}})
+      await flushPromises()
+
+      const drawer = wrapper.get('.activity-drawer')
+      const backLink = drawer.get('.activity-back-insights')
+      expect(JSON.parse(backLink.attributes('data-to'))).toEqual({
+        path: '/runtime-insights',
+        query: {insight: 'repeated-selects:0123456789', q: '/api/todos', groupBy: 'subject'}
+      })
+      expect(drawer.find('.activity-work-breakdown').exists()).toBe(true)
+      expect(drawer.find('.activity-stands-out').text()).toContain('N+1 ×6')
+
+      // Expand and compact the profile sheet width.
+      await drawer.get('.activity-drawer-expand').trigger('click')
+      expect(drawer.classes()).toContain('activity-drawer--expanded')
+
+      // Step to the next profileable entry in the feed.
+      await drawer.get('.activity-next-request').trigger('click')
+      await flushPromises()
+      expect(fetchMock).toHaveBeenCalledWith('api/activity/request/req-2', expect.anything())
+    })
+
     it('opens the request profile an HTTP Exchanges link names', async () => {
       routeState.query = {request: 'exchange-7'}
       const fetchMock = stubFetch(activityReport(), requestProfile())

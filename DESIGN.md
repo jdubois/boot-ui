@@ -311,15 +311,19 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **One list, opened in place:** findings are one bordered list whose rows open their detail beneath themselves
   (`aria-expanded`/`aria-controls`), so the detail never leaves its row on a narrow screen. Nothing opens on its own; a
   deep link opens the row it names. Runtime Insights keeps every retained observation available in compact groups:
-  check name, plain-language summary, and an explicit observation count. Groups start collapsed, in suggested review
-  order with specific review candidates before broad timing and usage summaries, never a severity score. Search and
-  one labeled Topic selector filter the complete report without opening details or loading evidence. Opening a group
+  check name (or subject when grouped by subject), plain-language summary, non-interactive preview chips of the first
+  affected subjects/checks, and an explicit observation count. Groups start collapsed, in suggested review
+  order with specific review candidates before broad timing and usage summaries, never a severity score. Search,
+  one labeled Topic selector, and a `Group by` (`Check` | `Subject`) toggle organize and filter the complete report
+  without opening details or loading evidence. Opening a group
   selects its first matching observation and opens the explanation and evidence directly, closing any previously open
-  group. A multi-observation group has one labeled Observation selector, a position count, and Previous/Next controls;
+  group. A multi-observation group has one labeled Observation selector, a position count, and Previous/Next controls
+  (supplemented by quick-switch pills when the group holds at most six observations);
   a single-observation group needs none of these. The opened group has a complete outline, rounded corners, and a
   workspace gap above and below it; closed groups remain compact stacks. The boundary includes the evidence and its
   limits, so white detail content cannot merge into the next white group heading.
-  Direct links select the exact named observation. Retained selection
+  Direct links select the exact named observation, and exemplar request links carry return context (`fromInsight`) so
+  the Live Activity Request Profile offers a direct `Back to Runtime Insights` link. Retained selection
   survives refreshes; closing the group returns focus to its trigger. Filtering reports matches and groups out of the
   stable run total, not competing counted scopes or visibility toggles. Clear filters restores all groups and focuses Search.
 - **Everything else in tabs:** tools and caveats about the run (comparison, change impact, profiling, coverage, check
