@@ -1465,4 +1465,51 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.get('#insights-tab-coverage').attributes('aria-selected')).toBe('true')
     expect(document.activeElement?.id).toBe('insights-panel-coverage')
   })
+
+  it('pivots between Check and Subject grouping, shows subject preview chips, and passes return context on exemplar links', async () => {
+    const breakdown = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:owners',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/owners/{id}',
+      sentence: 'Warm median 18 ms.'
+    }
+    const multiReport = {
+      ...report,
+      checks: [...report.checks, {kind: 'route-time-breakdown', title: 'Route time breakdown', status: 'EVALUATED'}],
+      observations: [report.observations[0], breakdown]
+    }
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : multiReport))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    // Collapsed check rows preview their subjects without changing the accessible button title.
+    expect(wrapper.find('.insight-subject-chip').text()).toBe('GET /api/owners/{id}')
+
+    // Open the first observation in Check mode; it offers a 1-click pivot to all observations on that subject.
+    await openRow(wrapper, 'GET /api/owners/{id}')
+    const exemplarLink = JSON.parse(wrapper.get('.insight-detail ul.list-inline a').attributes('data-to'))
+    expect(exemplarLink).toEqual({
+      path: '/activity',
+      query: {request: 'r-1', fromInsight: 'repeated-selects:0123456789'}
+    })
+    expect(wrapper.get('.insight-exemplar-meta').text()).toContain('Executions: 6')
+
+    const pivotBtn = wrapper.get('.insight-pivot-subject-btn')
+    expect(pivotBtn.text()).toContain('All 2 observations on GET /api/owners/{id}')
+    await pivotBtn.trigger('click')
+    await flushPromises()
+
+    // Now grouped by Subject: 1 group for GET /api/owners/{id} with 2 quick-switch pills (Repeated SELECTs, Route time breakdown).
+    expect(wrapper.findAll('.insight-group-toggle')).toHaveLength(1)
+    expect(wrapper.get('.insight-group-title').text()).toBe('GET /api/owners/{id}')
+    const pills = wrapper.findAll('.insight-observation-pill')
+    expect(pills.map((p) => p.text())).toEqual(['Repeated SELECTs', 'Route time breakdown'])
+    await pills[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.insight-observation-select').element.value).toBe(breakdown.id)
+  })
 })

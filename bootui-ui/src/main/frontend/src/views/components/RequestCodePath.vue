@@ -91,7 +91,12 @@ function methodLabel(key) {
 
 <template>
   <section class="mb-3 request-code-path" aria-labelledby="performance-deep-dives-heading">
-    <h3 id="performance-deep-dives-heading" class="h6">Performance deep dives</h3>
+    <h3 id="performance-deep-dives-heading" class="request-code-path__title">
+      <span class="request-code-path__icon" aria-hidden="true">
+        <i class="bi bi-hourglass-split"></i>
+      </span>
+      <span>Performance deep dives</span>
+    </h3>
     <ul class="list-unstyled small mb-0">
       <li>
         <router-link
@@ -152,3 +157,34 @@ function methodLabel(key) {
     </ul>
   </section>
 </template>
+
+<style scoped>
+.request-code-path {
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.request-code-path__title {
+  align-items: center;
+  color: var(--bootui-text);
+  display: flex;
+  font-size: 1rem;
+  font-weight: 700;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.request-code-path__icon {
+  align-items: center;
+  background: var(--bootui-nav-hover-bg);
+  border-radius: var(--bootui-radius-xs);
+  color: var(--bootui-green-dark);
+  display: inline-flex;
+  font-size: 1rem;
+  height: 1.75rem;
+  justify-content: center;
+  width: 1.75rem;
+}
+</style>

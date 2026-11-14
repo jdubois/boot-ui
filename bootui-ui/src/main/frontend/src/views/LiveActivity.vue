@@ -5,6 +5,7 @@ import {ApiError, apiFetch, getJson} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import PanelTabs from './components/PanelTabs.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import AiExportPreview from './components/AiExportPreview.vue'
 import FlashBanner from './components/FlashBanner.vue'
@@ -32,6 +33,8 @@ import {
   cacheAccessSummary,
   childTierLabel,
   profileSections,
+  requestHighlights,
+  requestWorkBreakdown,
   restCallSummary,
   securityEventExact,
   unavailableTiersText
@@ -162,6 +165,8 @@ const profileLoading = ref(false)
 const profileError = ref(null)
 const profileRequestId = ref(null)
 const profileEntry = ref(null)
+const profileTab = ref('all')
+const drawerExpanded = ref(false)
 // The runtime journal's view of the open request, loaded right after its profile (docs/PLAN-v2.md §5.3).
 const journalProfile = ref(null)
 const drawerEl = ref(null)
@@ -511,6 +516,50 @@ const timingSummary = computed(() => {
 // Per-section correlation metadata (tier, availability, truncation). Empty for an older server's profile.
 const sections = computed(() => profileSections(profile.value))
 const tiersNote = computed(() => unavailableTiersText(profile.value))
+const workBreakdown = computed(() => requestWorkBreakdown(profile.value, journalProfile.value))
+const highlights = computed(() => requestHighlights(profile.value, journalProfile.value))
+
+const PROFILE_TABS = [
+  {id: 'all', label: 'All sections', icon: 'bi-layers'},
+  {id: 'journal', label: 'Timeline & journal', icon: 'bi-bar-chart-steps'},
+  {id: 'sql', label: 'SQL & cache', icon: 'bi-database'},
+  {id: 'security', label: 'Exceptions & security', icon: 'bi-shield-lock'},
+  {id: 'outbound', label: 'REST & traces', icon: 'bi-globe2'}
+]
+
+const backToInsightsLink = computed(() => {
+  const fromInsight = route?.query?.fromInsight
+  if (typeof fromInsight !== 'string' || !fromInsight) return null
+  const query = {insight: fromInsight}
+  if (typeof route?.query?.fromQuery === 'string' && route.query.fromQuery) query.q = route.query.fromQuery
+  if (typeof route?.query?.fromTheme === 'string' && route.query.fromTheme) query.theme = route.query.fromTheme
+  if (route?.query?.fromGroupBy === 'subject') query.groupBy = 'subject'
+  return {path: '/runtime-insights', query}
+})
+
+const profileableEntries = computed(() => visibleEntries.value.filter((entry) => entry?.profileable))
+const currentProfileIndex = computed(() =>
+  profileRequestId.value ? profileableEntries.value.findIndex((entry) => entry.id === profileRequestId.value) : -1
+)
+
+function stepProfile(direction) {
+  const idx = currentProfileIndex.value
+  if (idx < 0) return
+  const nextEntry = profileableEntries.value[idx + direction]
+  if (nextEntry) {
+    void openProfile(nextEntry, profileOpenerEl.value)
+  }
+}
+
+function jumpToProfileSection(sectionId) {
+  const tabMap = {
+    journal: 'journal',
+    sql: 'sql',
+    exceptions: 'security',
+    outbound: 'outbound'
+  }
+  profileTab.value = tabMap[sectionId] ?? 'all'
+}
 
 function togglePause() {
   autoRefresh.value = !autoRefresh.value
@@ -657,6 +706,7 @@ async function loadProfile(id, opener, execution = false, entry = null) {
       : opener?.querySelector?.('.bootui-keyboard-target') || null
   profileRequestId.value = id
   profileEntry.value = entry
+  profileTab.value = 'all'
   const token = ++profileLoadToken
   const jToken = ++journalLoadToken
   const isCurrent = () => token === profileLoadToken
@@ -754,6 +804,7 @@ function closeProfile() {
   const opener = profileOpenerEl.value
   profileRequestId.value = null
   profileEntry.value = null
+  profileTab.value = 'all'
   profile.value = null
   journalProfile.value = null
   profileError.value = null
@@ -887,6 +938,25 @@ const hasJournalFilters = computed(
   () =>
     fromJournal.value &&
     (!!routeFilter.value.trim() || !!requestIdFilter.value.trim() || !!runFilter.value.trim() || noRequestOnly.value)
+)
+
+const activeTypePills = computed(() => {
+  const counts = report.value?.typeCounts ?? {}
+  const items = TYPES.filter((t) => (counts[t] ?? 0) > 0 || typeFilter.value === t).map((t) => ({
+    type: t,
+    icon: typeIcon(t),
+    count: counts[t] ?? 0
+  }))
+  return items
+})
+
+watch(
+  () => route?.query?.request,
+  (linkedRequest) => {
+    if (typeof linkedRequest === 'string' && linkedRequest && linkedRequest !== profileRequestId.value) {
+      void loadProfile(linkedRequest, null)
+    }
+  }
 )
 
 onMounted(() => {
@@ -1063,54 +1133,83 @@ function toggleFlow() {
 
       <div v-if="available && kpis" class="row g-2 mb-3 activity-kpis">
         <div class="col-6 col-lg-3">
-          <div class="card h-100">
-            <div class="card-body py-2">
-              <div class="text-muted small">Requests/min</div>
-              <div class="fs-5">{{ formatNumber(kpis.requestsPerMinute) }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="card h-100">
-            <div class="card-body py-2">
-              <div class="text-muted small">Error rate</div>
-              <div class="fs-5">{{ kpis.errorRatePercent }}%</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="card h-100">
-            <div class="card-body py-2">
-              <div class="text-muted small">Latency p50 / p95</div>
-              <div class="fs-5">{{ kpis.p50LatencyMs ?? '—' }} / {{ kpis.p95LatencyMs ?? '—' }} ms</div>
-              <div v-if="kpis.latencySampleCount != null" class="text-muted small activity-kpi-latency-samples">
-                over {{ formatNumber(kpis.latencySampleCount) }} retained
-                {{ kpis.latencySampleCount === 1 ? 'request' : 'requests' }}
+          <div class="card h-100 activity-kpi-card">
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--green" aria-hidden="true">
+                <i class="bi bi-activity"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">Requests/min</div>
+                <div class="fs-5 fw-bold">{{ formatNumber(kpis.requestsPerMinute) }}</div>
               </div>
             </div>
           </div>
         </div>
         <div class="col-6 col-lg-3">
-          <div class="card h-100">
-            <div class="card-body py-2">
-              <div class="text-muted small">SQL/min</div>
-              <div class="fs-5">{{ formatNumber(kpis.sqlPerMinute) }}</div>
+          <div class="card h-100 activity-kpi-card">
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span
+                class="activity-kpi-icon"
+                :class="kpis.errorRatePercent > 0 ? 'activity-kpi-icon--danger' : 'activity-kpi-icon--green'"
+                aria-hidden="true"
+              >
+                <i class="bi bi-exclamation-octagon"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">Error rate</div>
+                <div class="fs-5 fw-bold">{{ kpis.errorRatePercent }}%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="card h-100 activity-kpi-card">
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--blue" aria-hidden="true">
+                <i class="bi bi-stopwatch"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">Latency p50 / p95</div>
+                <div class="fs-5 fw-bold">{{ kpis.p50LatencyMs ?? '—' }} / {{ kpis.p95LatencyMs ?? '—' }} ms</div>
+                <div v-if="kpis.latencySampleCount != null" class="text-muted small activity-kpi-latency-samples">
+                  over {{ formatNumber(kpis.latencySampleCount) }} retained
+                  {{ kpis.latencySampleCount === 1 ? 'request' : 'requests' }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="card h-100 activity-kpi-card">
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--green" aria-hidden="true">
+                <i class="bi bi-database"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">SQL/min</div>
+                <div class="fs-5 fw-bold">{{ formatNumber(kpis.sqlPerMinute) }}</div>
+              </div>
             </div>
           </div>
         </div>
         <div class="col-6 col-lg-3">
           <router-link
-            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            class="card h-100 text-reset text-decoration-none activity-kpi-link activity-kpi-card"
             :to="{path: '/rest-client-trace'}"
             title="Open the REST Client panel"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Outbound errors / p95
-                <i class="bi bi-box-arrow-up-right ms-1"></i>
-              </div>
-              <div class="fs-5">
-                {{ kpis.restCallErrorRatePercent ?? '—' }}% / {{ kpis.restCallP95LatencyMs ?? '—' }} ms
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--blue" aria-hidden="true">
+                <i class="bi bi-globe2"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Outbound errors / p95
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold">
+                  {{ kpis.restCallErrorRatePercent ?? '—' }}% / {{ kpis.restCallP95LatencyMs ?? '—' }} ms
+                </div>
               </div>
             </div>
           </router-link>
@@ -1118,102 +1217,142 @@ function toggleFlow() {
         <div class="col-6 col-lg-3">
           <component
             :is="kpis.slowestEndpoint ? 'router-link' : 'div'"
-            class="card h-100 text-reset text-decoration-none activity-kpi-slowest"
+            class="card h-100 text-reset text-decoration-none activity-kpi-slowest activity-kpi-card"
             :class="{'activity-kpi-link': kpis.slowestEndpoint}"
             :to="kpis.slowestEndpoint ? slowestEndpointLink : undefined"
             :title="kpis.slowestEndpoint ? slowestEndpointTitle : null"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Slowest endpoint
-                <i v-if="kpis.slowestEndpoint" class="bi bi-box-arrow-up-right ms-1"></i>
-              </div>
-              <div class="fs-5 text-truncate">
-                <template v-if="kpis.slowestEndpoint">
-                  {{ kpis.slowestEndpointMs ?? '—' }} ms
-                  <span class="text-muted small d-block text-truncate activity-kpi-slowest-route">
-                    {{ kpis.slowestEndpointRouteId ?? kpis.slowestEndpoint }}
-                  </span>
-                </template>
-                <template v-else>—</template>
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--amber" aria-hidden="true">
+                <i class="bi bi-fire"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Slowest endpoint
+                  <i v-if="kpis.slowestEndpoint" class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold text-truncate">
+                  <template v-if="kpis.slowestEndpoint">
+                    {{ kpis.slowestEndpointMs ?? '—' }} ms
+                    <span class="text-muted small fw-normal d-block text-truncate activity-kpi-slowest-route">
+                      {{ kpis.slowestEndpointRouteId ?? kpis.slowestEndpoint }}
+                    </span>
+                  </template>
+                  <template v-else>—</template>
+                </div>
               </div>
             </div>
           </component>
         </div>
         <div class="col-6 col-lg-3">
           <router-link
-            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            class="card h-100 text-reset text-decoration-none activity-kpi-link activity-kpi-card"
             :to="{path: '/exceptions'}"
             title="Open the Exceptions panel"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Active exceptions
-                <i class="bi bi-box-arrow-up-right ms-1"></i>
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span
+                class="activity-kpi-icon"
+                :class="kpis.activeExceptionCount > 0 ? 'activity-kpi-icon--danger' : 'activity-kpi-icon--green'"
+                aria-hidden="true"
+              >
+                <i class="bi bi-bug"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Active exceptions
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold">{{ formatNumber(kpis.activeExceptionCount) }}</div>
               </div>
-              <div class="fs-5">{{ formatNumber(kpis.activeExceptionCount) }}</div>
             </div>
           </router-link>
         </div>
         <div class="col-6 col-lg-3">
           <router-link
-            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            class="card h-100 text-reset text-decoration-none activity-kpi-link activity-kpi-card"
             :to="{path: '/health'}"
             title="Open the Health panel"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Health
-                <i class="bi bi-box-arrow-up-right ms-1"></i>
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--green" aria-hidden="true">
+                <i class="bi bi-heart-pulse"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Health
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold">{{ kpis.healthStatus ?? '—' }}</div>
               </div>
-              <div class="fs-5">{{ kpis.healthStatus ?? '—' }}</div>
             </div>
           </router-link>
         </div>
         <div class="col-6 col-lg-3">
           <router-link
-            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            class="card h-100 text-reset text-decoration-none activity-kpi-link activity-kpi-card"
             :to="{path: '/heap-dump'}"
             title="Open the Heap Dump panel"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Heap used
-                <i class="bi bi-box-arrow-up-right ms-1"></i>
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--blue" aria-hidden="true">
+                <i class="bi bi-memory"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Heap used
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold">{{ formatBytes(kpis.heapUsedBytes) }}</div>
               </div>
-              <div class="fs-5">{{ formatBytes(kpis.heapUsedBytes) }}</div>
             </div>
           </router-link>
         </div>
         <div class="col-6 col-lg-3">
           <router-link
-            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            class="card h-100 text-reset text-decoration-none activity-kpi-link activity-kpi-card"
             :to="{path: '/cache'}"
             title="Open the Cache panel"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Cache hit ratio
-                <i class="bi bi-box-arrow-up-right ms-1"></i>
-              </div>
-              <div class="fs-5">
-                {{ kpis.cacheHitRatioPercent != null ? `${kpis.cacheHitRatioPercent}%` : '—' }}
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span class="activity-kpi-icon activity-kpi-icon--green" aria-hidden="true">
+                <i class="bi bi-lightning-charge"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Cache hit ratio
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold">
+                  {{ kpis.cacheHitRatioPercent != null ? `${kpis.cacheHitRatioPercent}%` : '—' }}
+                </div>
               </div>
             </div>
           </router-link>
         </div>
         <div class="col-6 col-lg-3">
           <router-link
-            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            class="card h-100 text-reset text-decoration-none activity-kpi-link activity-kpi-card"
             :to="{path: '/scheduled'}"
             title="Open the Scheduled Tasks panel"
           >
-            <div class="card-body py-2">
-              <div class="text-muted small">
-                Scheduled failures
-                <i class="bi bi-box-arrow-up-right ms-1"></i>
+            <div class="card-body py-2 d-flex align-items-center gap-2">
+              <span
+                class="activity-kpi-icon"
+                :class="
+                  (kpis.scheduledTaskFailureCount ?? 0) > 0 ? 'activity-kpi-icon--danger' : 'activity-kpi-icon--blue'
+                "
+                aria-hidden="true"
+              >
+                <i class="bi bi-clock-history"></i>
+              </span>
+              <div class="min-width-0">
+                <div class="text-muted small">
+                  Scheduled failures
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </div>
+                <div class="fs-5 fw-bold">{{ formatNumber(kpis.scheduledTaskFailureCount ?? 0) }}</div>
               </div>
-              <div class="fs-5">{{ formatNumber(kpis.scheduledTaskFailureCount ?? 0) }}</div>
             </div>
           </router-link>
         </div>
@@ -1354,6 +1493,34 @@ function toggleFlow() {
           </div>
         </div>
 
+        <div
+          v-if="activeTypePills.length > 1"
+          class="d-flex flex-wrap gap-1 mb-2 activity-type-pills"
+          aria-hidden="true"
+        >
+          <button
+            type="button"
+            tabindex="-1"
+            class="btn btn-sm activity-type-pill"
+            :class="typeFilter === '' ? 'btn-primary' : 'btn-outline-secondary'"
+            @click="typeFilter = ''"
+          >
+            <i class="bi bi-layers me-1"></i>All signals
+          </button>
+          <button
+            v-for="pill in activeTypePills"
+            :key="pill.type"
+            type="button"
+            tabindex="-1"
+            class="btn btn-sm activity-type-pill"
+            :class="typeFilter === pill.type ? 'btn-primary' : 'btn-outline-secondary'"
+            @click="typeFilter = pill.type"
+          >
+            <i :class="['bi', pill.icon, 'me-1']"></i>{{ pill.type }}
+            <span class="activity-type-pill__count ms-1">{{ formatNumber(pill.count) }}</span>
+          </button>
+        </div>
+
         <div v-for="warning in warnings" :key="warning" class="alert alert-warning py-2 small" role="alert">
           {{ warning }}
         </div>
@@ -1393,168 +1560,172 @@ function toggleFlow() {
           </svg>
         </figure>
 
-        <div class="table-responsive">
-          <table class="table table-sm align-middle activity-table">
-            <colgroup>
-              <col class="activity-col-time" />
-              <col class="activity-col-type" />
-              <col class="activity-col-severity" />
-              <col class="activity-col-summary" />
-              <col class="activity-col-duration" />
-              <col class="activity-col-actions" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th class="text-nowrap">Time</th>
-                <th>Type</th>
-                <th>Severity</th>
-                <th>Activity</th>
-                <th class="text-end text-nowrap">Duration</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="entry in visibleEntries" :key="entry.id">
-                <tr
-                  :class="[
-                    rowClass(entry),
-                    entry.profileable ? 'activity-row-clickable' : '',
-                    hasChildren(entry) ? 'activity-parent-row' : ''
-                  ]"
-                  data-keyboard-delegate="openProfileFromButton(entry, $event)"
-                  @click="onRowClick(entry, $event)"
-                >
-                  <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
-                  <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
-                  <td>
-                    <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
+        <div class="card activity-feed-card overflow-hidden">
+          <div class="table-responsive">
+            <table class="table table-sm align-middle activity-table">
+              <colgroup>
+                <col class="activity-col-time" />
+                <col class="activity-col-type" />
+                <col class="activity-col-severity" />
+                <col class="activity-col-summary" />
+                <col class="activity-col-duration" />
+                <col class="activity-col-actions" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="text-nowrap">Time</th>
+                  <th>Type</th>
+                  <th>Severity</th>
+                  <th>Activity</th>
+                  <th class="text-end text-nowrap">Duration</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="entry in visibleEntries" :key="entry.id">
+                  <tr
+                    :class="[
+                      rowClass(entry),
+                      entry.profileable ? 'activity-row-clickable' : '',
+                      hasChildren(entry) ? 'activity-parent-row' : ''
+                    ]"
+                    data-keyboard-delegate="openProfileFromButton(entry, $event)"
+                    @click="onRowClick(entry, $event)"
+                  >
+                    <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
+                    <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
+                    <td>
+                      <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
+                    </td>
+                    <td class="activity-summary-cell">
+                      <button
+                        v-if="hasChildren(entry)"
+                        class="btn btn-outline-secondary btn-sm me-2 align-baseline activity-disclosure"
+                        type="button"
+                        :aria-expanded="!isCollapsed(entry.id)"
+                        :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
+                        @click.stop="toggleExpand(entry.id)"
+                      >
+                        <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
+                      </button>
+                      <i
+                        v-if="entry.securedPrincipal != null"
+                        class="bi bi-lock-fill text-secondary me-1"
+                        title="Authenticated request"
+                      ></i>
+                      <span>{{ entry.summary }}</span>
+                      <span
+                        v-if="entry.securedPrincipal"
+                        class="badge rounded-pill text-bg-light ms-2 activity-principal-tag"
+                        :title="`Authenticated as ${entry.securedPrincipal}`"
+                        ><i class="bi bi-person me-1"></i>{{ entry.securedPrincipal }}</span
+                      >
+                      <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2"
+                        >×{{ entry.count }}</span
+                      >
+                      <span
+                        v-if="hasChildren(entry)"
+                        class="badge rounded-pill text-bg-light ms-2"
+                        title="Correlated SQL, exceptions and security events"
+                        >+{{ entry.children.length }}</span
+                      >
+                      <span
+                        v-if="entry.sqlNPlusOneSuspected"
+                        class="badge rounded-pill text-bg-danger ms-2"
+                        title="Correlated SQL includes a suspected N+1 query pattern — open the profile for details"
+                        >N+1</span
+                      >
+                      <span
+                        v-for="badge in entryBadges(entry)"
+                        :key="badge.id"
+                        :class="['badge', 'rounded-pill', 'ms-2', 'activity-entry-badge', badge.className]"
+                        :title="badge.title"
+                        >{{ badge.label }}</span
+                      >
+                      <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
+                    </td>
+                    <td class="text-end text-nowrap small">
+                      <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
+                        formatDurationMs(entry.durationMs)
+                      }}</span>
+                      <template v-else>{{ formatDurationMs(entry.durationMs) }}</template>
+                    </td>
+                    <td class="text-end text-nowrap" @click.stop>
+                      <router-link
+                        v-if="entryLink(entry)"
+                        :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
+                        class="btn btn-outline-secondary btn-sm rounded-pill me-1"
+                        :title="entryLink(entry).label"
+                      >
+                        <i class="bi bi-box-arrow-up-right"></i>
+                      </router-link>
+                      <button
+                        v-if="entry.profileable"
+                        class="btn btn-outline-primary btn-sm rounded-pill bootui-keyboard-target"
+                        type="button"
+                        @click="openProfileFromButton(entry, $event)"
+                      >
+                        <i class="bi bi-search me-1"></i>Profile
+                      </button>
+                    </td>
+                  </tr>
+                  <tr
+                    v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
+                    :key="child.id"
+                    :class="['activity-child-row']"
+                  >
+                    <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
+                    <td class="text-nowrap activity-child-type">
+                      <i :class="['bi', typeIcon(child.type), 'me-1']"></i>{{ child.type }}
+                    </td>
+                    <td>
+                      <span :class="['badge', severityBadgeClass(child.severity)]">{{ child.severity }}</span>
+                    </td>
+                    <td class="activity-summary-cell">
+                      <span>{{ child.summary }}</span>
+                      <span
+                        v-for="badge in entryBadges(child)"
+                        :key="badge.id"
+                        :class="['badge', 'rounded-pill', 'ms-2', 'activity-entry-badge', badge.className]"
+                        :title="badge.title"
+                        >{{ badge.label }}</span
+                      >
+                      <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
+                    </td>
+                    <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>
+                    <td class="text-end text-nowrap" @click.stop>
+                      <router-link
+                        v-if="entryLink(child)"
+                        :to="{path: entryLink(child).path, query: entryLink(child).query}"
+                        class="btn btn-outline-secondary btn-sm rounded-pill"
+                        :title="entryLink(child).label"
+                      >
+                        <i class="bi bi-box-arrow-up-right"></i>
+                      </router-link>
+                    </td>
+                  </tr>
+                </template>
+                <tr v-if="!visibleEntries.length">
+                  <td
+                    v-if="hasActiveFilters || (hasJournalFilters && !persistent)"
+                    colspan="6"
+                    class="text-center text-muted py-4"
+                  >
+                    No activity matches the current filters.
                   </td>
-                  <td class="activity-summary-cell">
-                    <button
-                      v-if="hasChildren(entry)"
-                      class="btn btn-outline-secondary btn-sm me-2 align-baseline activity-disclosure"
-                      type="button"
-                      :aria-expanded="!isCollapsed(entry.id)"
-                      :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
-                      @click.stop="toggleExpand(entry.id)"
-                    >
-                      <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
-                    </button>
-                    <i
-                      v-if="entry.securedPrincipal != null"
-                      class="bi bi-lock-fill text-secondary me-1"
-                      title="Authenticated request"
-                    ></i>
-                    <span>{{ entry.summary }}</span>
-                    <span
-                      v-if="entry.securedPrincipal"
-                      class="badge rounded-pill text-bg-light ms-2 activity-principal-tag"
-                      :title="`Authenticated as ${entry.securedPrincipal}`"
-                      ><i class="bi bi-person me-1"></i>{{ entry.securedPrincipal }}</span
-                    >
-                    <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
-                    <span
-                      v-if="hasChildren(entry)"
-                      class="badge rounded-pill text-bg-light ms-2"
-                      title="Correlated SQL, exceptions and security events"
-                      >+{{ entry.children.length }}</span
-                    >
-                    <span
-                      v-if="entry.sqlNPlusOneSuspected"
-                      class="badge rounded-pill text-bg-danger ms-2"
-                      title="Correlated SQL includes a suspected N+1 query pattern — open the profile for details"
-                      >N+1</span
-                    >
-                    <span
-                      v-for="badge in entryBadges(entry)"
-                      :key="badge.id"
-                      :class="['badge', 'rounded-pill', 'ms-2', 'activity-entry-badge', badge.className]"
-                      :title="badge.title"
-                      >{{ badge.label }}</span
-                    >
-                    <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
+                  <td v-else-if="persistent" colspan="6" class="text-center text-muted py-4">
+                    No visible rows on this page. Rows from a disabled panel are hidden<template v-if="canLoadOlder"
+                      >; older history is available below</template
+                    >.
                   </td>
-                  <td class="text-end text-nowrap small">
-                    <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
-                      formatDurationMs(entry.durationMs)
-                    }}</span>
-                    <template v-else>{{ formatDurationMs(entry.durationMs) }}</template>
-                  </td>
-                  <td class="text-end text-nowrap" @click.stop>
-                    <router-link
-                      v-if="entryLink(entry)"
-                      :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
-                      class="btn btn-outline-secondary btn-sm rounded-pill me-1"
-                      :title="entryLink(entry).label"
-                    >
-                      <i class="bi bi-box-arrow-up-right"></i>
-                    </router-link>
-                    <button
-                      v-if="entry.profileable"
-                      class="btn btn-outline-primary btn-sm rounded-pill bootui-keyboard-target"
-                      type="button"
-                      @click="openProfileFromButton(entry, $event)"
-                    >
-                      <i class="bi bi-search me-1"></i>Profile
-                    </button>
+                  <td v-else colspan="6" class="text-center text-muted py-4">
+                    No activity recorded yet. Send a request to the application, and its requests, SQL, exceptions, and
+                    security events appear here.
                   </td>
                 </tr>
-                <tr
-                  v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
-                  :key="child.id"
-                  :class="['activity-child-row']"
-                >
-                  <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
-                  <td class="text-nowrap activity-child-type">
-                    <i :class="['bi', typeIcon(child.type), 'me-1']"></i>{{ child.type }}
-                  </td>
-                  <td>
-                    <span :class="['badge', severityBadgeClass(child.severity)]">{{ child.severity }}</span>
-                  </td>
-                  <td class="activity-summary-cell">
-                    <span>{{ child.summary }}</span>
-                    <span
-                      v-for="badge in entryBadges(child)"
-                      :key="badge.id"
-                      :class="['badge', 'rounded-pill', 'ms-2', 'activity-entry-badge', badge.className]"
-                      :title="badge.title"
-                      >{{ badge.label }}</span
-                    >
-                    <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
-                  </td>
-                  <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>
-                  <td class="text-end text-nowrap" @click.stop>
-                    <router-link
-                      v-if="entryLink(child)"
-                      :to="{path: entryLink(child).path, query: entryLink(child).query}"
-                      class="btn btn-outline-secondary btn-sm rounded-pill"
-                      :title="entryLink(child).label"
-                    >
-                      <i class="bi bi-box-arrow-up-right"></i>
-                    </router-link>
-                  </td>
-                </tr>
-              </template>
-              <tr v-if="!visibleEntries.length">
-                <td
-                  v-if="hasActiveFilters || (hasJournalFilters && !persistent)"
-                  colspan="6"
-                  class="text-center text-muted py-4"
-                >
-                  No activity matches the current filters.
-                </td>
-                <td v-else-if="persistent" colspan="6" class="text-center text-muted py-4">
-                  No visible rows on this page. Rows from a disabled panel are hidden<template v-if="canLoadOlder"
-                    >; older history is available below</template
-                  >.
-                </td>
-                <td v-else colspan="6" class="text-center text-muted py-4">
-                  No activity recorded yet. Send a request to the application, and its requests, SQL, exceptions, and
-                  security events appear here.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div v-if="canLoadOlder || loadingOlder" class="text-center my-3">
@@ -1576,14 +1747,63 @@ function toggleFlow() {
       <aside
         ref="drawerEl"
         class="activity-drawer card shadow"
+        :class="{'activity-drawer--expanded': drawerExpanded}"
         tabindex="-1"
         role="dialog"
         aria-modal="true"
         aria-label="Request profile"
       >
-        <div class="card-header d-flex align-items-center justify-content-between">
-          <h2 class="h6 mb-0">Request profile</h2>
+        <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
           <div class="d-flex align-items-center gap-2">
+            <router-link
+              v-if="backToInsightsLink"
+              :to="backToInsightsLink"
+              class="btn btn-sm btn-outline-secondary activity-back-insights"
+            >
+              <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to Runtime Insights
+            </router-link>
+            <h2 class="h6 mb-0">Request profile</h2>
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <div
+              v-if="currentProfileIndex >= 0 && profileableEntries.length > 1"
+              class="btn-group btn-group-sm activity-drawer-stepping"
+              role="group"
+              aria-label="Step between profileable entries"
+            >
+              <button
+                type="button"
+                class="btn btn-outline-secondary activity-prev-request"
+                aria-label="Previous profileable entry"
+                :disabled="currentProfileIndex <= 0"
+                @click="stepProfile(-1)"
+              >
+                <i class="bi bi-chevron-left" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline-secondary activity-next-request"
+                aria-label="Next profileable entry"
+                :disabled="currentProfileIndex >= profileableEntries.length - 1"
+                @click="stepProfile(1)"
+              >
+                <i class="bi bi-chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary activity-drawer-expand"
+              :aria-pressed="drawerExpanded ? 'true' : 'false'"
+              :title="drawerExpanded ? 'Restore standard sheet width' : 'Expand profile sheet width'"
+              @click="drawerExpanded = !drawerExpanded"
+            >
+              <i
+                class="bi me-1"
+                :class="drawerExpanded ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'"
+                aria-hidden="true"
+              ></i
+              >{{ drawerExpanded ? 'Compact' : 'Wide' }}
+            </button>
             <template v-if="profile && profile.available && !profileLoading && !aiExport">
               <button class="btn btn-sm btn-outline-secondary activity-copy-ai" type="button" @click="openAiExport">
                 <i class="bi bi-stars me-1" aria-hidden="true"></i>Copy for AI
@@ -1609,13 +1829,20 @@ function toggleFlow() {
             @close="closeAiExport"
           />
           <div v-else-if="!profile?.available">
-            <section v-if="journalProfile?.available" class="mb-3">
-              <h3 class="h6">
-                {{
+            <section
+              v-if="journalProfile?.available"
+              class="mb-3 activity-profile-section"
+              aria-labelledby="activity-execution-heading"
+            >
+              <h3 id="activity-execution-heading" class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-arrow-left-right"></i>
+                </span>
+                <span>{{
                   journalProfile.route?.startsWith('Scheduled:') || journalProfile.route?.startsWith('Message:')
                     ? 'Execution'
                     : 'Request'
-                }}
+                }}</span>
               </h3>
               <dl class="row small mb-0">
                 <dt class="col-4">Route</dt>
@@ -1636,6 +1863,25 @@ function toggleFlow() {
                   </dd>
                 </template>
               </dl>
+            </section>
+            <section
+              v-if="highlights.length"
+              class="mb-3 activity-profile-section activity-stands-out"
+              aria-label="What stands out"
+            >
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-binoculars"></i>
+                </span>
+                <span>What stands out</span>
+              </h3>
+              <ul class="list-unstyled small mb-0 activity-stands-out__list">
+                <li v-for="item in highlights" :key="item.id" class="activity-stands-out__item">
+                  <span class="badge" :class="`text-bg-${item.tone}`">{{ item.badge }}</span>
+                  <code class="activity-stands-out__text">{{ item.text }}</code>
+                  <span v-if="item.detail" class="text-muted"> · {{ item.detail }}</span>
+                </li>
+              </ul>
             </section>
             <p v-if="profile?.unavailableReason && journalProfile?.status != null" class="small text-muted">
               HTTP-exchange details unavailable: {{ profile.unavailableReason }}
@@ -1658,8 +1904,13 @@ function toggleFlow() {
             />
           </div>
           <div v-else-if="profile">
-            <section class="mb-3">
-              <h3 class="h6">Request</h3>
+            <section class="mb-3 activity-profile-section">
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-arrow-left-right"></i>
+                </span>
+                <span>Request</span>
+              </h3>
               <dl class="row small mb-0">
                 <dt class="col-4">Method · Path</dt>
                 <dd class="col-8">
@@ -1689,23 +1940,67 @@ function toggleFlow() {
               </dl>
             </section>
 
-            <section v-if="profile.timing" class="mb-3">
-              <h3 class="h6">Timing</h3>
+            <section v-if="profile.timing" class="mb-3 activity-profile-section">
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-stopwatch"></i>
+                </span>
+                <span>Timing</span>
+              </h3>
               <p class="small mb-1">{{ timingSummary }}</p>
+              <div v-if="workBreakdown" class="activity-work-breakdown mt-2" aria-hidden="true">
+                <div class="activity-work-bar">
+                  <span
+                    v-for="segment in workBreakdown.segments"
+                    :key="segment.id"
+                    class="activity-work-segment"
+                    :class="`activity-work-segment--${segment.tone}`"
+                    :style="{width: `${segment.share}%`}"
+                    :title="segment.label"
+                  ></span>
+                </div>
+                <div class="activity-work-legend small text-muted mt-1">
+                  <span v-for="segment in workBreakdown.segments" :key="segment.id" class="activity-work-legend__item">
+                    <span class="activity-work-swatch" :class="`activity-work-segment--${segment.tone}`"></span>
+                    <code>{{ segment.label }}</code>
+                  </span>
+                </div>
+              </div>
             </section>
 
-            <RequestJournalProfile
-              v-if="journalProfile"
-              :profile="journalProfile"
-              :method="profile.request?.method || resolvedProfileEntry?.method"
-              :path="profile.request?.path || resolvedProfileEntry?.path"
-              :status="profile.request?.status ?? resolvedProfileEntry?.status"
-              @compare-with="compareJournalBaseline"
-              @open-request="openBaselineRequest"
-            />
-            <RequestCodePath
-              :request-id="journalProfile?.requestId || profileRequestId"
-              :route="journalProfile?.route"
+            <section
+              v-if="highlights.length"
+              class="mb-3 activity-profile-section activity-stands-out"
+              aria-label="What stands out"
+            >
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-binoculars"></i>
+                </span>
+                <span>What stands out</span>
+              </h3>
+              <ul class="list-unstyled small mb-0 activity-stands-out__list">
+                <li v-for="item in highlights" :key="item.id">
+                  <button
+                    type="button"
+                    class="activity-stands-out__item activity-stands-out__btn bootui-keyboard-target"
+                    @click="jumpToProfileSection(item.section)"
+                  >
+                    <span class="badge" :class="`text-bg-${item.tone}`">{{ item.badge }}</span>
+                    <code class="activity-stands-out__text">{{ item.text }}</code>
+                    <span v-if="item.detail" class="text-muted"> · {{ item.detail }}</span>
+                  </button>
+                </li>
+              </ul>
+            </section>
+
+            <PanelTabs
+              class="mb-3 activity-profile-tabs"
+              :tabs="PROFILE_TABS"
+              :selected="profileTab"
+              id-prefix="request-profile"
+              label="Request profile sections"
+              @select="profileTab = $event"
             />
 
             <p v-if="profile.approximate" class="alert alert-secondary small py-2 mb-3" role="note">
@@ -1713,55 +2008,28 @@ function toggleFlow() {
               signals were matched by time window only.
             </p>
 
-            <section class="mb-3">
-              <h3 class="h6">
-                SQL
-                <span
-                  v-if="profile.sqlCorrelationApproximate"
-                  class="badge text-bg-secondary ms-1"
-                  title="Correlated by time window only (no trace id or uniquely identifiable serving thread)"
-                >
-                  approximate
-                </span>
-                <span
-                  v-else-if="profile.sql && profile.sql.length"
-                  class="badge text-bg-success ms-1"
-                  title="Correlated exactly by trace id or the request's serving thread"
-                >
-                  exact
-                </span>
-                <span
-                  v-if="sections.SQL?.tierLabel"
-                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
-                  :title="sections.SQL.tierTitle"
-                  >{{ sections.SQL.tierLabel }}</span
-                >
-              </h3>
-              <div v-for="group in profile.sqlGroups" :key="group.sql" class="small mb-1">
-                <span v-if="group.potentialNPlusOne" class="badge text-bg-danger me-1">
-                  N+1 · {{ group.executions }} identical
-                </span>
-                <span v-else class="badge text-bg-light me-1">×{{ group.executions }}</span>
-                <code>{{ group.sql }}</code>
-                <div v-if="group.callSites && group.callSites.length" class="call-sites text-muted">
-                  <div v-for="site in group.callSites" :key="site" class="font-monospace">at {{ site }}</div>
-                </div>
-              </div>
-              <p v-if="sections.SQL && !sections.SQL.available" class="text-muted small mb-0">
-                {{ sections.SQL.unavailableReason }}
-              </p>
-              <p v-else-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
-              <p v-if="sections.SQL?.truncationText" class="text-muted small mb-0">
-                {{ sections.SQL.truncationText }}
-              </p>
-            </section>
+            <div v-show="profileTab === 'all' || profileTab === 'journal'">
+              <RequestJournalProfile
+                v-if="journalProfile"
+                :profile="journalProfile"
+                :method="profile.request?.method || resolvedProfileEntry?.method"
+                :path="profile.request?.path || resolvedProfileEntry?.path"
+                :status="profile.request?.status ?? resolvedProfileEntry?.status"
+                @compare-with="compareJournalBaseline"
+                @open-request="openBaselineRequest"
+              />
+            </div>
 
             <section
               v-if="profile.exceptions.length || (sections.EXCEPTION && !sections.EXCEPTION.available)"
-              class="mb-3"
+              v-show="profileTab === 'all' || profileTab === 'security'"
+              class="mb-3 activity-profile-section"
             >
-              <h3 class="h6">
-                Exceptions
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-exclamation-octagon"></i>
+                </span>
+                <span>Exceptions</span>
                 <span
                   v-if="sections.EXCEPTION?.tierLabel"
                   class="badge text-bg-light border fw-normal ms-1 activity-tier"
@@ -1807,14 +2075,160 @@ function toggleFlow() {
               </p>
             </section>
 
+            <section v-show="profileTab === 'all' || profileTab === 'sql'" class="mb-3 activity-profile-section">
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-database"></i>
+                </span>
+                <span>SQL</span>
+                <span
+                  v-if="profile.sqlCorrelationApproximate"
+                  class="badge text-bg-secondary ms-1"
+                  title="Correlated by time window only (no trace id or uniquely identifiable serving thread)"
+                >
+                  approximate
+                </span>
+                <span
+                  v-else-if="profile.sql && profile.sql.length"
+                  class="badge text-bg-success ms-1"
+                  title="Correlated exactly by trace id or the request's serving thread"
+                >
+                  exact
+                </span>
+                <span
+                  v-if="sections.SQL?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.SQL.tierTitle"
+                  >{{ sections.SQL.tierLabel }}</span
+                >
+              </h3>
+              <div v-for="group in profile.sqlGroups" :key="group.sql" class="small mb-1">
+                <span v-if="group.potentialNPlusOne" class="badge text-bg-danger me-1">
+                  N+1 · {{ group.executions }} identical
+                </span>
+                <span v-else class="badge text-bg-light me-1">×{{ group.executions }}</span>
+                <code>{{ group.sql }}</code>
+                <div v-if="group.callSites && group.callSites.length" class="call-sites text-muted">
+                  <div v-for="site in group.callSites" :key="site" class="font-monospace">at {{ site }}</div>
+                </div>
+              </div>
+              <p v-if="sections.SQL && !sections.SQL.available" class="text-muted small mb-0">
+                {{ sections.SQL.unavailableReason }}
+              </p>
+              <p v-else-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
+              <p v-if="sections.SQL?.truncationText" class="text-muted small mb-0">
+                {{ sections.SQL.truncationText }}
+              </p>
+            </section>
+
+            <section
+              v-if="sections.CACHE"
+              v-show="profileTab === 'all' || profileTab === 'sql'"
+              class="mb-3 activity-profile-section"
+            >
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-lightning-charge"></i>
+                </span>
+                <span>Cache accesses</span>
+                <span
+                  v-if="sections.CACHE.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.CACHE.tierLabel"
+                  >{{ sections.CACHE.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="!sections.CACHE.available" class="text-muted small mb-0">
+                {{ sections.CACHE.unavailableReason }}
+              </p>
+              <template v-else>
+                <div
+                  v-for="(access, index) in profile.cacheAccesses"
+                  :key="index"
+                  class="small mb-1 activity-cache-access"
+                >
+                  <code>{{ cacheAccessSummary(access) }}</code>
+                  <span v-if="access.keyHash" class="text-muted"> · key {{ access.keyHash }}</span>
+                  <span v-if="childTierLabel(sections.CACHE, index)" class="text-muted activity-child-tier">
+                    · {{ childTierLabel(sections.CACHE, index) }}</span
+                  >
+                </div>
+                <p v-if="!profile.cacheAccesses?.length" class="text-muted small mb-0">
+                  No cache accesses correlated to this request.
+                </p>
+                <p v-if="sections.CACHE.truncationText" class="text-muted small mb-0">
+                  {{ sections.CACHE.truncationText }}
+                </p>
+              </template>
+            </section>
+
+            <section
+              v-if="sections.REST_CLIENT"
+              v-show="profileTab === 'all' || profileTab === 'outbound'"
+              class="mb-3 activity-profile-section"
+            >
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-globe2"></i>
+                </span>
+                <span>REST client calls</span>
+                <span
+                  v-if="sections.REST_CLIENT.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.REST_CLIENT.tierTitle"
+                  >{{ sections.REST_CLIENT.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="!sections.REST_CLIENT.available" class="text-muted small mb-0">
+                {{ sections.REST_CLIENT.unavailableReason }}
+              </p>
+              <template v-else>
+                <div v-for="(call, index) in profile.restCalls" :key="call.id" class="small mb-1 activity-rest-call">
+                  <code>{{ restCallSummary(call) }}</code>
+                  <span class="text-muted"> · {{ formatDurationMs(call.durationMillis) }}</span>
+                  <span v-if="childTierLabel(sections.REST_CLIENT, index)" class="text-muted activity-child-tier">
+                    · {{ childTierLabel(sections.REST_CLIENT, index) }}</span
+                  >
+                  <span v-if="!call.success && call.errorMessage" class="d-block text-muted">{{
+                    call.errorMessage
+                  }}</span>
+                  <div v-if="call.callSite" class="call-sites text-muted font-monospace">at {{ call.callSite }}</div>
+                </div>
+                <p v-if="!profile.restCalls?.length" class="text-muted small mb-0">
+                  No REST client calls correlated to this request.
+                </p>
+                <p v-if="sections.REST_CLIENT.truncationText" class="text-muted small mb-0">
+                  {{ sections.REST_CLIENT.truncationText }}
+                </p>
+              </template>
+            </section>
+
+            <section
+              v-if="profile.trace && profile.trace.spans.length"
+              v-show="profileTab === 'all' || profileTab === 'outbound'"
+              class="mb-3 activity-profile-section"
+            >
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-bezier2"></i>
+                </span>
+                <span>Trace waterfall</span>
+              </h3>
+              <TraceWaterfall :spans="profile.trace.spans" compact />
+            </section>
+
             <section
               v-if="
                 (profile.security && profile.security.length) || (sections.SECURITY && !sections.SECURITY.available)
               "
-              class="mb-3"
+              v-show="profileTab === 'all' || profileTab === 'security'"
+              class="mb-3 activity-profile-section"
             >
-              <h3 class="h6">
-                Security events
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-shield-lock"></i>
+                </span>
+                <span>Security events</span>
                 <span
                   v-if="sections.SECURITY?.tierLabel"
                   class="badge text-bg-light border fw-normal ms-1 activity-tier"
@@ -1851,81 +2265,20 @@ function toggleFlow() {
               </p>
             </section>
 
-            <section v-if="sections.REST_CLIENT" class="mb-3">
-              <h3 class="h6">
-                REST client calls
-                <span
-                  v-if="sections.REST_CLIENT.tierLabel"
-                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
-                  :title="sections.REST_CLIENT.tierTitle"
-                  >{{ sections.REST_CLIENT.tierLabel }}</span
-                >
+            <div v-show="profileTab === 'all' || profileTab === 'journal'">
+              <RequestCodePath
+                :request-id="journalProfile?.requestId || profileRequestId"
+                :route="journalProfile?.route"
+              />
+            </div>
+
+            <section v-if="profile.notes.length || tiersNote" class="activity-profile-section">
+              <h3 class="activity-profile-section__title">
+                <span class="activity-profile-section__icon" aria-hidden="true">
+                  <i class="bi bi-info-circle"></i>
+                </span>
+                <span>Notes</span>
               </h3>
-              <p v-if="!sections.REST_CLIENT.available" class="text-muted small mb-0">
-                {{ sections.REST_CLIENT.unavailableReason }}
-              </p>
-              <template v-else>
-                <div v-for="(call, index) in profile.restCalls" :key="call.id" class="small mb-1 activity-rest-call">
-                  <code>{{ restCallSummary(call) }}</code>
-                  <span class="text-muted"> · {{ formatDurationMs(call.durationMillis) }}</span>
-                  <span v-if="childTierLabel(sections.REST_CLIENT, index)" class="text-muted activity-child-tier">
-                    · {{ childTierLabel(sections.REST_CLIENT, index) }}</span
-                  >
-                  <span v-if="!call.success && call.errorMessage" class="d-block text-muted">{{
-                    call.errorMessage
-                  }}</span>
-                  <div v-if="call.callSite" class="call-sites text-muted font-monospace">at {{ call.callSite }}</div>
-                </div>
-                <p v-if="!profile.restCalls?.length" class="text-muted small mb-0">
-                  No REST client calls correlated to this request.
-                </p>
-                <p v-if="sections.REST_CLIENT.truncationText" class="text-muted small mb-0">
-                  {{ sections.REST_CLIENT.truncationText }}
-                </p>
-              </template>
-            </section>
-
-            <section v-if="sections.CACHE" class="mb-3">
-              <h3 class="h6">
-                Cache accesses
-                <span
-                  v-if="sections.CACHE.tierLabel"
-                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
-                  :title="sections.CACHE.tierTitle"
-                  >{{ sections.CACHE.tierLabel }}</span
-                >
-              </h3>
-              <p v-if="!sections.CACHE.available" class="text-muted small mb-0">
-                {{ sections.CACHE.unavailableReason }}
-              </p>
-              <template v-else>
-                <div
-                  v-for="(access, index) in profile.cacheAccesses"
-                  :key="index"
-                  class="small mb-1 activity-cache-access"
-                >
-                  <code>{{ cacheAccessSummary(access) }}</code>
-                  <span v-if="access.keyHash" class="text-muted"> · key {{ access.keyHash }}</span>
-                  <span v-if="childTierLabel(sections.CACHE, index)" class="text-muted activity-child-tier">
-                    · {{ childTierLabel(sections.CACHE, index) }}</span
-                  >
-                </div>
-                <p v-if="!profile.cacheAccesses?.length" class="text-muted small mb-0">
-                  No cache accesses correlated to this request.
-                </p>
-                <p v-if="sections.CACHE.truncationText" class="text-muted small mb-0">
-                  {{ sections.CACHE.truncationText }}
-                </p>
-              </template>
-            </section>
-
-            <section v-if="profile.trace && profile.trace.spans.length" class="mb-3">
-              <h3 class="h6">Trace waterfall</h3>
-              <TraceWaterfall :spans="profile.trace.spans" compact />
-            </section>
-
-            <section v-if="profile.notes.length || tiersNote">
-              <h3 class="h6">Notes</h3>
               <ul class="small text-muted mb-0">
                 <li v-for="(note, index) in profile.notes" :key="index">{{ note }}</li>
                 <li v-if="tiersNote">{{ tiersNote }}</li>
@@ -1964,14 +2317,197 @@ function toggleFlow() {
 
 .activity-drawer.card {
   background: var(--bootui-surface-solid);
-  width: min(560px, 100%);
+  width: min(880px, 100%);
   height: 100%;
   border-radius: 0;
   overflow: hidden;
 }
 
+.activity-drawer--expanded.card {
+  width: min(1260px, 100%);
+}
+
 .activity-drawer-body {
   overflow-y: auto;
+}
+
+.activity-work-bar {
+  display: flex;
+  gap: 2px;
+  height: 0.55rem;
+  background: var(--bootui-surface-alt);
+  border-radius: var(--bootui-radius-pill);
+  overflow: hidden;
+}
+
+.activity-work-segment {
+  display: block;
+  min-width: 4px;
+}
+
+.activity-work-segment--danger {
+  background: var(--bootui-danger);
+}
+
+.activity-work-segment--warning {
+  background: var(--bootui-warning);
+}
+
+.activity-work-segment--success {
+  background: var(--bootui-green);
+}
+
+.activity-work-segment--primary {
+  background: var(--bootui-blue);
+}
+
+.activity-work-segment--info {
+  background: var(--bootui-info);
+}
+
+.activity-work-segment--neutral {
+  background: var(--bootui-text-subtle);
+}
+
+.activity-work-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.activity-work-legend__item {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.activity-work-swatch {
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.55rem;
+  width: 0.55rem;
+}
+
+.activity-profile-section {
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.activity-profile-section__title {
+  align-items: center;
+  color: var(--bootui-text);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 1rem;
+  font-weight: 700;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.activity-profile-section__icon {
+  align-items: center;
+  background: var(--bootui-nav-hover-bg);
+  border-radius: var(--bootui-radius-xs);
+  color: var(--bootui-green-dark);
+  display: inline-flex;
+  font-size: 1rem;
+  height: 1.75rem;
+  justify-content: center;
+  width: 1.75rem;
+}
+
+.activity-stands-out {
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.activity-stands-out__list {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.activity-kpi-icon {
+  align-items: center;
+  border-radius: var(--bootui-radius-sm);
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  height: 2.35rem;
+  justify-content: center;
+  width: 2.35rem;
+}
+
+.activity-kpi-icon--green {
+  background: rgba(25, 135, 84, 0.12);
+  color: var(--bootui-green-dark);
+}
+
+.activity-kpi-icon--blue {
+  background: rgba(13, 110, 253, 0.12);
+  color: var(--bootui-blue);
+}
+
+.activity-kpi-icon--amber {
+  background: rgba(255, 193, 7, 0.18);
+  color: var(--bootui-warning-text-strong);
+}
+
+.activity-kpi-icon--danger {
+  background: rgba(220, 53, 69, 0.12);
+  color: var(--bootui-danger-text);
+}
+
+.activity-type-pill {
+  border-radius: var(--bootui-radius-pill);
+  font-size: 0.85rem;
+  padding: 0.2rem 0.65rem;
+}
+
+.activity-type-pill__count {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: var(--bootui-radius-pill);
+  font-size: 0.72rem;
+  padding: 0.05rem 0.4rem;
+}
+
+.btn-primary .activity-type-pill__count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.activity-feed-card {
+  background: var(--bootui-surface-solid);
+}
+
+.activity-stands-out__item {
+  align-items: center;
+  background: var(--bootui-surface-solid);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-sm);
+  color: var(--bootui-text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.35rem 0.6rem;
+  text-align: start;
+  width: 100%;
+}
+
+.activity-stands-out__btn {
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.activity-stands-out__btn:hover {
+  background: var(--bootui-nav-hover-bg);
+}
+
+.activity-stands-out__text {
+  overflow-wrap: anywhere;
 }
 
 .activity-row-clickable {
@@ -2105,7 +2641,8 @@ function toggleFlow() {
   stroke-dasharray: 3 2;
 }
 @media (prefers-reduced-motion: reduce) {
-  .activity-kpi-link {
+  .activity-kpi-link,
+  .activity-stands-out__btn {
     transition: none;
   }
 }
