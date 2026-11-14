@@ -275,6 +275,10 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
   change destinations, query identity, confirmation gates, or disabled/loading/read-only behavior for styling.
   Secondary labels, hover/active fills, borders, and focus rings inherit shared theme tokens; skin files own geometry.
   Machine identifiers inside a button stay monospace but inherit its state color. Long destinations wrap.
+- **Link cue:** button-shaped navigation links share a decorative, current-color Bootstrap chain-link icon on the
+  left (14px with a 6px gap). The shared `a.btn` styling replaces their existing direct-child Bootstrap icons, without
+  changing accessible names or adding a second navigation arrow. Icon-only links use `bootui-icon-link` to omit the gap.
+  File-download anchors carry `download` and retain their download affordance; action buttons and inline links are unchanged.
 - **Inline references stay inline:** product/library names, attribution, and references embedded in explanatory
   sentences remain conventional links. Sidebar rows, tabs, interactive KPI cards, and the footer retain their own
   established affordances rather than becoming a second button toolbar.

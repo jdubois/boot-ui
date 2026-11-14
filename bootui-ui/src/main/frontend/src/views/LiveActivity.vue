@@ -1484,7 +1484,7 @@ function toggleFlow() {
                     <router-link
                       v-if="entryLink(entry)"
                       :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
-                      class="btn btn-outline-secondary btn-sm rounded-pill me-1"
+                      class="btn btn-outline-secondary btn-sm rounded-pill bootui-icon-link me-1"
                       :title="entryLink(entry).label"
                     >
                       <i class="bi bi-box-arrow-up-right"></i>
@@ -1527,7 +1527,7 @@ function toggleFlow() {
                     <router-link
                       v-if="entryLink(child)"
                       :to="{path: entryLink(child).path, query: entryLink(child).query}"
-                      class="btn btn-outline-secondary btn-sm rounded-pill"
+                      class="btn btn-outline-secondary btn-sm rounded-pill bootui-icon-link"
                       :title="entryLink(child).label"
                     >
                       <i class="bi bi-box-arrow-up-right"></i>

@@ -952,7 +952,6 @@ function securitySignalUrl(signal) {
 .github-link-chip {
   align-items: center;
   display: inline-flex;
-  gap: 0.35rem;
   vertical-align: middle;
 }
 

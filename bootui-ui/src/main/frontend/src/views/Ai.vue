@@ -977,7 +977,11 @@ const detectedFrameworkLabel = computed(() => {
                     >
                       <i :class="copiedKey === chat.spanId ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
                     </button>
-                    <a :href="'#/traces'" class="btn btn-sm btn-outline-secondary me-1" title="View trace">
+                    <a
+                      :href="'#/traces'"
+                      class="btn btn-sm btn-outline-secondary bootui-icon-link me-1"
+                      title="View trace"
+                    >
                       <i class="bi bi-bezier2"></i>
                     </a>
                     <button

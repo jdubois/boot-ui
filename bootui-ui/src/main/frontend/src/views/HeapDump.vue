@@ -452,6 +452,7 @@ onBeforeUnmount(() => {
                     v-if="report.rawDownloadEnabled"
                     :href="downloadUrl(dump.name)"
                     class="btn btn-sm btn-outline-secondary me-1"
+                    download
                   >
                     Download
                   </a>

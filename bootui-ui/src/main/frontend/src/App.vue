@@ -1305,6 +1305,27 @@ function onGlobalKeydown(e) {
   overflow-wrap: anywhere;
 }
 
+/* An empty, masked pseudo-element adds a decorative cue without changing link names. */
+:global(a.btn:not([download])::before) {
+  content: '';
+  display: inline-block;
+  inline-size: 0.875rem;
+  block-size: 0.875rem;
+  flex-shrink: 0;
+  margin-inline-end: 0.375rem;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  mask: url('bootstrap-icons/icons/link-45deg.svg') center / contain no-repeat;
+}
+
+:global(a.btn:not([download]) > .bi) {
+  display: none;
+}
+
+:global(a.btn.bootui-icon-link::before) {
+  margin-inline-end: 0;
+}
+
 :global(.btn code) {
   color: inherit;
 }
