@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerButtonLinkTests} from '../scenarios/button-links.js'
+
+registerButtonLinkTests(test, expect)
 
 const allPanelLinks = [
   {id: 'overview', path: 'scorecard', title: 'Scorecard', heading: /^Scorecard/},
