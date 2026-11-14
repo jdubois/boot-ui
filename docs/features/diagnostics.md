@@ -110,6 +110,8 @@ summaries in **Recent occurrences**), without ever retaining rejected user input
 `requestId` of the request that threw it, so the profiler can attribute it exactly. The list updates live, and you can
 filter by text, capture source, triage status, or to application-originated exceptions only.
 
+![Exceptions showing a per-occurrence binding diagnostic without rejected input](../images/bootui-exceptions-binding.webp)
+
 Links from Live Activity's request profile and EXCEPTION rows open the exact retained group with `?id=<group id>`,
 not a class-name match. A linked request ID stays visible beside **Back to request profile**. If that group is no
 longer retained or the panel is disabled, the view explains why without selecting a different failure.
@@ -237,7 +239,7 @@ copy itself sends nothing and changes no state. It renders through the same help
 
 ## HTTP Exchanges
 
-![BootUI HTTP Exchanges panel](../images/bootui-http-exchanges.webp)
+![HTTP Exchanges route drawer showing retained requests beside the route rankings](../images/bootui-http-exchanges.webp)
 
 The HTTP Exchanges panel records recent inbound requests: timestamp, method, path, status, duration, response size
 when `Content-Length` is present, and trace identifiers from common propagation headers. Expanding a row shows the

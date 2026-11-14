@@ -108,7 +108,8 @@ const overview = {
   applicationName: 'bootui-sample',
   frameworkName: 'Spring Boot',
   frameworkVersion: springBootVersion,
-  javaVersion: '17',
+  // The illustrative run includes virtual threads and JFR pinning evidence (JDK 21+).
+  javaVersion: '21',
   javaVendor: 'Eclipse Temurin',
   activeProfiles: ['dev', 'local'],
   defaultProfiles: ['default'],
@@ -2781,6 +2782,26 @@ const httpExchanges = [
   httpExchange('ex-3', 'GET', '/admin', null, 403, 12, 0, null, [{name: 'cookie', values: [], masked: true}])
 ]
 
+// A complete retained page for the route-drawer illustration, matching its 44-request summary:
+// 41 successes, 3 client errors, 1,201 ms total, p50 22 ms, p95 64 ms, max 91 ms.
+const orderRouteExchanges = [27, ...Array(23).fill(22), ...Array(15).fill(26), 25, 34, 64, 64, 91].map(
+  (duration, index) => ({
+    ...httpExchange(
+      `order-${index}`,
+      'GET',
+      `/api/sample/orders/${1042 + index}`,
+      null,
+      index < 41 ? 200 : 404,
+      duration,
+      index < 41 ? 932 : 0,
+      null,
+      [{name: 'accept', values: ['application/json'], masked: false}],
+      '/api/sample/orders/{id}'
+    ),
+    timestamp: new Date(nowMillis - (index + 1) * 2_000).toISOString()
+  })
+)
+
 function httpRoute(id, source, counts, durations) {
   const [method, route] = id.split(' ')
   const [status2xx, status3xx, status4xx, status5xx] = counts
@@ -3492,7 +3513,7 @@ const exceptions = {
     },
     {
       id: 'c3d4e5f607182930',
-      exceptionClassName: 'org.springframework.beans.TypeMismatchException',
+      exceptionClassName: 'org.springframework.web.method.annotation.MethodArgumentTypeMismatchException',
       message:
         "Failed to convert value of type 'String' to required type 'int'; nested exception is NumberFormatException",
       count: 1,
@@ -3593,6 +3614,54 @@ const exceptionDetails = {
         requestPath: '/api/sample/boom',
         handler: 'SampleController#boom()',
         source: 'web'
+      }
+    ]
+  },
+  c3d4e5f607182930: {
+    group: exceptions.groups[2],
+    frames: [
+      {
+        declaringClass: 'org.springframework.web.method.annotation.AbstractNamedValueMethodArgumentResolver',
+        methodName: 'resolveArgument',
+        fileName: 'AbstractNamedValueMethodArgumentResolver.java',
+        lineNumber: 120,
+        applicationFrame: false
+      },
+      {
+        declaringClass: 'org.springframework.web.method.support.InvocableHandlerMethod',
+        methodName: 'getMethodArgumentValues',
+        fileName: 'InvocableHandlerMethod.java',
+        lineNumber: 219,
+        applicationFrame: false
+      }
+    ],
+    causes: [
+      {
+        exceptionClassName: 'java.lang.NumberFormatException',
+        message: 'For input string: "******"',
+        frames: [
+          {
+            declaringClass: 'java.lang.Integer',
+            methodName: 'parseInt',
+            fileName: 'Integer.java',
+            lineNumber: 668,
+            applicationFrame: false
+          }
+        ],
+        commonFrames: 0
+      }
+    ],
+    occurrences: [
+      {
+        timestamp: nowMillis - 12 * 60 * 1000,
+        thread: 'http-nio-8080-exec-2',
+        requestMethod: 'GET',
+        requestPath: '/api/sample/products',
+        handler: 'ProductController#list()',
+        source: 'web',
+        requestId: 'req-binding-01',
+        bindingDiagnostics: [{targetType: 'ProductController#list()', fieldPath: 'limit', reason: 'Integer'}],
+        bindingDiagnosticsTruncated: false
       }
     ]
   }
@@ -4869,12 +4938,30 @@ const activityJournalProfile = {
   route: 'GET /api/sample/products',
   durationMicros: 1240000,
   timeline: [
+    {
+      source: 'AUTHORIZATION',
+      label: 'Request authorization granted',
+      detail: 'AUTHENTICATED (1 authority) · hasAnyAuthority(ROLE_USER)',
+      offsetMillis: 1,
+      durationMicros: 160
+    },
     {source: 'SQL', label: 'select … from products', detail: '6 statements', offsetMillis: 12, durationMicros: 48000},
     {source: 'CACHE', label: 'sample-products', detail: 'miss', offsetMillis: 70, durationMicros: null},
     {source: 'REST', label: 'inventory.internal', detail: '200', offsetMillis: 130, durationMicros: 410000}
   ],
   resources: {availability: 'AVAILABLE', cpuNanos: 310000000, allocatedBytes: 18400000, gcPauses: 1, segments: 3},
   routeComparison: {requests: 64, p50Micros: 101000, p95Micros: 480000, minimumRequests: 20, standing: 'ABOVE_P95'},
+  authorizations: [
+    {
+      target: 'REQUEST',
+      subject: null,
+      authentication: 'AUTHENTICATED',
+      authorities: 1,
+      rule: 'hasAnyAuthority(ROLE_USER)',
+      granted: true,
+      durationMicros: 160
+    }
+  ],
   baselineComparison: {
     baselineRequestId: 'req-warm-04',
     baselineDurationMicros: 98000,
@@ -6425,8 +6512,8 @@ const screenshots = [
     'bootui-runtime-insights.webp',
     async (page) => {
       await page.getByPlaceholder(/Search checks, routes/).fill('/api/secure/products')
-      await page.locator('.insight-item', {hasText: '/api/secure/products'}).click()
-      await page.locator('#insight-sentence', {hasText: 'warm median 101 ms'}).waitFor()
+      await page.getByRole('button', {name: /Route time breakdown.*observation/}).click()
+      await page.locator('#insight-sentence', {hasText: '/api/secure/products'}).waitFor()
       await page.locator('.insight-evidence').getByText('Authentication').waitFor()
     }
   ],
@@ -6453,6 +6540,44 @@ const screenshots = [
         .getByRole('button', {name: /Profile/})
         .click()
       await page.getByRole('dialog', {name: 'Request profile'}).waitFor()
+      await expect(page.getByRole('button', {name: 'Wide', exact: true})).toBeVisible()
+      await expect(page.getByRole('tablist', {name: 'Request profile sections'})).toBeVisible()
+    }
+  ],
+  [
+    'activity',
+    'Live Activity',
+    'bootui-activity-baseline.webp',
+    async (page) => {
+      await page
+        .locator('tr', {hasText: 'GET /api/sample/products'})
+        .first()
+        .getByRole('button', {name: /Profile/})
+        .click()
+      const drawer = page.getByRole('dialog', {name: 'Request profile'})
+      await drawer.getByRole('button', {name: 'Wide', exact: true}).click()
+      await drawer.getByRole('tab', {name: 'Timeline & journal'}).click()
+      const baseline = drawer.locator('.request-journal__baseline')
+      await expect(baseline.getByText('Compared with baseline request', {exact: true})).toBeVisible()
+      await baseline.scrollIntoViewIfNeeded()
+      await expect(baseline.getByRole('combobox', {name: 'Compare with baseline request'})).toHaveValue('req-warm-04')
+    }
+  ],
+  [
+    'activity',
+    'Live Activity',
+    'bootui-activity-authorization.webp',
+    async (page) => {
+      await page
+        .locator('tr', {hasText: 'GET /api/sample/products'})
+        .first()
+        .getByRole('button', {name: /Profile/})
+        .click()
+      const drawer = page.getByRole('dialog', {name: 'Request profile'})
+      await drawer.getByRole('tab', {name: 'Timeline & journal'}).click()
+      const decisions = drawer.locator('.request-journal__authorizations')
+      await decisions.scrollIntoViewIfNeeded()
+      await expect(decisions.getByRole('cell', {name: 'Granted', exact: true})).toBeVisible()
     }
   ],
   [
@@ -6488,12 +6613,40 @@ const screenshots = [
     }
   ],
   [
+    'exceptions',
+    'Exceptions',
+    'bootui-exceptions-binding.webp',
+    async (page) => {
+      await page
+        .locator('tr', {hasText: 'MethodArgumentTypeMismatchException'})
+        .getByRole('button', {name: 'Details'})
+        .click()
+      await page.getByText('Binding & validation diagnostics', {exact: true}).waitFor()
+      await page.locator('.binding-diagnostics-section').scrollIntoViewIfNeeded()
+      await page.evaluate(() => {
+        window.__bootuiKeepWorkspaceScroll = true
+      })
+      await expect(page.getByRole('cell', {name: 'Integer', exact: true})).toBeVisible()
+      await expect(page.locator('.stack-pane')).toContainText('AbstractNamedValueMethodArgumentResolver')
+    }
+  ],
+  [
     'http-exchanges',
     'HTTP Exchanges',
     'bootui-http-exchanges.webp',
     async (page) => {
+      const summary = httpRoutes.routes.find((route) => route.id === 'GET /api/sample/orders/{id}')
+      expect(orderRouteExchanges).toHaveLength(summary.requests)
+      expect(orderRouteExchanges.filter((exchange) => exchange.status < 300)).toHaveLength(summary.status2xx)
+      expect(orderRouteExchanges.reduce((total, exchange) => total + exchange.durationMs, 0)).toBe(
+        summary.totalDurationMs
+      )
       await page.locator('.http-routes-table').getByText('/api/sample/orders/{id}').waitFor()
-      await page.locator('.http-exchanges-table').getByText('/api/sample/products').waitFor()
+      await page.getByRole('button', {name: 'Show the retained exchanges of GET /api/sample/orders/{id}'}).click()
+      const drawer = page.getByRole('dialog', {name: 'Route exchanges'})
+      await expect(drawer.getByText('/api/sample/orders/1042', {exact: true})).toBeVisible()
+      await expect(drawer.getByText('/api/sample/products?category=tools', {exact: true})).toHaveCount(0)
+      await expect(drawer.getByRole('button', {name: 'Close route exchanges'})).toBeVisible()
     }
   ],
   [
@@ -6961,9 +7114,10 @@ try {
   for (const [route, title, fileName, prepare, scenarioId] of selectedScreenshots) {
     if (isWorkshopPlatform && scenarioId) {
       currentWorkshopScenario = scenarioId
-      // Force App.vue to re-fetch /api/panels and /api/overview when switching workshop scenarios
-      await page.goto('about:blank')
     }
+    // Reset the app between captures, including consecutive views of one route, so drawers,
+    // filters, and workshop manifests cannot leak from the previous screenshot.
+    await page.goto('about:blank')
     await page.goto(`${baseUrl}/bootui/#/${route}`)
     await page.locator('main .page-panel h2').first().waitFor()
     await page.evaluate(() => {
@@ -7221,7 +7375,14 @@ async function handleApiRoute(route) {
   if (endpoint === 'http-exchanges/routes') return fulfillJson(route, httpRoutes)
   if (endpoint === 'http-exchanges') {
     // The list shows the newest page of the same retained window the route rankings summarize.
-    const report = pagedReport('exchanges', httpExchanges, url, {unavailableReason: null})
+    const selectedRoute = url.searchParams.get('route')
+    const exchanges =
+      selectedRoute === 'GET /api/sample/orders/{id}'
+        ? orderRouteExchanges
+        : selectedRoute
+          ? httpExchanges.filter((exchange) => `${exchange.method} ${exchange.route}` === selectedRoute)
+          : httpExchanges
+    const report = pagedReport('exchanges', exchanges, url, {unavailableReason: null})
     return fulfillJson(route, {
       ...report,
       total: httpRoutes.window.summarizedExchanges,
@@ -7230,8 +7391,8 @@ async function handleApiRoute(route) {
       page: {
         ...report.page,
         total: httpRoutes.window.summarizedExchanges,
-        matched: httpRoutes.window.summarizedExchanges,
-        hasMore: true
+        matched: selectedRoute ? exchanges.length : httpRoutes.window.summarizedExchanges,
+        hasMore: selectedRoute ? report.page.hasMore : true
       },
       retention: {
         applicationManaged: false,
