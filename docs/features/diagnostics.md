@@ -245,6 +245,11 @@ request and response headers, with secret-like headers and query parameters mask
 `bootui.expose-values=FULL`. Every exchange carries its route, shown under its path when the two differ, and a
 **Profile** link that opens the request in [Live Activity](live-activity.md#the-per-request-profiler).
 
+Choose **Exchanges** on a ranked route to open its retained requests in a right-hand drawer, without scrolling away
+from the rankings. Request headers, metadata, safe cURL templates, and profile links open inside that drawer.
+On narrow screens the drawer fills the viewport and request rows stack. **Close**, Escape, or the backdrop returns
+to the rankings; route links still open the same drawer directly.
+
 BootUI's own requests are not recorded while `bootui.monitoring.exclude-self` is on (the default). The buffer retains
 200 exchanges by default; change it with `bootui.http-exchanges.max-exchanges`, effective on the next restart.
 While the panel is enabled and `bootui.http-exchanges.expose-request-id-header` is `true` (the default), loopback and

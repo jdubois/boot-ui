@@ -169,6 +169,20 @@ describe('App sidebar navigation', () => {
     document.body.innerHTML = ''
   })
 
+  it('preserves the HTTP Exchanges panel while opening and closing a route query', async () => {
+    const {router, wrapper} = await mountApp('/http-exchanges', {stubRouterView: false})
+    const panel = wrapper.getComponent(TestPanel).vm
+
+    await router.replace({query: {route: 'GET /api/orders', rank: 'requests'}})
+    await flushPromises()
+    expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+
+    await router.replace({query: {}})
+    await flushPromises()
+    expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+    wrapper.unmount()
+  })
+
   it('shows one actionable asset failure without replacing the current panel', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const {router, wrapper, browser} = await mountApp('/overview', {stubRouterView: false})
@@ -398,6 +412,22 @@ describe('App command palette', () => {
     vi.unstubAllGlobals()
     restoreLocalStorage()
     document.body.innerHTML = ''
+  })
+
+  it('does not open a background command palette over a native modal dialog', async () => {
+    const {wrapper} = await mountApp('/http-exchanges', {stubCommandPalette: false})
+    const dialog = document.createElement('dialog')
+    dialog.setAttribute('open', '')
+    document.body.append(dialog)
+    window.dispatchEvent(new KeyboardEvent('keydown', {key: 'k', metaKey: true}))
+    await flushPromises()
+    expect(wrapper.find('[aria-label="Command palette"]').exists()).toBe(false)
+    expect(wrapper.get('.bootui-workspace').attributes()).not.toHaveProperty('inert')
+    dialog.remove()
+    window.dispatchEvent(new KeyboardEvent('keydown', {key: 'k', metaKey: true}))
+    await flushPromises()
+    expect(wrapper.find('[aria-label="Command palette"]').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('awaits rendering, focuses the search input, makes the background inert, and restores the trigger', async () => {

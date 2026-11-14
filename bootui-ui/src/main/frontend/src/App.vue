@@ -114,6 +114,7 @@ provide('openCommandPalette', openCommandPalette)
 
 async function openCommandPalette(event) {
   if (commandPaletteOpen.value || mobileDrawerOpen.value) return
+  if (typeof document !== 'undefined' && document.querySelector('dialog[open]')) return
   const eventTarget = event?.currentTarget
   const activeElement = typeof document === 'undefined' ? null : document.activeElement
   commandPaletteInvoker =
@@ -1008,7 +1009,12 @@ function onGlobalKeydown(e) {
           <router-view v-slot="{Component}">
             <transition mode="out-in" name="page-slide">
               <keep-alive include="Overview">
-                <component :is="Component" :key="route.fullPath" :panel="activePanel" class="page-panel" />
+                <component
+                  :is="Component"
+                  :key="route.path === '/http-exchanges' ? route.path : route.fullPath"
+                  :panel="activePanel"
+                  class="page-panel"
+                />
               </keep-alive>
             </transition>
           </router-view>
