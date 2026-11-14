@@ -587,6 +587,11 @@ describe('HTTP Exchanges', () => {
       expect(wrapper.find('.http-exchanges-route-filter').text()).toContain('GET /api/orders/{id}')
       expect(wrapper.find('.http-routes-exchanges-link').attributes('aria-pressed')).toBe('true')
       expect(wrapper.find('.http-routes-row-active').attributes('data-route-id')).toBe('GET /api/orders/{id}')
+      expect(wrapper.findAll('dialog[open]')).toHaveLength(1)
+      expect(wrapper.get('dialog').attributes('aria-labelledby')).toBe('http-route-drawer-title')
+      expect(wrapper.get('dialog').attributes('aria-describedby')).toBe('http-route-drawer-route')
+      expect(wrapper.get('#http-route-drawer-route').text()).toBe('GET /api/orders/{id}')
+      expect(wrapper.findAll('#http-exchanges-filter')).toHaveLength(1)
 
       await wrapper.find('.http-exchanges-route-filter button').trigger('click')
       await vi.advanceTimersByTimeAsync(300)
@@ -599,6 +604,151 @@ describe('HTTP Exchanges', () => {
       )
       expect(wrapper.find('.http-exchanges-route-filter').exists()).toBe(false)
       expect(wrapper.find('.http-routes-row-active').exists()).toBe(false)
+      expect(wrapper.find('dialog').exists()).toBe(false)
+    })
+
+    it('contains request details in the route drawer and restores focus on every close path', async () => {
+      vi.useFakeTimers()
+      stubFetch()
+      const wrapper = mountExchanges({attachTo: document.body})
+      await flushPromises()
+      const opener = wrapper.get('.http-routes-exchanges-link')
+
+      for (const close of ['button', 'escape', 'cancel', 'backdrop']) {
+        opener.element.focus()
+        await opener.trigger('click')
+        await vi.advanceTimersByTimeAsync(300)
+        await flushPromises()
+        const drawer = wrapper.get('dialog')
+        expect(document.activeElement).toBe(drawer.get('[aria-label="Close route exchanges"]').element)
+        expect(wrapper.findAll('.http-exchanges-table')).toHaveLength(1)
+        await drawer.get('.http-exchanges-detail-toggle').trigger('click')
+        expect(drawer.get('.http-exchanges-detail').text()).toContain('Request headers')
+        expect(drawer.get('.http-exchanges-detail').text()).toContain('Request id')
+        expect(drawer.get('.http-exchanges-profile-link').text()).toContain('Open request profile')
+        expect(drawer.findAll('.http-exchanges-copy-status[role="status"]')).toHaveLength(1)
+
+        if (close === 'button') await drawer.get('[aria-label="Close route exchanges"]').trigger('click')
+        if (close === 'escape') await drawer.trigger('keydown', {key: 'Escape'})
+        if (close === 'cancel') await drawer.trigger('cancel')
+        if (close === 'backdrop') {
+          await drawer.trigger('pointerdown')
+          await drawer.trigger('click')
+        }
+        await flushPromises()
+
+        expect(wrapper.find('dialog').exists()).toBe(false)
+        expect(document.activeElement).toBe(opener.element)
+        expect(wrapper.find('.http-exchanges-detail').exists()).toBe(false)
+      }
+    })
+
+    it('does not close when selecting text ends on the backdrop', async () => {
+      routeState.query = {route: 'GET /api/orders/{id}'}
+      stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      await wrapper.get('#http-route-drawer-route').trigger('pointerdown')
+      await wrapper.get('dialog').trigger('click')
+      expect(wrapper.find('dialog[open]').exists()).toBe(true)
+      expect(router.replace).not.toHaveBeenCalled()
+    })
+
+    it('updates a linked request filter without remounting the panel', async () => {
+      vi.useFakeTimers()
+      stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      routeState.query = {q: 'request-from-another-panel'}
+      await flushPromises()
+      expect(wrapper.get('#http-exchanges-filter').element.value).toBe('request-from-another-panel')
+      routeState.query = {}
+      await flushPromises()
+      expect(wrapper.get('#http-exchanges-filter').element.value).toBe('')
+    })
+
+    it('keeps request details and keyboard focus mounted during a background refresh', async () => {
+      routeState.query = {route: 'GET /api/orders/{id}'}
+      const fetchMock = stubFetch()
+      const wrapper = mountExchanges({attachTo: document.body})
+      await flushPromises()
+      await wrapper.get('.http-exchanges-detail-toggle').trigger('click')
+      const copyButton = wrapper.get('.http-exchanges-curl-copy').element
+      copyButton.focus()
+      let finish
+      const pending = new Promise((resolve) => {
+        finish = resolve
+      })
+      fetchMock.mockImplementation((url) =>
+        String(url).includes('/routes') ? Promise.resolve(jsonResponse(routesReport())) : pending
+      )
+
+      await wrapper.get('button[title="Refresh"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('.http-exchanges-curl-copy').element).toBe(copyButton)
+      expect(document.activeElement).toBe(copyButton)
+      expect(wrapper.get('dialog').text()).toContain('Filters run on the server.')
+
+      finish(jsonResponse(report()))
+      await flushPromises()
+      expect(wrapper.get('.http-exchanges-curl-copy').element).toBe(copyButton)
+      expect(document.activeElement).toBe(copyButton)
+    })
+
+    it('uses the route method without overwriting the inline method filter', async () => {
+      vi.useFakeTimers()
+      const fetchMock = stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      await wrapper.get('#http-exchanges-method').setValue('POST')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      await wrapper.get('.http-routes-exchanges-link').trigger('click')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(wrapper.find('dialog #http-exchanges-method').exists()).toBe(false)
+      expect(fetchMock).toHaveBeenCalledWith(
+        'api/http-exchanges?route=GET+%2Fapi%2Forders%2F%7Bid%7D&offset=0&limit=200',
+        expect.anything()
+      )
+      await wrapper.get('[aria-label="Close route exchanges"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('#http-exchanges-method').element.value).toBe('POST')
+    })
+
+    it('does not show exchanges from a previous query when the route read fails', async () => {
+      vi.useFakeTimers()
+      const fetchMock = stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      fetchMock.mockImplementation((url) =>
+        String(url).includes('/routes')
+          ? Promise.resolve(jsonResponse(routesReport()))
+          : Promise.reject(new Error('Route read failed'))
+      )
+      await wrapper.get('.http-routes-exchanges-link').trigger('click')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(wrapper.get('dialog [role="alert"]').text()).toContain('Route read failed')
+      expect(wrapper.find('dialog .http-exchanges-table').exists()).toBe(false)
+      expect(wrapper.get('dialog').text()).not.toContain('Filters run on the server.')
+
+      stubFetch()
+      await wrapper.get('dialog [role="alert"] button').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('dialog [role="alert"]').exists()).toBe(false)
+      expect(wrapper.find('dialog .http-exchanges-table').exists()).toBe(true)
+    })
+
+    it('explains unavailable recording inside a directly linked route drawer', async () => {
+      routeState.query = {route: 'GET /api/orders/{id}'}
+      stubFetch(routesReport(), report({exchanges: [], unavailableReason: 'Recording is disabled.'}))
+      const wrapper = mountExchanges()
+      await flushPromises()
+      expect(wrapper.get('dialog [role="alert"]').text()).toContain('Recording is disabled.')
+      expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
     })
 
     it('opens on the route and ranking a Live Activity link names, pinning its row', async () => {
@@ -613,6 +763,7 @@ describe('HTTP Exchanges', () => {
       )
 
       expect(wrapper.find('#http-routes-metric').element.value).toBe('maxDurationMs')
+      expect(wrapper.get('dialog').attributes('open')).toBeDefined()
       expect(wrapper.find('.http-routes-row-active').attributes('data-route-id')).toBe('GET /api/items/{value}')
       expect(wrapper.find('.http-routes-row-active').attributes('aria-current')).toBe('true')
       expect(fetchMock).toHaveBeenCalledWith(
