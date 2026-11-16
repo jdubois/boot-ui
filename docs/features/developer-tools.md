@@ -319,6 +319,11 @@ The panel shows repository metadata and an eight-card summary grid, each card op
   `bootui.github.max-security-alerts`. Code scanning and secret scanning stay count-only and never show secret values or
   code snippets.
 
+An unavailable alert signal has an unknown count, not zero, and makes the refresh **Partial** while retaining other
+successful sections. Malformed, blank, or non-array alert responses are unavailable; a valid empty array is a known
+zero. HTTP failures show only the status and section, never the response body. A 403 or 404 alone does not distinguish
+missing permission from a disabled feature. This behavior is the same on Spring MVC, WebFlux, and Quarkus.
+
 Credentials are read from the current device only and bound to the detected repository host. For github.com
 (including its SSH alias), BootUI checks `GITHUB_TOKEN`, then `GH_TOKEN`. For an allow-listed Enterprise host,
 `GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, are used only when `GH_HOST` explicitly names that same host.

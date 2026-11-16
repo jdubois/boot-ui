@@ -352,6 +352,11 @@ Acceptance criteria:
 - The quotas/rate-limits drawer is hidden by default and highlights resources at quota or with 10% or less remaining.
 - Private repositories, missing credentials, rate limits, denied quota endpoints, and unsupported GitHub Enterprise
   endpoints produce stable unavailable states instead of raw errors.
+- Malformed, blank, or non-array successful security-alert responses are `UNAVAILABLE` with a null count, never a
+  clean zero. Valid empty arrays remain `AVAILABLE` with count zero. Failed alert signals add warnings and make the
+  dashboard `PARTIAL`, retaining independent successful sections.
+- HTTP errors retain their status regardless of body format; decode failures use sanitized section errors without
+  exposing response text. A 403 or 404 alone does not establish whether an alert feature is disabled or unauthorized.
 - Tokens, authorization headers, response bodies, and subprocess stderr are never exposed to the browser.
 - A token for one repository host is never silently reused for another; CLI fallback ignores generic token
   environment variables and does not use the CLI's default host.

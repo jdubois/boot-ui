@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.core.dto.*;
@@ -203,6 +205,7 @@ public final class GitHubApiClient implements GitHubClient {
 
             addSecuritySignal(
                     securitySignals,
+                    warnings,
                     repository,
                     repoPath,
                     "Dependabot alerts",
@@ -212,6 +215,7 @@ public final class GitHubApiClient implements GitHubClient {
                     true);
             addSecuritySignal(
                     securitySignals,
+                    warnings,
                     repository,
                     repoPath,
                     "Code scanning alerts",
@@ -221,6 +225,7 @@ public final class GitHubApiClient implements GitHubClient {
                     false);
             addSecuritySignal(
                     securitySignals,
+                    warnings,
                     repository,
                     repoPath,
                     "Secret scanning alerts",
@@ -315,19 +320,27 @@ public final class GitHubApiClient implements GitHubClient {
         }
         HttpResponse<String> response = httpClient.send(
                 builder.build(), BoundedBodyReader.strictBodyHandler(BoundedBodyReader.GITHUB_MAX_BYTES));
-        JsonNode json = parseJson(response.body());
-        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            return new ApiResponse(
+                    response.statusCode(), null, response.headers(), safeMessage(label, response.statusCode()));
+        }
+        ApiResponse invalidResponse = new ApiResponse(
+                response.statusCode(), null, response.headers(), "GitHub returned invalid JSON for " + label + ".");
+        if (response.body() == null || response.body().isBlank()) {
+            return invalidResponse;
+        }
+        try {
+            JsonNode json = objectMapper
+                    .reader()
+                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readTree(response.body());
+            if (json == null || (!json.isObject() && !json.isArray())) {
+                return invalidResponse;
+            }
             return new ApiResponse(response.statusCode(), json, response.headers(), null);
+        } catch (JsonProcessingException ex) {
+            return invalidResponse;
         }
-        return new ApiResponse(
-                response.statusCode(), json, response.headers(), safeMessage(label, response.statusCode()));
-    }
-
-    private JsonNode parseJson(String body) throws IOException {
-        if (body == null || body.isBlank()) {
-            return objectMapper.readTree("{}");
-        }
-        return objectMapper.readTree(body);
     }
 
     private List<GitHubQuotaDto> rateLimitQuotas(JsonNode root) {
@@ -543,6 +556,7 @@ public final class GitHubApiClient implements GitHubClient {
 
     private void addSecuritySignal(
             List<GitHubSecuritySignalDto> signals,
+            List<String> warnings,
             GitHubRepositoryDetector.Repository repository,
             String repoPath,
             String label,
@@ -552,16 +566,19 @@ public final class GitHubApiClient implements GitHubClient {
             boolean includeAlerts)
             throws IOException, InterruptedException {
         ApiResponse response = get(repository, repoPath + "/" + relativePath, token, budget, label);
-        if (response.success()) {
-            boolean array = response.json().isArray();
+        if (response.success() && response.json().isArray()) {
             signals.add(new GitHubSecuritySignalDto(
                     label,
                     "AVAILABLE",
-                    array ? paginatedAlertCount(repository, relativePath, label, response, token, budget) : 0,
+                    paginatedAlertCount(repository, relativePath, label, response, token, budget),
                     null,
-                    includeAlerts && array ? dependabotAlerts(response.json()) : List.of()));
+                    includeAlerts ? dependabotAlerts(response.json()) : List.of()));
         } else {
-            signals.add(new GitHubSecuritySignalDto(label, "UNAVAILABLE", null, response.safeMessage()));
+            String reason = response.success()
+                    ? "GitHub returned an invalid alert response for " + label + "."
+                    : response.safeMessage();
+            signals.add(new GitHubSecuritySignalDto(label, "UNAVAILABLE", null, reason));
+            warnings.add(reason);
         }
     }
 
@@ -1100,7 +1117,7 @@ public final class GitHubApiClient implements GitHubClient {
         }
 
         private boolean success() {
-            return status >= 200 && status < 300;
+            return status >= 200 && status < 300 && safeMessage == null;
         }
     }
 
