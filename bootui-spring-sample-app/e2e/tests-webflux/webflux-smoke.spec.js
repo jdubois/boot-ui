@@ -4,10 +4,12 @@ import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
 import {registerThreadAnalysisTests} from '../scenarios/thread-analysis.js'
 import {registerActionPolicyTests} from '../scenarios/action-policy.js'
 import {registerButtonLinkTests} from '../scenarios/button-links.js'
+import {registerJvmSizingInputTests} from '../scenarios/jvm-sizing-inputs.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
 registerActionPolicyTests(test, expect)
 registerButtonLinkTests(test, expect)
+registerJvmSizingInputTests(test, expect)
 
 async function expandAllSidebarGroups(page) {
   const toggles = page.locator('aside .bootui-nav-group__toggle')

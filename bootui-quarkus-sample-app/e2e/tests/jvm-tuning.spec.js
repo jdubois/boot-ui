@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerJvmSizingInputTests} from '../../../bootui-spring-sample-app/e2e/scenarios/jvm-sizing-inputs.js'
+
+registerJvmSizingInputTests(test, expect)
 
 test.describe('JVM Tuning view (Quarkus)', () => {
   test('renders JVM options and Kubernetes calculator recommendations', async ({

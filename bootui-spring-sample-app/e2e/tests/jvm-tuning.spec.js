@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerJvmSizingInputTests} from '../scenarios/jvm-sizing-inputs.js'
+
+registerJvmSizingInputTests(test, expect)
 
 test.describe('JVM Tuning view', () => {
   test('renders JVM options and Kubernetes calculator recommendations', async ({
