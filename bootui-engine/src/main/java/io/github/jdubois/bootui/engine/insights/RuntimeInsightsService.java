@@ -118,6 +118,7 @@ public final class RuntimeInsightsService {
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
     private volatile Supplier<AppEventCapture> appEventCapture;
+    private volatile Supplier<CacheCapture> cacheCapture;
     private volatile List<String> unrecordedWork = List.of();
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
@@ -385,6 +386,15 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs the live cache-absence proof, separately from retained evidence, journal selection and panel visibility.
+     * Missing or discontinuous capture never establishes a proxy bypass.
+     */
+    public synchronized void setCacheCapture(Supplier<CacheCapture> cacheCapture) {
+        this.cacheCapture = cacheCapture;
+        this.cached = null;
+    }
+
+    /**
      * Installs what this application can run that the journal does not record ({@link UnrecordedWork}), which the
      * report names first among its limitations ({@code docs/PLAN-v2.md} M4-22).
      */
@@ -620,6 +630,7 @@ public final class RuntimeInsightsService {
                     new PanelVisibility(Map.of(), Map.of()),
                     SqlCapture.capturing(),
                     AppEventCapture.capturing(),
+                    CacheCapture.capturing(),
                     null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
@@ -635,6 +646,7 @@ public final class RuntimeInsightsService {
         PanelVisibility visibility = panelVisibility();
         SqlCapture capture = sqlCapture();
         AppEventCapture appEvents = appEventCapture();
+        CacheCapture caches = CacheCapture.read(cacheCapture);
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
         // And so is what Code Inventory reports, which the agent's hit flags change without any journal event.
@@ -646,13 +658,19 @@ public final class RuntimeInsightsService {
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
                 && cached.appEventCapture().equals(appEvents)
+                && cached.cacheCapture().equals(caches)
                 && cached.clears() == status.clears()
                 && cached.dropped().equals(status.dropped())
                 && text.equals(cached.exposure())
                 && cached.inventory() == inventory) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, appEvents, text)
+        List<JournalEntry> retained = journal.entries();
+        // Entries can be newer than status; their absence proof must remain stable while they are copied.
+        CacheCapture afterEntries = CacheCapture.read(cacheCapture);
+        CacheCapture stableCaches =
+                caches.equals(afterEntries) ? caches : CacheCapture.notRecorded(CacheCapture.CHANGED_DURING_READ);
+        cached = project(status, retained, watermark, evicted, visibility, capture, appEvents, stableCaches, text)
                 .withInventory(inventory);
         return cached;
     }
@@ -945,6 +963,7 @@ public final class RuntimeInsightsService {
             PanelVisibility visibility,
             SqlCapture capture,
             AppEventCapture appEvents,
+            CacheCapture caches,
             JournalTextExposure text) {
         RouteTemplateResolver resolver;
         try {
@@ -968,6 +987,7 @@ public final class RuntimeInsightsService {
                         previousRun(status.runId()),
                         poolSizes,
                         journal::evictedARequestOf)
+                .withCacheCapture(caches)
                 .withExposure(text);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
@@ -1130,6 +1150,7 @@ public final class RuntimeInsightsService {
                 visibility,
                 capture,
                 appEvents,
+                caches,
                 text,
                 report,
                 details,
@@ -1592,6 +1613,7 @@ public final class RuntimeInsightsService {
             PanelVisibility visibility,
             SqlCapture sqlCapture,
             AppEventCapture appEventCapture,
+            CacheCapture cacheCapture,
             JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
@@ -1606,6 +1628,7 @@ public final class RuntimeInsightsService {
                     visibility,
                     sqlCapture,
                     appEventCapture,
+                    cacheCapture,
                     exposure,
                     report,
                     details,

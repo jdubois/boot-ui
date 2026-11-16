@@ -97,6 +97,7 @@ public class RuntimeInsightsController {
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
         this.insights.setSqlCapture(new SpringSqlCapture(context));
+        this.insights.setCacheCapture(new SpringCacheCapture(context));
         // Without BootUI's event multicaster, as beside Spring Modulith's, no application event is recorded (M4-8).
         SpringAppEventCapture appEvents = new SpringAppEventCapture(context);
         this.insights.setAppEventCapture(appEvents);

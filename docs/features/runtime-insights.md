@@ -7,8 +7,9 @@
 what was counted on a route, never a cause, a severity, or a score.
 
 Opening the panel starts no capture, scan, database read, or network call. It re-reads what the journal already
-recorded and caches the result until the journal records more or the live exposure policy changes. Sentences and
-evidence that quote recorded text, such as a framework warning's message or a request path, follow the same rule as
+recorded and caches the result until the journal records more, a source's capture capability or panel visibility
+changes, or the live exposure policy changes. Sentences and evidence that quote recorded text, such as a framework
+warning's message or a request path, follow the same rule as
 [Live Activity](live-activity.md#safety-and-limits).
 
 The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
@@ -89,7 +90,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 | `repeated-selects`                      | The same SELECT run repeatedly in one request (N+1)                                       |
 | `connections-per-request`               | Requests holding two or more connections of one data source at once                       |
 | `safe-method-dml`                       | GET or HEAD requests that wrote                                                           |
-| `proxy-bypass`                          | Spring only: annotated methods whose proxy was bypassed                                   |
+| `proxy-bypass`                          | Spring only: annotated methods missing a proxy effect whose capture is available           |
 | `anonymous-data-reach`                  | Anonymous successful requests that wrote a table                                          |
 | `anonymous-success-on-restricted-route` | 2xx answers to anonymous requests on a restricted route                                   |
 | `split-transaction-writes`              | Requests whose writes committed in two or more transactions                               |
@@ -132,6 +133,29 @@ changed-method evidence. The table says what each counts; the drawers below hold
 
 ::: details Observation details: database, transactions, and ORM
 
+- `proxy-bypass`: Spring MVC and WebFlux only. Executed JDBC statements whose application frames name a
+  `@Transactional`, `@Cacheable`, or `@Async` method are checked against the recorded transaction, preceding cache
+  accesses, or request thread. A missing cache access counts only for a proven synchronous manager path under standard
+  Spring proxy caching, with the journal's `cache` source and Cache panel enabled. The request must start after that
+  manager's current continuous-capture window began: initial instrumentation, recorder-to-journal or correlation
+  rebinding, and low-footprint resume establish new windows. Earlier or overlapping requests stay unassessed, even
+  after capture resumes; changing capability invalidates cached reports and details without reclassifying old gaps as
+  bypasses. Capture proof is checked on both sides of reading retained entries; a transition withholds absence
+  inference for that read rather than applying stale proof to newer requests.
+  - An explicitly selected manager must be BootUI's own recording decorator. The default must be unambiguous. Custom
+    cache resolvers (including those with no static cache names), `CachingConfigurer` or ancestor-context paths,
+    unwrapped or ambiguous managers, absent proxy caching or AspectJ, asynchronous/reactive retrieval, conditional and
+    `sync = true` cacheable methods do not establish cache absence. Reactive return types follow Spring's adapter
+    metadata without conversion or subscription. BootUI reads only existing singleton and declaration metadata,
+    including safe class-name and generic-factory product declarations; unresolved declarations stay unknown. It never
+    initializes a lazy recorder or invokes an application resolver/configurer or factory callback to prove capture.
+    This does not add asynchronous cache capture or change retrieval behavior.
+  - If observing a cache access fails, such as a key representation that throws, that manager's absence proof is
+    invalidated without disrupting the cache operation. The check gives a generic reason, never a raw key or exception
+    message. A later installation, rebind, or resume can start a new window; the gap stays unassessed.
+  - These limits qualify only cache absence. Retained cache hits/misses, route comparisons, and prior dropped-event
+    qualifications remain readable while capture is disabled or paused. Transaction and async boundaries remain
+    independently eligible. Quarkus is not applicable because ArC preserves interceptors on self-invocation.
 - `repeated-selects`: the same SELECT run five or more times in a request after another statement, from three requests. Exact JDBC row counts are retained when available, but SQL rows do not establish how many entities or response items a query produced. With the [BootUI agent](java-agent.md)'s `code-paths` sensor, it names the application method that issued the repeats, such as a service method looping over a repository. For a repository or DAO class of the application's own, which the sensor instruments, it names the first method above it that is not one, through the repository method ([Code Paths](java-agent.md#code-paths)).
 - `connections-per-request`: requests that held two or more connections of one data source at the same time, with the known pool maximum and a hold-and-wait concurrency estimate: floor((pool − 1) ÷ (held − 1)) + 1. The estimate assumes nested hold-and-wait checkouts rather than parallel independent work; other pool users can exhaust the pool at lower concurrency. Neither overlapping connections nor the estimate proves a deadlock.
 - `safe-method-dml`: GET or HEAD requests with executed writes, or on Quarkus with unverified Hibernate write preparations. These are separate findings, worded as questions rather than proof that a prepared statement ran.

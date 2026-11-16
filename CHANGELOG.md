@@ -20,6 +20,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **GitHub response integrity** keeps malformed alert responses unavailable rather than reporting zero, marks failed
   alert signals partial, and preserves HTTP status without exposing response bodies
   ([GitHub](docs/features/developer-tools.md#github)).
+- **Cache proxy-bypass accuracy** no longer treats disabled or unavailable cache capture as a bypass on Spring MVC and WebFlux
+  ([Runtime Insights](docs/features/runtime-insights.md)).
 
 ## [2.5.0] - 2026-11-14
 

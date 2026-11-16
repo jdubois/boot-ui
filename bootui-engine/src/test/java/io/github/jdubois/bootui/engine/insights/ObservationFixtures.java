@@ -447,7 +447,10 @@ final class ObservationFixtures {
             .getOrDefault(frame, ProxyBoundaries.Boundary.NONE);
 
     private static void proxyBypass(List<Fixture> fixtures) {
-        Consumer<RuntimeInsightsService> boundaries = service -> service.setProxyBoundaries(BOUNDARIES);
+        Consumer<RuntimeInsightsService> boundaries = service -> {
+            service.setProxyBoundaries(BOUNDARIES);
+            service.setCacheCapture(CacheCapture::capturing);
+        };
         fixtures.add(positive(ProxyBypass.KIND, "the sample's self-invoked @Transactional recalculation")
                 .setup(boundaries)
                 .seed(recording -> recording

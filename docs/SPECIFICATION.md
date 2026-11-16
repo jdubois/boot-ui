@@ -1988,8 +1988,16 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   (`EVALUATED`, `INSUFFICIENT` when no work was eligible, `PARTIAL`, `NOT_APPLICABLE` with its reason, or
   `UNAVAILABLE` with its reason when it reads SQL that
   this application's stack does not record, such as R2DBC), the observations, and limitations. The projection is
-  cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
-  not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
+  cached until the journal records more, a cache-absence capability/window changes, or a panel's enablement changes.
+  Cache absence can establish a Spring proxy bypass only for a proven standard synchronous manager path and a request
+  starting after its current continuous-capture window began. Installation, journal/correlation rebinding and
+  suspend/resume never retroactively prove earlier requests. Proof must remain stable around the retained-entry read;
+  concurrent transitions and failed cache observations withhold absence inference. Unsupported or inherited routing,
+  reactive retrieval, unresolved declarations and lazy or ambiguous capture remain unassessed, without application or
+  factory callbacks. This qualifies only proxy-bypass absence inference: retained cache events,
+  route comparisons, dropped-event qualifications and independent transaction/async evaluation remain unchanged.
+  Eligibility follows the observation's unit, not just its request count: a heap-growth check that examined collections
+  is evaluated even with zero requests,
   whether it observed growth or a stable heap.
   Each kind's external validation (recorded once in the engine's `ExternalValidation`)
   decides whether its rows enter the agents' default selection, and is never exposed: no check, row, limitation, MCP

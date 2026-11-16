@@ -76,6 +76,8 @@ public final class ProxyBypass implements Observation {
         boolean caches = snapshot.available(JournalSource.CACHE);
         Map<String, ProxyBoundaries.Boundary> resolved = new HashMap<>();
         List<Finding> findings = new ArrayList<>();
+        Set<String> cacheUnassessed = new LinkedHashSet<>();
+        Set<String> cacheReasons = new LinkedHashSet<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
@@ -101,7 +103,7 @@ public final class ProxyBypass implements Observation {
                         if (boundary == null || !boundary.any()) {
                             continue;
                         }
-                        ranAnnotated = true;
+                        boolean frameAssessed = boundary.transactional() && transactions || boundary.async();
                         String caller = i + 1 < frames.size() ? frames.get(i + 1) : null;
                         String method = method(frame);
                         if (boundary.transactional()
@@ -110,22 +112,38 @@ public final class ProxyBypass implements Observation {
                                 && windows.innermost(child) == null) {
                             record(bypasses, method, "@Transactional", caller, request);
                         }
-                        if (!boundary.cacheNames().isEmpty()
+                        if (caches && boundary.cacheUnobservable() != null) {
+                            cacheUnassessed.add(request.requestId());
+                            cacheReasons.add(boundary.cacheUnobservable());
+                        } else if (!boundary.cacheNames().isEmpty()
                                 && caches
                                 && boundary.cacheNames().stream().noneMatch(cachesSeen::contains)) {
-                            record(
-                                    bypasses,
-                                    method,
-                                    "@Cacheable(" + String.join(", ", boundary.cacheNames()) + ")",
-                                    caller,
-                                    request);
+                            String unavailable =
+                                    snapshot.cacheCapture().unavailable(boundary.cacheManager(), request.startMillis());
+                            if (unavailable == null) {
+                                frameAssessed = true;
+                                record(
+                                        bypasses,
+                                        method,
+                                        "@Cacheable(" + String.join(", ", boundary.cacheNames()) + ")",
+                                        caller,
+                                        request);
+                            } else {
+                                cacheUnassessed.add(request.requestId());
+                                cacheReasons.add(unavailable);
+                            }
+                        } else if (!boundary.cacheNames().isEmpty() && caches) {
+                            frameAssessed = true;
                         }
                         if (boundary.async()
                                 && request.thread() != null
                                 && Objects.equals(request.thread(), child.thread())) {
                             record(bypasses, method, "@Async", caller, request);
                         }
-                        break;
+                        ranAnnotated |= frameAssessed;
+                        if (frameAssessed) {
+                            break;
+                        }
                     }
                 }
                 if (ranAnnotated) {
@@ -136,7 +154,17 @@ public final class ProxyBypass implements Observation {
             long routeEligible = annotated;
             bypasses.values().forEach(bypass -> findings.add(bypass.finding(route.getKey(), routeEligible)));
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                cacheUnassessed.isEmpty()
+                        ? null
+                        : cacheUnassessed.size()
+                                + (cacheUnassessed.size() == 1
+                                        ? " request or execution could"
+                                        : " requests or executions could")
+                                + " not be assessed for cache proxy bypass. "
+                                + String.join(" ", cacheReasons));
     }
 
     private static ProxyBoundaries.Boundary resolve(ProxyBoundaries resolver, String frame) {
@@ -216,6 +244,8 @@ public final class ProxyBypass implements Observation {
                                     + " boundaries are not judged.",
                             "Cacheable methods with sync = true or a condition are not judged: a synchronous miss"
                                     + " is recorded after its loader runs, and a condition can skip the cache.",
+                            "Missing cache accesses count only for a proven synchronous cache-manager path and a"
+                                    + " request inside its current continuous-capture window.",
                             "Only the four innermost application frames of each statement are read, and a transaction"
                                     + " counts only when the transaction source records its boundary."));
         }

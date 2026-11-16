@@ -21,13 +21,17 @@ import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class RouteLatencyOutliersTests {
 
+    private final AtomicBoolean dropNext = new AtomicBoolean();
     private final RuntimeJournal journal = SynchronousJournals.create(
-            new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()), i -> false);
+            new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()),
+            i -> dropNext.getAndSet(false));
 
     @AfterEach
     void close() {
@@ -128,6 +132,48 @@ class RouteLatencyOutliersTests {
                 .extracting(RuntimeObservationRowDto::cells)
                 .anySatisfy(cells -> assertThat(cells)
                         .contains("Distinguishing SQL", "select * from catalog_reviews where catalog_id = ?"));
+        service.setCacheCapture(() -> CacheCapture.notRecorded(CacheCapture.PAUSED));
+        assertThat(service.report().observations()).contains(observed);
+        assertThat(service.insight(observed.id()).rows()).isEqualTo(detail.rows());
+        assertThat(service.report().checks())
+                .filteredOn(check -> check.kind().equals(RouteLatencyOutliers.KIND))
+                .singleElement()
+                .satisfies(check -> assertThat(String.valueOf(check.reason())).doesNotContain(CacheCapture.PAUSED));
+    }
+
+    @Test
+    void pausedCapturePreservesRetainedCacheComparisonsAndPriorCacheDropPartialStatus() {
+        dropNext.set(true);
+        offerChild("lost", JournalSource.CACHE, 500, -1, new CachePayload("catalog", "HIT"));
+        offerHttp("cold", 1_000, 10_000_000, 200);
+        for (int i = 0; i < 5; i++) {
+            offerChild("warm" + i, JournalSource.CACHE, 2_001 + i * 100, -1, new CachePayload("catalog", "HIT"));
+            offerHttp("warm" + i, 2_000 + i * 100, 10_000_000, 200);
+        }
+        offerChild("slow", JournalSource.CACHE, 3_001, -1, new CachePayload("catalog", "MISS"));
+        offerHttp("slow", 3_000, 240_000_000, 200);
+        SynchronousJournals.dispatch(journal);
+        AtomicReference<CacheCapture> capture = new AtomicReference<>(CacheCapture.capturing());
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        service.setCacheCapture(capture::get);
+        RuntimeObservationDto before = service.report().observations().stream()
+                .filter(row -> row.kind().equals(RouteLatencyOutliers.KIND))
+                .findFirst()
+                .orElseThrow();
+        assertThat(before.status()).isEqualTo("PARTIAL");
+        assertThat(before.sentence()).contains("cache miss");
+        List<RuntimeObservationRowDto> rows = service.insight(before.id()).rows();
+        capture.set(CacheCapture.notRecorded(CacheCapture.PAUSED));
+        assertThat(service.report().observations()).contains(before);
+        assertThat(service.insight(before.id()).rows()).isEqualTo(rows);
+        assertThat(service.report().checks())
+                .filteredOn(check -> check.kind().equals(RouteLatencyOutliers.KIND))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.status()).isEqualTo("PARTIAL");
+                    assertThat(check.reason()).contains("dropped 1 events").doesNotContain(CacheCapture.PAUSED);
+                });
     }
 
     private void offerHttp(String requestId, long start, long durationNanos, int status) {

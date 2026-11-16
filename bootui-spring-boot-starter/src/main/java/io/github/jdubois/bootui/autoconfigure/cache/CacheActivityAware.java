@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.cache;
 
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 
@@ -16,6 +17,11 @@ public interface CacheActivityAware {
     /** Unwraps only BootUI's final native decorator, never a custom delegate callback. */
     static CacheManager unwrap(CacheManager manager) {
         return manager instanceof CacheActivityCacheManager activity ? activity.getTargetCacheManager() : manager;
+    }
+
+    /** The native decorator's recorder binding, without calling a custom marker or manager. */
+    static String capturedManagerName(CacheManager manager, CacheActivityRecorder recorder) {
+        return manager instanceof CacheActivityCacheManager activity ? activity.capturedManagerName(recorder) : null;
     }
 
     /**
