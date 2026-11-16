@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Host-bound GitHub credentials** prevent public or other Enterprise tokens from authenticating a different host
+  ([GitHub](docs/features/developer-tools.md#github)).
+
 ## [2.5.0] - 2026-11-14
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.

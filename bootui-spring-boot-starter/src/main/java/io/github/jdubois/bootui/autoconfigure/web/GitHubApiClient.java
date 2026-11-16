@@ -76,7 +76,7 @@ final class GitHubApiClient implements GitHubClient {
                     List.of());
         }
 
-        GitHubTokenProvider.Token token = tokenProvider.token(properties.getRequestTimeout());
+        GitHubTokenProvider.Token token = tokenProvider.token(repository.host(), properties.getRequestTimeout());
         RequestBudget budget = new RequestBudget(Math.max(1, properties.getMaxApiCalls()));
         List<String> warnings = new ArrayList<>();
         List<GitHubQuotaDto> quotas = new ArrayList<>();

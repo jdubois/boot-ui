@@ -36,7 +36,7 @@ public final class GitHubRepositoryDetector {
                 remote.owner() + "/" + remote.name(),
                 remote.host(),
                 apiBaseUri,
-                "https://" + htmlHost(remote.host()) + "/" + remote.owner() + "/" + remote.name(),
+                "https://" + credentialHost(remote.host()) + "/" + remote.owner() + "/" + remote.name(),
                 localBranch,
                 upstreamBranch));
     }
@@ -247,8 +247,8 @@ public final class GitHubRepositoryDetector {
         return URI.create("https://" + normalized + "/api/v3/");
     }
 
-    private static String htmlHost(String host) {
-        String normalized = normalizeHost(host);
+    static String credentialHost(String host) {
+        String normalized = host == null ? "" : normalizeHost(host.trim());
         return "ssh.github.com".equals(normalized) ? "github.com" : normalized;
     }
 

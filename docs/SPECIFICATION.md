@@ -331,7 +331,9 @@ Data sources:
 
 - Local `.git` metadata for repository detection and branch/upstream information.
 - GitHub REST API during the panel's one-minute auto-refresh/manual refresh cycle.
-- Local credentials from `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`, never persisted or returned to the browser.
+- Host-bound local credentials: `GITHUB_TOKEN` / `GH_TOKEN` for github.com, Enterprise token variables only with a
+  matching `GH_HOST`, or the host's stored `gh auth token --hostname <host>` login, never persisted or returned to
+  the browser.
 
 Features:
 
@@ -351,6 +353,8 @@ Acceptance criteria:
 - Private repositories, missing credentials, rate limits, denied quota endpoints, and unsupported GitHub Enterprise
   endpoints produce stable unavailable states instead of raw errors.
 - Tokens, authorization headers, response bodies, and subprocess stderr are never exposed to the browser.
+- A token for one repository host is never silently reused for another; CLI fallback ignores generic token
+  environment variables and does not use the CLI's default host.
 
 ### 5.2 Beans Explorer
 

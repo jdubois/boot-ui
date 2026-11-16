@@ -319,9 +319,17 @@ The panel shows repository metadata and an eight-card summary grid, each card op
   `bootui.github.max-security-alerts`. Code scanning and secret scanning stay count-only and never show secret values or
   code snippets.
 
-Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, or an existing `gh auth token` login.
-The token is never sent to the browser, persisted by BootUI, or included in warnings. Without a token, public
-repositories use GitHub's unauthenticated rate limits.
+Credentials are read from the current device only and bound to the detected repository host. For github.com
+(including its SSH alias), BootUI checks `GITHUB_TOKEN`, then `GH_TOKEN`. For an allow-listed Enterprise host,
+`GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, are used only when `GH_HOST` explicitly names that same host.
+Otherwise BootUI uses the host's stored CLI login through `gh auth token --hostname <host>`, with token environment
+variables removed from that subprocess so they cannot override its host-specific login. Generic tokens and another
+host's credentials are never reused for Enterprise. Host matching is case-insensitive; Git transport ports are not
+part of the detected host.
+
+The token is never sent to the browser, persisted by BootUI, or included in warnings. Missing credentials remain
+unauthenticated; public repositories use GitHub's unauthenticated rate limits. Custom legacy token providers remain
+usable for github.com, but must implement host-aware lookup to authenticate an Enterprise repository.
 
 ::: details Refresh bounds and Quarkus
 

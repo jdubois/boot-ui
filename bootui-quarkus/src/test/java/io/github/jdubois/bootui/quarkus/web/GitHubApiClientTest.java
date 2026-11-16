@@ -13,8 +13,11 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Ground-truth parity check that the Quarkus Jackson 2 ({@code com.fasterxml.jackson.*})
@@ -266,22 +269,84 @@ class GitHubApiClientTest {
                 .allSatisfy(signal -> assertThat(signal.alerts()).isEmpty());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"github.com", "ghe-one.example", "ghe-two.example"})
+    void refreshResolvesCredentialsForTheRepositoryHostWithoutExposingThem(String host) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        AtomicReference<String> authorization = new AtomicReference<>();
+        server.createContext("/rate_limit", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] body = """
+                    {"resources":{"core":{"limit":60,"remaining":1}}}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        GitHubTokenProvider provider = new GitHubTokenProvider() {
+            @Override
+            public Token token(Duration timeout) {
+                throw new AssertionError("Hostless lookup must not be used");
+            }
+
+            @Override
+            public Token token(String repositoryHost, Duration timeout) {
+                assertThat(repositoryHost).isEqualTo(host);
+                assertThat(timeout).isEqualTo(Duration.ofSeconds(2));
+                return new Token("fixture-token-for-" + repositoryHost, "host-specific fixture");
+            }
+        };
+
+        GitHubDashboardReport report = clientWithProvider(provider).refresh(repository(host));
+
+        assertThat(authorization.get()).isEqualTo("Bearer fixture-token-for-" + host);
+        assertThat(report.credential().authenticated()).isTrue();
+        assertThat(report.credential().source()).isEqualTo("host-specific fixture");
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("fixture-token-for-");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ghe-one.example", "ghe-two.example"})
+    void legacyCredentialIsNeverSentToEnterprise(String host) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        AtomicReference<String> authorization = new AtomicReference<>("not requested");
+        server.createContext("/rate_limit", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.sendResponseHeaders(401, -1);
+            exchange.close();
+        });
+        server.start();
+
+        GitHubDashboardReport report = client("public-only-token").refresh(repository(host));
+
+        assertThat(authorization.get()).isNull();
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.credential().authenticated()).isFalse();
+        assertThat(report.credential().source()).isEqualTo("unauthenticated");
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("public-only-token");
+    }
+
     private GitHubApiClient client(String token) {
+        return clientWithProvider(timeout -> token == null ? null : new GitHubTokenProvider.Token(token, "test-token"));
+    }
+
+    private GitHubApiClient clientWithProvider(GitHubTokenProvider provider) {
         QuarkusGitHubSettings settings =
                 new QuarkusGitHubSettings(Duration.ofSeconds(2), 10, 25, 20, 10, 17, 50, List.of("localhost"));
-        return new GitHubApiClient(
-                settings,
-                HttpClient.newHttpClient(),
-                new ObjectMapper(),
-                timeout -> token == null ? null : new GitHubTokenProvider.Token(token, "test-token"));
+        return new GitHubApiClient(settings, HttpClient.newHttpClient(), new ObjectMapper(), provider);
     }
 
     private GitHubRepositoryDetector.Repository repository() {
+        return repository("github.com");
+    }
+
+    private GitHubRepositoryDetector.Repository repository(String host) {
         return new GitHubRepositoryDetector.Repository(
                 "jdubois",
                 "boot-ui",
                 "jdubois/boot-ui",
-                "github.com",
+                host,
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/"),
                 "https://github.com/jdubois/boot-ui",
                 "main",
