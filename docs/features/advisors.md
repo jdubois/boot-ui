@@ -624,6 +624,10 @@ declare no supported static security analyzer. It never runs those tools, assess
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the configuration. The same
 panel and `/bootui/api/security` contract support all three stacks.
 
+Missing and weak script CSP policies use the same LOW review baseline across Security and Pentesting. Adding a partial
+restriction does not incur a higher script-policy penalty than omitting it in the same browser/authentication scope;
+these passive observations do not prove an exploitable injection. Unknown policy composition stays incomplete.
+
 ### Spring Boot (Spring Security)
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)

@@ -340,8 +340,9 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-HEAD-009 - Review permissive CSP script execution
 
-- **Severity**: MEDIUM
-- **Detects**: A supported single enforcing CSP permits unsafe effective script execution. The bounded parser observes `script-src-elem`/`script-src-attr` fallback, first duplicate directives, nonce/hash/`strict-dynamic` exceptions, and `unsafe-eval` under `script-src`/`default-src`. Arbitrary schemes/hosts differ from scoped wildcards. Missing unrelated hardening directives do not add penalties; framing is assessed separately by SEC-HEAD-002. Null, oversized, unsupported, comma-separated, or multiple enforcing policies remain unknown. Report-only policies do not change enforcing-policy conclusions.
+- **Severity**: LOW
+- **Detects**: A supported single enforcing CSP permits unsafe effective script execution or omits every script-element restriction (`script-src-elem`, `script-src`, and `default-src`), unless a script-blocking `sandbox` applies. The bounded parser observes `script-src-elem`/`script-src-attr` fallback, first duplicate directives, nonce/hash/`strict-dynamic` exceptions, and `unsafe-eval` under `script-src`/`default-src`. Arbitrary schemes/hosts differ from scoped wildcards. Missing unrelated hardening directives do not add penalties; framing is assessed separately by SEC-HEAD-002. Null, oversized, unsupported, comma-separated, or multiple enforcing policies remain unknown. Report-only policies do not change enforcing-policy conclusions.
+- **Calibration**: LOW matches missing CSP (SEC-HEAD-003); an imperfect script restriction is not worse than no restriction in the same browser/authentication scope. Configured-policy inspection does not prove an exploitable injection.
 - **Recommendation**: Restrict script execution with application-specific nonce/hash or trusted sources and remove unnecessary eval permissions.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp>
 
@@ -727,8 +728,9 @@ incomplete rather than becoming a scalar last-writer policy or a guessed union.
 
 ### SEC-RXF-HEAD-007 - Review permissive CSP script execution in reactive chains
 
-- **Severity**: MEDIUM
-- **Detects**: A supported single enforcing `Content-Security-Policy` on a reactive chain permits `'unsafe-inline'`, `'unsafe-eval'`, or an unrestricted script source (`*` or scheme-only source) after accounting for `script-src`/`default-src` fallback, `script-src-elem`/`script-src-attr`, first-duplicate-directive precedence, nonce/hash overrides, `'strict-dynamic'`, and `sandbox` without `allow-scripts` via `CspPolicy.analyze`. Report-only policies do not establish enforcement; framing is reviewed separately by `SEC-RXF-HEAD-002`.
+- **Severity**: LOW
+- **Detects**: A supported single enforcing `Content-Security-Policy` on a reactive chain permits `'unsafe-inline'`, `'unsafe-eval'`, an unrestricted script source (`*` or scheme-only source), or has no effective script-element directive after accounting for `script-src`/`default-src` fallback, `script-src-elem`/`script-src-attr`, first-duplicate-directive precedence, nonce/hash overrides, `'strict-dynamic'`, and `sandbox` without `allow-scripts` via `CspPolicy.analyze`. Report-only policies do not establish enforcement; framing is reviewed separately by `SEC-RXF-HEAD-002`. Unsupported or multiple enforcing policies stay unknown, not clean.
+- **Calibration**: LOW matches missing CSP (SEC-RXF-HEAD-004); an imperfect script restriction must not cost more than no restriction in the same browser/authentication scope.
 - **Recommendation**: Restrict script execution with application-specific nonces/hashes or explicit trusted origins and remove unnecessary `'unsafe-eval'` permissions.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp>
 

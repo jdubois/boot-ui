@@ -571,7 +571,7 @@ final class ReactiveWeakContentSecurityPolicyRule extends AbstractReactiveSecuri
                 "SEC-RXF-HEAD-007",
                 "Review permissive CSP script execution in reactive chains",
                 ReactiveSecurityCategory.HEADERS,
-                "MEDIUM",
+                "LOW",
                 "Inspects a supported single enforcing policy's effective script directives, including nonce/hash and strict-dynamic semantics. Framing is assessed separately.",
                 "Restrict script execution with application-specific nonce/hash or trusted sources and remove unnecessary eval permissions.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp"));

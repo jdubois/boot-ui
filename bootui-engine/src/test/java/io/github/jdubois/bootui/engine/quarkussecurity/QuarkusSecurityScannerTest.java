@@ -910,7 +910,7 @@ class QuarkusSecurityScannerTest {
         s.csp = true;
         s.cspValue = "default-src 'self'; script-src 'unsafe-inline'";
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-002").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-HDR-002").severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -1792,6 +1792,50 @@ class QuarkusSecurityScannerTest {
             Snap s = new Snap();
             s.cspValue = policy;
             assertThat(find(scan(s), "QS-HDR-002")).as(policy).isNull();
+        }
+    }
+
+    @Test
+    void missingWeakAndStrongCspUseTheSameDocumentEvidenceAndLowBaseline() {
+        Snap s = new Snap();
+        s.basic = false;
+        s.form = true;
+        s.evidence = new QuarkusSecurityEvidence(
+                Set.of(),
+                List.of(),
+                List.of(),
+                List.of(new QuarkusSecurityEndpoint("/page", "GET", QuarkusSecurityEndpoint.Access.RESTRICTED, true)),
+                true);
+        s.csp = false;
+        s.cspValue = null;
+        assertThat(find(scan(s), "QS-HDR-004").severity()).isEqualTo("LOW");
+        for (String policy : List.of(
+                "script-src 'unsafe-inline'",
+                "script-src 'unsafe-eval'",
+                "script-src *",
+                "script-src https:",
+                "frame-ancestors 'self'")) {
+            s.csp = true;
+            s.cspValue = policy;
+            assertThat(scan(s).results())
+                    .filteredOn(result -> List.of("QS-HDR-002", "QS-HDR-004").contains(result.id()))
+                    .as(policy)
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.id()).isEqualTo("QS-HDR-002");
+                        assertThat(result.severity()).isEqualTo("LOW");
+                    });
+        }
+        for (String policy : List.of(
+                "script-src 'self'",
+                "script-src 'unsafe-inline' 'nonce-YWJjZA=='",
+                "script-src 'unsafe-inline' 'sha256-YWJjZA=='",
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' https: 'unsafe-inline'")) {
+            s.cspValue = policy;
+            assertThat(scan(s).results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .as(policy)
+                    .doesNotContain("QS-HDR-002", "QS-HDR-004");
         }
     }
 

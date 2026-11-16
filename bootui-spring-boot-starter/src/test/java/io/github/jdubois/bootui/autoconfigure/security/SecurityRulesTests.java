@@ -1681,7 +1681,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.severity()).isEqualTo("LOW");
     }
 
     @Test

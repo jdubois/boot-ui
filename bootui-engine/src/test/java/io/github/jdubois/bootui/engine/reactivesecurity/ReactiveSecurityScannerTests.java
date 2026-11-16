@@ -1689,7 +1689,7 @@ class ReactiveSecurityScannerTests {
                 .filteredOn(result -> result.id().equals("SEC-RXF-HEAD-007"))
                 .singleElement()
                 .satisfies(result -> {
-                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.severity()).isEqualTo("LOW");
                     assertThat(result.sampleViolations())
                             .singleElement()
                             .asString()
@@ -1723,6 +1723,106 @@ class ReactiveSecurityScannerTests {
         assertThat(scan(nonceBacked, List.of(), false).results())
                 .extracting(SecurityRuleResultDto::id)
                 .doesNotContain("SEC-RXF-HEAD-007");
+    }
+
+    @Test
+    void missingWeakAndStrongCspUseTheSameBrowserLoginScopeAndLowBaseline() {
+        SecurityReport missing = scan(cspBrowserChain(List.of()), List.of(), false);
+        assertThat(missing.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-HEAD-004"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("LOW"));
+        for (String policy : List.of(
+                "script-src 'unsafe-inline'",
+                "script-src 'unsafe-eval'",
+                "script-src *",
+                "script-src https:",
+                "frame-ancestors 'self'")) {
+            SecurityReport weak = scan(
+                    cspBrowserChain(List.of(new WebFilterChainObservation.CspObservation(policy, false))),
+                    List.of(),
+                    false);
+            assertThat(weak.results())
+                    .filteredOn(result ->
+                            List.of("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007").contains(result.id()))
+                    .as(policy)
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.id()).isEqualTo("SEC-RXF-HEAD-007");
+                        assertThat(result.severity()).isEqualTo("LOW");
+                    });
+        }
+        for (String policy : List.of(
+                "script-src 'self'",
+                "script-src 'unsafe-inline' 'nonce-YWJjZA=='",
+                "script-src 'unsafe-inline' 'sha256-YWJjZA=='",
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' https: 'unsafe-inline'")) {
+            SecurityReport strong = scan(
+                    cspBrowserChain(List.of(new WebFilterChainObservation.CspObservation(policy, false))),
+                    List.of(),
+                    false);
+            assertThat(strong.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .as(policy)
+                    .doesNotContain("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007");
+        }
+    }
+
+    @Test
+    void cspReportOnlyDoesNotReplaceEnforcementAndMultipleEnforcingPoliciesStayUnknown() {
+        var monitoring = new WebFilterChainObservation.CspObservation("script-src 'unsafe-inline'", true);
+        SecurityReport reportOnly = scan(cspBrowserChain(List.of(monitoring)), List.of(), false);
+        assertThat(reportOnly.results())
+                .filteredOn(result ->
+                        List.of("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007").contains(result.id()))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.id()).isEqualTo("SEC-RXF-HEAD-004");
+                    assertThat(result.severity()).isEqualTo("LOW");
+                });
+        var strong = new WebFilterChainObservation.CspObservation("script-src 'self'", false);
+        for (var policies : List.of(List.of(strong, monitoring), List.of(monitoring, strong))) {
+            assertThat(scan(cspBrowserChain(policies), List.of(), false).results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007");
+        }
+        var weak = new WebFilterChainObservation.CspObservation("script-src *", false);
+        for (var policies : List.of(
+                List.of(strong, weak),
+                List.of(weak, strong),
+                List.of(new WebFilterChainObservation.CspObservation("script-src *, script-src 'self'", false)))) {
+            var chain = cspBrowserChain(policies);
+            assertThat(chain.weakCspObservation()).isNull();
+            SecurityReport report = scan(chain, List.of(), false);
+            assertThat(report.scan().status()).isEqualTo("PARTIAL");
+            assertThat(report.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007");
+        }
+    }
+
+    private static WebFilterChainObservation cspBrowserChain(List<WebFilterChainObservation.CspObservation> policies) {
+        return new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthenticationWebFilter", "AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                false,
+                false,
+                policies.isEmpty()
+                        ? List.of("XFrameOptionsServerHttpHeadersWriter")
+                        : List.of(
+                                "XFrameOptionsServerHttpHeadersWriter", "ContentSecurityPolicyServerHttpHeadersWriter"),
+                null,
+                null,
+                null,
+                null,
+                true,
+                true,
+                false,
+                true,
+                true,
+                policies,
+                false);
     }
 
     @Test

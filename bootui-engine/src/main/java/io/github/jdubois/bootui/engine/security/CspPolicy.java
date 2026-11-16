@@ -76,13 +76,17 @@ public final class CspPolicy {
         List<String> ancestors = directives.get("frame-ancestors");
         boolean scriptsBlocked =
                 directives.containsKey("sandbox") && !contains(directives.get("sandbox"), "allow-scripts");
+        boolean scriptElementsUnrestricted = !directives.containsKey("script-src-elem")
+                && !directives.containsKey("script-src")
+                && !directives.containsKey("default-src");
         return new Analysis(
                 true,
                 !scriptsBlocked && (allowsInline(elements) || allowsInline(attributes)),
                 !scriptsBlocked && contains(scripts, "'unsafe-eval'"),
                 !scriptsBlocked
-                        && !contains(elements, "'strict-dynamic'")
-                        && elements.stream().anyMatch(CspPolicy::arbitrarySource),
+                        && (scriptElementsUnrestricted
+                                || !contains(elements, "'strict-dynamic'")
+                                        && elements.stream().anyMatch(CspPolicy::arbitrarySource)),
                 restrictiveAncestors(ancestors),
                 ancestors != null);
     }

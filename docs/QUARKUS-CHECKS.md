@@ -395,13 +395,15 @@ Dismissed rules remove all of their findings from the score.
 
 ### QS-HDR-002 - Weak Content-Security-Policy
 
-- **Severity**: MEDIUM
+- **Severity**: LOW
 - **Detects**: One supported global enforcing CSP permits unsafe inline scripts, unsafe evaluation, or an unrestricted
-  script source. The bounded parser observes `script-src`/`default-src` fallback, `script-src-elem` and
+  script source, including a policy without `script-src-elem`, `script-src`, or `default-src`. The bounded parser observes `script-src`/`default-src` fallback, `script-src-elem` and
   `script-src-attr`, first-duplicate-directive semantics, nonce/hash/`strict-dynamic` exceptions, and restrictive
   script overrides. Style-only inline permissions and scoped host wildcards are not arbitrary-script-source proof.
   Report-only policy does not establish enforcement; enforcing plus report-only is valid. Multiple policies,
   unsupported syntax, unknown custom-writer ordering, and uncertain path/method scope remain incomplete.
+- **Calibration**: LOW matches missing CSP (QS-HDR-004) in the same document/authentication scope. A partial script
+  restriction is not worse than none; a script-blocking `sandbox` prevents a script-weakness finding.
 - **Recommendation**: Remove unsafe-inline/unsafe-eval and wildcard sources; use nonces/hashes for scripts.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 

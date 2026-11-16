@@ -1056,6 +1056,61 @@ class SecurityAuditAccuracyTests {
     }
 
     @Test
+    void missingWeakAndStrongCspUseTheSameBrowserChainAndLowBaseline() throws Exception {
+        assertThat(browserCspResults(null, false)).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("SEC-HEAD-003");
+            assertThat(result.severity()).isEqualTo("LOW");
+        });
+        for (String policy : List.of(
+                "script-src 'unsafe-inline'",
+                "script-src 'unsafe-eval'",
+                "script-src *",
+                "script-src https:",
+                "frame-ancestors 'self'")) {
+            assertThat(browserCspResults(policy, false))
+                    .as(policy)
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.id()).isEqualTo("SEC-HEAD-009");
+                        assertThat(result.severity()).isEqualTo("LOW");
+                    });
+        }
+        for (String policy : List.of(
+                "script-src 'self'",
+                "script-src 'unsafe-inline' 'nonce-YWJjZA=='",
+                "script-src 'unsafe-inline' 'sha256-YWJjZA=='",
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' https: 'unsafe-inline'")) {
+            assertThat(browserCspResults(policy, false)).as(policy).isEmpty();
+        }
+        assertThat(browserCspResults("script-src 'unsafe-inline'", true))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.id()).isEqualTo("SEC-HEAD-003");
+                    assertThat(result.severity()).isEqualTo("LOW");
+                });
+    }
+
+    private static List<SecurityRuleResultDto> browserCspResults(String policy, boolean reportOnly) throws Exception {
+        List<org.springframework.security.web.header.HeaderWriter> writers = new java.util.ArrayList<>();
+        writers.add(new org.springframework.security.web.header.writers.frameoptions.XFrameOptionsHeaderWriter());
+        if (policy != null) {
+            var writer = new ContentSecurityPolicyHeaderWriter(policy);
+            writer.setReportOnly(reportOnly);
+            writers.add(writer);
+        }
+        var chain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new UsernamePasswordAuthenticationFilter(),
+                new HeaderWriterFilter(writers)));
+        return List.of(
+                        new ContentSecurityPolicyRule().evaluate(context(chain, new MockEnvironment())),
+                        new WeakContentSecurityPolicyRule().evaluate(context(chain, new MockEnvironment())))
+                .stream()
+                .filter(result -> "VIOLATION".equals(result.status()))
+                .toList();
+    }
+
+    @Test
     void enforcingFrameAncestorsOverridesXfoAndUnknownCspCannotProveFallback() throws Exception {
         Map<String, String> policies = Map.of(
                 "frame-ancestors *", "VIOLATION",

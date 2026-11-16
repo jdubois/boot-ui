@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Host-bound GitHub credentials** prevent public or other Enterprise tokens from authenticating a different host
   ([GitHub](docs/features/developer-tools.md#github)).
+- **Consistent CSP reviews** keep weak script policies at the missing-policy LOW baseline across all advisors without double-counting hardening gaps
+  ([Advisor checks](docs/features/advisors.md#security)).
 
 ## [2.5.0] - 2026-11-14
 
