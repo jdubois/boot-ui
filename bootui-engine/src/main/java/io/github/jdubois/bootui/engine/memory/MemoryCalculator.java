@@ -87,6 +87,7 @@ final class MemoryCalculator {
     static final long MIN_TOTAL_MEMORY_BYTES = 128L * MEBIBYTE;
     static final long MAX_TOTAL_MEMORY_BYTES = 64L * 1024 * MEBIBYTE;
     static final long MIN_REQUESTED_HEAP_BYTES = 2L * MEBIBYTE;
+    static final long MIN_DEFAULT_HEAP_BYTES = 128L * MEBIBYTE;
     private static final long PERCENTAGE_THOUSANDTHS_PER_WHOLE = 100_000L;
 
     static int defaultThreadCount(int liveThreadCount) {
@@ -191,6 +192,30 @@ final class MemoryCalculator {
             boolean virtualThreadsEnabled,
             String virtualThreadsProperty,
             long observedDirectMemoryBytes) {
+        return calculate(
+                totalMemoryBytes,
+                threadCount,
+                loadedClasses,
+                headRoomPercent,
+                liveThreadCount,
+                liveLoadedClassCount,
+                virtualThreadsEnabled,
+                virtualThreadsProperty,
+                observedDirectMemoryBytes,
+                MIN_REQUESTED_HEAP_BYTES);
+    }
+
+    MemoryCalculationDto calculate(
+            long totalMemoryBytes,
+            int threadCount,
+            int loadedClasses,
+            int headRoomPercent,
+            int liveThreadCount,
+            int liveLoadedClassCount,
+            boolean virtualThreadsEnabled,
+            String virtualThreadsProperty,
+            long observedDirectMemoryBytes,
+            long minimumRequestedHeapBytes) {
 
         long clampedTotal = clamp(totalMemoryBytes, MIN_TOTAL_MEMORY_BYTES, MAX_TOTAL_MEMORY_BYTES);
         int clampedThreads = (int) clamp(threadCount, MIN_THREAD_COUNT, MAX_THREAD_COUNT);
@@ -205,15 +230,18 @@ final class MemoryCalculator {
         long headRoomBytes = clampedTotal * clampedHeadRoom / 100;
         long heapBytes = clampedTotal - headRoomBytes - fixedRegionsBytes;
 
-        if (bytesToMiBFloor(heapBytes) * MEBIBYTE < MIN_REQUESTED_HEAP_BYTES
+        if (bytesToMiBFloor(heapBytes) * MEBIBYTE < minimumRequestedHeapBytes
                 || heapPercentageThousandths(heapBytes, clampedTotal) * clampedTotal
-                        < MIN_REQUESTED_HEAP_BYTES * PERCENTAGE_THOUSANDTHS_PER_WHOLE) {
+                        < minimumRequestedHeapBytes * PERCENTAGE_THOUSANDTHS_PER_WHOLE) {
             String message = String.format(
                     "Insufficient heap budget: fixed regions (%d MiB) + headroom (%d MiB) "
-                            + "leave too little from the %d MiB total to request at least 2 MiB "
+                            + "leave too little from the %d MiB total to request at least %d MiB "
                             + "in both fixed and three-decimal percentage options. "
                             + "Try a larger total memory, fewer threads, or lower headroom.",
-                    bytesToMiBCeil(fixedRegionsBytes), bytesToMiBCeil(headRoomBytes), bytesToMiBCeil(clampedTotal));
+                    bytesToMiBCeil(fixedRegionsBytes),
+                    bytesToMiBCeil(headRoomBytes),
+                    bytesToMiBCeil(clampedTotal),
+                    bytesToMiBCeil(minimumRequestedHeapBytes));
             return new MemoryCalculationDto(
                     clampedTotal,
                     0,
@@ -264,25 +292,44 @@ final class MemoryCalculator {
      * Pick a sensible default {@code totalMemoryBytes} that is independent of
      * the host machine's RAM. We size to roughly 1.5× the app's observed
      * footprint, with a floor sized to fit all fixed regions plus 128 MiB of
-     * heap, and a hard upper clamp of 2 GiB so a 32 GB Mac doesn't poison
-     * the recommendation. The user can move the value freely afterwards.
+     * requested heap after default headroom and option rounding. The hard upper
+     * clamp of 2 GiB takes precedence; the default report is invalid if that
+     * budget cannot fit the heap floor. The user can move the value freely afterwards.
      */
     long defaultTotalMemoryBytes(
             long heapCommittedBytes, long nonHeapCommittedBytes, int threadCount, int loadedClasses) {
+        return defaultTotalMemoryBytes(heapCommittedBytes, nonHeapCommittedBytes, threadCount, loadedClasses, 0);
+    }
+
+    long defaultTotalMemoryBytes(
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            int threadCount,
+            int loadedClasses,
+            long observedDirectMemoryBytes) {
         long min = 384L * MEBIBYTE;
         long max = 2048L * MEBIBYTE;
         int safeThreads = Math.max(threadCount, DEFAULT_THREAD_COUNT_FLOOR);
-        long fixed = DIRECT_MEMORY_BYTES
+        long fixed = computeDirectMemoryBytes(observedDirectMemoryBytes)
                 + computeMetaspaceBytes(Math.max(loadedClasses, 0))
                 + CODE_CACHE_BYTES
                 + STACK_BYTES_PER_THREAD * (long) safeThreads;
-        long floor = fixed + 128L * MEBIBYTE;
+        int availablePercent = 100 - MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
+        long floor = ((fixed + MIN_DEFAULT_HEAP_BYTES) * 100 + availablePercent - 1) / availablePercent;
 
         long useful = clamp(heapCommittedBytes, 0, max) + clamp(nonHeapCommittedBytes, 0, max);
         useful = useful + (useful / 2); // ×1.5 footprint
 
         long picked = clamp(Math.max(floor, useful), min, max);
-        return roundUpTo(picked, 64L * MEBIBYTE);
+        long rounded = roundUpTo(picked, 64L * MEBIBYTE);
+        long heapBytes = rounded - rounded * MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT / 100 - fixed;
+        // An exact 128 MiB remainder can round below the floor in percentage options.
+        if (rounded < max
+                && heapPercentageThousandths(heapBytes, rounded) * rounded
+                        < MIN_DEFAULT_HEAP_BYTES * PERCENTAGE_THOUSANDTHS_PER_WHOLE) {
+            rounded = Math.min(max, rounded + 64L * MEBIBYTE);
+        }
+        return rounded;
     }
 
     static long heapPercentageThousandths(long heapBytes, long totalMemoryBytes) {

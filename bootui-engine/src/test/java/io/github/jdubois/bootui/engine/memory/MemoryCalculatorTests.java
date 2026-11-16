@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Unit tests for the Paketo {@code libjvm}-style {@link MemoryCalculator}.
@@ -277,6 +280,116 @@ class MemoryCalculatorTests {
     }
 
     @Test
+    void defaultHeapFloorIncludesHeadroomBeforeRoundingTheTotal() {
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000);
+        MemoryCalculationDto result =
+                calculator.calculate(total, 250, 1_000, MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT, 250, 1_000);
+
+        assertThat(total).isEqualTo(768 * MB);
+        assertThat(result.fixedRegionsBytes()).isEqualTo(524 * MB);
+        assertDefaultHeapFloor(result);
+
+        MemoryCalculationDto manual = calculator.calculate(704 * MB, 250, 1_000, 10, 250, 1_000);
+        assertThat(manual.valid()).isTrue();
+        assertThat(manual.heapBytes()).isLessThan(128 * MB);
+        assertThat(optionMebibytes(manual.jvmOptions(), "-Xmx")).isEqualTo(109);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "756, 0, 1280",
+        "757, 0, 1280",
+        "758, 0, 1344",
+        "1333, 0, 1984",
+        "1000, 50000, 1984",
+        "250, 100000, 1536"
+    })
+    void defaultHeapFloorSurvivesTotalAndOptionRounding(int threads, int classes, long expectedTotalMiB) {
+        long total = calculator.defaultTotalMemoryBytes(0, 0, threads, classes);
+        MemoryCalculationDto result = calculator.calculate(
+                total, threads, classes, MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT, threads, classes);
+
+        assertThat(total).isEqualTo(expectedTotalMiB * MB);
+        assertDefaultHeapFloor(result);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"256, 0, 256, 1024", "510, 0, 510, 1280", "510, 1, 511, 1344"})
+    void defaultHeapFloorUsesTheSameRoundedDirectMemoryAsTheCalculation(
+            long observedDirectMiB, long extraByte, long expectedDirectMiB, long expectedTotalMiB) {
+        long observedDirectBytes = observedDirectMiB * MB + extraByte;
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000, observedDirectBytes);
+        MemoryCalculationDto result = calculator.calculate(
+                total,
+                250,
+                1_000,
+                MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT,
+                250,
+                1_000,
+                false,
+                null,
+                observedDirectBytes,
+                MemoryCalculator.MIN_DEFAULT_HEAP_BYTES);
+
+        assertThat(total).isEqualTo(expectedTotalMiB * MB);
+        assertThat(result.directMemoryBytes()).isEqualTo(expectedDirectMiB * MB);
+        assertDefaultHeapFloor(result);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1300L * MB, Long.MAX_VALUE})
+    void observedDirectMemoryCannotBypassTheDefaultUpperClamp(long observedDirectBytes) {
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000, observedDirectBytes);
+        MemoryCalculationDto result = calculator.calculate(
+                total,
+                250,
+                1_000,
+                MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT,
+                250,
+                1_000,
+                false,
+                null,
+                observedDirectBytes,
+                MemoryCalculator.MIN_DEFAULT_HEAP_BYTES);
+
+        assertThat(total).isEqualTo(2048 * MB);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.error()).contains("128 MiB", "2048 MiB");
+        assertThat(result.jvmOptions()).isEmpty();
+        assertThat(calculator.buildKubernetesJvmOptions(result, 0, 0)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1500, 0", "250, 190000", "10000, 200000"})
+    void defaultUpperClampCannotProduceARecommendationBelowTheDefaultHeapFloor(int threads, int classes) {
+        long total = calculator.defaultTotalMemoryBytes(0, 0, threads, classes);
+        MemoryCalculationDto result = calculator.calculate(
+                total,
+                threads,
+                classes,
+                MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT,
+                threads,
+                classes,
+                false,
+                null,
+                0,
+                MemoryCalculator.MIN_DEFAULT_HEAP_BYTES);
+
+        assertThat(total).isEqualTo(2048 * MB);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.error()).contains("128 MiB", "2048 MiB");
+        assertThat(result.jvmOptions()).isEmpty();
+        assertThat(calculator.buildKubernetesJvmOptions(result, 0, 0)).isEmpty();
+
+        if (threads < 10_000) {
+            MemoryCalculationDto manual = calculator.calculate(
+                    total, threads, classes, MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT, threads, classes);
+            assertThat(manual.valid()).isTrue();
+            assertThat(manual.heapBytes()).isLessThan(128 * MB);
+        }
+    }
+
+    @Test
     void defaultThreadCountKeepsThePaketoPlatformThreadFloor() {
         assertThat(MemoryCalculator.defaultThreadCount(10)).isEqualTo(250);
         assertThat(MemoryCalculator.defaultThreadCount(250)).isEqualTo(250);
@@ -297,6 +410,14 @@ class MemoryCalculatorTests {
 
     private static long roundUpToMiB(long bytes) {
         return ((bytes + MB - 1) / MB) * MB;
+    }
+
+    private static void assertDefaultHeapFloor(MemoryCalculationDto result) {
+        assertThat(result.valid()).isTrue();
+        assertThat(result.heapBytes()).isGreaterThanOrEqualTo(128 * MB);
+        assertThat(optionMebibytes(result.jvmOptions(), "-Xmx")).isGreaterThanOrEqualTo(128);
+        long percentage = MemoryCalculator.heapPercentageThousandths(result.heapBytes(), result.totalMemoryBytes());
+        assertThat(percentage * result.totalMemoryBytes()).isGreaterThanOrEqualTo(128 * MB * 100_000);
     }
 
     private static long optionMebibytes(String options, String optionPrefix) {

@@ -13,6 +13,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([GitHub](docs/features/developer-tools.md#github)).
 - **Consistent CSP reviews** keep weak script policies at the missing-policy LOW baseline across all advisors without double-counting hardening gaps
   ([Advisor checks](docs/features/advisors.md#security)).
+- **JVM default heap floor** accounts for observed direct memory, headroom and rounding, and keeps untouched UI
+  refreshes in default mode ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
 
 ## [2.5.0] - 2026-11-14
 

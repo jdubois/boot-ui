@@ -124,13 +124,21 @@ public class MemoryReportProvider {
         boolean resolvedKubernetesBurstableEnabled = kubernetesBurstableEnabled != null && kubernetesBurstableEnabled;
         boolean resolvedKubernetesActuatorEnabled = resolveKubernetesActuatorEnabled(kubernetesActuatorEnabled);
         int defaultThreadCount = MemoryCalculator.defaultThreadCount(liveThreads);
+        boolean defaultHostPlan = totalMemoryMb == null
+                && detectedContainerMemoryLimit.isEmpty()
+                && threadCount == null
+                && headRoomPercent == null;
 
         long resolvedTotalBytes = totalMemoryMb != null
                 ? totalMemoryBytes(totalMemoryMb)
                 : detectedContainerMemoryLimit.isPresent()
                         ? totalMemoryBytes(detectedContainerMemoryLimit.getAsLong() / MEBIBYTE)
                         : calculator.defaultTotalMemoryBytes(
-                                heapUsage.getCommitted(), nonHeapUsage.getCommitted(), defaultThreadCount, liveClasses);
+                                heapUsage.getCommitted(),
+                                nonHeapUsage.getCommitted(),
+                                defaultThreadCount,
+                                liveClasses,
+                                directBufferMemoryUsedBytes);
         int resolvedThreads = threadCount != null ? threadCount : defaultThreadCount;
         int resolvedHeadRoom =
                 headRoomPercent != null ? headRoomPercent : MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
@@ -144,7 +152,8 @@ public class MemoryReportProvider {
                 liveClasses,
                 resolvedVirtualThreadsEnabled,
                 runtimeConfig.virtualThreadsProperty(),
-                directBufferMemoryUsedBytes);
+                directBufferMemoryUsedBytes,
+                defaultHostPlan ? MemoryCalculator.MIN_DEFAULT_HEAP_BYTES : MemoryCalculator.MIN_REQUESTED_HEAP_BYTES);
         Long detectedContainerMemoryLimitBytes =
                 detectedContainerMemoryLimit.isPresent() ? detectedContainerMemoryLimit.getAsLong() : null;
         Long detectedContainerCurrentUsageBytes =

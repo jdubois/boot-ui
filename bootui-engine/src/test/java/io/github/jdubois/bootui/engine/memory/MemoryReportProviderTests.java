@@ -1,7 +1,13 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -15,6 +21,9 @@ import java.util.List;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Behavior tests for {@link MemoryReportProvider}, the framework-neutral engine service shared by the
@@ -80,6 +89,68 @@ class MemoryReportProviderTests {
         LiveMemoryReport report = providerWithDefaults().buildReport(512L, null, null, null, null);
 
         assertThat(report.calculation().totalMemoryBytes()).isEqualTo(512L * 1024L * 1024L);
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            value = {
+                "null, null, null, null, 128",
+                "2048, null, null, null, 2",
+                "null, 1500, null, null, 2",
+                "null, null, 10, null, 2",
+                "null, null, null, 2048, 2"
+            },
+            nullValues = "null")
+    void appliesTheDefaultHeapFloorOnlyToUnmodifiedHostDefaults(
+            Long totalMiB, Integer threads, Integer headroom, Long containerLimitMiB, long minimumHeapMiB) {
+        MemoryCalculator calculator = spy(new MemoryCalculator());
+        ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
+        when(detector.detect())
+                .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
+                        containerLimitMiB == null
+                                ? OptionalLong.empty()
+                                : OptionalLong.of(containerLimitMiB * 1024L * 1024L),
+                        OptionalLong.empty(),
+                        OptionalLong.empty()));
+        MemoryReportProvider provider = new MemoryReportProvider(calculator, detector);
+
+        provider.buildReport(totalMiB, threads, headroom, null, null);
+
+        verify(calculator)
+                .calculate(
+                        anyLong(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyBoolean(),
+                        any(),
+                        anyLong(),
+                        eq(minimumHeapMiB * 1024L * 1024L));
+    }
+
+    @Test
+    void usesOneDirectMemoryObservationForDefaultSizingAndCalculation() {
+        MemoryCalculator calculator = spy(new MemoryCalculator());
+        MemoryReportProvider provider = new MemoryReportProvider(calculator, ContainerMemoryLimitDetector.disabled());
+        ArgumentCaptor<Long> directBytes = ArgumentCaptor.forClass(Long.class);
+
+        provider.buildReport(null, null, null, null, null);
+
+        verify(calculator).defaultTotalMemoryBytes(anyLong(), anyLong(), anyInt(), anyInt(), directBytes.capture());
+        verify(calculator)
+                .calculate(
+                        anyLong(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyBoolean(),
+                        any(),
+                        eq(directBytes.getValue()),
+                        eq(MemoryCalculator.MIN_DEFAULT_HEAP_BYTES));
     }
 
     @Test

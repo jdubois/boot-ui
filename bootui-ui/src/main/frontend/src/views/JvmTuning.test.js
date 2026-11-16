@@ -257,8 +257,92 @@ describe('JvmTuning', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenLastCalledWith(
-      'api/jvm-tuning?kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
+      'api/jvm-tuning?kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false'
     )
+  })
+
+  it('keeps an invalid untouched default invalid across two refreshes until a real sizing edit', async () => {
+    const invalid = memoryReport()
+    invalid.calculation = {
+      ...invalid.calculation,
+      totalMemoryBytes: 2048 * MB,
+      threadCount: 1500,
+      heapBytes: 0,
+      jvmOptions: '',
+      valid: false,
+      error: 'Insufficient heap budget: the 2048 MiB default cannot request at least 128 MiB.'
+    }
+    invalid.suggestedJvmOptions = ''
+    invalid.kubernetes = {...invalid.kubernetes, yaml: '', javaToolOptions: '', qosClass: 'Unavailable'}
+    const fetchMock = vi.fn().mockImplementation((url) => {
+      const manual = new URL(url, 'http://localhost/').searchParams.has('totalMemoryMb')
+      return Promise.resolve(jsonResponse(manual ? memoryReport() : invalid))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+    expect(wrapper.get('#jvm-target-memory').element.value).toBe('2048')
+    expect(wrapper.text()).toContain(invalid.calculation.error)
+
+    for (let refresh = 0; refresh < 2; refresh++) {
+      vi.advanceTimersByTime(10_000)
+      await flushPromises()
+      expect(wrapper.text()).toContain(invalid.calculation.error)
+      expect(wrapper.text()).not.toContain('-Xms512m')
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    for (const [url] of fetchMock.mock.calls) {
+      const params = new URL(url, 'http://localhost/').searchParams
+      expect(params.has('totalMemoryMb')).toBe(false)
+      expect(params.has('threadCount')).toBe(false)
+      expect(params.has('headRoomPercent')).toBe(false)
+    }
+
+    await wrapper.get('#jvm-target-memory').setValue('2048')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/jvm-tuning?kubernetesBurstableEnabled=false&kubernetesActuatorEnabled=true&totalMemoryMb=2048'
+    )
+    expect(wrapper.text()).not.toContain(invalid.calculation.error)
+    expect(wrapper.text()).toContain('-Xms512m')
+  })
+
+  it('refreshes untouched displayed defaults while preserving only actual sizing overrides', async () => {
+    const updated = memoryReport()
+    updated.calculation = {...updated.calculation, totalMemoryBytes: 1280 * MB, threadCount: 300, headRoomPercent: 15}
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+    await wrapper.get('#jvm-target-memory').setValue('704')
+    fetchMock.mockResolvedValue(jsonResponse(updated))
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/jvm-tuning?kubernetesBurstableEnabled=false&kubernetesActuatorEnabled=true&totalMemoryMb=704'
+    )
+    expect(wrapper.get('#jvm-target-memory').element.value).toBe('704')
+    expect(wrapper.get('#jvm-thread-budget').element.value).toBe('300')
+    expect(wrapper.get('#jvm-headroom').element.value).toBe('15')
+
+    await wrapper.get('#jvm-thread-budget').setValue('100')
+    await wrapper.get('#jvm-headroom').setValue('0')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    vi.advanceTimersByTime(10_000)
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/jvm-tuning?kubernetesBurstableEnabled=false&kubernetesActuatorEnabled=true&totalMemoryMb=704&threadCount=100&headRoomPercent=0'
+    )
+    expect(wrapper.get('#jvm-target-memory').element.value).toBe('704')
+    expect(wrapper.get('#jvm-thread-budget').element.value).toBe('100')
+    expect(wrapper.get('#jvm-headroom').element.value).toBe('0')
   })
 
   it('offers the shared BootUI memory offload in the header and recalculates after it ran', async () => {

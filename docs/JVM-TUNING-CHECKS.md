@@ -66,6 +66,17 @@ The generic bound deliberately does not invent a workload-sized minimum. For exa
 invalid even though its fixed option alone could request 2 MiB. Passing these arithmetic checks does not guarantee
 collector initialization, application startup, or workload sufficiency.
 
+Without a detected container limit or sizing overrides, the host default reserves at least **128 MiB of requested
+heap after the default 10% headroom**. Default sizing and the final calculation use the same observed direct-memory
+reservation, bounded and rounded up to MiB. The floor is `(fixed regions + 128 MiB) / 0.9`, rounded up to 64 MiB and, if
+necessary, raised one more step so three-decimal percentage flooring also preserves the heap floor. The existing
+2 GiB default clamp still takes precedence: when it cannot fit that floor, the default report is invalid with an
+explanation and no options/YAML. Explicit budgets retain the generic 2 MiB validation above; 128 MiB is a default
+heuristic, not a workload-safety claim. This does not yet size against observed heap use or Metaspace demand.
+
+Displayed defaults remain defaults through refreshes and Kubernetes-only toggle changes. Only editing a total,
+thread or headroom input sends that sizing override; untouched inputs continue to follow the current report.
+
 ### Generated option inventory
 
 For a valid dedicated-host plan, the advisor emits only:
@@ -131,7 +142,7 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 | -------- | ------ | --------- |
 | Paketo partition | **RETAIN** | Established deterministic policy, not exhaustive process-memory accounting. |
 | Total/thread/headroom input clamps | **RETAIN** | Existing bounded operator contract, not universal JVM limits. |
-| Host default and rounding | **UPDATE** | Preserve 1.5x/384 MiB–2 GiB/64 MiB policy; bound arithmetic before overflow. |
+| Host default and rounding | **UPDATE** | Preserve 1.5x/384 MiB–2 GiB/64 MiB policy; include default headroom and option rounding in the 128 MiB heap floor, rejecting defaults that cannot fit it within the clamp. |
 | Detected total and YAML denominator | **UPDATE** | Round detected budget down to whole MiB, preserve raw evidence, and align emitted quantities with the model. |
 | Headroom default 10%, selectable 0%–30% | **RETAIN** | Explicit BootUI/operator heuristic; not Paketo's default or a safety guarantee. |
 | Live class count and 1.25 metaspace allowance | **RETAIN; ENHANCEMENT DEFERRED** | Observable class count with an explicit heuristic; it can underestimate current actual metadata. Observed-metaspace sizing requires separate policy and must not double-count compressed class space. |
