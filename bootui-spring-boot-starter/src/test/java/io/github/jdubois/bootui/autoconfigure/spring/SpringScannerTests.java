@@ -28,7 +28,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 44;
+    private static final int RULE_COUNT = 45;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
     private final ApplicationContextRunner taskRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(TaskExecutionAutoConfiguration.class));
@@ -186,6 +186,101 @@ class SpringScannerTests {
         assertThat(scanner.applyDismissals(report, Set.of())).isSameAs(report);
         assertThat(scanner.applyDismissals(report, null)).isSameAs(report);
         assertThat(scanner.applyDismissals(null, Set.of("SPRING-WEB-001"))).isNull();
+    }
+
+    @Test
+    void schedulingReviewDismissalDoesNotSilenceHighInfrastructureFindings() {
+        var context = SpringContext.builder(new MockEnvironment())
+                .beanDefinitionCount(2)
+                .dormantInfrastructureBeans(List.of("service: @Async infrastructure is absent"))
+                .dormantSchedulingBeans(List.of("tasks: scheduling infrastructure is absent"))
+                .observations(SpringRulesTests.facts(java.util.Map.of()))
+                .build();
+        var scanner = new SpringScanner(context, CLOCK);
+        var report = scanner.scan();
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SPRING-WIRING-011"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("HIGH"));
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SPRING-WIRING-012"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("MEDIUM"));
+        var dismissed = scanner.applyDismissals(report, Set.of("SPRING-WIRING-012"));
+        assertThat(dismissed.results())
+                .filteredOn(SpringRuleResultDto::dismissed)
+                .extracting(SpringRuleResultDto::id)
+                .containsExactly("SPRING-WIRING-012");
+        assertThat(dismissed.severityCounts())
+                .filteredOn(count -> count.severity().equals("HIGH"))
+                .singleElement()
+                .satisfies(count -> assertThat(count.count()).isOne());
+        var oldDismissal = scanner.applyDismissals(report, Set.of("SPRING-WIRING-011"));
+        assertThat(oldDismissal.results())
+                .filteredOn(SpringRuleResultDto::dismissed)
+                .extracting(SpringRuleResultDto::id)
+                .containsExactly("SPRING-WIRING-011");
+        assertThat(oldDismissal.results())
+                .filteredOn(result -> result.id().equals("SPRING-WIRING-012"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.dismissed()).isFalse());
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
+    }
+
+    @Test
+    void schedulingFindingLimitDoesNotConsumeTheHighInfrastructureFindingBudget() {
+        var factory = new DefaultListableBeanFactory();
+        for (int i = 0; i < 26; i++) {
+            var scheduled =
+                    new RootBeanDefinition(app.advisoraudit.ApplicationFixtures.SchedulingReviewTasks.class, () -> {
+                        throw new AssertionError("must not instantiate lazy scheduled tasks");
+                    });
+            scheduled.setLazyInit(true);
+            factory.registerBeanDefinition("scheduledTasks" + i, scheduled);
+        }
+        var async = new RootBeanDefinition(app.advisoraudit.ApplicationFixtures.AnnotatedAsyncInterface.class, () -> {
+            throw new AssertionError("must not instantiate lazy async declaration");
+        });
+        async.setLazyInit(true);
+        factory.registerBeanDefinition("asyncBean", async);
+
+        var report = new SpringScanner(factory, new MockEnvironment(), false, CLOCK).scan();
+
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SPRING-WIRING-012"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.violationCount()).isEqualTo(50);
+                    assertThat(result.sampleViolations())
+                            .hasSize(10)
+                            .allSatisfy(detail -> assertThat(detail)
+                                    .contains(
+                                            "scheduledTasks",
+                                            "@Scheduled/@Schedules",
+                                            "review whether intentionally disabled")
+                                    .doesNotContain("@Async"));
+                });
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SPRING-WIRING-011"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.violationCount()).isOne();
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("asyncBean", "runAsync", "@Async")
+                            .doesNotContain("@Scheduled");
+                });
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).isNotEmpty();
+        assertThat(factory.containsSingleton("asyncBean")).isFalse();
+        for (int i = 0; i < 26; i++) {
+            assertThat(factory.containsSingleton("scheduledTasks" + i)).isFalse();
+        }
     }
 
     @Test

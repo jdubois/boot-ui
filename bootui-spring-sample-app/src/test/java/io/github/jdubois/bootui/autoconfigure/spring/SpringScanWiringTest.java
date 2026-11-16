@@ -77,7 +77,7 @@ class SpringScanWiringTest {
 
         var report = controller.scan();
         assertThat(snapshot.applicationSecurityChainPresent()).isTrue();
-        assertThat(report.rulesEvaluated()).isEqualTo(44);
+        assertThat(report.rulesEvaluated()).isEqualTo(45);
         assertThat(report.evidence().coverageComplete()).isTrue();
         assertThat(report.evidence().limitations()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
@@ -85,6 +85,7 @@ class SpringScanWiringTest {
                 .noneMatch(result -> java.util.Set.of(
                                 "SPRING-WIRING-010",
                                 "SPRING-WIRING-011",
+                                "SPRING-WIRING-012",
                                 "SPRING-PERF-005",
                                 "SPRING-PERF-008",
                                 "SPRING-PERF-009",

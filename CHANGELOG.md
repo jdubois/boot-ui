@@ -15,6 +15,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Advisor checks](docs/features/advisors.md#security)).
 - **JVM default heap floor** accounts for observed direct memory, headroom and rounding, and keeps untouched UI
   refreshes in default mode ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **Scheduling advisor precision** separates MEDIUM `SPRING-WIRING-012` reviews without copying old `SPRING-WIRING-011` dismissals; other infrastructure checks stay HIGH
+  ([Spring checks](docs/SPRING-CHECKS.md)).
 
 ## [2.5.0] - 2026-11-14
 

@@ -46,7 +46,7 @@ class SpringRulesTests {
     static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
-    void registryPinsAllFortyFourRulesAndSevenRetirements() {
+    void registryPinsAllFortyFiveRulesAndSevenRetirements() {
         var ids = SpringRuleRegistry.activeRules().stream()
                 .map(rule -> rule.definition().id())
                 .toList();
@@ -62,11 +62,12 @@ class SpringRulesTests {
                         "SPRING-REACTIVE-002",
                         "SPRING-CONFIG-001");
         assertThat(ids)
-                .hasSize(44)
+                .hasSize(45)
                 .doesNotHaveDuplicates()
                 .contains(
                         "SPRING-WIRING-010",
                         "SPRING-WIRING-011",
+                        "SPRING-WIRING-012",
                         "SPRING-REACTIVE-003",
                         "SPRING-CONFIG-007",
                         "SPRING-CONFIG-008",
@@ -1091,8 +1092,10 @@ class SpringRulesTests {
     void dormantResilienceAndInfrastructureRulesReportFindingsAndRespectIncompleteInventory() {
         var resilience = new DormantResilienceAnnotationsRule();
         var infra = new DormantInfrastructureAnnotationsRule();
+        var scheduling = new DormantSchedulingAnnotationsRule();
         assertThat(resilience.definition().severity()).isEqualTo("HIGH");
         assertThat(infra.definition().severity()).isEqualTo("HIGH");
+        assertThat(scheduling.definition().severity()).isEqualTo("MEDIUM");
 
         var clean = SpringContext.builder(new MockEnvironment())
                 .beanDefinitionCount(10)
@@ -1100,6 +1103,7 @@ class SpringRulesTests {
                 .build();
         assertThat(resilience.evaluate(clean).status()).isEqualTo("PASS");
         assertThat(infra.evaluate(clean).status()).isEqualTo("PASS");
+        assertThat(scheduling.evaluate(clean).status()).isEqualTo("PASS");
 
         var incomplete = SpringContext.builder(new MockEnvironment())
                 .beanDefinitionCount(10)
@@ -1107,15 +1111,21 @@ class SpringRulesTests {
                 .build();
         assertThat(resilience.evaluate(incomplete).status()).isEqualTo("SKIPPED");
         assertThat(infra.evaluate(incomplete).status()).isEqualTo("SKIPPED");
+        assertThat(scheduling.evaluate(incomplete).status()).isEqualTo("SKIPPED");
+        assertThat(SpringScanner.evidence(incomplete).coverageComplete()).isFalse();
 
         var beanIndexIncomplete = SpringContext.builder(new MockEnvironment())
                 .beanDefinitionCount(4097)
                 .dormantResilienceBeans(List.of("resilientBean: dormant"))
                 .dormantInfrastructureBeans(List.of("infraBean: dormant"))
+                .dormantSchedulingBeans(List.of("scheduledBean: review"))
                 .observations(new SpringObservations(Map.of(BEAN_INDEX_INCOMPLETE, true), List.of("incomplete")))
                 .build();
         assertThat(resilience.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
         assertThat(infra.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
+        assertThat(scheduling.evaluate(beanIndexIncomplete).status()).isEqualTo("SKIPPED");
+        assertThat(SpringScanner.evidence(beanIndexIncomplete).coverageComplete())
+                .isFalse();
 
         var violated = SpringContext.builder(new MockEnvironment())
                 .dormantResilienceBeans(
@@ -1124,6 +1134,7 @@ class SpringRulesTests {
                 .dormantInfrastructureBeans(
                         List.of(
                                 "mailWorker (app.MailWorker#send): @Async is present without AsyncAnnotationBeanPostProcessor or AsyncExecutionAspectSupport; add @EnableAsync."))
+                .dormantSchedulingBeans(List.of("scheduledBean: review"))
                 .observations(facts(Map.of()))
                 .build();
         var resilienceResult = resilience.evaluate(violated);
@@ -1135,6 +1146,20 @@ class SpringRulesTests {
         assertThat(infraResult.status()).isEqualTo("VIOLATION");
         assertThat(infraResult.violationCount()).isEqualTo(1);
         assertThat(infraResult.sampleViolations().get(0)).contains("@EnableAsync");
+        var schedulingResult = scheduling.evaluate(violated);
+        assertThat(schedulingResult.status()).isEqualTo("VIOLATION");
+        assertThat(schedulingResult.violationCount()).isEqualTo(1);
+
+        var partial = SpringContext.builder(new MockEnvironment())
+                .dormantResilienceBeans(violated.dormantResilienceBeans())
+                .dormantInfrastructureBeans(violated.dormantInfrastructureBeans())
+                .dormantSchedulingBeans(violated.dormantSchedulingBeans())
+                .observations(new SpringObservations(Map.of(), List.of("incomplete")))
+                .build();
+        for (SpringRule rule : List.of(resilience, infra, scheduling)) {
+            assertThat(rule.evaluate(partial).status()).isEqualTo("VIOLATION");
+        }
+        assertThat(SpringScanner.evidence(partial).coverageComplete()).isFalse();
     }
 
     @Test

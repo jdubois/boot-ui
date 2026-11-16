@@ -381,7 +381,10 @@ persistence, Actuator exposure, and reactive (WebFlux-only) checks. See [SPRING-
 
 It focuses on "started but suboptimal" states and complements the Architecture panel by inspecting the live, wired
 context. It never mutates the context, intercepts traffic, or surfaces secrets. On MVC, Open Session in View is reported
-as present, confirmed absent, or unknown from actual registration metadata. This advisor is **relabelled per
+as present, confirmed absent, or unknown from actual registration metadata. On both Spring stacks, scheduled methods
+without observed scheduling infrastructure get a separate MEDIUM review (`SPRING-WIRING-012`): deliberately disabling
+scheduling in development or CI is not evidence of a production defect. Dismissing that review does not silence the
+HIGH async, caching, or transaction infrastructure checks. This advisor is **relabelled per
 framework**: **Spring** on Spring Boot, **Quarkus** on Quarkus, with the same menu slot and `/bootui/api/spring`
 contract.
 

@@ -157,11 +157,20 @@ findings from the score.
 - **Recommendation**: Add `@EnableResilientMethods` on a `@Configuration` class for Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, or `@EnableRetry` for Spring Retry `@Retryable`.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/core/resilience.html>
 
-### SPRING-WIRING-011 - Enable infrastructure for `@Async`, `@Scheduled`, `@Cacheable`, and `@Transactional` beans
+### SPRING-WIRING-011 - Enable infrastructure for `@Async`, `@Cacheable`, and `@Transactional` beans
 
 - **Severity**: HIGH
-- **Detects**: Application beans declaring `@Async` without `AsyncAnnotationBeanPostProcessor`/`AsyncExecutionAspectSupport`, `@Scheduled`/`@Schedules` without `ScheduledTaskHolder`/`internalScheduledAnnotationProcessor`, `@Cacheable`/`@CachePut`/`@CacheEvict`/`@Caching` without `CacheAspectSupport`/`internalCacheAdvisor`, or `@Transactional` without `TransactionAspectSupport`/`internalTransactionAdvisor` and a `TransactionManager` (or `TransactionManagementConfigurer`) bean.
-- **Recommendation**: Add `@EnableAsync`, `@EnableScheduling`, or `@EnableCaching` on a `@Configuration` class, or ensure `@EnableTransactionManagement` and a `TransactionManager` bean are present for `@Transactional` beans.
+- **Detects**: Application beans declaring `@Async` without `AsyncAnnotationBeanPostProcessor`/`AsyncExecutionAspectSupport`, `@Cacheable`/`@CachePut`/`@CacheEvict`/`@Caching` without `CacheAspectSupport`/`internalCacheAdvisor`, or `@Transactional` without `TransactionAspectSupport`/`internalTransactionAdvisor` and a `TransactionManager` (or `TransactionManagementConfigurer`) bean.
+- **Recommendation**: Add `@EnableAsync` or `@EnableCaching` on a `@Configuration` class, or ensure `@EnableTransactionManagement` and a `TransactionManager` bean are present for `@Transactional` beans.
+- **Dismissals**: Existing dismissals keep this ID and its remaining HIGH checks. Scheduling now has its own ID below; dismissals are not copied between the two rules.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
+
+### SPRING-WIRING-012 - Review `@Scheduled` methods without scheduling infrastructure
+
+- **Severity**: MEDIUM
+- **Detects**: Application beans declaring `@Scheduled`/`@Schedules` without `ScheduledAnnotationBeanPostProcessor` or `ScheduledTaskHolder` in the observed bean factory. One finding is retained per bean method name, including private and repeatable scheduled declarations, within the existing discovery bounds. This observes absence, not why scheduling is absent: profile/property exclusions can be deliberate in development or CI, and no production defect is inferred.
+- **Recommendation**: Review whether scheduling is intended in this run. Keep deliberate exclusions; add `@EnableScheduling` on a `@Configuration` class only when these methods should be scheduled.
+- **Scope**: Shared by Spring MVC and WebFlux, not a Quarkus scheduling rule. Registered scheduling infrastructure suppresses this check even when a cron expression is deliberately disabled. Incomplete bean indexing stays unknown; other incomplete metadata retains independently observed findings without claiming complete coverage.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
 ## Configuration
@@ -431,11 +440,11 @@ Active rules in this category are `SKIPPED` unconditionally on a servlet (Spring
 
 ## Rule summary
 
-The Spring Advisor ships **44 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-WIRING-010, SPRING-WIRING-011, SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007, SPRING-PERF-008, SPRING-PERF-009, SPRING-PERF-011 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **3 HIGH**, **14 MEDIUM**, **11 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
+The Spring Advisor ships **45 active rules** across eight categories. The 2026 audits retired SPRING-CONFIG-001, SPRING-WEB-003 and SPRING-REACTIVE-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, deferred SPRING-MGMT-001, SPRING-MGMT-002 and SPRING-MGMT-004 when application security filter chains exist, and added SPRING-WIRING-010, SPRING-WIRING-011, SPRING-WIRING-012, SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007, SPRING-PERF-008, SPRING-PERF-009, SPRING-PERF-011 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **3 HIGH**, **15 MEDIUM**, **11 LOW** and **16 INFO**. Profile names and management-port equality do not escalate severities.
 
 | Category | Rules |
 | --- | --- |
-| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-011 |
+| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-012 |
 | Configuration | SPRING-CONFIG-002 ... SPRING-CONFIG-008 |
 | Profiles and environment | SPRING-PROFILE-002, SPRING-PROFILE-003 |
 | Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-009, SPRING-PERF-011, SPRING-CACHE-001 |

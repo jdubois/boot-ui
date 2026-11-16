@@ -44,6 +44,7 @@ record SpringContext(
         List<String> mutableSingletonFields,
         List<String> dormantResilienceBeans,
         List<String> dormantInfrastructureBeans,
+        List<String> dormantSchedulingBeans,
         boolean taskExecutionPropertiesPresent,
         boolean applicationSecurityChainPresent,
         SpringObservations observations,
@@ -112,6 +113,7 @@ record SpringContext(
                 mutableSingletonFields,
                 List.of(),
                 List.of(),
+                List.of(),
                 observations != null && observations.yes(SpringObservations.Fact.TASK_EXECUTION_PROPERTIES),
                 applicationSecurityChainPresent,
                 observations,
@@ -178,6 +180,7 @@ record SpringContext(
                 mutableSingletonFields,
                 List.of(),
                 List.of(),
+                List.of(),
                 observations != null && observations.yes(SpringObservations.Fact.TASK_EXECUTION_PROPERTIES),
                 observations != null && observations.yes(SpringObservations.Fact.APPLICATION_SECURITY_CHAIN),
                 observations,
@@ -216,6 +219,7 @@ record SpringContext(
                 mutableSingletonFields,
                 dormantResilienceBeans,
                 dormantInfrastructureBeans,
+                dormantSchedulingBeans,
                 taskExecutionPropertiesPresent,
                 applicationSecurityChainPresent,
                 observations,
@@ -236,6 +240,7 @@ record SpringContext(
         mutableSingletonFields = List.copyOf(mutableSingletonFields);
         dormantResilienceBeans = List.copyOf(dormantResilienceBeans);
         dormantInfrastructureBeans = List.copyOf(dormantInfrastructureBeans);
+        dormantSchedulingBeans = List.copyOf(dormantSchedulingBeans);
         taskExecutionPropertiesPresent = taskExecutionPropertiesPresent
                 || (observations != null && observations.yes(SpringObservations.Fact.TASK_EXECUTION_PROPERTIES));
         applicationSecurityChainPresent = applicationSecurityChainPresent
@@ -417,6 +422,7 @@ record SpringContext(
         private List<String> mutableSingletonFields = List.of();
         private List<String> dormantResilienceBeans = List.of();
         private List<String> dormantInfrastructureBeans = List.of();
+        private List<String> dormantSchedulingBeans = List.of();
         private boolean taskExecutionPropertiesPresent;
         private boolean applicationSecurityChainPresent;
         private SpringObservations observations = SpringObservations.unknown();
@@ -575,6 +581,11 @@ record SpringContext(
             return this;
         }
 
+        Builder dormantSchedulingBeans(List<String> value) {
+            this.dormantSchedulingBeans = value;
+            return this;
+        }
+
         Builder taskExecutionPropertiesPresent(boolean value) {
             this.taskExecutionPropertiesPresent = value;
             return this;
@@ -616,6 +627,7 @@ record SpringContext(
                     mutableSingletonFields,
                     dormantResilienceBeans,
                     dormantInfrastructureBeans,
+                    dormantSchedulingBeans,
                     taskExecutionPropertiesPresent,
                     applicationSecurityChainPresent,
                     observations,
