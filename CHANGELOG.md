@@ -24,6 +24,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Architecture self-proxy precision** clears recognized lazy self-proxy calls while retaining direct self-call findings
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods)).
+- **JVM heap recommendations** reject options below observed heap used and give untouched host defaults a documented
+  20% starting allowance, without inflating explicit budgets ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
 
 ## [2.5.0] - 2026-11-14
 

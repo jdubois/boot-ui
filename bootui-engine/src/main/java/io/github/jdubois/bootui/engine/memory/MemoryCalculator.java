@@ -28,6 +28,9 @@ import java.math.BigDecimal;
  *       at least the currently observed direct-buffer usage. The generated
  *       options deliberately do not hard-cap direct memory because a live
  *       snapshot cannot predict future Netty/NIO demand.</li>
+ *   <li><b>Observed heap used</b> is a lower bound for both fixed and percentage
+ *       option literals. Automatic host totals add a 20% starting allowance
+ *       and retain the 128 MiB floor; neither is a peak-demand guarantee.</li>
  *   <li><b>Default thread count</b> is {@code max(liveThreads, 250)}. Virtual
  *       threads do not reduce this platform-thread reserve or {@code -Xss}:
  *       their stacks are heap-backed, while carrier and helper platform
@@ -88,6 +91,7 @@ final class MemoryCalculator {
     static final long MAX_TOTAL_MEMORY_BYTES = 64L * 1024 * MEBIBYTE;
     static final long MIN_REQUESTED_HEAP_BYTES = 2L * MEBIBYTE;
     static final long MIN_DEFAULT_HEAP_BYTES = 128L * MEBIBYTE;
+    private static final int DEFAULT_HEAP_ALLOWANCE_PERCENT = 20;
     private static final long PERCENTAGE_THOUSANDTHS_PER_WHOLE = 100_000L;
 
     static int defaultThreadCount(int liveThreadCount) {
@@ -99,7 +103,7 @@ final class MemoryCalculator {
     }
 
     private static long bytesToMiBCeil(long bytes) {
-        return Math.max(0, (bytes + MEBIBYTE - 1) / MEBIBYTE);
+        return bytes <= 0 ? 0 : (bytes - 1) / MEBIBYTE + 1;
     }
 
     private static long roundUpTo(long value, long multiple) {
@@ -112,6 +116,22 @@ final class MemoryCalculator {
     }
 
     /**
+     * Observed heap used is a snapshot, not live-after-GC or peak demand. Default targets add BootUI's
+     * 20% starting allowance, rounded up to a byte and saturated rather than wrapped. Final validation
+     * requires that allowance only for untouched host defaults.
+     */
+    static long minimumRequestedHeapBytes(long observedHeapUsedBytes, boolean defaultAllowance) {
+        long used = Math.max(0, observedHeapUsedBytes);
+        if (!defaultAllowance) {
+            return Math.max(MIN_REQUESTED_HEAP_BYTES, used);
+        }
+        long allowance =
+                used / 100 * DEFAULT_HEAP_ALLOWANCE_PERCENT + (used % 100 * DEFAULT_HEAP_ALLOWANCE_PERCENT + 99) / 100;
+        long target = used > Long.MAX_VALUE - allowance ? Long.MAX_VALUE : used + allowance;
+        return Math.max(MIN_DEFAULT_HEAP_BYTES, target);
+    }
+
+    /**
      * Compute a memory plan for the given inputs.
      *
      * @param totalMemoryBytes     target container memory budget
@@ -120,7 +140,7 @@ final class MemoryCalculator {
      * @param headRoomPercent      percentage of total memory to leave unallocated
      * @param liveThreadCount      current live thread count (reported for UI context)
      * @param liveLoadedClassCount currently loaded classes (reported for UI context)
-     * @return calculation DTO; if either generated heap request falls below HotSpot's generic lower bound, the
+     * @return calculation DTO; if either generated heap request falls below the required heap bound, the
      * returned DTO has {@code valid = false} and a non-null
      * {@code error} — no exception is thrown so the panel can keep
      * polling without an HTTP error
@@ -230,18 +250,18 @@ final class MemoryCalculator {
         long headRoomBytes = clampedTotal * clampedHeadRoom / 100;
         long heapBytes = clampedTotal - headRoomBytes - fixedRegionsBytes;
 
-        if (bytesToMiBFloor(heapBytes) * MEBIBYTE < minimumRequestedHeapBytes
-                || heapPercentageThousandths(heapBytes, clampedTotal) * clampedTotal
-                        < minimumRequestedHeapBytes * PERCENTAGE_THOUSANDTHS_PER_WHOLE) {
+        long requiredHeapBytes = Math.max(MIN_REQUESTED_HEAP_BYTES, minimumRequestedHeapBytes);
+        if (!heapRequestsFit(heapBytes, clampedTotal, requiredHeapBytes)) {
             String message = String.format(
                     "Insufficient heap budget: fixed regions (%d MiB) + headroom (%d MiB) "
-                            + "leave too little from the %d MiB total to request at least %d MiB "
+                            + "leave too little from the %d MiB total to request at least %d MiB (%d bytes) "
                             + "in both fixed and three-decimal percentage options. "
                             + "Try a larger total memory, fewer threads, or lower headroom.",
                     bytesToMiBCeil(fixedRegionsBytes),
                     bytesToMiBCeil(headRoomBytes),
                     bytesToMiBCeil(clampedTotal),
-                    bytesToMiBCeil(minimumRequestedHeapBytes));
+                    bytesToMiBCeil(requiredHeapBytes),
+                    requiredHeapBytes);
             return new MemoryCalculationDto(
                     clampedTotal,
                     0,
@@ -291,8 +311,8 @@ final class MemoryCalculator {
     /**
      * Pick a sensible default {@code totalMemoryBytes} that is independent of
      * the host machine's RAM. We size to roughly 1.5× the app's observed
-     * footprint, with a floor sized to fit all fixed regions plus 128 MiB of
-     * requested heap after default headroom and option rounding. The hard upper
+     * footprint, with a floor sized to fit all fixed regions plus the required heap
+     * (at least 128 MiB) after default headroom and option rounding. The hard upper
      * clamp of 2 GiB takes precedence; the default report is invalid if that
      * budget cannot fit the heap floor. The user can move the value freely afterwards.
      */
@@ -307,15 +327,35 @@ final class MemoryCalculator {
             int threadCount,
             int loadedClasses,
             long observedDirectMemoryBytes) {
+        return defaultTotalMemoryBytes(
+                heapCommittedBytes,
+                nonHeapCommittedBytes,
+                threadCount,
+                loadedClasses,
+                observedDirectMemoryBytes,
+                MIN_DEFAULT_HEAP_BYTES);
+    }
+
+    long defaultTotalMemoryBytes(
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            int threadCount,
+            int loadedClasses,
+            long observedDirectMemoryBytes,
+            long minimumRequestedHeapBytes) {
         long min = 384L * MEBIBYTE;
         long max = 2048L * MEBIBYTE;
+        long requiredHeapBytes = Math.max(MIN_DEFAULT_HEAP_BYTES, minimumRequestedHeapBytes);
         int safeThreads = Math.max(threadCount, DEFAULT_THREAD_COUNT_FLOOR);
         long fixed = computeDirectMemoryBytes(observedDirectMemoryBytes)
                 + computeMetaspaceBytes(Math.max(loadedClasses, 0))
                 + CODE_CACHE_BYTES
                 + STACK_BYTES_PER_THREAD * (long) safeThreads;
         int availablePercent = 100 - MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
-        long floor = ((fixed + MIN_DEFAULT_HEAP_BYTES) * 100 + availablePercent - 1) / availablePercent;
+        // An impossible observed target still selects the hard clamp; calculation must reject it.
+        long floor = requiredHeapBytes > max || fixed > max - requiredHeapBytes
+                ? max
+                : ((fixed + requiredHeapBytes) * 100 + availablePercent - 1) / availablePercent;
 
         long useful = clamp(heapCommittedBytes, 0, max) + clamp(nonHeapCommittedBytes, 0, max);
         useful = useful + (useful / 2); // ×1.5 footprint
@@ -323,13 +363,19 @@ final class MemoryCalculator {
         long picked = clamp(Math.max(floor, useful), min, max);
         long rounded = roundUpTo(picked, 64L * MEBIBYTE);
         long heapBytes = rounded - rounded * MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT / 100 - fixed;
-        // An exact 128 MiB remainder can round below the floor in percentage options.
-        if (rounded < max
-                && heapPercentageThousandths(heapBytes, rounded) * rounded
-                        < MIN_DEFAULT_HEAP_BYTES * PERCENTAGE_THOUSANDTHS_PER_WHOLE) {
+        // A remainder at the target can round below it in either emitted representation.
+        if (rounded < max && !heapRequestsFit(heapBytes, rounded, requiredHeapBytes)) {
             rounded = Math.min(max, rounded + 64L * MEBIBYTE);
         }
         return rounded;
+    }
+
+    private static boolean heapRequestsFit(long heapBytes, long totalMemoryBytes, long minimumRequestedHeapBytes) {
+        return bytesToMiBFloor(heapBytes) * MEBIBYTE >= minimumRequestedHeapBytes
+                && heapPercentageThousandths(heapBytes, totalMemoryBytes)
+                                * totalMemoryBytes
+                                / PERCENTAGE_THOUSANDTHS_PER_WHOLE
+                        >= minimumRequestedHeapBytes;
     }
 
     static long heapPercentageThousandths(long heapBytes, long totalMemoryBytes) {

@@ -1125,6 +1125,13 @@ Features:
   using the live loaded-class count from `ClassLoadingMXBean` (with an explicit 1.25× safety
   factor), the greater of the 10 MiB direct-memory fallback and observed direct-buffer use, and a platform-thread count
   floored at 250 by default.
+- All generated fixed whole-MiB and floored three-decimal percentage heap options must reach observed heap used and
+  the generic 2 MiB bound. Untouched host defaults target the larger of 128 MiB and observed heap used plus an explicit
+  20% starting allowance, accounting for default headroom and option rounding while retaining the hard 2 GiB default
+  clamp. The allowance is not a peak/workload guarantee; explicit/manual and detected-container plans do not require it.
+  Defaults, validation and the displayed heap reuse one `MemoryUsage` snapshot, without requesting GC or a histogram.
+  An insufficient budget returns the existing invalid/error shape with no options or YAML, not an inflated budget
+  or a recommendation below observed demand.
 - The JVM Tuning panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
   (equal for a fixed modeled heap), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`, and `-Xss`. It deliberately
   leaves the running JVM's collector unchanged and does not synthesize direct-memory, pre-touch, compact-header,

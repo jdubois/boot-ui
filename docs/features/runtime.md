@@ -155,6 +155,10 @@ Verify those paths and that port name against your deployment.
   commands, and `-Xlog` selections.
 - The bare-metal calculator keeps the current collector and omits workload-specific GC, direct-memory-cap, pre-touch,
   compact-header, string-deduplication, and out-of-memory policy flags.
+- Every generated heap option must fit observed heap used and the generic 2 MiB bound after rounding. Untouched host
+  defaults target at least 128 MiB or observed heap used plus a 20% starting allowance, whichever is larger, after
+  headroom. This snapshot requires no GC and is not a peak-demand guarantee. Explicit and detected budgets do not
+  require that allowance; insufficient budgets, including the 2 GiB default clamp, produce no options or YAML.
 - The Kubernetes calculator sets equal memory request and limit by default but labels Pod QoS `Depends on CPU`, because
   Guaranteed QoS also needs matching non-zero CPU resources on every container. You can attempt a lower, snapshot-based
   Burstable request instead.

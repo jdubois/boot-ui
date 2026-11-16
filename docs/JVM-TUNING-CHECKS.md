@@ -24,6 +24,7 @@ and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, 
 | [JDK 26 argument ergonomics](https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/runtime/arguments.cpp) | Percentage sizing depends on JVM-visible RAM and existing flags. `MaxRAM` is deprecated in JDK 26 and is a sizing input, not a process-memory cap. JDK 26 changes the default `InitialRAMPercentage` to 0.0; this calculator supplies an explicit value. |
 | [Paketo Java memory calculator reference](https://paketo.io/docs/reference/java-reference/#memory-calculator), [pinned `libjvm` calculator](https://github.com/paketo-buildpacks/libjvm/blob/83e37180564a488c514ce039217dde75b8fcfa39/calc/calculator.go), and [launch helper](https://github.com/paketo-buildpacks/libjvm/blob/83e37180564a488c514ce039217dde75b8fcfa39/helper/memory_calculator.go) | Supplies the partition formula and the 10 MiB direct-memory, 240 MiB code-cache, 1 MiB stack, and 250-thread modeling defaults. Paketo's headroom default is 0%, not BootUI's 10%; upstream calculation does not establish portable minimum heaps or comprehensive overflow validation. |
 | [`ClassLoadingMXBean`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/ClassLoadingMXBean.html) and [`BufferPoolMXBean`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/BufferPoolMXBean.html) | Provide observable current loaded-class count and estimated direct-buffer memory usage. Both are snapshots, not peak forecasts. |
+| [`MemoryMXBean.getHeapMemoryUsage()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryMXBean.html#getHeapMemoryUsage()) and [`MemoryUsage.getUsed()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryUsage.html#getUsed()) | Supply the observed heap-used lower bound. Reading usage does not request GC; this is not a live-after-GC measurement and can include reclaimable objects. |
 | [JEP 444: Virtual Threads](https://openjdk.org/jeps/444) | Virtual threads are not tied one-to-one to OS threads and are mounted on carrier platform threads. Their presence does not provide an observable, deterministic replacement for a platform-thread native-stack budget. |
 | [JEP 491](https://openjdk.org/jeps/491) and [`ThreadMXBean`](https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/ThreadMXBean.html) | ThreadMXBean observes platform threads, not virtual threads. Synchronized-related virtual-thread pinning changed in JDK 24; older pinning guidance is version-dependent. |
 | [Oracle GC ergonomics guidance](https://docs.oracle.com/en/java/javase/17/gctuning/ergonomics.html) | GC sizing and pause/throughput choices are competing workload goals; heap size alone is not sufficient evidence for changing collectors or enabling pre-touch. |
@@ -59,20 +60,32 @@ The current inputs and bounds are:
 | Metaspace | `(14,000,000 + 5,800 × current loaded classes) × 1.25`, rounded up to MiB. The constants follow Paketo; 1.25 is an explicit BootUI allowance for later class loading. |
 | Code cache | 240 MiB, following the comparable Paketo model. |
 | Platform-thread stacks | 1 MiB times the operator budget. The initial budget is `max(current live threads, 250)` for every runtime, including applications using virtual threads. |
-| Heap | Exact remaining modeled bytes in valid reports; fixed option literals round down to MiB. Both fixed and three-decimal percentage requests must reach HotSpot's generic 2 MiB maximum-heap lower bound. Otherwise the report is invalid with an explanation and no generated options/YAML. No upward heap adjustment rescues an exhausted budget. |
+| Heap | Exact remaining modeled bytes in valid reports; fixed option literals round down to MiB. Every fixed and three-decimal percentage request must reach both HotSpot's generic 2 MiB maximum-heap lower bound and observed heap used. Untouched host defaults apply the larger target below. Otherwise the report is invalid with an explanation and no generated options/YAML. No upward heap adjustment rescues an exhausted budget. |
 
-The generic bound deliberately does not invent a workload-sized minimum. For example, 2 MiB is representable as
+With no observed heap data, the generic bound retains its neutral behavior. For example, 2 MiB is representable as
 `0.5%` of 400 MiB, but flooring its ratio against 519 MiB to `0.385%` requests less than 2 MiB; the latter plan is
 invalid even though its fixed option alone could request 2 MiB. Passing these arithmetic checks does not guarantee
 collector initialization, application startup, or workload sufficiency.
 
-Without a detected container limit or sizing overrides, the host default reserves at least **128 MiB of requested
-heap after the default 10% headroom**. Default sizing and the final calculation use the same observed direct-memory
-reservation, bounded and rounded up to MiB. The floor is `(fixed regions + 128 MiB) / 0.9`, rounded up to 64 MiB and, if
-necessary, raised one more step so three-decimal percentage flooring also preserves the heap floor. The existing
-2 GiB default clamp still takes precedence: when it cannot fit that floor, the default report is invalid with an
-explanation and no options/YAML. Explicit budgets retain the generic 2 MiB validation above; 128 MiB is a default
-heuristic, not a workload-safety claim. This does not yet size against observed heap use or Metaspace demand.
+Without a detected container limit or sizing overrides, the host default targets the larger of **128 MiB** and
+**observed heap used plus 20%**, after the default 10% headroom and option rounding. The 20% allowance is an explicit
+BootUI starting heuristic, rounded up to a byte, not a peak/workload guarantee. The floor is
+`(fixed regions + target heap) / 0.9`, rounded up to 64 MiB and, if necessary, raised one more step so fixed whole-MiB
+and floored three-decimal percentage options both preserve the target. Default sizing and final validation reuse the
+same target and observed direct-memory reservation. The existing 2 GiB default clamp still takes precedence: when it
+cannot fit the target, the default report is invalid with an explanation and no options/YAML.
+
+When total memory is still automatic, editing only threads or headroom retains that automatic-total target and its
+20% allowance. Those edits relax only the final validation minimum below; they do not shrink the automatic budget.
+An explicit total or detected container limit bypasses the automatic-total heuristic entirely.
+
+Explicit/manual and detected-container plans require the larger of observed heap used and 2 MiB, without the
+mandatory default 20% allowance or 128 MiB validation floor. Operator budgets are not silently raised to fit demand.
+The same single `MemoryUsage` heap snapshot supplies defaults, validation, and the displayed heap report. BootUI
+does not trigger GC or a histogram to obtain it; observed heap used can include reclaimable objects and is not
+measured live-after-GC. Negative/unknown heap-used inputs contribute no observed lower bound; zero preserves the
+generic/default floors. Oversized observations and allowance arithmetic saturate rather than wrapping or dropping the
+bound, leaving an invalid plan when the selected budget cannot fit. Observed Metaspace sizing remains separate work.
 
 Displayed defaults remain defaults through refreshes and Kubernetes-only toggle changes. Only editing a total,
 thread or headroom input sends that sizing override; untouched inputs continue to follow the current report.
@@ -142,7 +155,7 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 | -------- | ------ | --------- |
 | Paketo partition | **RETAIN** | Established deterministic policy, not exhaustive process-memory accounting. |
 | Total/thread/headroom input clamps | **RETAIN** | Existing bounded operator contract, not universal JVM limits. |
-| Host default and rounding | **UPDATE** | Preserve 1.5x/384 MiB–2 GiB/64 MiB policy; include default headroom and option rounding in the 128 MiB heap floor, rejecting defaults that cannot fit it within the clamp. |
+| Host default and rounding | **UPDATE** | Preserve 1.5x/384 MiB–2 GiB/64 MiB policy; include default headroom and both option representations in the larger of 128 MiB and observed heap used plus a 20% starting allowance. Reject defaults that cannot fit within the clamp. |
 | Detected total and YAML denominator | **UPDATE** | Round detected budget down to whole MiB, preserve raw evidence, and align emitted quantities with the model. |
 | Headroom default 10%, selectable 0%–30% | **RETAIN** | Explicit BootUI/operator heuristic; not Paketo's default or a safety guarantee. |
 | Live class count and 1.25 metaspace allowance | **RETAIN; ENHANCEMENT DEFERRED** | Observable class count with an explicit heuristic; it can underestimate current actual metadata. Observed-metaspace sizing requires separate policy and must not double-count compressed class space. |
@@ -151,7 +164,7 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 | Code cache 240 MiB | **RETAIN** | Paketo reserve, not every JVM mode's default or observed commitment. |
 | 1 MiB stacks; max(live platform threads,250) default | **RETAIN** | Explicit setting and reserve, not the platform's default stack size or future/native-thread count. |
 | Virtual-thread stack discount | **RETAIN REMOVAL** | Heap-backed virtual stacks do not remove native platform/carrier stacks. |
-| Minimum generated maximum heap | **UPDATE** | Reject fixed or serialized-percentage candidates below the generic 2 MiB source bound; no speculative 8 MiB floor. |
+| Minimum generated maximum heap | **UPDATE** | Reject fixed or serialized-percentage candidates below observed heap used or the generic 2 MiB source bound; explicit and detected budgets are not inflated and do not require the default 20% allowance. No speculative 8 MiB floor. |
 | Fixed `-Xms`/`-Xmx` equality | **RETAIN** | Explicit fixed modeled heap policy, not an evidence-based production commitment recommendation. |
 | Literal flooring guarantees effective budget | **REMOVE CLAIM** | Target collector/platform alignment may enlarge effective heap; validity is arithmetic, not startup/load proof. |
 | Max/Min/Initial RAM percentages | **UPDATE** | Exact three-decimal flooring and emitted-bound validation; explain denominator, override and initial/minimum semantics. |

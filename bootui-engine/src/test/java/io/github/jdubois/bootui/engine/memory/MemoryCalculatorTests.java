@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.memory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -359,6 +361,147 @@ class MemoryCalculatorTests {
         assertThat(calculator.buildKubernetesJvmOptions(result, 0, 0)).isEmpty();
     }
 
+    @Test
+    void observedHeapDefaultFloorIncludesAllowanceHeadroomAndPercentageRounding() {
+        long observedHeapUsed = 210 * MB;
+        long requiredHeap = MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed, true);
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 633, 0, 0, requiredHeap);
+        MemoryCalculationDto result = calculator.calculate(total, 633, 0, 10, 633, 0, false, null, 0, requiredHeap);
+
+        assertThat(requiredHeap).isEqualTo(252 * MB);
+        // 1280 MiB leaves exactly 252 MiB, but its floored 19.687% requests less.
+        assertThat(total).isEqualTo(1344 * MB);
+        assertThat(result.valid()).isTrue();
+        assertThat(optionMebibytes(result.jvmOptions(), "-Xms") * MB).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(optionMebibytes(result.jvmOptions(), "-Xmx") * MB).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(renderedPercentageHeapBytes(result)).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed + 1, true))
+                .isEqualTo(requiredHeap + 2);
+        assertThat(MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed + 1, false))
+                .isEqualTo(observedHeapUsed + 1);
+    }
+
+    @Test
+    void defaultSizingRetriesWhenOnlyTheFixedHeapOptionMissesTheObservedTarget() {
+        long observedHeapUsed = 145 * MB + 1;
+        long requiredHeap = MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed, true);
+        // Render the initial candidate under the neutral bound to isolate the two rounding paths.
+        MemoryCalculationDto beforeRetry = calculator.calculate(768 * MB, 250, 0, 10, 250, 0);
+
+        assertThat(requiredHeap).isEqualTo(174 * MB + 2);
+        assertThat(beforeRetry.valid()).isTrue();
+        assertThat(optionMebibytes(beforeRetry.jvmOptions(), "-Xmx") * MB)
+                .isEqualTo(174 * MB)
+                .isLessThan(requiredHeap);
+        assertThat(renderedPercentageHeapBytes(beforeRetry))
+                .isEqualTo(182_659_590L)
+                .isGreaterThanOrEqualTo(requiredHeap);
+
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 0, 0, requiredHeap);
+        MemoryCalculationDto result = calculator.calculate(total, 250, 0, 10, 250, 0, false, null, 0, requiredHeap);
+
+        assertThat(total).isEqualTo(832 * MB);
+        assertThat(result.valid()).isTrue();
+        assertThat(List.of(result.jvmOptions().split(" "))).contains("-Xms231m", "-Xmx231m");
+        assertThat(optionMebibytes(result.jvmOptions(), "-Xmx") * MB).isGreaterThanOrEqualTo(requiredHeap);
+        double percentage = MemoryKubernetesSizer.heapPercentage(result);
+        String percentageOptions = calculator.buildKubernetesJvmOptions(result, percentage, percentage);
+        assertThat(List.of(percentageOptions.split(" ")))
+                .contains("-XX:MaxRAMPercentage=27.86", "-XX:MinRAMPercentage=27.86", "-XX:InitialRAMPercentage=27.86");
+        assertThat(renderedPercentageHeapBytes(result)).isEqualTo(243_054_883L).isGreaterThanOrEqualTo(requiredHeap);
+    }
+
+    @Test
+    void observedHeapBoundRejectsOneByteAboveTheFixedOptionEvenWhenPercentageFits() {
+        long fixedHeap = 397 * MB;
+        MemoryCalculationDto exact = calculateWithObservedHeap(1024 * MB, 250, 1_000, 10, fixedHeap);
+        MemoryCalculationDto below = calculateWithObservedHeap(1024 * MB, 250, 1_000, 10, fixedHeap + 1);
+
+        assertThat(exact.valid()).isTrue();
+        assertThat(optionMebibytes(exact.jvmOptions(), "-Xmx") * MB).isEqualTo(fixedHeap);
+        assertThat(renderedPercentageHeapBytes(exact)).isGreaterThan(fixedHeap + 1);
+        assertThat(below.valid()).isFalse();
+        assertThat(below.heapBytes()).isZero();
+        assertThat(below.jvmOptions()).isEmpty();
+        assertThat(below.error()).contains((fixedHeap + 1) + " bytes");
+    }
+
+    @Test
+    void observedHeapBoundChecksTheSerializedPercentageToTheByte() {
+        MemoryCalculationDto baseline = calculator.calculate(1024 * MB, 250, 1_000, 0, 250, 1_000);
+        long percentageHeap = renderedPercentageHeapBytes(baseline);
+        MemoryCalculationDto exact = calculateWithObservedHeap(1024 * MB, 250, 1_000, 0, percentageHeap);
+        MemoryCalculationDto below = calculateWithObservedHeap(1024 * MB, 250, 1_000, 0, percentageHeap + 1);
+
+        assertThat(percentageHeap).isLessThan(baseline.heapBytes());
+        assertThat(optionMebibytes(baseline.jvmOptions(), "-Xmx") * MB).isGreaterThan(percentageHeap + 1);
+        assertThat(exact.valid()).isTrue();
+        assertThat(renderedPercentageHeapBytes(exact)).isEqualTo(percentageHeap);
+        assertThat(below.valid()).isFalse();
+        assertThat(below.jvmOptions()).isEmpty();
+        assertThat(calculator.buildKubernetesJvmOptions(below, 0, 0)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1, Long.MIN_VALUE})
+    void absentOrNegativeObservedHeapPreservesNeutralOverloads(long observedHeapUsed) {
+        long defaultMinimum = MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed, true);
+        assertThat(defaultMinimum).isEqualTo(MemoryCalculator.MIN_DEFAULT_HEAP_BYTES);
+        assertThat(MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed, false))
+                .isEqualTo(MemoryCalculator.MIN_REQUESTED_HEAP_BYTES);
+        assertThat(calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000, 0, defaultMinimum))
+                .isEqualTo(calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000));
+        assertThat(calculateWithObservedHeap(400 * MB, 131, 0, 0, observedHeapUsed))
+                .isEqualTo(calculator.calculate(400 * MB, 131, 0, 0, 131, 0, false, null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {2048L * MB, Long.MAX_VALUE / 2, Long.MAX_VALUE - 1, Long.MAX_VALUE})
+    void oversizedObservedHeapCannotWrapOrEscapeTheDefaultClamp(long observedHeapUsed) {
+        long requiredHeap = MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed, true);
+        long total = calculator.defaultTotalMemoryBytes(
+                Long.MAX_VALUE, Long.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Long.MAX_VALUE, requiredHeap);
+        MemoryCalculationDto defaultPlan =
+                calculator.calculate(total, 250, 1_000, 10, 250, 1_000, false, null, 0, requiredHeap);
+        MemoryCalculationDto manualPlan = calculateWithObservedHeap(1024 * MB, 250, 1_000, 0, observedHeapUsed);
+
+        assertThat(requiredHeap).isGreaterThanOrEqualTo(observedHeapUsed);
+        assertThat(total).isEqualTo(2048 * MB);
+        assertThat(defaultPlan.valid()).isFalse();
+        assertThat(defaultPlan.jvmOptions()).isEmpty();
+        assertThat(defaultPlan.error()).contains(requiredHeap + " bytes");
+        assertThat(calculator.buildKubernetesJvmOptions(defaultPlan, 0, 0)).isEmpty();
+        assertThat(manualPlan.valid()).isFalse();
+        assertThat(manualPlan.jvmOptions()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {Long.MAX_VALUE, Long.MAX_VALUE - 1, Long.MAX_VALUE / 2})
+    void hugeRequiredHeapCannotOverflowTheDefaultFloorWithASmallFootprint(long requiredHeap) {
+        assertThat(calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000, 0, requiredHeap))
+                .isEqualTo(2048 * MB);
+        assertThat(calculator.defaultTotalMemoryBytes(MB, MB, 250, 1_000, 0, requiredHeap))
+                .isEqualTo(2048 * MB);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {-1, 0, 1})
+    void fixedAndRequiredHeapAtTheDefaultClampStillNeedHeadroom(long extraByte) {
+        long fixedBytes =
+                calculator.calculate(2048 * MB, 250, 1_000, 0, 250, 1_000).fixedRegionsBytes();
+        long requiredHeap = 2048 * MB - fixedBytes + extraByte;
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000, 0, requiredHeap);
+        MemoryCalculationDto result =
+                calculator.calculate(total, 250, 1_000, 10, 250, 1_000, false, null, 0, requiredHeap);
+
+        assertThat(fixedBytes + requiredHeap).isEqualTo(2048 * MB + extraByte);
+        assertThat(total).isEqualTo(2048 * MB);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.error()).isNotBlank();
+        assertThat(result.jvmOptions()).isEmpty();
+        assertThat(calculator.buildKubernetesJvmOptions(result, 0, 0)).isEmpty();
+    }
+
     @ParameterizedTest
     @CsvSource({"1500, 0", "250, 190000", "10000, 200000"})
     void defaultUpperClampCannotProduceARecommendationBelowTheDefaultHeapFloor(int threads, int classes) {
@@ -410,6 +553,33 @@ class MemoryCalculatorTests {
 
     private static long roundUpToMiB(long bytes) {
         return ((bytes + MB - 1) / MB) * MB;
+    }
+
+    private MemoryCalculationDto calculateWithObservedHeap(
+            long totalBytes, int threads, int classes, int headroom, long observedHeapUsed) {
+        return calculator.calculate(
+                totalBytes,
+                threads,
+                classes,
+                headroom,
+                threads,
+                classes,
+                false,
+                null,
+                0,
+                MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsed, false));
+    }
+
+    private long renderedPercentageHeapBytes(MemoryCalculationDto result) {
+        double percentage = MemoryKubernetesSizer.heapPercentage(result);
+        String options = calculator.buildKubernetesJvmOptions(result, percentage, percentage);
+        Matcher matcher = Pattern.compile("-XX:MaxRAMPercentage=([\\d.]+)").matcher(options);
+        assertThat(matcher.find()).isTrue();
+        return new BigDecimal(matcher.group(1))
+                .multiply(BigDecimal.valueOf(result.totalMemoryBytes()))
+                .movePointLeft(2)
+                .setScale(0, RoundingMode.FLOOR)
+                .longValueExact();
     }
 
     private static void assertDefaultHeapFloor(MemoryCalculationDto result) {

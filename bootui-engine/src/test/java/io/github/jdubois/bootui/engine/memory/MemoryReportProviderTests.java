@@ -6,7 +6,9 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -17,12 +19,15 @@ import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -31,12 +36,14 @@ import org.mockito.ArgumentCaptor;
  *
  * <p>Uses a fake {@link MemoryRuntimeConfig} to drive the virtual-threads /
  * Kubernetes-health-probe inputs without a framework. Live
- * {@link java.lang.management.ManagementFactory} data is used for heap, non-heap and pool readings —
- * these are always non-negative in a running JVM, which is all these tests assert about them. The pure
+ * {@link java.lang.management.ManagementFactory} data is used for non-heap and pool readings; heap
+ * observations are deterministic so recommendation assertions do not depend on test-JVM occupancy. The pure
  * formula assertions are covered by {@link MemoryCalculatorTests} and
  * {@link MemoryKubernetesSizerTests}.
  */
 class MemoryReportProviderTests {
+
+    private static final long MB = 1024L * 1024L;
 
     private static MemoryRuntimeConfig config(boolean virtualThreads, boolean healthProbes) {
         return new MemoryRuntimeConfig() {
@@ -63,11 +70,25 @@ class MemoryReportProviderTests {
     }
 
     private static MemoryReportProvider providerWithDefaults() {
-        return new MemoryReportProvider(new MemoryCalculator());
+        return providerWithHeapUsage(
+                new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS, 0);
     }
 
     private static MemoryReportProvider providerWithDisabledDetector(MemoryRuntimeConfig runtimeConfig) {
-        return new MemoryReportProvider(new MemoryCalculator(), ContainerMemoryLimitDetector.disabled(), runtimeConfig);
+        return providerWithHeapUsage(new MemoryCalculator(), ContainerMemoryLimitDetector.disabled(), runtimeConfig, 0);
+    }
+
+    private static MemoryReportProvider providerWithHeapUsage(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector detector,
+            MemoryRuntimeConfig runtimeConfig,
+            long usedBytes) {
+        return new MemoryReportProvider(
+                calculator, detector, runtimeConfig, null, List::of, () -> heapUsage(usedBytes));
+    }
+
+    private static MemoryUsage heapUsage(long usedBytes) {
+        return new MemoryUsage(-1, usedBytes, Math.max(64 * MB, usedBytes), -1);
     }
 
     @Test
@@ -94,15 +115,26 @@ class MemoryReportProviderTests {
     @ParameterizedTest
     @CsvSource(
             value = {
-                "null, null, null, null, 128",
-                "2048, null, null, null, 2",
-                "null, 1500, null, null, 2",
-                "null, null, 10, null, 2",
-                "null, null, null, 2048, 2"
+                "null, null, null, null, 0, 128, 128",
+                "2048, null, null, null, 0, 2, null",
+                "null, 1500, null, null, 0, 2, 128",
+                "null, null, 10, null, 0, 2, 128",
+                "null, null, null, 2048, 0, 2, null",
+                "null, null, null, null, 250, 300, 300",
+                "2048, null, null, null, 250, 250, null",
+                "null, 1500, null, null, 250, 250, 300",
+                "null, null, 10, null, 250, 250, 300",
+                "null, null, null, 2048, 250, 250, null"
             },
             nullValues = "null")
-    void appliesTheDefaultHeapFloorOnlyToUnmodifiedHostDefaults(
-            Long totalMiB, Integer threads, Integer headroom, Long containerLimitMiB, long minimumHeapMiB) {
+    void appliesObservedHeapBoundAndDefaultAllowanceAccordingToInputProvenance(
+            Long totalMiB,
+            Integer threads,
+            Integer headroom,
+            Long containerLimitMiB,
+            long observedHeapMiB,
+            long minimumHeapMiB,
+            Long automaticTargetHeapMiB) {
         MemoryCalculator calculator = spy(new MemoryCalculator());
         ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
         when(detector.detect())
@@ -112,7 +144,8 @@ class MemoryReportProviderTests {
                                 : OptionalLong.of(containerLimitMiB * 1024L * 1024L),
                         OptionalLong.empty(),
                         OptionalLong.empty()));
-        MemoryReportProvider provider = new MemoryReportProvider(calculator, detector);
+        MemoryReportProvider provider =
+                providerWithHeapUsage(calculator, detector, MemoryRuntimeConfig.DEFAULTS, observedHeapMiB * MB);
 
         provider.buildReport(totalMiB, threads, headroom, null, null);
 
@@ -128,17 +161,72 @@ class MemoryReportProviderTests {
                         any(),
                         anyLong(),
                         eq(minimumHeapMiB * 1024L * 1024L));
+        if (automaticTargetHeapMiB == null) {
+            verify(calculator, never())
+                    .defaultTotalMemoryBytes(anyLong(), anyLong(), anyInt(), anyInt(), anyLong(), anyLong());
+        } else {
+            verify(calculator)
+                    .defaultTotalMemoryBytes(
+                            anyLong(), anyLong(), anyInt(), anyInt(), anyLong(), eq(automaticTargetHeapMiB * MB));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            value = {"300, null", "null, 5"},
+            nullValues = "null")
+    void editingOnlyThreadsOrHeadroomKeepsTheAutomaticTotal(Integer threads, Integer headroom) {
+        MemoryCalculator calculator = spy(new MemoryCalculator());
+        MemoryCalculator fixedObservations = new MemoryCalculator();
+        // Pin only the footprint/fixed-region observations while exercising the provider's target selection.
+        doAnswer(invocation -> fixedObservations.defaultTotalMemoryBytes(
+                        0, 0, 250, 1_000, 0, invocation.getArgument(5, Long.class)))
+                .when(calculator)
+                .defaultTotalMemoryBytes(anyLong(), anyLong(), anyInt(), anyInt(), anyLong(), anyLong());
+        MemoryReportProvider provider = providerWithHeapUsage(
+                calculator, ContainerMemoryLimitDetector.disabled(), MemoryRuntimeConfig.DEFAULTS, 250 * MB);
+
+        LiveMemoryReport defaults = provider.buildReport(null, null, null, null, null);
+        LiveMemoryReport edited = provider.buildReport(null, threads, headroom, null, null);
+
+        assertThat(defaults.calculation().totalMemoryBytes()).isEqualTo(960 * MB);
+        assertThat(edited.calculation().totalMemoryBytes())
+                .isEqualTo(defaults.calculation().totalMemoryBytes());
+        assertThat(fixedObservations
+                        .calculate(
+                                edited.calculation().totalMemoryBytes(),
+                                threads == null ? 250 : threads,
+                                1_000,
+                                headroom == null ? 10 : headroom,
+                                250,
+                                1_000,
+                                false,
+                                null,
+                                0,
+                                250 * MB)
+                        .valid())
+                .isTrue();
     }
 
     @Test
-    void usesOneDirectMemoryObservationForDefaultSizingAndCalculation() {
+    void usesOneHeapAndDirectObservationForDefaultsCalculationAndDisplayedReport() {
         MemoryCalculator calculator = spy(new MemoryCalculator());
-        MemoryReportProvider provider = new MemoryReportProvider(calculator, ContainerMemoryLimitDetector.disabled());
+        MemoryMXBean memory = mock(MemoryMXBean.class);
+        when(memory.getHeapMemoryUsage()).thenReturn(heapUsage(250 * MB), heapUsage(1024 * MB));
+        MemoryReportProvider provider = new MemoryReportProvider(
+                calculator,
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                memory::getHeapMemoryUsage);
         ArgumentCaptor<Long> directBytes = ArgumentCaptor.forClass(Long.class);
 
-        provider.buildReport(null, null, null, null, null);
+        LiveMemoryReport report = provider.buildReport(null, null, null, true, false);
 
-        verify(calculator).defaultTotalMemoryBytes(anyLong(), anyLong(), anyInt(), anyInt(), directBytes.capture());
+        verify(calculator)
+                .defaultTotalMemoryBytes(
+                        eq(250 * MB), anyLong(), anyInt(), anyInt(), directBytes.capture(), eq(300 * MB));
         verify(calculator)
                 .calculate(
                         anyLong(),
@@ -150,7 +238,44 @@ class MemoryReportProviderTests {
                         anyBoolean(),
                         any(),
                         eq(directBytes.getValue()),
-                        eq(MemoryCalculator.MIN_DEFAULT_HEAP_BYTES));
+                        eq(300 * MB));
+        assertThat(report.heap().usedBytes()).isEqualTo(250 * MB);
+        verify(memory).getHeapMemoryUsage();
+        verifyNoMoreInteractions(memory);
+    }
+
+    @Test
+    void impossibleObservedDefaultHeapKeepsTheClampAndEmitsNoOptionsOrYaml() {
+        MemoryReportProvider provider = providerWithHeapUsage(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                3072 * MB);
+
+        LiveMemoryReport report = provider.buildReport(null, null, null, null, null);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(2048 * MB);
+        assertThat(report.heap().usedBytes()).isEqualTo(3072 * MB);
+        assertNoRecommendation(report);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void insufficientExplicitAndDetectedBudgetsAreNotInflatedToFitObservedHeap(boolean detectedBudget) {
+        ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
+        when(detector.detect())
+                .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
+                        detectedBudget ? OptionalLong.of(1024 * MB) : OptionalLong.empty(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty()));
+        MemoryReportProvider provider =
+                providerWithHeapUsage(new MemoryCalculator(), detector, MemoryRuntimeConfig.DEFAULTS, 2048 * MB);
+
+        LiveMemoryReport report = provider.buildReport(detectedBudget ? null : 1024L, null, null, null, null);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(1024 * MB);
+        assertThat(report.calculation().error()).contains((2048 * MB) + " bytes");
+        assertNoRecommendation(report);
     }
 
     @Test
@@ -265,7 +390,8 @@ class MemoryReportProviderTests {
         when(detector.detect())
                 .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
                         OptionalLong.of(detectedBytes), OptionalLong.of(256L * mebibyte), OptionalLong.empty()));
-        MemoryReportProvider provider = new MemoryReportProvider(new MemoryCalculator(), detector);
+        MemoryReportProvider provider =
+                providerWithHeapUsage(new MemoryCalculator(), detector, MemoryRuntimeConfig.DEFAULTS, 0);
 
         LiveMemoryReport report = provider.buildReport(null, 50, 10, false, false);
 
@@ -329,5 +455,17 @@ class MemoryReportProviderTests {
         exposure.set(ValueExposure.FULL);
         assertThat(provider.buildReport(null, null, null, null, null).jvmInputArguments())
                 .containsExactly("-Dapp.api-token=raw-token", "-Dapp.name=demo", "-Xss512k");
+    }
+
+    private static void assertNoRecommendation(LiveMemoryReport report) {
+        assertThat(report.calculation().valid()).isFalse();
+        assertThat(report.calculation().error()).isNotBlank();
+        assertThat(report.calculation().heapBytes()).isZero();
+        assertThat(report.calculation().jvmOptions()).isEmpty();
+        assertThat(report.suggestedJvmOptions()).isEmpty();
+        assertThat(report.kubernetes().javaToolOptions()).isEmpty();
+        assertThat(report.kubernetes().yaml()).isEmpty();
+        assertThat(report.kubernetes().qosClass()).isEqualTo("Unavailable");
+        assertThat(report.kubernetes().warnings()).contains(report.calculation().error());
     }
 }
