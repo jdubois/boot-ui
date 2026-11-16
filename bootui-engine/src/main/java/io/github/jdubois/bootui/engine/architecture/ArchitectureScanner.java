@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
@@ -205,8 +206,12 @@ public final class ArchitectureScanner {
         progress.checkCancelled();
         progress.report(IMPORTING_CLASSES, 0, total);
         JavaClasses classes;
+        ArchUnitBytecodeImports.Result imported;
         try {
-            classes = Objects.requireNonNull(importer.importPackages(basePackages));
+            imported = platform == ArchitecturePlatform.SPRING
+                    ? Objects.requireNonNull(importer.importWithBytecode(basePackages))
+                    : ArchUnitBytecodeImports.Result.uncaptured(importer.importPackages(basePackages));
+            classes = Objects.requireNonNull(imported.classes());
             // Catch LinkageError (e.g. NoClassDefFoundError/ClassFormatError) as well as RuntimeException so a
             // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
             // VirtualMachineError (OutOfMemoryError, StackOverflowError) is deliberately not caught here.
@@ -247,7 +252,8 @@ public final class ArchitectureScanner {
                 platform,
                 new ArchitectureContext.ArchitectureEvaluationEvidence(),
                 collector,
-                generatedCode.handwrittenClasses(classes));
+                generatedCode.handwrittenClasses(classes),
+                imported.bytecode());
         List<ArchitectureRuleResultDto> results = new java.util.ArrayList<>();
         boolean usable = false;
         List<String> unreported = new java.util.ArrayList<>(generatedCode.limitations());

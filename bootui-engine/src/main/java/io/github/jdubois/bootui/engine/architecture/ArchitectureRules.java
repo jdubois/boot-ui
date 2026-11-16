@@ -38,15 +38,18 @@ import com.tngtech.archunit.lang.conditions.ArchConditions;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.source.LocalSourceModule;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
  * Base class for curated architecture rules backed by a single ArchUnit {@link ArchRule}.
@@ -1208,7 +1211,14 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
  */
 final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRule {
 
+    private final BiFunction<JavaClass, ArchUnitBytecodeImports.Bytecode, ProxyReceiverEvidence> receiverEvidence;
+
     NoSelfInvocationOfProxiedMethodsRule() {
+        this(ProxyReceiverEvidence::read);
+    }
+
+    NoSelfInvocationOfProxiedMethodsRule(
+            BiFunction<JavaClass, ArchUnitBytecodeImports.Bytecode, ProxyReceiverEvidence> receiverEvidence) {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-004",
                 "Beans should not self-invoke their own proxied methods",
@@ -1223,6 +1233,7 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                         + " only if necessary, inject a @Lazy self-reference and call through it. Kotlin behaves"
                         + " identically here: marking the function open does not make a this-call go through the proxy.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
+        this.receiverEvidence = receiverEvidence;
     }
 
     @Override
@@ -1238,13 +1249,16 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                                         + " the declaring class)") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
+                                Map<JavaClass, ProxyReceiverEvidence> receivers = new HashMap<>();
                                 for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
                                     events.add(new SimpleConditionEvent(
-                                            call, bypassesProxy(context, beans, call), describe(call)));
+                                            call, bypassesProxy(context, beans, receivers, call), describe(call)));
                                 }
                                 for (JavaMethodReference reference : javaClass.getMethodReferencesFromSelf()) {
                                     events.add(new SimpleConditionEvent(
-                                            reference, bypassesProxy(context, beans, reference), describe(reference)));
+                                            reference,
+                                            bypassesProxy(context, beans, receivers, reference),
+                                            describe(reference)));
                                 }
                             }
                         })
@@ -1269,8 +1283,11 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
      * calling a target whose sole proxy behaviour is a {@code REQUIRED}, {@code SUPPORTS} or {@code MANDATORY}
      * transaction with the same manager, rollback rules, isolation and timeout. See {@link TransactionJoin}.
      */
-    private static boolean bypassesProxy(
-            ArchitectureContext context, ContainerBeans beans, JavaCodeUnitAccess<?> access) {
+    private boolean bypassesProxy(
+            ArchitectureContext context,
+            ContainerBeans beans,
+            Map<JavaClass, ProxyReceiverEvidence> receivers,
+            JavaCodeUnitAccess<?> access) {
         if (context.platform() != ArchitecturePlatform.SPRING
                 || !access.getOriginOwner().equals(access.getTargetOwner())
                 || KotlinBytecode.isGeneratedDispatchBridge(access.getOrigin())) {
@@ -1301,7 +1318,15 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
         if (!methodAnnotated && !classAnnotated) {
             return false;
         }
-        if (!methodAnnotated && !AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(resolvedMethod)) {
+        boolean interceptable = AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(resolvedMethod);
+        if (!methodAnnotated && !interceptable) {
+            return false;
+        }
+        if (interceptable
+                && receivers
+                        .computeIfAbsent(
+                                access.getOriginOwner(), type -> receiverEvidence.apply(type, context.bytecode()))
+                        .isProxyReceiver(access)) {
             return false;
         }
         return !(access instanceof JavaMethodCall call && TransactionJoin.joinsCallerTransaction(call, resolvedMethod));

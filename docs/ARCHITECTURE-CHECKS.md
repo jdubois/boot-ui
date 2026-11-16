@@ -221,8 +221,9 @@ across every possible module boundary.
 
 Most Spring rules recognize direct annotations rather than Spring's full merged and aliased metadata model, though the
 scheduling check also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK, CGLIB, or
-AspectJ configuration. The same declaring class does not prove a `this` receiver, and filtering Kotlin dispatch helpers
-can hide authored calls inside mangled internal members.
+AspectJ configuration. The same declaring class does not prove a `this` receiver: ARCH-SPRING-004 recognizes bounded
+Java proxy-receiver expressions, but retains the owner-based heuristic for unsupported shapes (see the rule below).
+Filtering Kotlin dispatch helpers can hide authored calls inside mangled internal members.
 
 These remain known limitations rather than problems solved by the logger, scheduling, and `ThreadFactory`
 improvements. For background, see the
@@ -632,6 +633,31 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
   `@PostFilter`, `@Secured`, or `jakarta.annotation.security.RolesAllowed`) on the method, or `@Async` / a cache
   operation on the declaring class (for interceptable non-private, non-static, non-final methods).
 - **Fires when**: a bean calls or references one of its own proxied methods directly, bypassing the Spring proxy.
+- **Recognized proxy receivers**: bounded Java bytecode evidence excludes virtual/interface calls to interceptable
+  targets through an injected `@Lazy` self-reference field, an injected `ObjectProvider<Self>` field's no-argument
+  `getObject`, `getIfAvailable`, or `getIfUnique`, and `AopContext.currentProxy()`. The fields must have no writes in the
+  imported accesses, and `@Lazy(false)` does not qualify. Raw, wildcard, or other-type providers do not establish this
+  evidence. Explicitly annotated private/final targets and special-dispatch calls/references retain the previous
+  suspicion, even with a recognized receiver. Straight-line local aliases, calls inside compiler-generated lambda
+  bodies that read those fields, and bound virtual/interface method references are recognized; ordinary method
+  references do not fold the referenced method's body into their caller.
+  Receiver evidence is matched by enclosing method, target signature, access kind, and line; a direct
+  `this` call or reference is never exempted merely because a proxy call shares its source line.
+  This is not complete alias analysis or proof of runtime proxy configuration. Branches, exception handlers,
+  unsupported bytecode, helper-returned receivers, captured local aliases inside lambda bodies, constructor/setter
+  injection, and unavailable or malformed receiver bytecode retain the previous owner-based heuristic and can still
+  produce false positives. Receiver analysis is lazy and uses only bytes frozen as the actual ArchUnit reader input
+  for that import; it never reopens a source after import or substitutes a later source fingerprint. Recompilation
+  therefore cannot turn an older imported `this` call into a proxy call. Original source URIs are preserved.
+  The optional Spring Architecture import bridge checks ArchUnit's internal API shape and reflective access at runtime,
+  without a version allowlist or global configuration/cache. Unsupported hooks, custom imports without captured input,
+  or conflicting/unverified duplicate resource reads keep the legacy heuristic. Other advisors and Quarkus keep their
+  normal import path. Capture accepts authority-free local resources, with limits of 4 MiB per class, 64 MiB retained
+  per import, and 8192 resource identities; limits drop optional proof, not imported classes. The frozen bytes live only
+  with that import/context. Lambda/site-expansion limits also retain the heuristic. Ambiguous matching sites remain
+  reported if any matching instruction lacks proxy evidence.
+  These precision limits do not introduce new required-evidence gaps; existing unresolved-target gaps remain unchanged.
+  Kotlin keeps its existing dispatch normalization and owner-based behavior.
 - **Why it matters**: the transaction, async execution, caching, retry, concurrency limit, or authorization check is
   silently lost because the call never passes through the proxy — a real correctness bug, and for method security an
   authorization bypass. Whether method security is enabled at all is the Security advisor's SEC-METHOD-001.

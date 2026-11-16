@@ -9,6 +9,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
@@ -35,6 +36,71 @@ class ArchitectureScannerTests {
     private ArchitectureScanner scanner(List<String> basePackages) {
         return new ArchitectureScanner(
                 () -> basePackages, new ClassFileArchitectureImporter(), ArchitecturePlatform.SPRING, CLOCK);
+    }
+
+    @Test
+    void capturedInputFlowsThroughTheScannerWhileLegacyCustomImportersKeepTheHeuristic() {
+        var imported = ArchUnitBytecodeImports.importClasses(ProxyReceiverEvidenceTests.ProxyFixture.class);
+        ArchitectureClassImporter captured = new ArchitectureClassImporter() {
+            @Override
+            public JavaClasses importPackages(List<String> packages) {
+                return imported.classes();
+            }
+
+            @Override
+            public ArchUnitBytecodeImports.Result importWithBytecode(List<String> packages) {
+                return imported;
+            }
+        };
+        var roots = List.of(getClass().getPackageName());
+        var rules = List.<ArchitectureRule>of(new NoSelfInvocationOfProxiedMethodsRule());
+        var precise = new ArchitectureScanner(() -> roots, captured, ArchitecturePlatform.SPRING, CLOCK, rules).scan();
+        var legacy = new ArchitectureScanner(
+                        () -> roots, packages -> imported.classes(), ArchitecturePlatform.SPRING, CLOCK, rules)
+                .scan();
+
+        assertThat(precise.scan().status()).as(precise.scan().message()).isEqualTo("SCANNED");
+        assertThat(legacy.scan().status()).as(legacy.scan().message()).isEqualTo("SCANNED");
+        assertThat(precise.rulesEvaluated()).isEqualTo(1);
+        assertThat(precise.classesAnalyzed()).isEqualTo(1);
+        assertThat(precise.results()).isEmpty();
+        assertThat(precise.analysisErrors()).isEmpty();
+        assertThat(precise.evidence().usable()).isTrue();
+        assertThat(precise.evidence().coverageComplete()).isTrue();
+        assertThat(legacy.results())
+                .singleElement()
+                .satisfies(result -> assertThat(result.violationCount()).isEqualTo(2));
+        assertThat(legacy.evidence().coverageComplete()).isTrue();
+    }
+
+    @Test
+    void quarkusDoesNotUseTheOptionalSpringReceiverImportPath() {
+        JavaClasses classes = new ClassFileImporter().importClasses(ProxyReceiverEvidenceTests.ProxyFixture.class);
+        ArchitectureClassImporter importer = new ArchitectureClassImporter() {
+            @Override
+            public JavaClasses importPackages(List<String> packages) {
+                return classes;
+            }
+
+            @Override
+            public ArchUnitBytecodeImports.Result importWithBytecode(List<String> packages) {
+                throw new AssertionError("Quarkus does not need Spring receiver precision");
+            }
+        };
+
+        var report = new ArchitectureScanner(
+                        () -> List.of(getClass().getPackageName()),
+                        importer,
+                        ArchitecturePlatform.QUARKUS,
+                        CLOCK,
+                        List.of(new NoSelfInvocationOfProxiedMethodsRule()))
+                .scan();
+
+        assertThat(report.scan().status()).as(report.scan().message()).isEqualTo("SCANNED");
+        assertThat(report.rulesEvaluated()).isEqualTo(1);
+        assertThat(report.classesAnalyzed()).isEqualTo(1);
+        assertThat(report.results()).isEmpty();
+        assertThat(report.analysisErrors()).isEmpty();
     }
 
     @Test

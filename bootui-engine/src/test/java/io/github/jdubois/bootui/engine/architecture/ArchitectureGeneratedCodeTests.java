@@ -7,6 +7,9 @@ import static io.github.jdubois.bootui.engine.architecture.ArchitectureGenerated
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitLocations;
+import io.github.jdubois.bootui.engine.source.LocalSourceModule;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,6 +29,26 @@ import org.junit.jupiter.params.provider.ValueSource;
 class ArchitectureGeneratedCodeTests {
     @TempDir
     Path root;
+
+    @Test
+    void capturedImportsPreserveGeneratedSourceModuleAndLocationProvenance() throws IOException {
+        var normal = compile(
+                root, "target/classes", Map.of("target/generated-sources/openapi/ApiUtil.java", apiUtil("sample")));
+        var imported = ArchUnitBytecodeImports.importPath(root.resolve("target/classes"));
+        var expected = normal.get("sample.ApiUtil");
+        var actual = imported.classes().get("sample.ApiUtil");
+
+        assertThat(actual.getSource().orElseThrow().getUri())
+                .isEqualTo(expected.getSource().orElseThrow().getUri());
+        assertThat(LocalSourceModule.of(
+                        actual.getName(), actual.getSource().orElseThrow().getUri()))
+                .isEqualTo(LocalSourceModule.of(
+                        expected.getName(), expected.getSource().orElseThrow().getUri()));
+        assertThat(ArchitectureGeneratedCode.resolve(imported.classes()).generatedClasses())
+                .isEqualTo(ArchitectureGeneratedCode.resolve(normal).generatedClasses());
+        assertThat(ArchUnitLocations.ofClass(actual)).isEqualTo(ArchUnitLocations.ofClass(expected));
+        assertThat(imported.bytecode().bytesOf(actual)).isPresent();
+    }
 
     @ParameterizedTest
     @CsvSource({
