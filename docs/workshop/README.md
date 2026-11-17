@@ -49,7 +49,7 @@ Use the exact release the facilitator specifies; this edition pins **2.5.0**. Do
 | 00:00-00:10 | 10 | [00 - Runtime understanding](00-runtime-understanding.md) | Define the mission and what would prove a fix |
 | 00:10-00:25 | 15 | [01 - Setup and tooling](01-setup-and-tooling.md) | Correct app, safe exposure, working diagnostic read |
 | 00:25-00:40 | 15 | [02 - Configuration and wiring](02-configuration-and-wiring.md) | Find the owning code and predict its database work |
-| 00:40-01:05 | 25 | [03 - Runtime journal](03-runtime-journal.md) | Measure the original/control requests and explain 1 + N |
+| 00:40-01:05 | 25 | [03 - Runtime journal](03-runtime-journal.md) | Measure the original/control requests and explain N + 1 |
 | 01:05-01:30 | 25 | [04 - Runtime Insights](04-runtime-insights.md) | Reproduce the pattern and challenge the hypothesis |
 | 01:30-01:40 | 10 | Break | Catch up or pair with a working participant |
 | 01:40-02:05 | 25 | [05 - Java instrumentation](05-java-instrumentation.md) | Attribute the SQL to an executed method and save a new baseline |

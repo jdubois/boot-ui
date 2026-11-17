@@ -215,7 +215,7 @@ Complete the before/after worksheet and show a partner:
 
 An agent's “fixed” message without these four items is incomplete. If you lost the baseline, record that limit and
 repeat the exercise in a disposable clone rather than fabricate a comparison.
-You can now close the original report with evidence: explain the 1 + N, show what changed, and state whether the
+You can now close the original report with evidence: explain the N + 1, show what changed, and state whether the
 same response required fewer queries in the running application. Keep any incomplete comparison explicit.
 
 **Previous:** [06 - Assessment and impact](06-assessment-and-impact.md).

@@ -46,7 +46,7 @@ independently. Allocate download time outside the session. Use dedicated ports f
 | 00:00 | Set the order-query mission; show one request; distinguish two agents and evidence | Participants can state success without a score |
 | 00:10 | Confirm app identity, journal, transport, absent Java agent | Real read succeeds; pair blocked setups |
 | 00:25 | Trace original route/bean/datasource and one Hibernate scan; defer control query | Participant prediction recorded, no broad cleanup |
-| 00:40 | Measure original/control SQL; explain 1 + N; short import side investigation | Request ids, query counts, cause hypothesis |
+| 00:40 | Measure original/control SQL; explain N + 1; short import side investigation | Request ids, query counts, cause hypothesis |
 | 01:05 | Challenge the hypothesis with six samples and the control; short transaction comparison | Observation with sample/coverage and counterexample |
 | 01:30 | Ten-minute break/catch-up | Instrumentation artifacts warm |
 | 01:40 | Attach Java agent; code path/baseline; facilitator async example | Sensor/self-tests read and baseline exercised; process/probe optional |

@@ -12,7 +12,7 @@ Fill this in as the investigation develops, before reading or approving the fina
 | --- | --- |
 | What must improve, and what must stay unchanged? | |
 | What do you predict from the original query/mapping? (Chapter 02) | |
-| What does 1 + N mean in this request? (Chapter 03) | |
+| What does N + 1 mean in this request? (Chapter 03) | |
 | Do repeated samples and the control support your hypothesis? (Chapter 04) | |
 | Which executed method owns the work? (Chapter 05) | |
 | What causes the extra queries, and why should this one change help? (Chapter 06) | |
