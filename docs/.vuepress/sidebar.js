@@ -81,6 +81,10 @@ const groups = [
     ]
   },
   {
+    text: 'Features',
+    docs: featureDocs
+  },
+  {
     text: 'Workshop',
     docs: [
       'workshop/README.md',
@@ -99,10 +103,6 @@ const groups = [
       'workshop/appendix-c-frameworks.md',
       'workshop/appendix-d-extensions.md'
     ]
-  },
-  {
-    text: 'Features',
-    docs: featureDocs
   },
   {
     text: 'Reference',
