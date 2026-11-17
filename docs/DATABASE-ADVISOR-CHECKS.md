@@ -409,7 +409,7 @@ See [ALL_INDEXES](https://docs.oracle.com/en/database/oracle/oracle-database/19/
 
 These checks compare available declarations with observed metadata, **not Hibernate's effective runtime
 mapping**. Even explicit annotation/XML names are logical names subject to a physical naming strategy.
-The pinned Spring Boot 4.1.1 BOM selects Hibernate 7.4.5.Final; Quarkus 3.40.1 selects 7.4.9.Final;
+The pinned Spring Boot 4.1.1 BOM selects Hibernate 7.4.5.Final; Quarkus 3.40.1.2 selects 7.4.9.Final;
 both use Persistence 3.2.0. The matching
 [7.4](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/boot/model/naming/PhysicalNamingStrategy.html)
 contract explicitly distinguishes logical names from names used in generated DML/DDL.

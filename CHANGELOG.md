@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrade the shared Quarkus build baseline to 3.40.1.2, the latest micro release of the 3.40 LTS stream,
+  while retaining support and compatibility coverage for Quarkus 3.33 and later in the 3.x line.
+
 ## [2.5.0] - 2026-11-14
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.
