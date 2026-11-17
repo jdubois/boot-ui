@@ -88,7 +88,7 @@ bound to loopback; BootUI is not a remote or production scanner. Start with the
 [GitHub Actions quick start](docs/CI.md).
 
 <!-- bootui-ci:release:start -->
-> **Example release: BootUI 2.4.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.4.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
+> **Example release: BootUI 2.5.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.5.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
 <!-- bootui-ci:release:end -->
 
 ## Project resources
