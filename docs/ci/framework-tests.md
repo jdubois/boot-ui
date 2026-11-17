@@ -246,7 +246,7 @@ The Maven profile enables the extension only for diagnostics, with the ordinary 
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <quarkus.platform.version>3.40.1.1</quarkus.platform.version>
+        <quarkus.platform.version>3.40.1.2</quarkus.platform.version>
         <bootui.version>2.4.0</bootui.version>
     </properties>
     <dependencyManagement>

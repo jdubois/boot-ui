@@ -40,7 +40,7 @@ When these are updated, refresh matching documentation references in the same pu
 the two frameworks' shared transitive dependencies isolated while giving the extension, tests, and sample app one
 Quarkus build baseline. The published extension also supports the older Quarkus 3.33 LTS line: its
 `requiresQuarkusCore` range and `build.yml`'s `quarkus-lts` job pin that separately. The root build currently uses
-Quarkus 3.40.1; it is not the name of the older LTS compatibility target.
+Quarkus 3.40.1.2; it is not the name of the older LTS compatibility target.
 
 ## Published artifacts
 
