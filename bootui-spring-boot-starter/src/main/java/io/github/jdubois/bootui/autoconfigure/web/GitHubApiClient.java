@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.*;
+import io.github.jdubois.bootui.engine.github.GitHubAlertPagination;
 import io.github.jdubois.bootui.engine.github.GitHubClient;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.github.GitHubTokenProvider;
@@ -191,6 +192,10 @@ final class GitHubApiClient implements GitHubClient {
                 warnings.add(workflowsResponse.safeMessage());
             }
 
+            Long repositoryId = repositoryId(repoNode);
+            // Cache, artifacts and billing always attempt a call; Copilot does so only for organizations.
+            int laterSectionCalls =
+                    3 + (repoNode != null && "Organization".equals(text(repoNode.path("owner"), "type")) ? 1 : 0);
             addSecuritySignal(
                     securitySignals,
                     warnings,
@@ -200,6 +205,8 @@ final class GitHubApiClient implements GitHubClient {
                     "dependabot/alerts?state=open&per_page=100",
                     token,
                     budget,
+                    repositoryId,
+                    laterSectionCalls + 2,
                     true);
             addSecuritySignal(
                     securitySignals,
@@ -210,6 +217,8 @@ final class GitHubApiClient implements GitHubClient {
                     "code-scanning/alerts?state=open&per_page=100",
                     token,
                     budget,
+                    repositoryId,
+                    laterSectionCalls + 1,
                     false);
             addSecuritySignal(
                     securitySignals,
@@ -220,6 +229,8 @@ final class GitHubApiClient implements GitHubClient {
                     "secret-scanning/alerts?state=open&per_page=100",
                     token,
                     budget,
+                    repositoryId,
+                    laterSectionCalls,
                     false);
             addRepositoryQuota(
                     quotas,
@@ -551,27 +562,64 @@ final class GitHubApiClient implements GitHubClient {
             String relativePath,
             GitHubTokenProvider.Token token,
             RequestBudget budget,
+            Long repositoryId,
+            int reservedCalls,
             boolean includeAlerts)
-            throws IOException, InterruptedException {
-        ApiResponse response = get(repository, repoPath + "/" + relativePath, token, budget, label);
-        if (response.success() && response.json().isArray()) {
-            signals.add(new GitHubSecuritySignalDto(
-                    label,
-                    "AVAILABLE",
-                    paginatedAlertCount(repository, relativePath, label, response, token, budget),
-                    null,
-                    includeAlerts ? dependabotAlerts(response.json()) : List.of()));
-        } else {
-            String reason = response.success()
-                    ? "GitHub returned an invalid alert response for " + label + "."
-                    : response.safeMessage();
-            signals.add(new GitHubSecuritySignalDto(label, "UNAVAILABLE", null, reason));
-            warnings.add(reason);
+            throws InterruptedException {
+        String nextPath = repoPath + "/" + relativePath;
+        GitHubAlertPagination pagination = new GitHubAlertPagination(repository.apiBaseUri(), nextPath, repositoryId);
+        List<GitHubDependabotAlertDto> alerts = new ArrayList<>();
+        boolean observedPage = false;
+        String reason = null;
+        while (nextPath != null) {
+            if (observedPage && !budget.canContinue(reservedCalls)) {
+                reason = "The GitHub alert traversal budget cannot cover another " + label
+                        + " page while preserving pending baseline requests.";
+                break;
+            }
+            ApiResponse response;
+            try {
+                response = get(repository, nextPath, token, budget, label);
+            } catch (IOException ex) {
+                reason = "GitHub request failed, timed out, or exceeded the response-size limit for " + label + ".";
+                break;
+            }
+            if (!response.success() || !response.json().isArray()) {
+                reason = response.success()
+                        ? "GitHub returned an invalid alert response for " + label + "."
+                        : response.safeMessage();
+                break;
+            }
+            try {
+                pagination.acceptPage(response.json().size(), response.json().toString());
+                observedPage = true;
+                if (includeAlerts) {
+                    alerts.addAll(dependabotAlerts(
+                            response.json(), positive(properties.getMaxSecurityAlerts(), 50) - alerts.size()));
+                }
+                nextPath = pagination.nextPath(response.headers());
+            } catch (IOException ex) {
+                reason = ex.getMessage() + " Section: " + label + ".";
+                break;
+            }
         }
+        if (reason == null) {
+            signals.add(new GitHubSecuritySignalDto(label, "AVAILABLE", pagination.count(), null, alerts));
+            return;
+        }
+        if (observedPage) {
+            reason += " At least " + pagination.count() + " alerts were observed; the total is unknown.";
+        }
+        signals.add(new GitHubSecuritySignalDto(label, "UNAVAILABLE", null, reason, alerts));
+        warnings.add(reason);
     }
 
-    private List<GitHubDependabotAlertDto> dependabotAlerts(JsonNode root) {
-        int max = positive(properties.getMaxSecurityAlerts(), 50);
+    private static Long repositoryId(JsonNode repository) {
+        JsonNode id = repository == null ? null : repository.get("id");
+        return id != null && id.isIntegralNumber() && id.canConvertToLong() && id.asLong() > 0 ? id.asLong() : null;
+    }
+
+    private List<GitHubDependabotAlertDto> dependabotAlerts(JsonNode root, int max) {
         List<GitHubDependabotAlertDto> alerts = new ArrayList<>();
         for (JsonNode item : root) {
             if (alerts.size() >= max) {
@@ -599,61 +647,6 @@ final class GitHubApiClient implements GitHubClient {
                     instantMillis(text(item, "updated_at"))));
         }
         return alerts;
-    }
-
-    private int paginatedAlertCount(
-            GitHubRepositoryDetector.Repository repository,
-            String relativePath,
-            String label,
-            ApiResponse firstResponse,
-            GitHubTokenProvider.Token token,
-            RequestBudget budget)
-            throws IOException, InterruptedException {
-        int firstPageCount = firstResponse.json().size();
-        Optional<Integer> lastPage = firstResponse.headers().firstValue("Link").flatMap(this::lastPage);
-        if (lastPage.isEmpty() || lastPage.get() <= 1) {
-            return firstPageCount;
-        }
-        ApiResponse lastResponse =
-                get(repository, relativePath + "&page=" + lastPage.get(), token, budget, label + " final page");
-        if (!lastResponse.success() || !lastResponse.json().isArray()) {
-            return firstPageCount;
-        }
-        return ((lastPage.get() - 1) * 100) + lastResponse.json().size();
-    }
-
-    private Optional<Integer> lastPage(String linkHeader) {
-        for (String link : linkHeader.split(",")) {
-            if (!link.contains("rel=\"last\"")) {
-                continue;
-            }
-            int start = link.indexOf('<');
-            int end = link.indexOf('>');
-            if (start < 0 || end <= start) {
-                return Optional.empty();
-            }
-            String query = URI.create(link.substring(start + 1, end)).getQuery();
-            return queryInt(query, "page");
-        }
-        return Optional.empty();
-    }
-
-    private Optional<Integer> queryInt(String query, String name) {
-        if (query == null || query.isBlank()) {
-            return Optional.empty();
-        }
-        for (String parameter : query.split("&")) {
-            int separator = parameter.indexOf('=');
-            if (separator < 0 || !name.equals(parameter.substring(0, separator))) {
-                continue;
-            }
-            try {
-                return Optional.of(Integer.parseInt(parameter.substring(separator + 1)));
-            } catch (NumberFormatException ex) {
-                return Optional.empty();
-            }
-        }
-        return Optional.empty();
     }
 
     private void addRepositoryQuota(
@@ -1123,6 +1116,10 @@ final class GitHubApiClient implements GitHubClient {
             }
             remaining--;
             return true;
+        }
+
+        private boolean canContinue(int reservedCalls) {
+            return remaining > reservedCalls;
         }
     }
 }

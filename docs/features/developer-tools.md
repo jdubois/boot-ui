@@ -324,6 +324,16 @@ successful sections. Malformed, blank, or non-array alert responses are unavaila
 zero. HTTP failures show only the status and section, never the response body. A 403 or 404 alone does not distinguish
 missing permission from a disabled feature. This behavior is the same on Spring MVC, WebFlux, and Quarkus.
 
+Counts sum all pages of a completed traversal, including next-only cursor pagination. Requests stay on the original
+repository API endpoint and preserve the open-state filter and page size. Repository-ID Link aliases are accepted only
+when their ID matches fetched repository metadata and their API origin, prefix and alert endpoint match; missing or
+invalid metadata IDs never authorize an alias. Named repository links do not need that ID.
+
+Failed, truncated or oversized first or later alert responses, unsafe or contradictory links, repeated pages/cursors,
+and bounded traversal stops leave the signal unavailable with a null total. A lower-bound reason and capped Dependabot
+details are retained only when complete pages were observed. Other independently loaded sections remain intact.
+Even a completed traversal is a non-atomic remote observation, not a transactionally consistent GitHub snapshot.
+
 Credentials are read from the current device only and bound to the detected repository host. For github.com
 (including its SSH alias), BootUI checks `GITHUB_TOKEN`, then `GH_TOKEN`. For an allow-listed Enterprise host,
 `GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, are used only when `GH_HOST` explicitly names that same host.
@@ -338,8 +348,12 @@ usable for github.com, but must implement host-aware lookup to authenticate an E
 
 ::: details Refresh bounds and Quarkus
 
-Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota safety threshold that skips
-optional sections before exhausting the core API quota. Best-effort cards for Actions cache, artifacts, and billing
+Refreshes are bounded by per-request timeouts, a 2 MiB response limit per request, a maximum API-call budget shared
+with alert pagination, and a quota safety threshold that skips optional sections before exhausting the core API quota.
+Optional alert continuation leaves request capacity for the remaining alert first pages, cache, artifacts, billing and
+applicable Copilot calls. This does not raise the hard budget or guarantee all sections under a very small budget;
+a traversal-budget reason distinguishes this stop from global exhaustion. `bootui.github.max-security-alerts` caps
+Dependabot details, not the number of pages counted. Best-effort cards for Actions cache, artifacts, and billing
 appear when the credential can reach those endpoints. The panel is identical on Quarkus, over the same
 `/bootui/api/github` contract.
 

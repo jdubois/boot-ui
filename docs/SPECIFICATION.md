@@ -355,6 +355,17 @@ Acceptance criteria:
 - Malformed, blank, or non-array successful security-alert responses are `UNAVAILABLE` with a null count, never a
   clean zero. Valid empty arrays remain `AVAILABLE` with count zero. Failed alert signals add warnings and make the
   dashboard `PARTIAL`, retaining independent successful sections.
+- Security-alert counts sum every observed page, including next-only forward cursors, without extrapolating from
+  first/last page sizes. Pagination preserves the original repository API origin, prefix, endpoint, state and page size;
+  numeric repository aliases require the matching positive integral ID from fetched metadata, never a first-seen Link.
+  Valid initial-page first/previous links are accepted without a forward selector, after the same validation.
+- Unsafe, malformed, contradictory, cyclic or repeated pagination, failed/truncated/oversized first or later alert
+  responses, and traversal-budget stops leave a null total. Completed pages retain an explicit lower-bound reason and
+  bounded Dependabot details; first-page I/O failure invents no observed lower bound. Independent loaded sections survive.
+  Code and secret scanning remain count-only. Completed counts are non-atomic observations, not a consistent snapshot.
+- Extra alert pages preserve capacity for remaining baseline alert, cache, artifact, billing and applicable Copilot
+  requests without consuming a refused reservation or increasing the shared hard budget. A dedicated traversal-budget
+  reason distinguishes reservation from global exhaustion. Very small budgets can still leave baseline sections unavailable.
 - HTTP errors retain their status regardless of body format; decode failures use sanitized section errors without
   exposing response text. A 403 or 404 alone does not establish whether an alert feature is disabled or unauthorized.
 - Tokens, authorization headers, response bodies, and subprocess stderr are never exposed to the browser.
@@ -3618,10 +3629,10 @@ Initial properties:
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |
 | `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for the issue buckets and open issue list.                            |
-| `bootui.github.max-security-alerts`          | `50`                                    | Maximum Dependabot alert details listed per refresh; count stays exact, metadata only.            |
+| `bootui.github.max-security-alerts`          | `50`                                    | Maximum Dependabot details retained; a total is available only after complete bounded traversal. |
 | `bootui.github.max-workflow-runs`            | `20`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                      |
 | `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                   |
-| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                   |
+| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls per refresh, including every alert page; incomplete totals stay unknown. |
 | `bootui.github.allowed-api-hosts`            | `api.github.com`                        | Allowed GitHub API hosts; add a GitHub Enterprise host to enable enterprise remotes.              |
 | `bootui.dev-services.restart-enabled`        | `false`                                 | Enables restart controls for bean-backed Testcontainers services.                                 |
 | `bootui.dev-services.log-tail-bytes`         | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                           |

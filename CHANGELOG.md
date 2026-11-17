@@ -37,6 +37,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and its existing severity gates; incomplete comparison or mapping evidence still prevents that promotion.
   No severity, finding identity, dismissal or CI policy changes are made
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#db-schema-002---foreign-key-access-path-review)).
+- **Bounded GitHub alert pagination** validates named and metadata-bound repository-ID links, preserves baseline
+  request capacity, and keeps incomplete totals unknown while retaining bounded evidence
+  ([GitHub](docs/features/developer-tools.md#github)).
 
 ### Changed
 
