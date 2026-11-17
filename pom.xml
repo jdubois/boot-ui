@@ -292,7 +292,7 @@
                     <!-- Adds bootui-agent's dependency-free heap walk to the agent leak tests of the modules beside it. -->
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>build-helper-maven-plugin</artifactId>
-                    <version>3.6.2</version>
+                    <version>3.8.0</version>
                     <executions>
                         <execution>
                             <id>agent-heap-walk</id>
