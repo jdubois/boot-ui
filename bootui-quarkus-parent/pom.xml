@@ -19,7 +19,7 @@
     <properties>
         <!-- Compile the optional ChatModelListener against the sample BOM's core version (provided scope).
              LangChain4jAlignmentTest guards this baseline against the sample's actual runtime dependency. -->
-        <langchain4j.version>1.20.2</langchain4j.version>
+        <langchain4j.version>1.23.0</langchain4j.version>
         <quarkus.test.argLine>-Djava.util.logging.manager=org.jboss.logmanager.LogManager
             --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
             -javaagent:${net.bytebuddy:byte-buddy-agent:jar}</quarkus.test.argLine>
