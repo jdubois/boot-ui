@@ -32,11 +32,13 @@ const pages = [
   'appendix-d-extensions.md'
 ]
 
-test('workshop sidebar follows Get started and includes every page exactly once in teaching order', () => {
+test('workshop sidebar follows Features and includes every page exactly once in teaching order', () => {
   const sidebar = createDocsSidebar()
   const index = sidebar.findIndex((group) => group.text === 'Workshop')
-  assert.equal(sidebar[index - 1].text, 'Get started')
-  assert.equal(sidebar[index + 1].text, 'Features')
+  assert.deepEqual(
+    sidebar.slice(0, 4).map((group) => group.text),
+    ['Get started', 'Features', 'Workshop', 'Reference']
+  )
   const expected = pages.map((page) => toDocLink(`workshop/${page}`))
   assert.deepEqual(
     sidebar[index].children.map((item) => item.link),
