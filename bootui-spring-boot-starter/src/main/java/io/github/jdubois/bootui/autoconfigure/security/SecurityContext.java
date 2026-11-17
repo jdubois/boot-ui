@@ -154,6 +154,12 @@ record SecurityContext(
         return evidence.evaluation().required(known);
     }
 
+    boolean allUsedMethodSecurityFamiliesEnabled() {
+        return evidence.methodFamiliesKnown()
+                && !evidence.usedMethodFamilies().isEmpty()
+                && evidence.enabledMethodFamilies().containsAll(evidence.usedMethodFamilies());
+    }
+
     <T> List<T> targets(List<T> targets) {
         applies(!targets.isEmpty());
         return targets;

@@ -182,17 +182,34 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
 
-- **Severity**: HIGH
-- **Detects**: A known chain installs no standard HTTP `AuthorizationFilter`. Custom filters, method controls, and external controls are not observed, so absence does not prove all matched requests are unguarded.
-- **Recommendation**: Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain.
+- **Severity**: HIGH (MEDIUM for the servlet method-authorization coverage review described below)
+- **Detects**: A known chain installs no standard HTTP `AuthorizationFilter`. Custom filters and external controls are not observed, so absence does not prove all matched requests are unguarded. The finding remains when method-security families qualify for MEDIUM.
+- **Recommendation**: Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization is still absent.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
 ### SEC-AUTHZ-002 - Avoid blanket permitAll authorization
 
-- **Severity**: HIGH
+- **Severity**: HIGH (MEDIUM for the servlet method-authorization coverage review described below)
 - **Detects**: A supported structural unconditional grant appears in a chain that also configures authentication. Typed matcher and constant-authorization facts are inspected in order; no finite request samples, application matchers, or authorization callbacks are executed. Unsupported mappings remain unknown.
-- **Recommendation**: Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints.
+- **Recommendation**: Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization still grants broadly.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
+
+For these two **servlet-only** checks, method-family metadata marked known for inspected beans qualifies findings for
+**MEDIUM** only when at least one annotation family is observed used and **every observed used family** has matching
+recognized activation (`pre-post`, `secured`, or `jsr250`). Extra enabled but unused families do not prevent
+qualification. No observed annotations, absent or wrong-family activation, a partly disabled set of used families,
+or unknown method-family metadata keeps **HIGH**. The qualification is global, not an endpoint-to-chain coverage
+claim. Findings, occurrence counts and detail identities remain; unknown chains still limit coverage, and
+`SEC-METHOD-001` still reports unactivated families at HIGH.
+
+"Known" describes bounded, inspectable bean metadata, not proof of a complete application-type inventory. The current
+collector can skip bean definitions with unresolved types without clearing this flag; their annotation families are
+not established by this qualification.
+
+MEDIUM means **annotation-coverage review, not proof of safety**: authorization then depends on annotation placement,
+proxying and invocation paths, while HTTP protection remains absent or broad. BootUI never calls authorization
+managers or application methods to establish this qualification. WebFlux's separate `SEC-RXF-*` policy and Quarkus's
+checks are unchanged.
 
 ### SEC-AUTHZ-003 - Application security should not be effectively disabled
 

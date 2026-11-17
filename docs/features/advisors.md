@@ -650,6 +650,13 @@ also remains available without Spring Security and then reports only the bounded
 check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
 verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 
+The servlet missing-HTTP-authorization and blanket-`permitAll` findings remain visible at **MEDIUM** when metadata marked
+known for inspected beans shows at least one observed used method-annotation family and matching activation for every
+used family; otherwise they stay **HIGH**. MEDIUM calls for annotation, proxy and invocation coverage review, not a claim
+that endpoints are protected: HTTP authorization is still absent or broad. Unknown chains remain incomplete; unresolved
+bean types can remain outside this method-family observation. This calibration does not change the separate WebFlux or
+Quarkus rules.
+
 ### Spring WebFlux
 
 On WebFlux it evaluates a dedicated 32-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive

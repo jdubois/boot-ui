@@ -36,6 +36,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   HIGH. Old HIB-FETCH-001 dismissals are not copied, so hidden collection findings reappear on rescan. Unreadable fetch
   declarations now report incomplete evidence rather than silently passing
   ([migration and gate impact](docs/HIBERNATE-CHECKS.md#hib-fetch-001---review-eager-to-one-fetch-plans)).
+- **Servlet authorization findings** use MEDIUM coverage review for observed method-annotation use with matching activation for every used family; HTTP gaps remain and endpoint protection is not proven
+  ([Security checks](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
 
 ## [2.5.0] - 2026-11-14
 

@@ -373,8 +373,8 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
                 "Every filter chain should enforce authorization",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects a known chain without the standard HTTP authorization filter. Custom filters and method controls are outside this observation.",
-                "Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain.",
+                "Detects a known chain without the standard HTTP authorization filter. MEDIUM requires known inspected bean method-family metadata, at least one observed used family and matching activation for all used families; it is a coverage review, not proof of endpoint protection.",
+                "Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll). If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization is still absent.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
 
@@ -396,7 +396,8 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
         if (details.isEmpty() && unknown) {
             return skipped("Some ordered chains are unsupported; absence cannot be established.");
         }
-        return violation(context, details);
+        return violation(
+                context, context.allUsedMethodSecurityFamiliesEnabled() ? SecurityRuleSupport.MEDIUM : null, details);
     }
 }
 
@@ -408,8 +409,8 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
                 "Avoid blanket permitAll authorization",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects a structurally supported unconditional grant in a chain that also configures authentication.",
-                "Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints.",
+                "Detects a structurally supported unconditional grant in a chain that also configures authentication. MEDIUM requires known inspected bean method-family metadata, at least one observed used family and matching activation for all used families; it is a coverage review, not proof of endpoint protection.",
+                "Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization still grants broadly.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
 
@@ -426,7 +427,8 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
                         + " grants all requests in its scope even though it configures authentication.");
             }
         }
-        return violation(context, details);
+        return violation(
+                context, context.allUsedMethodSecurityFamiliesEnabled() ? SecurityRuleSupport.MEDIUM : null, details);
     }
 }
 
