@@ -1383,6 +1383,71 @@ class CiAssessmentRunnerTests {
         assertThat(Files.readString(temp.resolve("warning/bundle.json"))).contains("ADVISOR_ERRORS");
     }
 
+    @Test
+    void nativeH2IndexEvidencePromotesOptionalAssessmentWithoutWeakeningLiveOrOfflineHighGates() throws Exception {
+        startServer();
+        Path policy = temp.resolve("policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"high"},
+                  "database-advisor":{"required":false,"failOn":"high"}
+                }}
+                """);
+        Path witness = temp.resolve("witness.json");
+        assertThat(runner(policy, witness, temp.resolve("unused")).attach()).isZero();
+        List<Path> bundles = new ArrayList<>();
+        // Native H2 2.4.240 reports from identical DDL: only the new access-method refinement was disabled
+        // for baseline. All three raw HIGH findings exist in both; no evidence or count field is fabricated.
+        for (String phase : List.of("baseline", "ordinary")) {
+            JsonValue fixture;
+            try (var input = getClass().getResourceAsStream("/ci/h2-" + phase + "-ci.json")) {
+                assertThat(input).isNotNull();
+                fixture = JsonValue.parseStrict(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            }
+            responseTransforms.put(
+                    "database_advisor_scan", body -> fixture.get("summary").toJson());
+            responseTransforms.put(
+                    "get_database_advisor_report", body -> fixture.get("report").toJson());
+            responseTransforms.put(
+                    "get_database_advisor_rule_violations",
+                    body -> fixture.get("details").toJson());
+            Path output = temp.resolve(phase);
+            int expectedExit = phase.equals("baseline") ? 0 : 3;
+            assertThat(runner(policy, witness, output).assess()).as(phase).isEqualTo(expectedExit);
+            Path bundle = output.resolve("bundle.json");
+            bundles.add(bundle);
+            String text = Files.readString(bundle);
+            JsonValue database = JsonValue.parseStrict(text).get("advisors").values().stream()
+                    .filter(advisor -> advisor.get("name").asString("").equals("database-advisor"))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(database.get("status").asString(""))
+                    .isEqualTo(phase.equals("baseline") ? "SKIPPED" : "ASSESSED");
+            assertThat(database.get("coverageComplete").isBoolean()).isTrue();
+            assertThat(database.get("coverageComplete").asBoolean(false)).isEqualTo(phase.equals("ordinary"));
+            assertThat(database.get("findingCount").asInt(-1)).isEqualTo(phase.equals("baseline") ? 0 : 3);
+            if (phase.equals("baseline")) {
+                assertThat(database.get("reason").asString("")).isEqualTo("EVIDENCE_UNEVALUABLE");
+            } else {
+                assertThat(database.get("reason").isNull()).isTrue();
+                assertThat(database.get("findings").values()).singleElement().satisfies(finding -> {
+                    assertThat(finding.get("ruleId").asString("")).isEqualTo("DB-SCHEMA-011");
+                    assertThat(finding.get("severity").asString("")).isEqualTo("HIGH");
+                    assertThat(finding.get("count").asInt(-1)).isEqualTo(3);
+                });
+            }
+            assertThat(text).doesNotContain("PUBLIC.CHILD", "FK_FIRST", "jdbc:h2", "specifies ON DELETE");
+        }
+        server.stop(0);
+        server = null;
+        assertThat(CiBundleEvaluator.evaluate(bundles.get(0), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+        assertThat(CiBundleEvaluator.evaluate(bundles.get(1), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {5, 6})
     void rejectsDatabaseReportsWithAllOrTooManyRulesSkipped(int skipped) throws Exception {

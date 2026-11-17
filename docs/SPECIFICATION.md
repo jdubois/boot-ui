@@ -2573,6 +2573,14 @@ Data sources:
 
 - Every discovered application `DataSource`, introspected through standard JDBC `DatabaseMetaData` for tables, columns,
   primary keys, foreign keys, and indexes.
+- Identified H2 2.x datasources additionally use a bounded, table-qualified `INFORMATION_SCHEMA.INDEXES` read
+  on the same scan connection to establish ordinary MVStore secondary-index access methods for physical FKs.
+  JDBC `tableIndexOther` alone is not sufficient; spatial, hash, custom and unknown implementations are not promoted,
+  and primary-key implementations remain outside this refinement. Its temporary H2 query timeout preserves any tighter
+  limit, restores the exact session milliseconds and leaves the JDBC getter cache unchanged. If a safe physical close
+  target cannot be established, the refinement stays unknown without mutating the session. Restoration failure discards
+  the verified physical connection and fails that datasource. This does not establish full comparison or
+  constraint-enforcement evidence.
 - PostgreSQL, MySQL, MariaDB, and Oracle (19c+) system catalogs for the bounded vendor-specific checks documented in
   `docs/DATABASE-ADVISOR-CHECKS.md`. Oracle catalog reads use only `ALL_*` dictionary views and
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no

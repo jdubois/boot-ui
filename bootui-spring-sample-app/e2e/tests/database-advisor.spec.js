@@ -3,9 +3,9 @@ import {expect, test} from './fixtures.js'
 import {expectedAdvisorScore} from '../scenarios/advisor-scoring.js'
 
 // The `docker` profile runs on PostgreSQL, whose catalog reads let the advisor establish every check, including
-// foreign-key enforcement inferred from the complete NOT VALID read, so the scan is complete. The Docker-free H2
-// database only exposes generic JDBC metadata, which cannot establish foreign-key access paths or primary-key index
-// semantics, so its scan keeps scan notes.
+// foreign-key enforcement inferred from the complete NOT VALID read, so the scan is complete. H2's catalog can
+// establish ordinary secondary-index access paths. Index-comparison and constraint-enforcement evidence are
+// unchanged and outside this narrow refinement; keep the full sample's partial-coverage expectation.
 const profiles = (process.env.BOOTUI_SAMPLE_PROFILES || '').split(',').map((profile) => profile.trim())
 const coverageComplete = profiles.includes('docker')
 

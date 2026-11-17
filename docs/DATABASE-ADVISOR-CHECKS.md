@@ -131,6 +131,18 @@ See [Hibernate `SequenceStyleGenerator`](https://docs.hibernate.org/orm/7.2/java
 column set. An equality lookup can use those leading columns in a different order; indexing just one column
 of a composite FK is not equivalent. Known trailing expressions must not erase a usable leading key.
 
+For identified H2 2.x datasources, a bounded `INFORMATION_SCHEMA.INDEXES` read on the same scan connection
+can establish an ordinary MVStore secondary index (`MVSecondaryIndex`, with catalog type `INDEX` or
+`UNIQUE INDEX`). JDBC `tableIndexOther` and an absent filter alone are insufficient: H2 also reports spatial
+indexes that way. Hash, spatial, custom and unidentified implementations remain unknown when they could serve
+the FK. `PRIMARY KEY` implementations, including delegate indexes, remain outside this refinement.
+The read preserves any tighter session query timeout and restores the exact original milliseconds without
+changing H2's cached JDBC timeout getter. If a physical H2 connection cannot be verified for safe disposal,
+the refinement is skipped without changing session state. A timeout-restoration failure discards that physical
+connection and fails the datasource instead of publishing promoted evidence.
+This narrow access-method evidence does not establish full index-comparison semantics or FK enforcement;
+other required gaps still leave coverage incomplete.
+
 Partial, value-prefix and specialized definitions may require evidence this check does not have, but only an
 index that keys a foreign-key column, an expression or nothing known can make one FK's result unknown: a GIN,
 partial or generic-JDBC index over unrelated columns cannot serve that lookup and does not hide a finding.

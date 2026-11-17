@@ -29,6 +29,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Quarkus producer-proxy precision** avoids HIGH findings for proxyable JDK types such as abstract `Clock` and
   retains native ArC unproxyability errors without inferring their failure stage from type shape
   ([Quarkus client-proxy checks](docs/QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005---normal-scoped-bean-cannot-be-client-proxied)).
+- **H2 foreign-key access-path evidence** recognizes catalog-confirmed ordinary MVStore secondary indexes instead of
+  leaving their JDBC `tableIndexOther` access method unknown. Spatial, hash, custom and unreadable definitions remain
+  unverified, as do primary-key implementations. The catalog read preserves the borrowed session's exact query timeout
+  and JDBC getter cache; an unverifiable physical close target leaves the refinement unknown.
+  If every other required check is complete, an H2 Database assessment can now become eligible for strict CI
+  and its existing severity gates; incomplete comparison or mapping evidence still prevents that promotion.
+  No severity, finding identity, dismissal or CI policy changes are made
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#db-schema-002---foreign-key-access-path-review)).
 
 ### Changed
 
