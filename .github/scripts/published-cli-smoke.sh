@@ -17,8 +17,8 @@
 
 set -euo pipefail
 
-readonly PUBLISHED_CLI_VERSION="2.4.0"
-readonly PUBLISHED_CLI_SHA256="5c9fd1df3d28f032d828ba85cda0c1ecdee7ed1a3d3ef5ec8836032f5dfbb7c7"
+readonly PUBLISHED_CLI_VERSION="2.5.0"
+readonly PUBLISHED_CLI_SHA256="e5f71fc18b05a6eb14e01395f7395d8d926f8554b4c9cc3f194510c226f1bd09"
 readonly PUBLISHED_CLI_URL="https://repo1.maven.org/maven2/com/julien-dubois/bootui/bootui-cli/${PUBLISHED_CLI_VERSION}/bootui-cli-${PUBLISHED_CLI_VERSION}-all.jar"
 
 # The sample runs with this panel disabled, so its tool must exit 2. The other tool's panel needs a library the
