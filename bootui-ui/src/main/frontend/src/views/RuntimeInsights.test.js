@@ -1,5 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest'
 import {ref} from 'vue'
 import {createMemoryHistory, createRouter, RouterLink} from 'vue-router'
 
@@ -73,8 +73,9 @@ function jsonResponse(body) {
   return {ok: true, status: 200, json: () => Promise.resolve(body)}
 }
 
-function mountPanel(props = {}, panels = null, router = null) {
+function mountPanel(props = {}, panels = null, router = null, options = {}) {
   return mount(RuntimeInsights, {
+    ...options,
     props,
     global: {
       provide: {panels: ref(panels)},
@@ -1234,7 +1235,10 @@ describe('Runtime Insights panel', () => {
       Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : current))
     )
     vi.stubGlobal('fetch', fetchMock)
-    wrapper = mountPanel()
+    const host = document.createElement('div')
+    document.body.append(host)
+    onTestFinished(() => host.remove())
+    wrapper = mountPanel({}, null, null, {attachTo: host})
     await flushPromises()
 
     const group = wrapper.get('.insight-group-toggle')
