@@ -36,7 +36,7 @@
         <maven.deploy.skip>true</maven.deploy.skip>
 
         <!-- Keep the provided core baseline in bootui-quarkus-parent aligned with this BOM. -->
-        <quarkus-langchain4j.version>1.14.2</quarkus-langchain4j.version>
+        <quarkus-langchain4j.version>1.15.0</quarkus-langchain4j.version>
     </properties>
 
     <dependencyManagement>
