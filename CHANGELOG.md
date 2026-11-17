@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Hibernate query coverage** excludes narrowly proven static bulk DML from HIB-QUERY-007; discharging the last gap can expose existing findings to unchanged strict CI gates
+  ([scope and gate impact](docs/HIBERNATE-CHECKS.md#hib-query-007---queries-should-not-join-fetch-more-than-one-collection)).
 - **Explicit GitHub refresh** opens cached data without contacting GitHub, requires opt-in polling, preserves cached
   data on HTTP and report errors, and supports cache-only read-only retries ([GitHub](docs/features/developer-tools.md#github)).
 - **Host-bound GitHub credentials** prevent public or other Enterprise tokens from authenticating a different host

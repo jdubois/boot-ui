@@ -2470,6 +2470,9 @@ Acceptance criteria:
 - Opening the panel never executes application queries or mutates persistence metadata.
 - The scan action is blocked by global read-only mode and `bootui.panels.hibernate.read-only`.
 - Findings are presented as heuristic review prompts, not definitive performance verdicts.
+- HIB-QUERY-007 proves only a narrow verified static bulk-DML subset irrelevant before requiring a SELECT root.
+  Unknown provenance, unreadable text and unsupported applicable shapes remain evidence gaps; other rules' bulk-query
+  obligations and existing findings remain intact (see `docs/HIBERNATE-CHECKS.md`).
 
 ### 5.17.1.1 Hibernate Statistics Panel
 

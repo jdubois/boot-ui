@@ -3845,6 +3845,9 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
                 if (method.nativeQuery() || method.query() == null) {
                     continue;
                 }
+                if (HibernateQueryShape.irrelevantToMultipleCollectionFetch(context, method)) {
+                    continue;
+                }
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 Map<String, Boolean> collectionIsBag = new LinkedHashMap<>();

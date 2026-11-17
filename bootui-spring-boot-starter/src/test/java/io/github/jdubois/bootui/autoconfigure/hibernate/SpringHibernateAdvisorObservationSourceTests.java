@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -38,13 +39,87 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.service.spi.ServiceRegistryImplementor;
 import org.hibernate.stat.spi.StatisticsImplementor;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryRewriter;
+import org.springframework.data.repository.Repository;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.mock.env.MockEnvironment;
 
 class SpringHibernateAdvisorObservationSourceTests {
+    @Test
+    void nativeRepositoryObservationDischargesOnlyVerifiedStaticBulkFetchObligations() throws Exception {
+        for (boolean rewritten : List.of(false, true)) {
+            DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+            SessionFactoryImplementor factory = factory("orders", 25);
+            beans.registerSingleton("orders", factory);
+            var repository = SpringHibernateRepositoryDiscoveryTests.factory(true);
+            Class<?> type = rewritten ? RewrittenBulkRepository.class : DeclaredBulkRepository.class;
+            var information = repository.getRepositoryInformation();
+            doReturn(type).when(information).getRepositoryInterface();
+            doReturn(type).when((FactoryBean<?>) repository).getObjectType();
+            beans.registerSingleton("repository", repository);
+
+            HibernateAdvisorObservation observation =
+                    source(beans, new MockEnvironment()).observe();
+            assertThat(observation.diagnostics()).isEmpty();
+            assertThat(observation.units())
+                    .singleElement()
+                    .satisfies(unit -> assertThat(unit.repositories())
+                            .singleElement()
+                            .satisfies(observed -> assertThat(observed.methods())
+                                    .singleElement()
+                                    .satisfies(method -> {
+                                        assertThat(method.query()).isEqualTo("delete from Order o");
+                                        assertThat(method.evidence().verifiedQueryMethod())
+                                                .isTrue();
+                                        assertThat(method.evidence().declaredQuery())
+                                                .isTrue();
+                                        assertThat(method.evidence().queryRewriter())
+                                                .isEqualTo(rewritten);
+                                    })));
+            var report = HibernateScanner.observing(() -> observation, Clock.systemUTC())
+                    .scan();
+            assertThat(report.diagnostics().stream()
+                            .filter(diagnostic -> diagnostic.source().equals("HIB-QUERY-007"))
+                            .toList())
+                    .hasSize(rewritten ? 1 : 0);
+            assertThat(report.scan().status())
+                    .as("other genuine catalogue gaps remain")
+                    .isEqualTo("PARTIAL");
+            verify((FactoryBean<?>) repository, never()).getObject();
+            verify(factory, never()).createEntityManager();
+        }
+    }
+
+    interface DeclaredBulkRepository extends Repository<SpringHibernateRepositoryDiscoveryTests.Order, Long> {
+        @Modifying
+        @Query("delete from Order o")
+        int purge();
+    }
+
+    interface RewrittenBulkRepository extends Repository<SpringHibernateRepositoryDiscoveryTests.Order, Long> {
+        @Modifying
+        @Query(value = "delete from Order o", queryRewriter = UninvokableQueryRewriter.class)
+        int purge();
+    }
+
+    public static class UninvokableQueryRewriter implements QueryRewriter {
+        public UninvokableQueryRewriter() {
+            throw new AssertionError("Query rewriters must not be instantiated by observation or scanning");
+        }
+
+        @Override
+        public String rewrite(String query, Sort sort) {
+            throw new AssertionError("Query rewriters must not be executed by observation or scanning");
+        }
+    }
+
     @Test
     void failingLazyMiddleFactoryDoesNotHideLaterUnitsInEitherOrder() {
         for (List<String> order : List.of(List.of("first", "failed", "last"), List.of("last", "failed", "first"))) {

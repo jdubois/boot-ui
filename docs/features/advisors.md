@@ -573,6 +573,10 @@ findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) nam
 rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
 every mapping or query was verified.
 
+HIB-QUERY-007 excludes only [narrowly proven static bulk statements](../HIBERNATE-CHECKS.md#hib-query-007-queries-should-not-join-fetch-more-than-one-collection)
+from its fetch-query obligations. Unsupported applicable queries remain incomplete; other rules still inspect bulk
+queries where relevant. Removing the last genuine gap can make existing findings eligible for unchanged strict CI gates.
+
 Eager to-one mappings are MEDIUM review guidance under HIB-FETCH-001, not proof of extra queries. Eager collections
 remain HIGH under the separate HIB-FETCH-010. Existing HIB-FETCH-001 dismissals are not copied to the collection rule,
 so previously dismissed collection findings reappear on the next scan. See the

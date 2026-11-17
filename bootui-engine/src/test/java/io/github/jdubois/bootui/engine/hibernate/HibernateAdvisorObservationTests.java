@@ -271,6 +271,153 @@ class HibernateAdvisorObservationTests {
     }
 
     @Test
+    void irrelevantBulkQueriesAreNeutralAndDoNotEraseAnEarlierApplicableFetchEvaluation() {
+        HibernateRepositoryMethodModel bulk = fetchMethod("bulk", "update Order o set o.name = :name");
+        HibernateRepositoryMethodModel select = fetchMethod("find", "select o from Order o join fetch o.items");
+        for (List<HibernateRepositoryMethodModel> methods :
+                List.of(List.of(bulk), List.of(bulk, select), List.of(select, bulk))) {
+            HibernatePersistenceUnitObservation unit =
+                    unit("orders", settings(25), List.of(new HibernateRepositoryModel("Repo", Order.class, methods)));
+            HibernateContext context = HibernateContext.observed(unit, APP);
+            assertThat(new MultipleCollectionJoinFetchRule().evaluate(context).status())
+                    .isEqualTo("PASS");
+            assertThat(context.evidence().evaluated()).isTrue();
+            assertThat(context.evidence().requiredUnknown()).isFalse();
+            assertThat(context.evidence().applicable()).isEqualTo(methods.size() > 1);
+            assertThat(context.evidence().usable()).isEqualTo(methods.size() > 1);
+
+            HibernateReport report = scanner(List.of(unit), List.of(), List.of(new MultipleCollectionJoinFetchRule()))
+                    .scan();
+            assertThat(report.scan().status()).isEqualTo("SCANNED");
+            assertThat(report.rulesEvaluated()).isEqualTo(1);
+            assertThat(report.results()).isEmpty();
+            assertThat(report.diagnostics()).isEmpty();
+            assertThat(report.evidence().coverageComplete()).isTrue();
+            assertThat(report.evidence().usable()).isEqualTo(methods.size() > 1);
+        }
+    }
+
+    @Test
+    void uncertainBulkAndApplicableUnsupportedQueriesStillProduceRuleScopedGaps() {
+        for (String query : List.of(
+                "update Order o set",
+                "update Order o set O.name = :name",
+                "delete from Order o where O.id = :id",
+                "update Order o set o.id = 1--1",
+                "delete from Order o -- trailing text",
+                "delete from Order o /* unclosed",
+                "update Order o set o.name = 'unclosed",
+                "delete from Order o " + " ".repeat(16_384),
+                "delete from #{#entityName} o",
+                "select o from Order o join o.items i join fetch i.children",
+                "select o from Order o join Other p on p.id = o.id join fetch o.items join fetch o.tags",
+                "select o from Order o, Order p join fetch o.items join fetch o.tags")) {
+            HibernateContext context = context("7.4.5.Final", List.of(fetchMethod("unknown", query)));
+            assertThat(new MultipleCollectionJoinFetchRule().evaluate(context).status())
+                    .as(query)
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evidence().requiredUnknown()).as(query).isTrue();
+            assertThat(context.evidence().usable()).as(query).isFalse();
+        }
+        for (HibernateQueryEvidence evidence : List.of(
+                HibernateQueryEvidence.unknown(),
+                new HibernateQueryEvidence(true, true, false, true, false, int.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, true, false, false, true, int.class, false, null, null, List.of()))) {
+            HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                    "Repo",
+                    "uncertain",
+                    Order.class,
+                    int.class,
+                    "delete from Order o",
+                    false,
+                    null,
+                    false,
+                    true,
+                    false,
+                    false,
+                    List.of(),
+                    evidence);
+            HibernateContext context = context("7.4.5.Final", List.of(method));
+            assertThat(new MultipleCollectionJoinFetchRule().evaluate(context).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evidence().gaps()).containsOnlyKeys(HibernateEvidenceGap.QUERY_PROVENANCE);
+        }
+    }
+
+    @Test
+    void realParallelFetchFindingSurvivesAnUnrelatedGapInTheSameOrAnotherUnit() {
+        HibernateRepositoryMethodModel finding =
+                fetchMethod("findParallel", "select o from Order o join fetch o.items join fetch o.tags");
+        HibernateRepositoryMethodModel bulk = fetchMethod("bulk", "delete from Order o where o.id = :id");
+        HibernateRepositoryMethodModel unsupported =
+                fetchMethod("findNested", "select o from Order o join o.items i join fetch i.children");
+        for (boolean sameUnit : List.of(false, true)) {
+            for (boolean reverse : List.of(false, true)) {
+                List<HibernateRepositoryMethodModel> known = reverse ? List.of(bulk, finding) : List.of(finding, bulk);
+                List<HibernatePersistenceUnitObservation> units = sameUnit
+                        ? List.of(unit(
+                                "known",
+                                settings(25),
+                                List.of(new HibernateRepositoryModel(
+                                        "Repo",
+                                        Order.class,
+                                        reverse
+                                                ? List.of(unsupported, bulk, finding)
+                                                : List.of(finding, bulk, unsupported)))))
+                        : List.of(
+                                unit(
+                                        "known",
+                                        settings(25),
+                                        List.of(new HibernateRepositoryModel("Repo", Order.class, known))),
+                                unit(
+                                        "unknown",
+                                        settings(25),
+                                        List.of(new HibernateRepositoryModel(
+                                                "Repo", Order.class, List.of(unsupported)))));
+                if (reverse && !sameUnit) units = List.of(units.get(1), units.get(0));
+                HibernateScanner scanner = scanner(units, List.of(), List.of(new MultipleCollectionJoinFetchRule()));
+                HibernateReport report = scanner.scan();
+                assertThat(report.scan().status()).isEqualTo("PARTIAL");
+                assertThat(report.rulesEvaluated()).isEqualTo(1);
+                assertThat(report.evidence().usable()).isTrue();
+                assertThat(report.evidence().coverageComplete()).isFalse();
+                assertThat(result(report, "HIB-QUERY-007").violationCount()).isEqualTo(1);
+                assertThat(result(report, "HIB-QUERY-007").severity()).isEqualTo("MEDIUM");
+                assertThat(result(report, "HIB-QUERY-007").coverageNote()).contains(sameUnit ? "[known]" : "[unknown]");
+                assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+                    assertThat(diagnostic.source()).isEqualTo("HIB-QUERY-007");
+                    assertThat(diagnostic.message()).contains("Repo#findNested").doesNotContain("Repo#bulk");
+                });
+                var details = scanner.ruleViolations(
+                        "HIB-QUERY-007", report.violationDetails().scanId(), 0, 10);
+                assertThat(details.identities()).singleElement().asString().contains("unit=known", "findParallel");
+                assertThat(details.violationCount()).isEqualTo(1);
+                HibernateReport dismissed = scanner.applyDismissals(report, Set.of("HIB-QUERY-007"));
+                assertThat(dismissed.violationsFound()).isZero();
+                assertThat(dismissed.evidence()).isEqualTo(report.evidence());
+                assertThat(dismissed.violationDetails()).isEqualTo(report.violationDetails());
+            }
+        }
+    }
+
+    private static HibernateRepositoryMethodModel fetchMethod(String name, String query) {
+        return new HibernateRepositoryMethodModel(
+                "Repo",
+                name,
+                Order.class,
+                List.class,
+                query,
+                false,
+                null,
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                new HibernateQueryEvidence(true, true, false, false, false, Order.class, false, null, null, List.of()));
+    }
+
+    @Test
     void usableUnitOrRetainedFindingSurvivesUnknownRequiredObservations() {
         HibernateReport partial = scanner(
                         List.of(

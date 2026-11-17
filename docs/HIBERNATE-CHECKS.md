@@ -921,6 +921,16 @@ legitimate domain reads that need managed entity state.
 - **Severity**: MEDIUM
 - **Inspects**: Spring Data repository `@Query` methods, resolvable JPQL `JOIN FETCH` paths, and collection/bag metadata
   on the repository domain entity.
+- **Scope**: verified declared static bulk `UPDATE`/`DELETE` statements in a small readable subset are irrelevant
+  to this rule, without requiring an entity-returning SELECT shape. The subset requires exactly one mapped target,
+  a single-letter alias, one parameter or unsigned-integer assignment for `UPDATE`, and at most one matching-alias
+  equality predicate. Both assignment and predicate attributes must be observed, non-transient and non-collection.
+  Keywords ignore case, but every alias reference must exactly match the declared alias's case; the proof does not
+  observe strict-JPA compliance settings. Only block comments free of quote/dynamic-expression delimiters and raw `--`
+  sequences are ignored. Raw `--` anywhere (including arithmetic such as `1--1` or text inside a block comment),
+  quote/dynamic-expression delimiters, more complex DML, malformed or oversized text, named queries and query
+  rewriters remain outside this proof. SQL-style line comments are not HQL comments.
+  Unsupported SELECT shapes still leave required evidence gaps even when no fetch path was recognized.
 - **Fires when**: a non-native JPQL query `JOIN FETCH`es two or more collection associations from the same root entity.
   Runtime bag classification is not established, so presumed bags do not receive a higher-severity exception prediction.
 - **Why it matters**: simultaneous fetching of actual bags is unsupported, while parallel collections can multiply the
@@ -929,6 +939,12 @@ legitimate domain reads that need managed entity state.
 - **Recommendation**: fetch at most one collection per query. Initialize the remaining collections with separate queries,
   or suitably bounded batch fetching. An entity graph requesting the same parallel collections is not a universal fix,
   and Set does not eliminate row multiplication.
+
+This scope proof applies only to HIB-QUERY-007; bulk statements can still matter to other rules. It does not erase
+findings or gaps in other methods or persistence units, nor the advisor's by-design pool limitations. If it discharges
+the last required gap, the unchanged strict [CI assessment](CI.md) can assess a previously skipped optional Hibernate
+advisor and gate an existing HIGH finding (exit 0 to 3). Remaining gaps still prevent strict assessment; this is not
+whole-catalogue completeness or relaxed CI policy.
 
 ### HIB-QUERY-008 - Bulk updates leave @Version unchanged
 

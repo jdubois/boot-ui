@@ -8,6 +8,138 @@ import org.junit.jupiter.api.Test;
 class HibernateQueryShapeTests {
 
     @Test
+    void provesOnlyTheNarrowStaticBulkSubsetIrrelevantToMultipleCollectionFetching() {
+        for (String query : List.of(
+                "update QueryOrder o set o.status = :status",
+                " UPDATE QueryOrder AS o SET o.status = ?1 WHERE o.id = ?2 ",
+                "uPdAtE QueryOrder O sEt O.status = :status WhErE O.id = :id",
+                "delete from QueryOrder o",
+                "delete from QueryOrder as o where o.id = :id",
+                "DeLeTe FrOm QueryOrder O wHeRe O.id = ?1",
+                "/* join fetch o.items */ delete from QueryOrder o /* no fetching */",
+                "update QueryOrder o set o.status = 1 where o.id = 2")) {
+            assertThat(irrelevant(query, verifiedBulkEvidence())).as(query).isTrue();
+        }
+    }
+
+    @Test
+    void bulkScopeProofRequiresExactAssignmentAliasCase() {
+        for (String query :
+                List.of("update QueryOrder o set O.status = :status", "update QueryOrder O set o.status = :status")) {
+            assertThat(irrelevant(query, verifiedBulkEvidence())).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void bulkScopeProofRequiresExactPredicateAliasCase() {
+        for (String query : List.of(
+                "update QueryOrder o set o.status = :status where O.id = :id",
+                "delete from QueryOrder o where O.id = :id",
+                "delete from QueryOrder O where o.id = :id")) {
+            assertThat(irrelevant(query, verifiedBulkEvidence())).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void bulkScopeProofRejectsRawDoubleMinusInsteadOfStrippingIt() {
+        for (String query : List.of(
+                "update QueryOrder o set o.id = 1--1",
+                "delete from QueryOrder o -- trailing text",
+                "delete from QueryOrder o /* -- */")) {
+            assertThat(irrelevant(query, verifiedBulkEvidence())).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void anEmptyFetchPathListDoesNotProveMalformedDynamicOrUnsupportedQueriesIrrelevant() {
+        for (String query : List.of(
+                "",
+                "update",
+                "update QueryOrder o set",
+                "delete from QueryOrder where",
+                "delete from MissingEntity o",
+                "delete from QueryOrder o where o.missing = :id",
+                "update QueryOrder o set o.missing = :status",
+                "update QueryOrder o set o.items = :items",
+                "delete from QueryOrder o where o.items = :items",
+                "update QueryOrder o set o.scratch = :value",
+                "delete from QueryOrder o where o.scratch = :value",
+                "update QueryOrder o set o.labels = :values",
+                "delete from QueryOrder o where o.labels = :values",
+                "update QueryOrder o set o.status = :status where",
+                "update QueryOrder o set o.status = 1 'trailing literal'",
+                "update QueryOrder o set o.status = 'unclosed",
+                "delete from QueryOrder o /* unclosed",
+                "delete from QueryOrder o where (o.id = :id",
+                "delete from QueryOrder o where o.id = :id)",
+                "delete from QueryOrder o where o.id = :#{#id}",
+                "delete from #{#entityName} o",
+                "delete from ${entity} o",
+                "update QueryOrder o set o.status = :status /* #{#fragment} */",
+                "delete from QueryOrder o /* ${x} */",
+                "delete from QueryOrder o /* \"quoted\" */",
+                "select o from QueryOrder o",
+                "select o from QueryOrder o where exists (select i from QueryOrder i)",
+                "select o from QueryOrder o union select p from QueryOrder p",
+                "select o from QueryOrder o, QueryOrder p",
+                "delete from QueryOrder o " + " ".repeat(16_384))) {
+            assertThat(irrelevant(query, verifiedBulkEvidence())).as(query).isFalse();
+        }
+        assertThat(irrelevant(null, verifiedBulkEvidence())).isFalse();
+    }
+
+    @Test
+    void bulkScopeProofRequiresVerifiedDeclaredUnrewrittenQueryProvenance() {
+        for (HibernateQueryEvidence evidence : List.of(
+                HibernateQueryEvidence.unknown(),
+                new HibernateQueryEvidence(false, true, false, false, false, int.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, false, false, false, false, int.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, true, false, true, false, int.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, true, false, false, true, int.class, false, null, null, List.of()))) {
+            assertThat(irrelevant("delete from QueryOrder o", evidence))
+                    .as(evidence.toString())
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void bulkScopeProofDoesNotGuessAnUnobservedOrAmbiguousMappedTarget() {
+        HibernateEntityModel entity = HibernateEntityModel.fromClass(QueryOrder.class);
+        assertThat(irrelevant("delete from QueryOrder o", verifiedBulkEvidence(), List.of()))
+                .isFalse();
+        assertThat(irrelevant("delete from QueryOrder o", verifiedBulkEvidence(), List.of(entity, entity)))
+                .isFalse();
+    }
+
+    private static boolean irrelevant(String query, HibernateQueryEvidence evidence) {
+        return irrelevant(query, evidence, List.of(HibernateEntityModel.fromClass(QueryOrder.class)));
+    }
+
+    private static boolean irrelevant(
+            String query, HibernateQueryEvidence evidence, List<HibernateEntityModel> entities) {
+        HibernateContext context = new HibernateContext(entities, List.of(), key -> null, List.of());
+        HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                "QueryOrderRepository",
+                "bulk",
+                QueryOrder.class,
+                int.class,
+                query,
+                false,
+                null,
+                false,
+                true,
+                false,
+                false,
+                List.of(),
+                evidence);
+        return HibernateQueryShape.irrelevantToMultipleCollectionFetch(context, method);
+    }
+
+    private static HibernateQueryEvidence verifiedBulkEvidence() {
+        return new HibernateQueryEvidence(true, true, false, false, false, int.class, false, null, null, List.of());
+    }
+
+    @Test
     void recognizesTimestampAssignments() {
         for (String expression : List.of(
                 "CURRENT_TIMESTAMP",
@@ -218,6 +350,12 @@ class HibernateQueryShapeTests {
         String name;
 
         String status;
+
+        @jakarta.persistence.Transient
+        String scratch;
+
+        @jakarta.persistence.ElementCollection
+        List<String> labels;
 
         @jakarta.persistence.OneToMany
         List<QueryOrder> items;

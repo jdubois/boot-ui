@@ -321,6 +321,31 @@ class HibernateRulesTests {
     }
 
     @Test
+    void multipleCollectionFetchKeepsJoinAliasesAndIgnoresQuotedOrCommentedFetchPaths() {
+        Map<String, String> queries = Map.of(
+                "select r from MultiCollectionRoot as r left join fetch r.firstBag a join fetch r.secondBag as b",
+                "VIOLATION",
+                "select r from MultiCollectionRoot r join fetch r.firstBag"
+                        + " where 'join fetch r.secondBag' = 'not a fetch'",
+                "PASS",
+                "select r from MultiCollectionRoot r join fetch r.firstBag /* join fetch r.secondBag */",
+                "PASS");
+        queries.forEach((query, status) -> {
+            HibernateContext context = context(
+                    new TestEnvironment(),
+                    List.of(new HibernateRepositoryModel(
+                            "com.example.Repo",
+                            MultiCollectionRoot.class,
+                            List.of(queryMethod("find", query, List.of())))),
+                    MultiCollectionRoot.class);
+            assertThat(new MultipleCollectionJoinFetchRule().evaluate(context).status())
+                    .as(query)
+                    .isEqualTo(status);
+            assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
+        });
+    }
+
+    @Test
     void multipleCollectionJoinFetchRuleReportsTheSameSeverityWhetherOrNotItFires() {
         HibernateRepositoryModel passing = new HibernateRepositoryModel(
                 "com.example.Repo",

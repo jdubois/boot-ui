@@ -126,6 +126,56 @@ final class HibernateQueryShape {
         return text != null && text.stripLeading().toLowerCase(Locale.ROOT).matches("(?s)^(update\\b|delete\\b).*");
     }
 
+    private static final String SIMPLE_BULK_TARGET =
+            "(?<entity>[A-Za-z_]\\w*(?:\\.[A-Za-z_$][\\w$]*)*)\\s+(?:as\\s+)?(?<alias>[A-Za-z])";
+    private static final String SIMPLE_BULK_VALUE = "(?::[A-Za-z_]\\w*|\\?[1-9]\\d*|\\d+)";
+    // HQL aliases can be case-sensitive; do not infer strict-JPA compliance.
+    private static final String SIMPLE_BULK_WHERE =
+            "(?:\\s+where\\s+(?-i:\\k<alias>)\\.(?<predicate>[A-Za-z_]\\w*)\\s*=\\s*" + SIMPLE_BULK_VALUE + ")?";
+    private static final Pattern SIMPLE_FETCH_FREE_UPDATE = Pattern.compile("(?is)^\\s*update\\s+"
+            + SIMPLE_BULK_TARGET + "\\s+set\\s+(?-i:\\k<alias>)\\.(?<assignment>[A-Za-z_]\\w*)\\s*=\\s*"
+            + SIMPLE_BULK_VALUE + SIMPLE_BULK_WHERE + "\\s*$");
+    private static final Pattern SIMPLE_FETCH_FREE_DELETE =
+            Pattern.compile("(?is)^\\s*delete\\s+from\\s+" + SIMPLE_BULK_TARGET + SIMPLE_BULK_WHERE + "\\s*$");
+
+    /** A narrow static DML subset, irrelevant only to the multiple-collection fetch rule. */
+    static boolean irrelevantToMultipleCollectionFetch(
+            HibernateContext context, HibernateRepositoryMethodModel method) {
+        HibernateQueryEvidence evidence = method.evidence();
+        if (method.nativeQuery()
+                || !evidence.verifiedQueryMethod()
+                || !evidence.declaredQuery()
+                || evidence.namedQuery()
+                || evidence.queryRewriter()) return false;
+        String query = lexical(method.query());
+        if (query == null
+                || method.query().indexOf('\'') >= 0
+                || method.query().indexOf('"') >= 0
+                || method.query().contains("#{")
+                || method.query().contains("${")
+                || method.query().contains("--")) return false;
+        Matcher statement = SIMPLE_FETCH_FREE_UPDATE.matcher(query);
+        boolean update = statement.matches();
+        if (!update) {
+            statement = SIMPLE_FETCH_FREE_DELETE.matcher(query);
+            if (!statement.matches()) return false;
+        }
+        HibernateEntityModel entity = findEntity(context, statement.group("entity"));
+        if (entity == null) return false;
+        String predicate = statement.group("predicate");
+        return (!update || mappedAttribute(entity, statement.group("assignment")))
+                && (predicate == null || mappedAttribute(entity, predicate))
+                && HibernateRuleModelSupport.joinFetchPaths(query).isEmpty();
+    }
+
+    private static boolean mappedAttribute(HibernateEntityModel entity, String name) {
+        return entity.attributes().stream()
+                .anyMatch(attribute -> name.equals(attribute.name())
+                        && !attribute.isTransient()
+                        && !attribute.isCollectionAssociation()
+                        && !attribute.isElementCollection());
+    }
+
     private static String fromClause(String afterFrom) {
         Matcher end = FROM_CLAUSE_END.matcher(afterFrom);
         return end.find() ? afterFrom.substring(0, end.start()) : afterFrom;
