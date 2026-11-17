@@ -23,7 +23,9 @@ import java.math.BigDecimal;
  *       {@code ClassLoadFactor = 0.35} (a build-time → runtime estimator) is
  *       not applied. We do apply a {@link #META_SAFETY_FACTOR} on top of the
  *       observed count to account for lazy class loading after the user
- *       opens the panel.</li>
+ *       opens the panel. Metaspace reserves at least the named pool's
+ *       observed committed bytes plus a 25% starting allowance when available;
+ *       that pool already includes compressed class metadata.</li>
  *   <li><b>Direct memory</b> keeps libjvm's 10 MiB fallback, but is raised to
  *       at least the currently observed direct-buffer usage. The generated
  *       options deliberately do not hard-cap direct memory because a live
@@ -108,7 +110,12 @@ final class MemoryCalculator {
 
     private static long roundUpTo(long value, long multiple) {
         if (value <= 0) return multiple;
-        return ((value + multiple - 1) / multiple) * multiple;
+        long remainder = value % multiple;
+        return remainder == 0 ? value : saturatedAdd(value, multiple - remainder);
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
     }
 
     private static long clamp(long value, long min, long max) {
@@ -236,17 +243,43 @@ final class MemoryCalculator {
             String virtualThreadsProperty,
             long observedDirectMemoryBytes,
             long minimumRequestedHeapBytes) {
+        return calculate(
+                totalMemoryBytes,
+                threadCount,
+                loadedClasses,
+                headRoomPercent,
+                liveThreadCount,
+                liveLoadedClassCount,
+                virtualThreadsEnabled,
+                virtualThreadsProperty,
+                observedDirectMemoryBytes,
+                minimumRequestedHeapBytes,
+                -1);
+    }
+
+    MemoryCalculationDto calculate(
+            long totalMemoryBytes,
+            int threadCount,
+            int loadedClasses,
+            int headRoomPercent,
+            int liveThreadCount,
+            int liveLoadedClassCount,
+            boolean virtualThreadsEnabled,
+            String virtualThreadsProperty,
+            long observedDirectMemoryBytes,
+            long minimumRequestedHeapBytes,
+            long observedMetaspaceCommittedBytes) {
 
         long clampedTotal = clamp(totalMemoryBytes, MIN_TOTAL_MEMORY_BYTES, MAX_TOTAL_MEMORY_BYTES);
         int clampedThreads = (int) clamp(threadCount, MIN_THREAD_COUNT, MAX_THREAD_COUNT);
         int clampedHeadRoom = (int) clamp(headRoomPercent, MIN_HEAD_ROOM_PERCENT, MAX_HEAD_ROOM_PERCENT);
         int clampedClasses = Math.max(loadedClasses, 0);
 
-        long metaspaceBytes = computeMetaspaceBytes(clampedClasses);
+        long metaspaceBytes = computeMetaspaceBytes(clampedClasses, observedMetaspaceCommittedBytes);
         long directMemoryBytes = computeDirectMemoryBytes(observedDirectMemoryBytes);
         long stackBytesPerThread = STACK_BYTES_PER_THREAD;
         long stackBytesTotal = stackBytesPerThread * (long) clampedThreads;
-        long fixedRegionsBytes = directMemoryBytes + metaspaceBytes + CODE_CACHE_BYTES + stackBytesTotal;
+        long fixedRegionsBytes = saturatedAdd(metaspaceBytes, directMemoryBytes + CODE_CACHE_BYTES + stackBytesTotal);
         long headRoomBytes = clampedTotal * clampedHeadRoom / 100;
         long heapBytes = clampedTotal - headRoomBytes - fixedRegionsBytes;
 
@@ -343,14 +376,33 @@ final class MemoryCalculator {
             int loadedClasses,
             long observedDirectMemoryBytes,
             long minimumRequestedHeapBytes) {
+        return defaultTotalMemoryBytes(
+                heapCommittedBytes,
+                nonHeapCommittedBytes,
+                threadCount,
+                loadedClasses,
+                observedDirectMemoryBytes,
+                minimumRequestedHeapBytes,
+                -1);
+    }
+
+    long defaultTotalMemoryBytes(
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            int threadCount,
+            int loadedClasses,
+            long observedDirectMemoryBytes,
+            long minimumRequestedHeapBytes,
+            long observedMetaspaceCommittedBytes) {
         long min = 384L * MEBIBYTE;
         long max = 2048L * MEBIBYTE;
         long requiredHeapBytes = Math.max(MIN_DEFAULT_HEAP_BYTES, minimumRequestedHeapBytes);
         int safeThreads = Math.max(threadCount, DEFAULT_THREAD_COUNT_FLOOR);
-        long fixed = computeDirectMemoryBytes(observedDirectMemoryBytes)
-                + computeMetaspaceBytes(Math.max(loadedClasses, 0))
-                + CODE_CACHE_BYTES
-                + STACK_BYTES_PER_THREAD * (long) safeThreads;
+        long fixed = saturatedAdd(
+                computeMetaspaceBytes(Math.max(loadedClasses, 0), observedMetaspaceCommittedBytes),
+                computeDirectMemoryBytes(observedDirectMemoryBytes)
+                        + CODE_CACHE_BYTES
+                        + STACK_BYTES_PER_THREAD * (long) safeThreads);
         int availablePercent = 100 - MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
         // An impossible observed target still selects the hard clamp; calculation must reject it.
         long floor = requiredHeapBytes > max || fixed > max - requiredHeapBytes
@@ -383,9 +435,12 @@ final class MemoryCalculator {
         return heapBytes * PERCENTAGE_THOUSANDTHS_PER_WHOLE / totalMemoryBytes;
     }
 
-    private long computeMetaspaceBytes(int loadedClasses) {
+    private long computeMetaspaceBytes(int loadedClasses, long observedCommittedBytes) {
         double withFactor = (META_BASE_BYTES + META_PER_CLASS_BYTES * (double) loadedClasses) * META_SAFETY_FACTOR;
-        return roundUpTo((long) Math.ceil(withFactor), MEBIBYTE);
+        long committed = Math.max(0, observedCommittedBytes);
+        long allowance = committed / 4 + (committed % 4 == 0 ? 0 : 1);
+        long observedTarget = saturatedAdd(committed, allowance);
+        return roundUpTo(Math.max((long) Math.ceil(withFactor), observedTarget), MEBIBYTE);
     }
 
     private static long computeDirectMemoryBytes(long observedDirectMemoryBytes) {

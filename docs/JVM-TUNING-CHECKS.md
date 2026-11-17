@@ -9,8 +9,8 @@ Quarkus. The compatibility baseline is Java 17 through Java 26, Spring Boot 4.1,
 
 The full audit behind [#955](https://github.com/jdubois/boot-ui/issues/955) retains the existing partition and
 operator policies, corrects numerical/output boundaries, and separates generated requests from effective JVM memory.
-Observed-metaspace sizing and richer effective health-probe detection are explicitly deferred below rather than
-silently treated as complete. Sources were independently revalidated against JDK 17–26 GA source, Spring Boot 4.1.1,
+Observed-metaspace sizing now bounds the class model; richer effective health-probe detection remains deferred below.
+Sources were independently revalidated against JDK 17–26 GA source, Spring Boot 4.1.1,
 and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, collector, and architecture.
 
 ## Evidence ledger
@@ -30,7 +30,7 @@ and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, 
 | [Oracle GC ergonomics guidance](https://docs.oracle.com/en/java/javase/17/gctuning/ergonomics.html) | GC sizing and pause/throughput choices are competing workload goals; heap size alone is not sufficient evidence for changing collectors or enabling pre-touch. |
 | [JEP 439](https://openjdk.org/jeps/439), [JEP 474](https://openjdk.org/jeps/474), and [JEP 490](https://openjdk.org/jeps/490) | Generational ZGC availability and defaults changed after Java 17; JDK 24 removed non-generational mode and obsoleted `ZGenerational`. Emitting that flag is not portable across the supported range. |
 | [JEP 450](https://openjdk.org/jeps/450) and [JEP 519](https://openjdk.org/jeps/519) | Compact headers progressed from an experimental to a product feature, not a universal default. That evolution does not establish workload suitability or availability across Java 17–26. |
-| [JDK 26 class metadata](https://docs.oracle.com/en/java/javase/26/gctuning/other-considerations.html) and [HotSpot memory pools](https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/services/memoryPool.cpp) | `MaxMetaspaceSize` covers combined committed metadata; the Metaspace pool already includes compressed class metadata. Adding the Compressed Class Space pool again double-counts it, and its reserved address space is not committed RAM. |
+| [JDK 17 class metadata](https://docs.oracle.com/en/java/javase/17/gctuning/other-considerations.html), [JDK 26 class metadata](https://docs.oracle.com/en/java/javase/26/gctuning/other-considerations.html), and HotSpot memory pools ([17 GA](https://github.com/openjdk/jdk/blob/jdk-17-ga/src/hotspot/share/services/memoryPool.cpp), [26 GA](https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/services/memoryPool.cpp)) | `MaxMetaspaceSize` covers combined committed metadata; the named Metaspace pool reports combined statistics and already includes compressed class metadata. Adding the Compressed Class Space pool again double-counts it, and its reserved address space is not committed RAM. |
 | [Kubernetes resource management](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) and [Pod QoS classes](https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/) | Memory limits are hard OOM boundaries; requests drive scheduling. Guaranteed QoS requires equal, non-zero CPU and memory requests and limits for every container, not memory equality alone. |
 | [Linux cgroup v2 memory controller](https://docs.kernel.org/admin-guide/cgroup-v2.html#memory-interface-files) | `memory.current` is the current total memory attributed to a cgroup and `memory.max` is its hard limit. |
 | [Oracle Native Memory Tracking](https://docs.oracle.com/en/java/javase/17/vm/native-memory-tracking.html) | NMT is off by default, requires `jcmd` output to use, and tracks JVM/HotSpot memory rather than all user-native allocations. Detecting its startup flag alone is not stronger sizing evidence. |
@@ -57,7 +57,7 @@ The current inputs and bounds are:
 | Total process budget | Operator input clamped to 128 MiB–64 GiB before byte conversion. A detected limit is rounded down to whole MiB before applying the same bounds; its original byte value remains in the report. The initial host default is an explicit BootUI heuristic, approximately 1.5 times committed heap plus non-heap, rounded to 64 MiB and clamped to 384 MiB–2 GiB. Footprint arithmetic is bounded before addition/rounding; negative/unknown counters contribute no observed bytes. |
 | Headroom | Operator-selected 0%–30%; default 10%. It covers unmodeled native/process overhead but is not a measured guarantee. |
 | Direct memory | Greater of Paketo's 10 MiB fallback and current `java.nio` direct-buffer memory, rounded up to MiB. It is modeled but not hard-capped. |
-| Metaspace | `(14,000,000 + 5,800 × current loaded classes) × 1.25`, rounded up to MiB. The constants follow Paketo; 1.25 is an explicit BootUI allowance for later class loading. |
+| Metaspace | Greater of `(14,000,000 + 5,800 × current loaded classes) × 1.25` and observed **Metaspace committed × 1.25**, rounded up to MiB. The class constants follow Paketo; each 25% allowance is an explicit BootUI starting heuristic, not a measured peak forecast. |
 | Code cache | 240 MiB, following the comparable Paketo model. |
 | Platform-thread stacks | 1 MiB times the operator budget. The initial budget is `max(current live threads, 250)` for every runtime, including applications using virtual threads. |
 | Heap | Exact remaining modeled bytes in valid reports; fixed option literals round down to MiB. Every fixed and three-decimal percentage request must reach both HotSpot's generic 2 MiB maximum-heap lower bound and observed heap used. Untouched host defaults apply the larger target below. Otherwise the report is invalid with an explanation and no generated options/YAML. No upward heap adjustment rescues an exhausted budget. |
@@ -85,7 +85,22 @@ The same single `MemoryUsage` heap snapshot supplies defaults, validation, and t
 does not trigger GC or a histogram to obtain it; observed heap used can include reclaimable objects and is not
 measured live-after-GC. Negative/unknown heap-used inputs contribute no observed lower bound; zero preserves the
 generic/default floors. Oversized observations and allowance arithmetic saturate rather than wrapping or dropping the
-bound, leaving an invalid plan when the selected budget cannot fit. Observed Metaspace sizing remains separate work.
+bound, leaving an invalid plan when the selected budget cannot fit.
+
+The named **Metaspace** pool is read once per report. Its committed bytes supply the same reservation for default
+totals, final partitioning, fixed options, and Kubernetes options, and its unmodified observation appears in the
+live-memory pool list. BootUI uses committed rather than used bytes, adds a 25% starting allowance rounded up to a
+byte, then rounds the larger observed/class-model target up to MiB. Compressed Class Space is already included:
+neither that pool nor unrelated non-heap/code-cache pools are added to the observed target. No GC, histogram, NMT
+command, or application callback is requested.
+
+Missing or unsupported Metaspace observations retain only the class-count model, with an explicit unavailable note;
+they do not establish zero metadata demand. The allowance is not live-after-GC usage or a peak-demand guarantee.
+Exceeding the generated `MaxMetaspaceSize` hard cap can cause **`OutOfMemoryError: Metaspace`**. Validate class loading
+after warmup and under representative peak load. Metaspace allowance, upward rounding, and fixed-region sums saturate
+rather than wrap for oversized counters. The automatic fixed-region floor includes this reservation and the existing
+heap target/headroom/rounding; the hard 2 GiB default clamp and explicit/detected total budgets are never raised to
+rescue an infeasible plan. Such plans retain the invalid/error, no-options/no-YAML, `Unavailable` shape.
 
 Displayed defaults remain defaults through refreshes and Kubernetes-only toggle changes. Only editing a total,
 thread or headroom input sends that sizing override; untouched inputs continue to follow the current report.
@@ -158,7 +173,7 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 | Host default and rounding | **UPDATE** | Preserve 1.5x/384 MiB–2 GiB/64 MiB policy; include default headroom and both option representations in the larger of 128 MiB and observed heap used plus a 20% starting allowance. Reject defaults that cannot fit within the clamp. |
 | Detected total and YAML denominator | **UPDATE** | Round detected budget down to whole MiB, preserve raw evidence, and align emitted quantities with the model. |
 | Headroom default 10%, selectable 0%–30% | **RETAIN** | Explicit BootUI/operator heuristic; not Paketo's default or a safety guarantee. |
-| Live class count and 1.25 metaspace allowance | **RETAIN; ENHANCEMENT DEFERRED** | Observable class count with an explicit heuristic; it can underestimate current actual metadata. Observed-metaspace sizing requires separate policy and must not double-count compressed class space. |
+| Live class count and observed Metaspace commitment | **UPDATE** | Retain the class model when larger; otherwise reserve current named-pool committed bytes plus 25%. Reuse one observation, round upward, preserve an honest class-model fallback, and never double-count compressed class space. A hard cap can still cause Metaspace OOME under later demand. |
 | Metaspace upward MiB rounding | **RETAIN** | Does not shrink the modeled requested cap; not evidence that the cap fits the workload. |
 | Direct fallback/observed usage without cap | **RETAIN** | Current buffers are not peak demand or all native allocations. Unavailable observations do not establish zero demand. |
 | Code cache 240 MiB | **RETAIN** | Paketo reserve, not every JVM mode's default or observed commitment. |

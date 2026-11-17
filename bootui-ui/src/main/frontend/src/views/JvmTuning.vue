@@ -147,9 +147,10 @@ function formatPercentage(value) {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            For a dedicated server or VM, heap is fixed after subtracting modeled metaspace (currently loaded classes ×
-            1.25), code cache, direct memory, platform-thread stacks, and operator-selected headroom. Direct memory uses
-            the Paketo 10 MiB fallback or the current observed usage, whichever is larger.
+            For a dedicated server or VM, heap is fixed after subtracting modeled metaspace, code cache, direct memory,
+            platform-thread stacks, and operator-selected headroom. Metaspace uses the larger of the class-count model
+            and observed committed metadata plus 25%, when available. Direct memory uses the Paketo 10 MiB fallback or
+            the current observed usage, whichever is larger.
           </p>
 
           <div class="row g-3 mb-3">
@@ -229,8 +230,8 @@ function formatPercentage(value) {
               </div>
             </div>
             <div class="small text-muted">
-              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded · metaspace sized
-              for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor ·
+              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded · class model uses
+              {{ data.calculation.loadedClasses.toLocaleString() }} classes with a 25% starting allowance ·
               {{ data.calculation.stackBytesPerThread / 1024 }} KiB per platform thread
             </div>
           </template>

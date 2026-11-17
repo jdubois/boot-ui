@@ -32,6 +32,38 @@ final class MemoryKubernetesSizer {
             boolean burstableEnabled,
             boolean healthProbesEnabled,
             HealthProbeManifest healthProbeManifest) {
+        return recommend(
+                calculation,
+                heapCommittedBytes,
+                nonHeapCommittedBytes,
+                directBufferMemoryUsedBytes,
+                nativeMemoryTrackingEnabled,
+                detectedContainerLimitBytes,
+                detectedContainerCurrentUsageBytes,
+                maxRamPercentage,
+                initialRamPercentage,
+                javaToolOptions,
+                burstableEnabled,
+                healthProbesEnabled,
+                healthProbeManifest,
+                -1);
+    }
+
+    static KubernetesMemoryRecommendationDto recommend(
+            MemoryCalculationDto calculation,
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            long directBufferMemoryUsedBytes,
+            boolean nativeMemoryTrackingEnabled,
+            Long detectedContainerLimitBytes,
+            Long detectedContainerCurrentUsageBytes,
+            double maxRamPercentage,
+            double initialRamPercentage,
+            String javaToolOptions,
+            boolean burstableEnabled,
+            boolean healthProbesEnabled,
+            HealthProbeManifest healthProbeManifest,
+            long observedMetaspaceCommittedBytes) {
 
         long currentSnapshotBytes = estimateCurrentSnapshotBytes(
                 heapCommittedBytes,
@@ -78,7 +110,8 @@ final class MemoryKubernetesSizer {
                 limitBytes,
                 burstableEnabled,
                 healthProbesEnabled,
-                healthProbeManifest);
+                healthProbeManifest,
+                observedMetaspaceCommittedBytes);
         String confidence = confidence(calculation, detectedContainerLimitBytes, detectedContainerCurrentUsageBytes);
         String qosClass = requestBytes < limitBytes ? "Burstable" : "Depends on CPU";
         String yaml = buildYaml(
@@ -154,7 +187,8 @@ final class MemoryKubernetesSizer {
             long limitBytes,
             boolean burstableEnabled,
             boolean healthProbesEnabled,
-            HealthProbeManifest healthProbeManifest) {
+            HealthProbeManifest healthProbeManifest,
+            long observedMetaspaceCommittedBytes) {
 
         List<String> warnings = new ArrayList<>();
         boolean memoryRequestBelowLimit = burstableEnabled && burstableRequestBytes < limitBytes;
@@ -181,6 +215,12 @@ final class MemoryKubernetesSizer {
                 "Generated heap values are requests: collector and platform alignment can raise the effective heap. Model validity checks generic flag constraints, not JVM startup or workload sufficiency; verify effective settings on the target JVM.");
         warnings.add(
                 "Fixed metaspace, code-cache, and stack settings do not cap total process memory. Unmodeled native allocations and container charges can exceed selected headroom; validate after warmup and under representative peak load.");
+        warnings.add(
+                observedMetaspaceCommittedBytes >= 0
+                        ? "Metaspace reserves the larger of the class-count model and current Metaspace committed plus 25%, rounded up to MiB. This starting allowance is not peak demand or a live-after-GC measurement."
+                        : "Metaspace committed is unavailable; the reservation uses only the class-count model with its 25% allowance, not measured metadata demand.");
+        warnings.add(
+                "Exceeding the generated MaxMetaspaceSize hard cap can cause OutOfMemoryError: Metaspace. Validate class loading after warmup and under representative peak load.");
         warnings.add(
                 "Direct memory is modeled at "
                         + formatMi(calculation.directMemoryBytes())

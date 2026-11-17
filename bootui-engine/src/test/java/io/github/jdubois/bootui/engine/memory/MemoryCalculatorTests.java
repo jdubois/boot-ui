@@ -66,6 +66,127 @@ class MemoryCalculatorTests {
         assertThat(oneThousandClasses.metaspaceBytes()).isEqualTo(expected);
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {-1, 0, Long.MIN_VALUE})
+    void missingMetaspaceObservationPreservesTheClassModel(long observedCommittedBytes) {
+        MemoryCalculationDto neutral = calculator.calculate(1024 * MB, 250, 1_000, 10, 250, 1_000);
+        MemoryCalculationDto observed = calculator.calculate(
+                1024 * MB,
+                250,
+                1_000,
+                10,
+                250,
+                1_000,
+                false,
+                "spring.threads.virtual.enabled",
+                0,
+                MemoryCalculator.MIN_REQUESTED_HEAP_BYTES,
+                observedCommittedBytes);
+
+        assertThat(observed).isEqualTo(neutral);
+        assertThat(calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000, 0, 128 * MB, observedCommittedBytes))
+                .isEqualTo(calculator.defaultTotalMemoryBytes(0, 0, 250, 1_000));
+    }
+
+    @Test
+    void smallerObservedMetaspaceCannotReduceTheClassModel() {
+        MemoryCalculationDto neutral = calculator.calculate(1024 * MB, 250, 10_000, 10, 250, 10_000);
+        MemoryCalculationDto observed = calculator.calculate(
+                1024 * MB,
+                250,
+                10_000,
+                10,
+                250,
+                10_000,
+                false,
+                "spring.threads.virtual.enabled",
+                0,
+                MemoryCalculator.MIN_REQUESTED_HEAP_BYTES,
+                MB);
+
+        assertThat(observed).isEqualTo(neutral);
+        assertThat(calculator.defaultTotalMemoryBytes(0, 0, 250, 10_000, 0, 128 * MB, MB))
+                .isEqualTo(calculator.defaultTotalMemoryBytes(0, 0, 250, 10_000));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 320", "1, 321", "838861, 322"})
+    void observedMetaspaceAllowanceRoundsUpInBothOptionsAndTheBudget(long extraByte, long expectedMetaMiB) {
+        long observedCommittedBytes = 256 * MB + extraByte;
+        long requiredHeap = MemoryCalculator.minimumRequestedHeapBytes(90 * MB, false);
+        MemoryCalculationDto result = calculator.calculate(
+                1024 * MB, 250, 0, 10, 250, 0, false, null, 0, requiredHeap, observedCommittedBytes);
+        long requiredMetaspace = observedCommittedBytes + (observedCommittedBytes + 3) / 4;
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.totalMemoryBytes()).isEqualTo(1024 * MB);
+        assertThat(result.metaspaceBytes()).isEqualTo(expectedMetaMiB * MB).isGreaterThanOrEqualTo(requiredMetaspace);
+        assertThat(optionMebibytes(result.jvmOptions(), "-XX:MaxMetaspaceSize=") * MB)
+                .isEqualTo(result.metaspaceBytes());
+        double percentage = MemoryKubernetesSizer.heapPercentage(result);
+        assertThat(optionMebibytes(
+                                calculator.buildKubernetesJvmOptions(result, percentage, percentage),
+                                "-XX:MaxMetaspaceSize=")
+                        * MB)
+                .isEqualTo(result.metaspaceBytes());
+        assertThat(optionMebibytes(result.jvmOptions(), "-Xmx") * MB).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(renderedPercentageHeapBytes(result)).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(result.fixedRegionsBytes()).isEqualTo(result.metaspaceBytes() + 500 * MB);
+        assertThat(result.heapBytes() + result.fixedRegionsBytes() + result.headRoomBytes())
+                .isEqualTo(result.totalMemoryBytes());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 128, 1088, 768", "250, 300, 1280, 960"})
+    void defaultFloorIncludesObservedMetaspaceAndTheSameObservedHeapAllowance(
+            long observedHeapMiB, long requiredHeapMiB, long expectedTotalMiB, long previousTotalMiB) {
+        long observedMetaspace = 256 * MB + 1;
+        long requiredHeap = MemoryCalculator.minimumRequestedHeapBytes(observedHeapMiB * MB, true);
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 0, 0, requiredHeap, observedMetaspace);
+        MemoryCalculationDto result =
+                calculator.calculate(total, 250, 0, 10, 250, 0, false, null, 0, requiredHeap, observedMetaspace);
+
+        assertThat(total).isEqualTo(expectedTotalMiB * MB);
+        assertThat(requiredHeap).isEqualTo(requiredHeapMiB * MB);
+        assertThat(result.valid()).isTrue();
+        assertThat(result.metaspaceBytes()).isEqualTo(321 * MB);
+        assertThat(optionMebibytes(result.jvmOptions(), "-Xmx") * MB).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(renderedPercentageHeapBytes(result)).isGreaterThanOrEqualTo(requiredHeap);
+        assertThat(calculator
+                        .calculate(
+                                previousTotalMiB * MB,
+                                250,
+                                0,
+                                10,
+                                250,
+                                0,
+                                false,
+                                null,
+                                0,
+                                requiredHeap,
+                                observedMetaspace)
+                        .valid())
+                .isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            longs = {1536L * MB, Long.MAX_VALUE / 2, 7_378_697_629_483_820_644L, Long.MAX_VALUE - 1, Long.MAX_VALUE})
+    void oversizedObservedMetaspaceFailsClosedWithoutWrappingOrRaisingTheDefaultClamp(long observedCommittedBytes) {
+        long total = calculator.defaultTotalMemoryBytes(0, 0, 250, 0, 0, 128 * MB, observedCommittedBytes);
+        MemoryCalculationDto result =
+                calculator.calculate(total, 250, 0, 10, 250, 0, false, null, 0, 128 * MB, observedCommittedBytes);
+
+        assertThat(total).isEqualTo(2048 * MB);
+        assertThat(result.metaspaceBytes()).isGreaterThanOrEqualTo(observedCommittedBytes);
+        assertThat(result.fixedRegionsBytes()).isGreaterThanOrEqualTo(result.metaspaceBytes());
+        assertThat(result.valid()).isFalse();
+        assertThat(result.error()).isNotBlank();
+        assertThat(result.heapBytes()).isZero();
+        assertThat(result.jvmOptions()).isEmpty();
+        assertThat(calculator.buildKubernetesJvmOptions(result, 0, 0)).isEmpty();
+    }
+
     @Test
     void headroomReducesAvailableHeap() {
         MemoryCalculationDto noHeadroom = calculator.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);

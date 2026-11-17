@@ -7,6 +7,55 @@
  */
 export function registerJvmSizingInputTests(test, expect, {uiPath = '/bootui', apiPath = '/bootui/api'} = {}) {
   test.describe('JVM sizing input provenance', () => {
+    test('keeps the Metaspace cap coherent and explains its snapshot limits', async ({page}) => {
+      await page.goto(`${uiPath}/#/jvm-tuning`)
+      await expect(page.getByRole('heading', {name: 'JVM Tuning', exact: true})).toBeVisible()
+      const total = page.locator('#jvm-target-memory')
+      await expect(total).not.toHaveValue('')
+      await page.getByLabel('Toggle auto-refresh', {exact: true}).uncheck()
+      const totalMiB = Number(await total.inputValue()) === 65536 ? 32768 : 65536
+      const [response] = await Promise.all([
+        page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return (
+            response.request().method() === 'GET' &&
+            url.pathname === `${apiPath}/jvm-tuning` &&
+            url.searchParams.get('totalMemoryMb') === String(totalMiB)
+          )
+        }),
+        total.fill(String(totalMiB)).then(() => total.blur())
+      ])
+      expect(response.status()).toBe(200)
+      const report = await response.json()
+      expect(report.calculation.valid).toBe(true)
+      expect(report.calculation.totalMemoryBytes).toBe(totalMiB * 1024 * 1024)
+      const metaspaceMiB = report.calculation.metaspaceBytes / (1024 * 1024)
+      expect(Number.isInteger(metaspaceMiB)).toBe(true)
+      expect(metaspaceMiB).toBeGreaterThan(0)
+      const observedMetaspace = report.pools.find((pool) => pool.name === 'Metaspace')
+      if (observedMetaspace) {
+        expect(Number.isInteger(observedMetaspace.committedBytes)).toBe(true)
+        expect(observedMetaspace.committedBytes).toBeGreaterThanOrEqual(0)
+        expect(report.calculation.metaspaceBytes).toBeGreaterThanOrEqual(
+          Math.ceil(observedMetaspace.committedBytes * 1.25)
+        )
+      } else {
+        expect(report.kubernetes.warnings.join(' ')).toContain('Metaspace committed is unavailable')
+      }
+      const option = `-XX:MaxMetaspaceSize=${metaspaceMiB}m`
+      expect(report.suggestedJvmOptions.split(' ')).toContain(option)
+      expect(report.kubernetes.javaToolOptions.split(' ')).toContain(option)
+      const calculator = page.locator('.card', {hasText: 'Bare metal JVM calculator'})
+      const kubernetes = page.locator('.card', {hasText: 'Kubernetes calculator'})
+      await expect(calculator).toContainText('observed committed metadata plus 25%, when available')
+      await expect(calculator).not.toContainText('metaspace sized for')
+      await expect(
+        page.locator('.card', {hasText: 'Bare metal JVM options'}).locator('.options-box code')
+      ).toContainText(option)
+      await expect(kubernetes.locator('.options-box code')).toContainText(option)
+      await expect(kubernetes).toContainText('OutOfMemoryError: Metaspace')
+    })
+
     test('keeps defaults automatic until a sizing input is edited', async ({page}) => {
       await page.goto(`${uiPath}/#/jvm-tuning`)
       await expect(page.getByRole('heading', {name: 'JVM Tuning', exact: true})).toBeVisible()

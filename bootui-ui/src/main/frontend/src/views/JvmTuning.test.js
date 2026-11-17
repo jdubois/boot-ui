@@ -68,7 +68,8 @@ function memoryReport({
       confidence: 'Medium',
       warnings: [
         'Memory request equals memory limit. Kubernetes Guaranteed QoS additionally requires equal, non-zero CPU request and limit for every container in the Pod.',
-        'Direct memory is modeled from the current direct-buffer usage and is intentionally not hard-capped.'
+        'Direct memory is modeled from the current direct-buffer usage and is intentionally not hard-capped.',
+        'Exceeding the generated MaxMetaspaceSize hard cap can cause OutOfMemoryError: Metaspace.'
       ],
       yaml:
         'resources:\n' +
@@ -135,6 +136,9 @@ describe('JvmTuning', () => {
     expect(renderedText).not.toContain('Burstable alternative')
     expect(renderedText).toContain('Medium model confidence')
     expect(renderedText).toContain('CPU request and limit')
+    expect(renderedText).toContain('observed committed metadata plus 25%, when available')
+    expect(renderedText).toContain('OutOfMemoryError: Metaspace')
+    expect(renderedText).not.toContain('metaspace sized for')
     expect(renderedText).not.toContain('Garbage collector:')
     expect(wrapper.find('.alert-info').text()).toContain('Sizing notes')
     expect(renderedText.indexOf('Deployment snippet')).toBeLessThan(renderedText.indexOf('Sizing notes'))

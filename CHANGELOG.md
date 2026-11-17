@@ -28,6 +28,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods)).
 - **JVM heap recommendations** reject options below observed heap used and give untouched host defaults a documented
   20% starting allowance, without inflating explicit budgets ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **JVM Metaspace recommendations** reserve at least observed committed metadata plus a documented 25% starting
+  allowance, retain larger class estimates, and reject insufficient budgets without emitting options or YAML
+  ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
 - **Quarkus producer-proxy precision** avoids HIGH findings for proxyable JDK types such as abstract `Clock` and
   retains native ArC unproxyability errors without inferring their failure stage from type shape
   ([Quarkus client-proxy checks](docs/QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005---normal-scoped-bean-cannot-be-client-proxied)).

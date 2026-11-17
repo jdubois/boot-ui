@@ -28,6 +28,7 @@ public class MemoryReportProvider {
     private final ExposurePolicy exposure;
     private final Supplier<List<String>> inputArgumentsSupplier;
     private final Supplier<MemoryUsage> heapUsageSupplier;
+    private final Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier;
 
     public MemoryReportProvider() {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS);
@@ -91,12 +92,31 @@ public class MemoryReportProvider {
             ExposurePolicy exposure,
             Supplier<List<String>> inputArgumentsSupplier,
             Supplier<MemoryUsage> heapUsageSupplier) {
+        this(
+                calculator,
+                containerMemoryLimitDetector,
+                runtimeConfig,
+                exposure,
+                inputArgumentsSupplier,
+                heapUsageSupplier,
+                ManagementFactory::getMemoryPoolMXBeans);
+    }
+
+    MemoryReportProvider(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector containerMemoryLimitDetector,
+            MemoryRuntimeConfig runtimeConfig,
+            ExposurePolicy exposure,
+            Supplier<List<String>> inputArgumentsSupplier,
+            Supplier<MemoryUsage> heapUsageSupplier,
+            Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier) {
         this.calculator = calculator;
         this.containerMemoryLimitDetector = containerMemoryLimitDetector;
         this.runtimeConfig = runtimeConfig;
         this.exposure = exposure == null ? JvmInputArgumentMasking.MASKED_BY_DEFAULT : exposure;
         this.inputArgumentsSupplier = inputArgumentsSupplier;
         this.heapUsageSupplier = heapUsageSupplier;
+        this.memoryPoolsSupplier = memoryPoolsSupplier;
     }
 
     private static List<String> runtimeInputArguments() {
@@ -120,10 +140,15 @@ public class MemoryReportProvider {
         MemoryPoolDto nonHeap = toDto("Non-Heap", nonHeapUsage);
 
         List<MemoryPoolDto> pools = new ArrayList<>();
-        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+        long observedMetaspaceCommittedBytes = -1;
+        for (MemoryPoolMXBean pool : memoryPoolsSupplier.get()) {
             MemoryUsage usage = pool.getUsage();
             if (usage != null) {
-                pools.add(toDto(pool.getName(), usage));
+                String name = pool.getName();
+                pools.add(toDto(name, usage));
+                if ("Metaspace".equals(name)) {
+                    observedMetaspaceCommittedBytes = Math.max(observedMetaspaceCommittedBytes, usage.getCommitted());
+                }
             }
         }
 
@@ -160,7 +185,8 @@ public class MemoryReportProvider {
                                 defaultThreadCount,
                                 liveClasses,
                                 directBufferMemoryUsedBytes,
-                                MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsedBytes, true));
+                                MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsedBytes, true),
+                                observedMetaspaceCommittedBytes);
         int resolvedThreads = threadCount != null ? threadCount : defaultThreadCount;
         int resolvedHeadRoom =
                 headRoomPercent != null ? headRoomPercent : MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
@@ -175,7 +201,8 @@ public class MemoryReportProvider {
                 resolvedVirtualThreadsEnabled,
                 runtimeConfig.virtualThreadsProperty(),
                 directBufferMemoryUsedBytes,
-                minimumRequestedHeapBytes);
+                minimumRequestedHeapBytes,
+                observedMetaspaceCommittedBytes);
         Long detectedContainerMemoryLimitBytes =
                 detectedContainerMemoryLimit.isPresent() ? detectedContainerMemoryLimit.getAsLong() : null;
         Long detectedContainerCurrentUsageBytes =
@@ -197,7 +224,8 @@ public class MemoryReportProvider {
                 kubernetesJvmOptions,
                 resolvedKubernetesBurstableEnabled,
                 resolvedKubernetesActuatorEnabled,
-                runtimeConfig.healthProbeManifest());
+                runtimeConfig.healthProbeManifest(),
+                observedMetaspaceCommittedBytes);
 
         return new LiveMemoryReport(
                 heap,

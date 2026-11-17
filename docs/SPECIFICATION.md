@@ -1142,14 +1142,20 @@ Features:
 - The JVM Tuning panel provides a bare-metal JVM memory calculator that partitions a user-chosen
   target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
-  using the live loaded-class count from `ClassLoadingMXBean` (with an explicit 1.25× safety
-  factor), the greater of the 10 MiB direct-memory fallback and observed direct-buffer use, and a platform-thread count
-  floored at 250 by default.
+  reserving the larger of the live loaded-class model from `ClassLoadingMXBean` and named Metaspace pool committed
+  bytes, each with a 25% starting allowance and upward MiB rounding. One passive pool observation supplies the display,
+  default total and both option forms; Compressed Class Space is already included and is not added again. When the
+  observation is unavailable, the class model remains the fallback with an explicit note. Exceeding the generated
+  `MaxMetaspaceSize` cap can cause `OutOfMemoryError: Metaspace`; the allowance is not a live-after-GC or peak-demand
+  guarantee. The other reservations use the greater of the 10 MiB direct-memory fallback and observed direct-buffer
+  use, and a platform-thread count floored at 250 by default.
 - All generated fixed whole-MiB and floored three-decimal percentage heap options must reach observed heap used and
   the generic 2 MiB bound. Untouched host defaults target the larger of 128 MiB and observed heap used plus an explicit
   20% starting allowance, accounting for default headroom and option rounding while retaining the hard 2 GiB default
   clamp. The allowance is not a peak/workload guarantee; explicit/manual and detected-container plans do not require it.
   Defaults, validation and the displayed heap reuse one `MemoryUsage` snapshot, without requesting GC or a histogram.
+  The automatic fixed-region floor includes the same Metaspace reservation; oversized observations saturate rather
+  than wrap, without raising the default clamp or explicit/detected budgets.
   An insufficient budget returns the existing invalid/error shape with no options or YAML, not an inflated budget
   or a recommendation below observed demand.
 - The JVM Tuning panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`

@@ -3239,6 +3239,29 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    @Test
+    void jvmMetaspaceReservationMatchesBothOptionFormsAndExplainsTheHardCap() {
+        Response response = probe().get(api("/jvm-tuning?totalMemoryMb=65536&threadCount=250&headRoomPercent=10"));
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        JsonNode calculation = report.path("calculation");
+        long mebibyte = 1024L * 1024L;
+
+        assertThat(calculation.path("valid").asBoolean()).isTrue();
+        assertThat(calculation.path("totalMemoryBytes").asLong()).isEqualTo(65536 * mebibyte);
+        long metaspace = calculation.path("metaspaceBytes").asLong();
+        assertThat(metaspace).isPositive();
+        assertThat(metaspace % mebibyte).isZero();
+        String option = "-XX:MaxMetaspaceSize=" + metaspace / mebibyte + "m";
+        assertThat(report.path("suggestedJvmOptions").asText()).contains(option);
+        JsonNode kubernetes = report.path("kubernetes");
+        assertThat(kubernetes.path("javaToolOptions").asText()).contains(option);
+        assertThat(kubernetes.path("yaml").asText()).contains(option);
+        assertThat(kubernetes.path("warnings"))
+                .anySatisfy(
+                        warning -> assertThat(warning.asText()).contains("hard cap", "OutOfMemoryError: Metaspace"));
+    }
+
     /**
      * A property is enumerated under the literal name its source uses: an environment variable stays
      * {@code UPPER_SNAKE_CASE} on Spring and on Quarkus alike, because relaxed binding applies on lookup and
