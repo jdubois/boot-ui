@@ -1,5 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest'
 import {ref} from 'vue'
 
 import {safeLocalStorage} from '../utils/safeStorage.js'
@@ -1881,8 +1881,11 @@ describe('LiveActivity', () => {
 
   it('remembers when Live flow is minimized without hiding the activity feed', async () => {
     vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+    const host = document.createElement('div')
+    document.body.append(host)
+    onTestFinished(() => host.remove())
 
-    wrapper = mountLiveActivity()
+    wrapper = mountLiveActivity({attachTo: host})
     await flushPromises()
 
     await wrapper.get('[aria-controls="activity-live-flow"]').trigger('click')
@@ -1895,7 +1898,7 @@ describe('LiveActivity', () => {
     expect(safeLocalStorage.getItem('bootui.activity.flowCollapsed')).toBe('true')
 
     wrapper.unmount()
-    wrapper = mountLiveActivity()
+    wrapper = mountLiveActivity({attachTo: host})
     await flushPromises()
 
     expect(wrapper.get('[aria-controls="activity-live-flow"]').attributes('aria-expanded')).toBe('false')
