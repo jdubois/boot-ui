@@ -1,7 +1,10 @@
-import {flushPromises, mount} from '@vue/test-utils'
+import {enableAutoUnmount, flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import GitHub from './GitHub.vue'
+import PanelHeader from './components/PanelHeader.vue'
+
+enableAutoUnmount(afterEach)
 
 function githubReport(overrides = {}) {
   return {
@@ -332,24 +335,29 @@ function jsonResponse(body, ok = true, status = 200) {
 describe('GitHub', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     document.cookie = 'XSRF-TOKEN=test-token'
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     document.cookie = 'XSRF-TOKEN=; Max-Age=0'
   })
 
-  it('refreshes GitHub metrics automatically every minute', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+  it('opens and reopens cached data without refreshing on timers or visibility return', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(githubReport()))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mount(GitHub)
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenCalledWith('api/github', {})
+    expect(wrapper.find('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBeNull()
+    expect(wrapper.find('.last-fetched-text').exists()).toBe(false)
     expect(wrapper.text()).toContain('jdubois/boot-ui')
     expect(wrapper.text()).toContain('Auto-refresh')
     expect(wrapper.text()).not.toContain('Refresh now')
@@ -360,12 +368,295 @@ describe('GitHub', () => {
     expect(repositoryLink.classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline-secondary', 'btn-sm']))
     expect(repositoryLink.find('.bi-box-arrow-up-right').exists()).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(59_000)
+    await vi.advanceTimersByTimeAsync(120_000)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
+    wrapper.unmount()
+    const reopened = mount(GitHub)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.every(([url]) => url === 'api/github')).toBe(true)
+    expect(reopened.find('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+  })
+
+  it('connects once and keeps manual refresh independent of polling', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(githubReport()))
+      .mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Connect')
+      .trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(connectedReport().refreshedAt)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Connect')).toBe(false)
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(wrapper.find('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('polls only after opt-in and only while visible', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(true)
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1_000)
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('single-flights manual, interval, and visibility refreshes while keeping cached data visible', async () => {
+    let finishRefresh
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(connectedReport()))
+      .mockImplementationOnce(() => new Promise((resolve) => (finishRefresh = resolve)))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(true)
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('button[title="Refresh"]').element.disabled).toBe(true)
+    expect(wrapper.findComponent(PanelHeader).props('loading')).toBe(true)
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(connectedReport().refreshedAt)
+    expect(metricButton(wrapper, 'Open pull requests').exists()).toBe(true)
+    expect(wrapper.find('.skeleton-wrapper').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    wrapper.findComponent(PanelHeader).vm.$emit('refresh')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    finishRefresh(jsonResponse(connectedReport()))
+    await flushPromises()
+    expect(wrapper.get('button[title="Refresh"]').element.disabled).toBe(false)
+  })
+
+  it('reads only cached data in read-only mode and does not re-arm polling after a policy transition', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub, {props: {panel: {readOnly: true}}})
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledWith('api/github', {})
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="Toggle auto-refresh"]').exists()).toBe(false)
+
+    await wrapper.setProps({panel: {readOnly: false}})
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+
+    await wrapper.setProps({panel: {readOnly: true}})
+    wrapper.findComponent(PanelHeader).vm.$emit('update:autoRefresh', true)
+    await vi.advanceTimersByTimeAsync(120_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    wrapper.findComponent(PanelHeader).vm.$emit('refresh')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+
+    await wrapper.setProps({panel: {readOnly: false}})
+    expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+  })
+
+  it('preserves the cached timestamp and data on refresh failure and exposes an explicit retry', async () => {
+    const report = connectedReport()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(report))
+      .mockResolvedValueOnce(jsonResponse({}, false, 503))
+      .mockResolvedValueOnce(jsonResponse({...report, refreshedAt: report.refreshedAt + 60_000}))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(report.refreshedAt)
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('HTTP 503')
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(report.refreshedAt)
+    expect(metricButton(wrapper, 'Open pull requests').exists()).toBe(true)
+
+    const retry = wrapper.findAll('button').find((button) => button.text() === 'Retry')
+    expect(retry).toBeDefined()
+    await retry.trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(report.refreshedAt + 60_000)
+  })
+
+  it('retains last-good cache for HTTP-200 ERROR reports and retries explicitly', async () => {
+    const report = connectedReport()
+    const message = 'GitHub core request failed (HTTP 503)'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(report))
+      .mockResolvedValueOnce(
+        jsonResponse(githubReport({status: 'ERROR', message, refreshedAt: report.refreshedAt + 60_000}))
+      )
+      .mockResolvedValueOnce(jsonResponse({...report, refreshedAt: report.refreshedAt + 120_000}))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await metricButton(wrapper, 'Open pull requests').trigger('click')
+    expect(wrapper.get('.details-drawer').text()).toContain('#42 Add dashboard')
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(report.refreshedAt)
+    expect(wrapper.get('[role="alert"]').text()).toContain(message)
+    expect(wrapper.get('.details-drawer').text()).toContain('#42 Add dashboard')
+    const retry = wrapper.findAll('button').find((button) => button.text() === 'Retry')
+    expect(retry).toBeDefined()
+    await retry.trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(report.refreshedAt + 120_000)
+    expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+  })
+
+  it.each([
+    ['GitHub core request failed (HTTP 503)', 'GitHub core request failed (HTTP 503)'],
+    [null, 'GitHub refresh failed']
+  ])('does not accept an initial ERROR report as fresh data (%s)', async (message, expectedMessage) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(githubReport({status: 'ERROR', message, refreshedAt: Date.now()})))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain(expectedMessage)
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBeNull()
+    expect(wrapper.find('.last-fetched-text').exists()).toBe(false)
+    expect(wrapper.find('.metric-card-button').exists()).toBe(false)
+    expect(wrapper.find('.skeleton-wrapper').exists()).toBe(false)
+    const retry = wrapper.findAll('button').find((button) => button.text() === 'Retry')
+    expect(retry).toBeDefined()
+  })
+
+  it.each([
+    {status: 'PARTIAL', connected: true, available: true, refreshedAt: 1780563660000},
+    {
+      status: 'UNAVAILABLE',
+      available: false,
+      unavailableReason: 'Repository is no longer available',
+      refreshedAt: null
+    },
+    {status: 'DISABLED', available: true, refreshedAt: null}
+  ])('accepts authoritative $status reports instead of retaining old metrics', async (overrides) => {
+    const next = githubReport(overrides)
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(connectedReport()))
+      .mockResolvedValueOnce(jsonResponse(next))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    expect(metricButton(wrapper, 'Open pull requests').exists()).toBe(true)
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(next.refreshedAt)
+    expect(wrapper.find('.metric-card-button').exists()).toBe(false)
+    expect(wrapper.text()).toContain(next.available ? next.status : next.unavailableReason)
+  })
+
+  it('retries a failed read-only cache GET without live refresh or polling and explains an empty cache', async () => {
+    let finishRead
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, false, 503))
+      .mockImplementationOnce(() => new Promise((resolve) => (finishRead = resolve)))
+    vi.stubGlobal('fetch', fetchMock)
+    const reason = 'GitHub is read-only by configuration.'
+    const wrapper = mount(GitHub, {props: {panel: {readOnly: true, readOnlyReason: reason}}})
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('HTTP 503')
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="Toggle auto-refresh"]').exists()).toBe(false)
+    const retry = wrapper.findAll('button').find((button) => button.text() === 'Retry cached data')
+    expect(retry).toBeDefined()
+    await retry.trigger('click')
+    await flushPromises()
+    expect(retry.element.disabled).toBe(true)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+    finishRead(jsonResponse(githubReport()))
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No cached GitHub metrics')
+    expect(wrapper.text()).toContain(reason)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Connect')).toBe(false)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Retry cached data')).toBe(false)
+
+    await wrapper.setProps({panel: {readOnly: false}})
+    expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.every(([url, init]) => url === 'api/github' && init.method !== 'POST')).toBe(true)
   })
 
   it('opens one replacing details drawer from each metric card', async () => {
@@ -622,7 +913,7 @@ describe('GitHub', () => {
     const wrapper = mount(GitHub)
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenCalledWith('api/github', {})
     expect(wrapper.text()).toContain('GitHub repository unavailable')
     expect(wrapper.text()).toContain('No local git repository was detected')
   })

@@ -330,7 +330,7 @@ group.
 Data sources:
 
 - Local `.git` metadata for repository detection and branch/upstream information.
-- GitHub REST API during the panel's one-minute auto-refresh/manual refresh cycle.
+- GitHub REST API on explicit Connect/manual refresh, or one-minute polling explicitly enabled by the user.
 - Host-bound local credentials: `GITHUB_TOKEN` / `GH_TOKEN` for github.com, Enterprise token variables only with a
   matching `GH_HOST`, or the host's stored `gh auth token --hostname <host>` login, never persisted or returned to
   the browser.
@@ -347,6 +347,15 @@ Features:
 Acceptance criteria:
 
 - Initial page load and `/bootui/api/panels` do not spawn subprocesses or call GitHub.
+- Opening or reopening the GitHub panel reads only the cached `GET /bootui/api/github` report. Auto-refresh starts
+  off on each mount; timer ticks and tab visibility changes cannot contact GitHub until the user opts in.
+- Explicitly enabled polling runs every minute while visible and refreshes on visibility return. Read-only mode
+  turns it off, and becoming writable again does not re-enable it.
+- Cached reads retain the report's actual `refreshedAt`, including null before the first live refresh. Failed
+  refreshes, including HTTP-200 reports with status `ERROR`, retain the last good data and timestamp with a visible
+  error; an initial error does not create fresh data. Other report statuses remain authoritative.
+- Read-only errors expose an explicit **Retry cached data** action using only the cache GET, disabled while loading.
+  Recovery never enables live refresh or polling.
 - Outbound GitHub calls happen only through `POST /bootui/api/github/refresh` and are blocked by read-only settings.
 - Scorecard's GitHub controls, including GitHub-only run-all, honor that same target policy without hiding cached data.
 - The quotas/rate-limits drawer is hidden by default and highlights resources at quota or with 10% or less remaining.

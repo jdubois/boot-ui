@@ -1,6 +1,6 @@
 <script setup>
 import {getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {formatNumber, formatRelative} from '../utils/format.js'
 import {formatBytes} from '../utils/memoryReport.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -10,7 +10,7 @@ import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
-const {readOnly} = usePanelState(props)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const AUTO_REFRESH_INTERVAL_MS = 60_000
 const QUOTA_COLOR_SCALE = [
   {threshold: 0, color: '#D73027', textColor: '#fff'},
@@ -42,20 +42,33 @@ const copilotUsage = computed(() => data.value?.copilotUsage ?? null)
 const connected = computed(() => data.value?.connected === true)
 const unavailable = computed(() => data.value?.available === false)
 
-async function fetchDashboard() {
-  const liveRefresh = !readOnly.value
+async function fetchDashboard(requestRefresh = null) {
+  const liveRefresh = !readOnly.value && (requestRefresh ?? autoRefresh.value)
   try {
-    data.value = await getJson(liveRefresh ? 'api/github/refresh' : 'api/github', liveRefresh ? {method: 'POST'} : {})
-    lastFetched.value = data.value?.refreshedAt ?? Date.now()
+    const report = await getJson(liveRefresh ? 'api/github/refresh' : 'api/github', liveRefresh ? {method: 'POST'} : {})
+    if (report?.status === 'ERROR') {
+      throw new Error(report.message || 'GitHub refresh failed')
+    }
+    data.value = report
+    lastFetched.value = report?.refreshedAt ?? null
     error.value = null
   } catch (e) {
-    error.value = describeLoadError(e, 'Unable to refresh GitHub')
+    error.value = describeLoadError(e, liveRefresh ? 'Unable to refresh GitHub' : 'Unable to load cached GitHub data')
   }
 }
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchDashboard, {
-  intervalMs: AUTO_REFRESH_INTERVAL_MS
+  intervalMs: AUTO_REFRESH_INTERVAL_MS,
+  defaultEnabled: false
 })
+
+watch(
+  [readOnly, autoRefresh],
+  ([locked]) => {
+    if (locked) autoRefresh.value = false
+  },
+  {flush: 'sync'}
+)
 
 function statusBadgeClass(status) {
   return (
@@ -442,8 +455,21 @@ function securitySignalUrl(signal) {
       :auto-refreshable="!readOnly"
       auto-refresh-title="Refresh every minute while this tab is visible"
       v-model:auto-refresh="autoRefresh"
-      @refresh="load"
-    />
+      @refresh="load(true)"
+    >
+      <template #actions>
+        <button
+          v-if="readOnly && error"
+          type="button"
+          class="btn btn-outline-secondary btn-sm"
+          :disabled="loading"
+          :aria-busy="loading || undefined"
+          @click="load(false)"
+        >
+          Retry cached data
+        </button>
+      </template>
+    </PanelHeader>
 
     <PanelSkeleton v-if="initialLoading" />
 
@@ -456,8 +482,9 @@ function securitySignalUrl(signal) {
       <div v-else class="alert alert-info github-refresh-note">
         <i class="bi bi-shield-lock me-2"></i>
         <span>
-          BootUI refreshes this local-only panel every minute while visible. Tokens from <code>GITHUB_TOKEN</code>,
-          <code>GH_TOKEN</code>, or <code>gh auth token</code> stay server-side and are never sent to the browser.
+          Opening this panel reads cached data only. Refresh manually or enable auto-refresh for updates every minute
+          while visible. Tokens from <code>GITHUB_TOKEN</code>, <code>GH_TOKEN</code>, or
+          <code>gh auth token</code> stay server-side and are never sent to the browser.
         </span>
       </div>
 
@@ -528,10 +555,22 @@ function securitySignalUrl(signal) {
       <div v-if="!unavailable && !connected" class="card border-dashed mb-3">
         <div class="card-body text-center text-muted py-4">
           <i class="bi bi-cloud-arrow-down fs-1 d-block mb-2"></i>
-          <div class="fw-semibold text-body">Connect to GitHub to load live metrics</div>
-          <div>
-            Repository detection is local; quota and project metrics load from GitHub when this panel refreshes.
+          <div class="fw-semibold text-body">
+            {{ readOnly ? 'No cached GitHub metrics' : 'Connect to GitHub to load live metrics' }}
           </div>
+          <div v-if="readOnly">{{ readOnlyReason }}</div>
+          <template v-else>
+            <div>Repository detection is local; Connect requests live quota and project metrics from GitHub.</div>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm mt-3"
+              :disabled="loading"
+              :aria-busy="loading || undefined"
+              @click="load(true)"
+            >
+              Connect
+            </button>
+          </template>
         </div>
       </div>
 

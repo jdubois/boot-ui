@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Explicit GitHub refresh** opens cached data without contacting GitHub, requires opt-in polling, preserves cached
+  data on HTTP and report errors, and supports cache-only read-only retries ([GitHub](docs/features/developer-tools.md#github)).
 - **Host-bound GitHub credentials** prevent public or other Enterprise tokens from authenticating a different host
   ([GitHub](docs/features/developer-tools.md#github)).
 - **Consistent CSP reviews** keep weak script policies at the missing-policy LOW baseline across all advisors without double-counting hardening gaps
