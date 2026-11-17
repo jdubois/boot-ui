@@ -12,6 +12,8 @@ import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassWriter;
 import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
 import io.github.jdubois.bootui.engine.archunit.fixtures.BadlyNamedFailure;
 import java.io.IOException;
+import java.net.JarURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -22,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -203,14 +206,19 @@ class ArchUnitClassImportsTests {
                 }
             }
 
-            try (URLClassLoader loader =
-                    new URLClassLoader(new URL[] {archive.toUri().toURL()}, application.originalClassLoader)) {
+            var connection = (JarURLConnection)
+                    URI.create("jar:" + archive.toUri() + "!/").toURL().openConnection();
+            // ArchUnit reopens the JAR through the URL cache; own that handle so Windows can delete it.
+            try (JarFile cachedJar = connection.getJarFile();
+                    URLClassLoader loader =
+                            new URLClassLoader(new URL[] {archive.toUri().toURL()}, application.originalClassLoader)) {
                 assertThatThrownBy(() -> application.inClassLoader(
                                 loader, () -> ArchUnitClassImports.importPackages(List.of(application.packageName))))
                         .isInstanceOf(IncompleteClassImportException.class)
                         .hasMessageContaining("1 of 2 class resources rejected")
                         .hasMessageContaining("[72]");
             }
+            Files.delete(archive);
         }
     }
 
