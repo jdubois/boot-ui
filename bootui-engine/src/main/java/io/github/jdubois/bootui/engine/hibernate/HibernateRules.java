@@ -106,6 +106,20 @@ final class HibernateRuleModelSupport {
 
     private HibernateRuleModelSupport() {}
 
+    static boolean hasDeclaredEagerFetch(HibernateContext context, HibernateAttributeModel attribute) {
+        Annotation mapping = attribute.isElementCollection()
+                ? attribute.elementCollectionAnnotation()
+                : attribute.associationAnnotation();
+        String fetch = mapping == null ? null : attribute.annotationValueName(mapping, "fetch");
+        if ("EAGER".equals(fetch)) {
+            return true;
+        }
+        if (!"LAZY".equals(fetch)) {
+            context.missingEvidence(HibernateEvidenceGap.FETCH_MAPPING, attribute.description());
+        }
+        return false;
+    }
+
     /** The declared {@code targetEntity} of a {@code @OneToOne}, falling back to the attribute's Java type. */
     static Class<?> oneToOneTargetType(HibernateAttributeModel attribute, Annotation oneToOne) {
         try {
@@ -531,13 +545,46 @@ final class EagerFetchRule extends AbstractHibernateRule {
     EagerFetchRule() {
         super(new HibernateRuleDefinition(
                 "HIB-FETCH-001",
-                "Eager fetching should stay explicit and bounded",
+                "Review eager to-one fetch plans",
+                HibernateCategory.FETCHING,
+                "MEDIUM",
+                "Reviews @ManyToOne and @OneToOne mappings with FetchType.EAGER, including JPA's default."
+                        + " The declaration alone does not establish query counts or unbounded loading.",
+                "Review whether each use case needs the to-one association. Consider LAZY mappings with explicit"
+                        + " fetch joins, entity graphs, or DTO queries; verify the actual query plan.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute :
+                    context.targets(entity.attributes(), HibernateAttributeModel::isToOneAssociation)) {
+                if (HibernateRuleModelSupport.hasDeclaredEagerFetch(context, attribute)) {
+                    details.add(
+                            attribute.description() + " is mapped as FetchType.EAGER.",
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+}
+
+final class EagerCollectionFetchRule extends AbstractHibernateRule {
+
+    EagerCollectionFetchRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-FETCH-010",
+                "Eager collection fetching should stay bounded",
                 HibernateCategory.FETCHING,
                 "HIGH",
-                "Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER,"
-                        + " including default-eager to-one associations.",
-                "Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins,"
-                        + " entity graphs, or DTO queries.",
+                "Detects @OneToMany, @ManyToMany, and @ElementCollection mappings with FetchType.EAGER."
+                        + " Loading all collection members can amplify the fetched graph and payload.",
+                "Prefer LAZY collections and fetch required members explicitly with targeted queries, fetch joins,"
+                        + " entity graphs, or DTO queries. Bound collection loading to the use case.",
                 "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
     }
 
@@ -546,19 +593,14 @@ final class EagerFetchRule extends AbstractHibernateRule {
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
-                    entity.attributes(), candidate -> candidate.isAssociation() || candidate.isElementCollection())) {
-                Annotation association = attribute.associationAnnotation();
-                if (association != null && "EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
+                    entity.attributes(),
+                    candidate -> candidate.isCollectionAssociation() || candidate.isElementCollection())) {
+                if (HibernateRuleModelSupport.hasDeclaredEagerFetch(context, attribute)) {
                     details.add(
-                            attribute.description() + " is mapped as FetchType.EAGER.",
-                            HibernateLocations.of(attribute),
-                            HibernateIdentities.of(context, entity, attribute));
-                }
-                Annotation elementCollection = attribute.elementCollectionAnnotation();
-                if (elementCollection != null
-                        && "EAGER".equals(attribute.annotationValueName(elementCollection, "fetch"))) {
-                    details.add(
-                            attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.",
+                            attribute.description()
+                                    + (attribute.isElementCollection()
+                                            ? " is an @ElementCollection mapped as FetchType.EAGER."
+                                            : " is mapped as FetchType.EAGER."),
                             HibernateLocations.of(attribute),
                             HibernateIdentities.of(context, entity, attribute));
                 }

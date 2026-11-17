@@ -30,6 +30,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   retains native ArC unproxyability errors without inferring their failure stage from type shape
   ([Quarkus client-proxy checks](docs/QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005---normal-scoped-bean-cannot-be-client-proxied)).
 
+### Changed
+
+- **Hibernate eager-fetch guidance** lowers to-one HIB-FETCH-001 from HIGH to MEDIUM; new HIB-FETCH-010 keeps collections
+  HIGH. Old HIB-FETCH-001 dismissals are not copied, so hidden collection findings reappear on rescan. Unreadable fetch
+  declarations now report incomplete evidence rather than silently passing
+  ([migration and gate impact](docs/HIBERNATE-CHECKS.md#hib-fetch-001---review-eager-to-one-fetch-plans)).
+
 ## [2.5.0] - 2026-11-14
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.

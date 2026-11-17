@@ -10,7 +10,7 @@ import {expectedAdvisorScore} from '../../../bootui-spring-sample-app/e2e/scenar
  * deterministic findings; the same annotations exist on the Spring sample, so this pins parity.
  */
 test.describe('Hibernate advisor (Quarkus)', () => {
-  test('runs Hibernate checks and renders real entity-mapping findings', async ({openView, page}) => {
+  test('runs Hibernate checks and renders real entity-mapping findings', async ({openView, page}, testInfo) => {
     await openView('hibernate', 'Hibernate')
 
     const scanResponse = page.waitForResponse(
@@ -21,7 +21,10 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(76)
+    await testInfo.attach('hibernate-report', {body: JSON.stringify(report), contentType: 'application/json'})
+    expect(report.rulesEvaluated).toBe(77)
+    expect(report.results.find((result) => result.id === 'HIB-FETCH-001')?.severity).toBe('MEDIUM')
+    expect(report.results.find((result) => result.id === 'HIB-FETCH-010')?.severity).toBe('HIGH')
     // Quarkus persistence units coordinate transactions through JTA, so HIB-CONFIG-008 and HIB-CONFIG-021 are
     // skipped as not applicable rather than missing evidence, and a scan with nothing unobservable is complete.
     expect(report.scan.status).toBe('SCANNED')
@@ -73,8 +76,12 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     await expect(mappingRow).toContainText('One-to-many associations should be bidirectional or join-column based')
 
     // SampleOrder#customer is @ManyToOne(fetch = FetchType.EAGER).
-    const fetchRow = page.locator('.list-group-item', {hasText: 'HIB-FETCH-001'})
-    await expect(fetchRow).toContainText('Eager fetching should stay explicit and bounded')
+    const fetchRow = page.locator('.list-group-item').filter({has: page.getByText('HIB-FETCH-001', {exact: true})})
+    await expect(fetchRow).toContainText('Review eager to-one fetch plans')
+    await expect(fetchRow).not.toContainText('enabledFeatures')
+    const collectionRow = page.locator('.list-group-item').filter({has: page.getByText('HIB-FETCH-010', {exact: true})})
+    await expect(collectionRow).toContainText('Eager collection fetching should stay bounded')
+    await expect(collectionRow).toContainText('SampleAppPreferences#enabledFeatures')
   })
 
   test('flags @Lob large-object storage on PostgreSQL instead of lazy-loading advice', async ({openView, page}) => {

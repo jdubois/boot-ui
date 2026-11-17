@@ -78,12 +78,25 @@ function hibernateReport() {
     ...architectureReport('PARTIAL'),
     entityPackages: ['example.app'],
     entitiesAnalyzed: 12,
-    rulesEvaluated: 71,
+    rulesEvaluated: 77,
+    violationsFound: 2,
+    severityCounts: [
+      {severity: 'HIGH', count: 1},
+      {severity: 'MEDIUM', count: 1}
+    ],
     results: [
       {
         ...architectureReport('PARTIAL').results[0],
-        id: 'HIB-TEST-1',
-        name: 'Retained Hibernate finding'
+        id: 'HIB-FETCH-001',
+        name: 'Review eager to-one fetch plans',
+        severity: 'MEDIUM',
+        sampleViolations: ['example.app.Order#customer is mapped as FetchType.EAGER.']
+      },
+      {
+        ...architectureReport('PARTIAL').results[0],
+        id: 'HIB-FETCH-010',
+        name: 'Eager collection fetching should stay bounded',
+        sampleViolations: ['example.app.Order#lines is mapped as FetchType.EAGER.']
       }
     ]
   }
@@ -300,13 +313,21 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           await page.goto(`${uiPath}/#/hibernate`)
         }
         await page.getByRole('button', {name: 'Run Hibernate checks', exact: true}).click()
-        await expect(page.getByText('Retained Hibernate finding', {exact: true})).toBeVisible()
+        await expect(page.getByText('Review eager to-one fetch plans', {exact: true})).toBeVisible()
+        await expect(page.getByText('Eager collection fetching should stay bounded', {exact: true})).toBeVisible()
+        const toOneRow = page.locator('.list-group-item').filter({has: page.getByText('HIB-FETCH-001', {exact: true})})
+        const collectionRow = page
+          .locator('.list-group-item')
+          .filter({has: page.getByText('HIB-FETCH-010', {exact: true})})
+        await expect(toOneRow.getByText('MEDIUM', {exact: true})).toBeVisible()
+        await expect(collectionRow.getByText('HIGH', {exact: true})).toBeVisible()
         await expect(page.locator('.advisor-score-card')).toContainText('Results available')
         const readsBeforeReturn = reads
         await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card).toContainText('Scan complete')
         await expect(card).toContainText('1 high')
-        await expect(card.locator('.scanner-score')).toHaveText('90')
+        await expect(card).toContainText('1 medium')
+        await expect(card.locator('.scanner-score')).toHaveText('87')
         const scoreFontSize = await card
           .locator('.scanner-score')
           .evaluate((el) => window.getComputedStyle(el).fontSize)

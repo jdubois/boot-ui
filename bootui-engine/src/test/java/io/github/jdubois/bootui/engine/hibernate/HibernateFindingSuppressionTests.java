@@ -8,8 +8,12 @@ import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorSuppression;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.Version;
 import java.time.Clock;
 import java.util.List;
@@ -20,6 +24,133 @@ import org.junit.jupiter.api.Test;
 class HibernateFindingSuppressionTests {
 
     private static final String RULE = "HIB-QUERY-008";
+
+    @Test
+    void eagerRuleDismissalsNeverMoveFromToOneToCollections() {
+        HibernateScanner scanner = eagerScanner(100, false);
+        HibernateReport raw = scanner.scan();
+        String scanId = raw.violationDetails().scanId();
+        var toOne = scanner.ruleViolations("HIB-FETCH-001", scanId, 0, 100);
+        var collections = scanner.ruleViolations("HIB-FETCH-010", scanId, 0, 100);
+
+        HibernateReport ruleDismissed = scanner.dismissedReport(Set.of("HIB-FETCH-001"), List.of());
+        assertThat(eagerResult(ruleDismissed, "HIB-FETCH-001").dismissed()).isTrue();
+        assertThat(eagerResult(ruleDismissed, "HIB-FETCH-010")).isEqualTo(eagerResult(raw, "HIB-FETCH-010"));
+        assertThat(ruleDismissed.severityCounts())
+                .filteredOn(count -> count.count() > 0)
+                .singleElement()
+                .satisfies(count -> {
+                    assertThat(count.severity()).isEqualTo("HIGH");
+                    assertThat(count.count()).isEqualTo(4);
+                });
+
+        // A pre-split collection dismissal is still keyed to 001, even though its member identity is unchanged.
+        List<DismissedFindingDto> oldDismissals = List.of(
+                new DismissedFindingDto("HIB-FETCH-001", toOne.identities().get(0), null),
+                new DismissedFindingDto(
+                        "HIB-FETCH-001", collections.identities().get(0), null));
+        HibernateReport findingDismissed = scanner.dismissedReport(Set.of(), oldDismissals);
+        assertThat(eagerResult(findingDismissed, "HIB-FETCH-001").violationCount())
+                .isEqualTo(3);
+        assertThat(eagerResult(findingDismissed, "HIB-FETCH-001").suppressedCount())
+                .isEqualTo(1);
+        assertThat(eagerResult(findingDismissed, "HIB-FETCH-010").violationCount())
+                .isEqualTo(4);
+        assertThat(eagerResult(findingDismissed, "HIB-FETCH-010").suppressedCount())
+                .isZero();
+        assertThat(findingDismissed.suppression().findings())
+                .extracting(AdvisorSuppressedFindingDto::state)
+                .containsExactly(AdvisorSuppression.MATCHED, AdvisorSuppression.ORPHANED);
+        assertThat(scanner.ruleViolations("HIB-FETCH-010", scanId, 0, 100, oldDismissals))
+                .isEqualTo(collections);
+        assertThat(scanner.lastReport()).isEqualTo(raw);
+
+        HibernateReport singleCollectionDismissed = scanner.dismissedReport(
+                Set.of(),
+                List.of(new DismissedFindingDto(
+                        "HIB-FETCH-010", collections.identities().get(0), null)));
+        assertThat(eagerResult(singleCollectionDismissed, "HIB-FETCH-001").violationCount())
+                .isEqualTo(4);
+        assertThat(eagerResult(singleCollectionDismissed, "HIB-FETCH-010").violationCount())
+                .isEqualTo(3);
+        assertThat(eagerResult(singleCollectionDismissed, "HIB-FETCH-010").suppressedCount())
+                .isEqualTo(1);
+
+        HibernateReport collectionDismissed = scanner.dismissedReport(Set.of("HIB-FETCH-010"), List.of());
+        assertThat(eagerResult(collectionDismissed, "HIB-FETCH-001").dismissed())
+                .isFalse();
+        assertThat(eagerResult(collectionDismissed, "HIB-FETCH-010").dismissed())
+                .isTrue();
+        assertThat(scanner.dismissedReport(Set.of(), List.of())).isEqualTo(raw);
+
+        HibernateReport rescanned = scanner.scan();
+        assertThat(eagerResult(scanner.dismissedReport(Set.of("HIB-FETCH-001"), oldDismissals), "HIB-FETCH-010")
+                        .violationCount())
+                .isEqualTo(4);
+        assertThat(rescanned.violationDetails().changes().newCount()).isZero();
+        assertThat(rescanned.violationDetails().changes().resolvedCount()).isZero();
+        assertThat(rescanned.violationDetails().changes().unchangedCount()).isEqualTo(8);
+        assertThat(rescanned.violationDetails().changes().complete()).isTrue();
+    }
+
+    @Test
+    void splitEagerRulesKeepInheritedMemberLocationsAndConcreteEntityAndUnitIdentities() {
+        HibernateScanner scanner = eagerScanner(100, false);
+        HibernateReport raw = scanner.scan();
+        assertThat(raw.scan().status()).isEqualTo("SCANNED");
+        assertThat(eagerResult(raw, "HIB-FETCH-001").severity()).isEqualTo("MEDIUM");
+        assertThat(eagerResult(raw, "HIB-FETCH-010").severity()).isEqualTo("HIGH");
+
+        for (String id : List.of("HIB-FETCH-001", "HIB-FETCH-010")) {
+            String member = id.equals("HIB-FETCH-001") ? "parent" : "labels";
+            var page = scanner.ruleViolations(id, raw.violationDetails().scanId(), 0, 100);
+            assertThat(page.violationCount()).isEqualTo(4);
+            assertThat(page.identities())
+                    .containsExactly(
+                            "v1:unit=orders|entity=" + EagerChildOne.class.getName() + "|member=" + member,
+                            "v1:unit=orders|entity=" + EagerChildTwo.class.getName() + "|member=" + member,
+                            "v1:unit=archive|entity=" + EagerChildOne.class.getName() + "|member=" + member,
+                            "v1:unit=archive|entity=" + EagerChildTwo.class.getName() + "|member=" + member);
+            assertThat(page.locations()).hasSize(4).allSatisfy(location -> {
+                assertThat(location.className()).isEqualTo(EagerBase.class.getName());
+                assertThat(location.memberName()).isEqualTo(member);
+            });
+            assertThat(page.violations()).allMatch(text -> text.contains(EagerBase.class.getName() + "#" + member));
+            assertThat(page.violations().get(0)).startsWith("[orders]");
+            assertThat(page.violations().get(2)).startsWith("[archive]");
+        }
+    }
+
+    @Test
+    void splitEagerRulesRetainRawCountsWhenDetailsAreTruncated() {
+        HibernateScanner scanner = eagerScanner(3, false);
+        HibernateReport raw = scanner.scan();
+
+        assertThat(raw.evidence().coverageComplete()).isTrue();
+        assertThat(raw.violationDetails().retained()).isEqualTo(3);
+        for (String id : List.of("HIB-FETCH-001", "HIB-FETCH-010")) {
+            var page = scanner.ruleViolations(id, raw.violationDetails().scanId(), 0, 100);
+            assertThat(page.violationCount()).isEqualTo(4);
+            assertThat(page.truncated()).isTrue();
+            assertThat(eagerResult(raw, id).violationCount()).isEqualTo(4);
+        }
+    }
+
+    @Test
+    void unsupportedFetchDeclarationsKeepBothKnownEagerRulesPartialRatherThanPassing() {
+        HibernateScanner scanner = eagerScanner(100, true);
+        HibernateReport raw = scanner.scan();
+
+        assertThat(raw.scan().status()).isEqualTo("PARTIAL");
+        assertThat(raw.evidence().coverageComplete()).isFalse();
+        assertThat(raw.diagnostics())
+                .extracting(diagnostic -> diagnostic.source())
+                .containsExactlyInAnyOrder("HIB-FETCH-001", "HIB-FETCH-010");
+        for (String id : List.of("HIB-FETCH-001", "HIB-FETCH-010")) {
+            assertThat(eagerResult(raw, id).violationCount()).isEqualTo(4);
+            assertThat(eagerResult(raw, id).coverageNote()).contains("[archive]", "fetch declaration is unavailable");
+        }
+    }
 
     @Test
     void dismissingOneFindingLowersTheActiveCountWithoutTouchingTheScan() {
@@ -249,6 +380,88 @@ class HibernateFindingSuppressionTests {
                 List.of(new BulkUpdateVersionRule()));
         scanner.setViolationRetentionLimit(() -> retention);
         return scanner;
+    }
+
+    private static HibernateRuleResultDto eagerResult(HibernateReport report, String id) {
+        return report.results().stream()
+                .filter(result -> id.equals(result.id()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static HibernateScanner eagerScanner(int retention, boolean unknown) {
+        List<HibernateEntityModel> entities = List.of(
+                HibernateEntityModel.fromClass(EagerChildOne.class),
+                HibernateEntityModel.fromClass(EagerChildTwo.class));
+        List<HibernateEntityModel> archive = new java.util.ArrayList<>(entities);
+        if (unknown) {
+            archive.add(new HibernateEntityModel(
+                    "XmlOwner",
+                    null,
+                    List.of(
+                            new HibernateAttributeModel(
+                                    "XmlOwner",
+                                    "parent",
+                                    Object.class,
+                                    Object.class,
+                                    "MANY_TO_ONE",
+                                    false,
+                                    true,
+                                    List.of()),
+                            new HibernateAttributeModel(
+                                    "XmlOwner",
+                                    "labels",
+                                    Object.class,
+                                    Object.class,
+                                    "ELEMENT_COLLECTION",
+                                    false,
+                                    true,
+                                    List.of()))));
+        }
+        List<HibernatePersistenceUnitObservation> units = List.of(
+                new HibernatePersistenceUnitObservation(
+                        "orders",
+                        "orders",
+                        entities,
+                        List.of(),
+                        "7.4.5.Final",
+                        HibernateFactorySettings.unknown(),
+                        false),
+                new HibernatePersistenceUnitObservation(
+                        "archive",
+                        "archive",
+                        archive,
+                        List.of(),
+                        "7.4.5.Final",
+                        HibernateFactorySettings.unknown(),
+                        false));
+        HibernateScanner scanner = new HibernateScanner(
+                () -> new HibernateAdvisorObservation(units, HibernateApplicationFacts.unknown(List.of()), List.of()),
+                Clock.systemUTC(),
+                List.of(new EagerFetchRule(), new EagerCollectionFetchRule()));
+        scanner.setViolationRetentionLimit(() -> retention);
+        return scanner;
+    }
+
+    @MappedSuperclass
+    static class EagerBase {
+        @ManyToOne
+        VersionedOrder parent;
+
+        @ElementCollection(fetch = FetchType.EAGER)
+        Set<String> labels;
+    }
+
+    @Entity
+    static class EagerChildOne extends EagerBase {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class EagerChildTwo extends EagerBase {
+        @Id
+        Long id;
     }
 
     private static HibernatePersistenceUnitObservation unit(String label, int start) {

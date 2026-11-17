@@ -26,6 +26,7 @@ final class HibernateRuleRegistry {
     private static final List<HibernateRule> ACTIVE_RULES = List.of(
             // Fetching
             new EagerFetchRule(),
+            new EagerCollectionFetchRule(),
             new CollectionJoinFetchPageableRule(),
             new MissingBatchFetchRule(),
             new LobLazyFetchRule(),

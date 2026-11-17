@@ -1981,40 +1981,51 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 76,
-  violationsFound: 4,
+  rulesEvaluated: 77,
+  violationsFound: 5,
   severityCounts: [
     {severity: 'HIGH', count: 1},
-    {severity: 'MEDIUM', count: 2},
+    {severity: 'MEDIUM', count: 4},
     {severity: 'LOW', count: 0},
-    {severity: 'INFO', count: 1}
+    {severity: 'INFO', count: 3}
   ],
   scan: {
     analyzer: 'BootUI Hibernate Advisor',
     status: 'PARTIAL',
     message:
-      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 76 distinct rules ' +
-      '(76 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
+      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 77 distinct rules ' +
+      '(77 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
       'See diagnostics for 3 entries naming each affected rule and unit.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 76,
+    rulesEvaluated: 77,
     entitiesAnalyzed: 6,
-    violationsFound: 4
+    violationsFound: 5
   },
   results: [
     hibernateResult(
       'HIB-FETCH-001',
-      'Eager fetching should stay explicit and bounded',
+      'Review eager to-one fetch plans',
       'Fetching',
-      'HIGH',
-      'Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER, including default-eager to-one associations.',
-      3,
+      'MEDIUM',
+      "Reviews @ManyToOne and @OneToOne mappings with FetchType.EAGER, including JPA's default. The declaration alone does not establish query counts or unbounded loading.",
+      2,
       [
         'io.github.jdubois.bootui.sample.order.Order#customer is mapped as FetchType.EAGER.',
-        'io.github.jdubois.bootui.sample.invoice.Invoice#order is mapped as FetchType.EAGER.',
+        'io.github.jdubois.bootui.sample.invoice.Invoice#order is mapped as FetchType.EAGER.'
+      ],
+      'Review whether each use case needs the to-one association. Consider LAZY mappings with explicit fetch joins, entity graphs, or DTO queries; verify the actual query plan.'
+    ),
+    hibernateResult(
+      'HIB-FETCH-010',
+      'Eager collection fetching should stay bounded',
+      'Fetching',
+      'HIGH',
+      'Detects @OneToMany, @ManyToMany, and @ElementCollection mappings with FetchType.EAGER. Loading all collection members can amplify the fetched graph and payload.',
+      1,
+      [
         'io.github.jdubois.bootui.sample.preferences.Preferences#enabledFeatures is an @ElementCollection mapped as FetchType.EAGER.'
       ],
-      'Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins, entity graphs, or DTO queries.'
+      'Prefer LAZY collections and fetch required members explicitly with targeted queries, fetch joins, entity graphs, or DTO queries. Bound collection loading to the use case.'
     ),
     hibernateResult(
       'HIB-ID-001',

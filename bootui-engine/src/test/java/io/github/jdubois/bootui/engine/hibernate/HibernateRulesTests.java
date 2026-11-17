@@ -22,6 +22,7 @@ import jakarta.persistence.IdClass;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
@@ -37,6 +38,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.hibernate.annotations.Cache;
@@ -113,6 +115,68 @@ class HibernateRulesTests {
                 clearAutomatically,
                 flushAutomatically,
                 List.of());
+    }
+
+    // --- HIB-FETCH-001 / HIB-FETCH-010 --------------------------------------
+
+    @Test
+    void eagerToOneDefaultsAndExplicitDeclarationsAreMediumReviewFindingsOnly() {
+        HibernateRuleResultDto result =
+                new EagerFetchRule().evaluate(context(new TestEnvironment(), EagerFetchMappings.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(result.violationCount()).isEqualTo(4);
+        assertThat(result.sampleViolations())
+                .containsExactlyInAnyOrder(
+                        EagerFetchMappings.class.getName() + "#defaultManyToOne is mapped as FetchType.EAGER.",
+                        EagerFetchMappings.class.getName() + "#explicitManyToOne is mapped as FetchType.EAGER.",
+                        EagerFetchMappings.class.getName() + "#defaultOneToOne is mapped as FetchType.EAGER.",
+                        EagerFetchMappings.class.getName() + "#explicitOneToOne is mapped as FetchType.EAGER.");
+        assertThat(result.description()).contains("JPA's default", "does not establish query counts");
+    }
+
+    @Test
+    void eagerCollectionsKeepHighSeverityWithoutDuplicatingToOneFindings() {
+        HibernateRuleResultDto result =
+                new EagerCollectionFetchRule().evaluate(context(new TestEnvironment(), EagerFetchMappings.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations())
+                .containsExactlyInAnyOrder(
+                        EagerFetchMappings.class.getName() + "#children is mapped as FetchType.EAGER.",
+                        EagerFetchMappings.class.getName() + "#peers is mapped as FetchType.EAGER.",
+                        EagerFetchMappings.class.getName()
+                                + "#values is an @ElementCollection mapped as FetchType.EAGER.");
+    }
+
+    @Test
+    void lazyAssociationsAndNonassociationValuesDoNotBecomeEagerFetchFindings() {
+        for (HibernateRule rule : List.of(new EagerFetchRule(), new EagerCollectionFetchRule())) {
+            HibernateContext context = context(new TestEnvironment(), LazyFetchMappings.class);
+
+            assertThat(rule.evaluate(context).status()).isEqualTo(HibernateRuleSupport.PASS);
+            assertThat(context.evidence().requiredUnknown()).isFalse();
+        }
+    }
+
+    @Test
+    void metamodelRelationshipsWithoutReadableFetchDeclarationsStayUnknown() {
+        for (String type : List.of("MANY_TO_ONE", "ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_MANY", "ELEMENT_COLLECTION")) {
+            HibernateAttributeModel xml = new HibernateAttributeModel(
+                    "XmlOwner", "relationship", Object.class, Object.class, type, false, true, List.of());
+            HibernateContext context = new HibernateContext(
+                    List.of(new HibernateEntityModel("XmlOwner", null, List.of(xml))),
+                    List.of(),
+                    key -> null,
+                    List.of());
+            HibernateRule rule = xml.isToOneAssociation() ? new EagerFetchRule() : new EagerCollectionFetchRule();
+
+            assertThat(rule.evaluate(context).status()).as(type).isEqualTo(HibernateRuleSupport.SKIPPED);
+            assertThat(context.evidence().gaps()).as(type).containsOnlyKeys(HibernateEvidenceGap.FETCH_MAPPING);
+        }
     }
 
     // --- HIB-ID-006 ---------------------------------------------------------
@@ -1878,6 +1942,68 @@ class HibernateRulesTests {
                 template.publicMember(),
                 template.fieldMember(),
                 template.annotations());
+    }
+
+    @Entity
+    static class EagerFetchMappings {
+        @Id
+        Long id;
+
+        @ManyToOne
+        IdentityEntity defaultManyToOne;
+
+        @ManyToOne(fetch = FetchType.EAGER)
+        IdentityEntity explicitManyToOne;
+
+        @OneToOne
+        IdentityEntity defaultOneToOne;
+
+        @OneToOne(fetch = FetchType.EAGER)
+        IdentityEntity explicitOneToOne;
+
+        @OneToMany(fetch = FetchType.EAGER)
+        Set<IdentityEntity> children;
+
+        @ManyToMany(fetch = FetchType.EAGER)
+        Set<IdentityEntity> peers;
+
+        @ElementCollection(fetch = FetchType.EAGER)
+        Map<String, String> values;
+    }
+
+    @Entity
+    static class LazyFetchMappings {
+        @Id
+        Long id;
+
+        @ManyToOne(fetch = FetchType.LAZY)
+        IdentityEntity manyToOne;
+
+        @OneToOne(fetch = FetchType.LAZY)
+        IdentityEntity oneToOne;
+
+        @OneToMany
+        Set<IdentityEntity> defaultChildren;
+
+        @OneToMany(fetch = FetchType.LAZY)
+        Set<IdentityEntity> children;
+
+        @ManyToMany
+        Set<IdentityEntity> defaultPeers;
+
+        @ManyToMany(fetch = FetchType.LAZY)
+        Set<IdentityEntity> peers;
+
+        @ElementCollection
+        Map<String, String> defaultValues;
+
+        @ElementCollection(fetch = FetchType.LAZY)
+        Map<String, String> values;
+
+        @Basic(fetch = FetchType.EAGER)
+        String text;
+
+        List<String> nonassociationList;
     }
 
     @Entity

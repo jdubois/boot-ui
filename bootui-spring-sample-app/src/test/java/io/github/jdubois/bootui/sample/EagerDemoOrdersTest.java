@@ -103,8 +103,11 @@ class EagerDemoOrdersTest {
         assertThat(scan.results())
                 .filteredOn(result -> "HIB-FETCH-001".equals(result.id()))
                 .singleElement()
-                .satisfies(result -> assertThat(result.sampleViolations())
-                        .anySatisfy(sample -> assertThat(sample).contains("EagerDemoOrder#customer")));
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.sampleViolations())
+                            .anySatisfy(sample -> assertThat(sample).contains("EagerDemoOrder#customer"));
+                });
         assertThat(scan.results())
                 .filteredOn(result -> "HIB-QUERY-005".equals(result.id()))
                 .singleElement()

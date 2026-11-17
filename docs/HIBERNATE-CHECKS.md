@@ -30,7 +30,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 76 rules. Twelve retired identifiers stay documented below so old links and persisted
+The active catalog contains 77 rules. Twelve retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -148,17 +148,42 @@ Dismissing a rule removes all of its findings from the score.
 
 ## Fetching
 
-### HIB-FETCH-001 - Eager fetching should stay explicit and bounded
+<a id="hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded"></a>
+
+### HIB-FETCH-001 - Review eager to-one fetch plans
+
+- **Severity**: MEDIUM
+- **Inspects**: mapped `@ManyToOne` and `@OneToOne` attributes.
+- **Fires when**: the declaration is `FetchType.EAGER`, explicitly or through JPA's ordinary to-one default.
+- **Why it matters**: eager to-one declarations deserve a use-case review, but do not by themselves establish
+  unbounded loading, extra `SELECT`s, or N+1 queries. The actual fetch plan and workload determine the cost.
+- **Recommendation**: review whether each use case needs the association. Consider `LAZY` with explicit fetch joins,
+  entity graphs, or DTO queries, and verify the actual query plan.
+- **Ownership**: eager collections belong to HIB-FETCH-010 at HIGH, not to this rule. An unreadable fetch declaration
+  (including an XML-only mapping) is incomplete evidence, not a confirmed lazy mapping or a complete pass.
+
+::: warning Eager-fetch dismissal migration
+HIB-FETCH-001 now covers to-one mappings only. Existing rule and single-finding dismissals remain attached to
+HIB-FETCH-001 and are **not copied** to HIB-FETCH-010. Previously hidden eager collection findings therefore reappear
+at HIGH on the next explicit scan. Review and dismiss them under HIB-FETCH-010 separately if appropriate.
+:::
+
+A to-one-only HIB-FETCH-001 finding no longer trips a HIGH threshold. Unreadable fetch declarations leave coverage
+incomplete: under the default Action policy, Hibernate is then `SKIPPED` (`EVIDENCE_UNEVALUABLE`), so even retained HIGH
+findings do not gate. A required Hibernate assessment instead returns `NOT_ASSESSED`. Severity weights are unchanged;
+XML configuration alone is not a CI failure. See the [CI policy reference](ci/reference.md#policy).
+
+### HIB-FETCH-010 - Eager collection fetching should stay bounded
 
 - **Severity**: HIGH
-- **Inspects**: `@ManyToOne`, `@OneToOne`, `@OneToMany`, `@ManyToMany`, and `@ElementCollection` mappings on metamodel
-  attributes.
-- **Fires when**: a mapping resolves to `FetchType.EAGER`, including default-eager to-one associations where no `fetch`
-  attribute is declared and element collections that explicitly opt into eager fetching.
-- **Why it matters**: eager mappings are fetched whether or not the use case needs them, which can amplify query counts,
-  payload size, and accidental object graph or collection-table loading.
-- **Recommendation**: prefer `LAZY` mappings and fetch required data explicitly with joins, entity graphs, DTO
-  projections, or targeted collection-value queries.
+- **Inspects**: mapped `@OneToMany`, `@ManyToMany`, and `@ElementCollection` attributes.
+- **Fires when**: the collection declaration opts into `FetchType.EAGER`.
+- **Why it matters**: loading all collection members can amplify the fetched graph and payload even when the caller
+  does not need them. This is a mapping-risk prompt, not a measured query-count claim.
+- **Recommendation**: prefer `LAZY` collections and load needed members with targeted queries, fetch joins, entity
+  graphs, or DTO queries. Bound loading to the use case; do not directly page collection fetch joins.
+- **Evidence**: collection ownership uses relationship metadata, including map-valued element collections, not a Java
+  return-type guess. Unreadable fetch declarations remain incomplete; known findings and their counts are retained.
 
 ### HIB-FETCH-003 - Collection fetch joins should not be paged directly
 

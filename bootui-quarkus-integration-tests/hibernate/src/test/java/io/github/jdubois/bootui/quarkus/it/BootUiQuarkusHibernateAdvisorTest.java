@@ -145,7 +145,7 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isEqualTo(76);
+                .isEqualTo(77);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
         assertThat(violationIds)
@@ -178,6 +178,10 @@ class BootUiQuarkusHibernateAdvisorTest {
         for (JsonNode result : scanned.path("results")) {
             if ("HIB-FETCH-001".equals(result.path("id").asText())) eager = result;
         }
+        assertThat(eager).isNotNull();
+        assertThat(eager.path("severity").asText()).isEqualTo("MEDIUM");
+        assertThat(eager.path("violationCount").asInt()).isEqualTo(1);
+        assertThat(violationIds).doesNotContain("HIB-FETCH-010");
         assertThat(eager.path("sampleLocations")).hasSameSizeAs(eager.path("sampleViolations"));
         JsonNode category = eager.path("sampleLocations").get(0);
         assertThat(category.path("className").asText()).isEqualTo("org.acme.hibdemo.Product");

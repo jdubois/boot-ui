@@ -57,7 +57,7 @@ import org.springframework.data.domain.Page;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 76;
+    private static final int RULE_COUNT = 77;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
@@ -75,6 +75,7 @@ class HibernateScannerTests {
                 .extracting(result -> result.id())
                 .contains(
                         "HIB-FETCH-001",
+                        "HIB-FETCH-010",
                         "HIB-ID-001",
                         "HIB-MAP-001",
                         "HIB-MAP-002",
@@ -90,7 +91,13 @@ class HibernateScannerTests {
                         .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER.")));
         assertThat(report.results()).anySatisfy(result -> {
             assertThat(result.id()).isEqualTo("HIB-FETCH-001");
-            assertThat(result.name()).isEqualTo("Eager fetching should stay explicit and bounded");
+            assertThat(result.name()).isEqualTo("Review eager to-one fetch plans");
+            assertThat(result.severity()).isEqualTo("MEDIUM");
+            assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("#labels"));
+        });
+        assertThat(report.results()).anySatisfy(result -> {
+            assertThat(result.id()).isEqualTo("HIB-FETCH-010");
+            assertThat(result.severity()).isEqualTo("HIGH");
             assertThat(result.sampleViolations())
                     .anySatisfy(sample ->
                             assertThat(sample).contains("labels is an @ElementCollection mapped as FetchType.EAGER."));
