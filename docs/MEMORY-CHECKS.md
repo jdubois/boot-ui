@@ -78,6 +78,42 @@ times across scans, and excludes GCs triggered by BootUI's own **Free BootUI mem
 **Heap Dump** actions from `MEM-GC-002`, `MEM-GC-003`, `MEM-GC-005`, `MEM-GC-006`, and `MEM-GC-009`; startup and
 external diagnostic collections remain included.
 
+`MEM-GC-009` counts external stop-the-world `System.gc()` events whose **JVM-uptime end time** is strictly after
+the previous successful scan's post-histogram boundary and at or before this scan's post-histogram boundary.
+The first scan starts at tracker/listener initialization, not JVM startup. Counts, longest pause, and total pause
+time apply only to that interval: a later scan without new events clears the finding. BootUI diagnostic attribution
+and cumulative accounting for other GC rules are unchanged. A reset or unavailable/incomparable uptime starts a
+new baseline with unknown coverage rather than replaying old pauses. Failed collection does not advance this boundary.
+
+When an epoch changes **during collection**, lifetime GC time/count and the recent trend remain unknown for that frame:
+old pre-histogram counters cannot be combined with reset diagnostic exclusions. Other memory observations stay usable.
+A proven sole post-reset histogram collection identifies its count contribution. Attributing the whole post-reset
+MXBean timer also requires independent timer-rebase evidence: a count/id reset does not prove that the timer reset.
+Whole-timer attribution additionally requires the same sole relevant collector in both samples, using the normal
+concurrent-cycle exclusions. An extra relevant collector remains ambiguous even at zero count; missing, empty, or
+changed collector identities are not proof, and a net aggregate timer decrease is not enough with multiple collectors.
+Otherwise time stays unknown while independently proven count accounting remains usable. GcInfo duration is not a
+substitute for the accumulated MXBean timer. The same work is never excluded again when diagnostic accounting already
+represents it. Missing attribution, diagnostic history loss, or unresolved overlap keeps the affected lifetime
+time/count component unknown on later scans, not healthy zero.
+With multiple relevant collectors, lifetime GC time can remain unknown after an in-collection reset even while later
+event/trend checks and other observations are usable.
+An epoch change **between scans** can still leave the current pre/post samples comparable; those samples form the new
+counter baseline. Possible own-event identities retain end times for equality, but those old-clock values never become
+new-epoch high-water marks. Only a post-histogram event with comparable timing and collector-local identity can seed
+a new-epoch event baseline.
+Uncertain post-event metadata stays unknown rather than becoming a fresh pause or an old-clock high-water mark;
+a reused collector/id with a different end time is not treated as the same event.
+
+Notification history remains capped at 128 events. A bounded minimum/maximum end-time range conservatively marks
+possible eviction overlap with the interval; out-of-order delivery can overstate unknown coverage rather than
+produce a false clean pass. Untimed events and newly delivered notifications for an already assessed interval also
+make coverage incomplete, even if those late notifications were evicted before the scan. Known in-window findings
+remain visible. Late events outside the interval are not relabeled as new activity. Notifications for application
+GCs preceding a BootUI diagnostic action remain external even when delivered during that action; retained duplicates
+are not counted twice. Reset frames have unknown coverage; the following comparable window starts no earlier than
+the actual tracker reset, which can occur after the reset frame's last sampled uptime.
+
 Cross-scan old-generation and direct-buffer streak rules (`MEM-HEAP-008` and `MEM-POOL-007`) are retired: requiring
 four manual full-GC scans and firing on a 1-byte increase penalized normal allocations and NIO buffer pooling while
 leaving `coverageComplete` false on the first scan (and permanently on single-generation collectors). Passive
@@ -183,7 +219,7 @@ Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK c
 | MEM-GC-006 | Update | **MEDIUM** when the most recently completed event lasted at least 1,000 ms. Select by completion time, not historical maximum duration; suppress events from prior histograms and BootUI offload/low-footprint/heap-dump actions. Concurrent-cycle beans (ZGC/Shenandoah `Cycles`, legacy ConcurrentMarkSweep) are now excluded **before** selecting the latest event: their duration spans a whole concurrent cycle and routinely exceeded 1 s, a structural false positive. `G1 Concurrent GC` stays because it times remark/cleanup pauses. |
 | MEM-GC-007 | Update | **HIGH** when container awareness remains explicitly disabled despite a visible cgroup limit. Respect a later re-enable option. Keep supported-HotSpot and deliberate-override caveats; no automatic sizing changes. |
 | MEM-GC-008 | New | **INFO** when ZGC runs in non-generational mode (`ZGC Cycles`/`ZGC Pauses` beans) and the live `ZGenerational` option is readable and false. That combination exists only on JDK 21-22 (default) or JDK 23 with the deprecated `-XX:-ZGenerational`; the option is absent on 17-20 and obsolete from 24, so the rule cannot fire there. Generational ZGC (JEP 439) usually needs less heap headroom, became the default in JDK 23 (JEP 474), and replaced non-generational ZGC in JDK 24 (JEP 490). Some workloads deliberately prefer the old mode, hence INFO. The JVM Tuning calculator does not emit `ZGenerational` because it is not portable; this is a runtime observation. |
-| MEM-GC-009 | New | **LOW** when external stop-the-world `System.gc()` full collections (`G1 Old Generation`, `PS MarkSweep`, `MarkSweepCompact`) are observed via `GarbageCollectionNotificationInfo.getGcCause()` in `GcEventSource` (excluding `"Heap Inspection Initiated GC"`, `"Heap Dump Initiated GC"`, and BootUI's own memory-offload and low-footprint actions); **MEDIUM** when at least 3 pauses occurred or the longest pause lasted at least 500 ms. Skips when `-XX:+DisableExplicitGC` or `-XX:+ExplicitGCInvokesConcurrent` is active, or on concurrent collectors (ZGC/Shenandoah). |
+| MEM-GC-009 | Update | **LOW** for external stop-the-world `System.gc()` full collections (`G1 Old Generation`, `PS MarkSweep`, `MarkSweepCompact`) ending within the [current scan observation interval](#time-and-collector-boundaries), observed via GC cause notifications (excluding `"Heap Inspection Initiated GC"`, `"Heap Dump Initiated GC"`, and BootUI's own memory actions); **MEDIUM** when at least 3 pauses occurred or the longest pause lasted at least 500 ms **within that interval**. Later scans without new pauses clear the finding. Missing/evicted notification evidence stays unknown alongside known findings. Skips when `-XX:+DisableExplicitGC` or `-XX:+ExplicitGCInvokesConcurrent` is active, or on concurrent collectors (ZGC/Shenandoah). |
 | MEM-HEAP-005 | Retain | **INFO** for smaller initial than maximum heap with ZGC/Shenandoah. The collector uses the JVM's reported initial capacity rather than assuming an earlier argument is effective. Equal initial/max may suit latency-sensitive workloads but trades away footprint/uncommit flexibility. |
 
 Evidence: [GC counters][gc-bean], [event timing][gc-info], [G1 full-GC manager][g1-manager],

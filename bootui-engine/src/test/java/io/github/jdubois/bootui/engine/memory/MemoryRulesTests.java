@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
+import io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker.Accounting;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ClassLoadingData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.GcEvent;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.GcSample;
@@ -1554,7 +1555,7 @@ class MemoryRulesTests {
                         PostGcHeapData.unavailable(),
                         healthyRuntime())
                 .withExplicitGc(new MemoryContext.ExplicitGcData(1, 180, 180, "G1 Old Generation"));
-        MemoryRuleResultDto low = find(scan(singleShort), "MEM-GC-009");
+        MemoryRuleResultDto low = new ExternalExplicitGcRule().evaluate(singleShort);
         assertThat(low).isNotNull();
         assertThat(low.severity()).isEqualTo("LOW");
         assertThat(low.sampleViolations().get(0))
@@ -1564,11 +1565,11 @@ class MemoryRulesTests {
 
         MemoryContext repeated =
                 singleShort.withExplicitGc(new MemoryContext.ExplicitGcData(3, 120, 340, "G1 Old Generation"));
-        assertThat(find(scan(repeated), "MEM-GC-009").severity()).isEqualTo("MEDIUM");
+        assertThat(new ExternalExplicitGcRule().evaluate(repeated).severity()).isEqualTo("MEDIUM");
 
         MemoryContext longPause =
                 singleShort.withExplicitGc(new MemoryContext.ExplicitGcData(1, 650, 650, "PS MarkSweep"));
-        assertThat(find(scan(longPause), "MEM-GC-009").severity()).isEqualTo("MEDIUM");
+        assertThat(new ExternalExplicitGcRule().evaluate(longPause).severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -1630,6 +1631,11 @@ class MemoryRulesTests {
         tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 11_000L, 400L);
         assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
         assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(210L);
+        var window = tracker.observeExplicitGc(null, tracker.snapshot().epoch(), 11_000L);
+        assertThat(window.data().count()).isEqualTo(1L);
+        assertThat(window.data().maxDurationMillis()).isEqualTo(210L);
+        assertThat(window.data().limitation()).isNull();
+        assertThat(tracker.snapshot().gcCount()).isEqualTo(1L);
 
         // Exceeding the 128-entry retention cap preserves the exact total count and max duration
         for (long id = 10L; id < 150L; id++) {
@@ -1638,6 +1644,341 @@ class MemoryRulesTests {
         }
         assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(141L);
         assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(900L);
+    }
+
+    @Test
+    void delayedExternalGcEndingAtDiagnosticStartIsNotAttributedToBootUiWithoutCollectorIds() {
+        var sample = new java.util.concurrent.atomic.AtomicReference<>(new GcSample(1_000L, 100L, 1L));
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(sample::get, GcEvent::unavailable);
+        var baseline = tracker.observeExplicitGc(null, 0L, 500L);
+        tracker.run(() -> {
+            tracker.recordGcNotification("G1 Old Generation", -1L, "end of major GC", "System.gc()", 1_000L, 100L);
+            sample.set(new GcSample(2_000L, 200L, 2L));
+            tracker.recordGcNotification("G1 Old Generation", -1L, "end of major GC", "System.gc()", 2_000L, 100L);
+        });
+        tracker.recordGcNotification("G1 Old Generation", -1L, "end of major GC", "System.gc()", 1_000L, 100L);
+        tracker.recordGcNotification("G1 Old Generation", -1L, "end of major GC", "System.gc()", 2_000L, 100L);
+        var observed = tracker.observeExplicitGc(baseline.cursor(), 0L, 2_000L);
+        assertThat(observed.data().count()).isEqualTo(1L);
+        assertThat(observed.data().maxDurationMillis()).isEqualTo(100L);
+        assertThat(observed.data().limitation()).isNull();
+        assertThat(tracker.snapshot().gcCount()).isEqualTo(1L);
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+    }
+
+    @Test
+    void explicitGcWindowsUseExclusiveSinceAndInclusiveThroughWithLateAndDuplicateDelivery() {
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable, true, () -> 100L);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 100L, 900L);
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 200L, 100L);
+        tracker.recordGcNotification("PS MarkSweep", 2L, "end of major GC", "System.gc()", 200L, 150L);
+        tracker.recordGcNotification("PS MarkSweep", 2L, "end of major GC", "System.gc()", 200L, 150L);
+        var first = tracker.observeExplicitGc(null, 0L, 200L);
+        assertThat(first.data().count()).isEqualTo(2L);
+        assertThat(first.data().maxDurationMillis()).isEqualTo(150L);
+        assertThat(first.data().totalDurationMillis()).isEqualTo(250L);
+        assertThat(first.data().limitation()).isNull();
+
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 200L, 100L);
+        tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 201L, 50L);
+        tracker.recordGcNotification("G1 Old Generation", 4L, "end of major GC", "System.gc()", 300L, 60L);
+        tracker.recordGcNotification("G1 Old Generation", 5L, "end of major GC", "System.gc()", 301L, 70L);
+        var second = tracker.observeExplicitGc(first.cursor(), 0L, 300L);
+        assertThat(second.data().count()).isEqualTo(2L);
+        assertThat(second.data().totalDurationMillis()).isEqualTo(110L);
+        assertThat(second.data().limitation()).isNull();
+
+        // A newly delivered event on an already assessed boundary cannot be counted in the next interval.
+        tracker.recordGcNotification("MarkSweepCompact", 1L, "end of major GC", "System.gc()", 300L, 900L);
+        var delayed = tracker.observeExplicitGc(second.cursor(), 0L, 400L);
+        assertThat(delayed.data().count()).isEqualTo(1L);
+        assertThat(delayed.data().maxDurationMillis()).isEqualTo(70L);
+        assertThat(delayed.data().limitation()).contains("delivered after");
+        var recovered = tracker.observeExplicitGc(delayed.cursor(), 0L, 500L);
+        assertThat(recovered.data().count()).isZero();
+        assertThat(recovered.data().limitation()).isNull();
+    }
+
+    @Test
+    void explicitGcRetentionLossKeepsKnownFindingsAndCannotBecomeACompleteCleanPass() {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        for (long id = 1; id <= 140; id++) {
+            tracker.recordGcNotification(
+                    "G1 Old Generation", id, "end of major GC", "System.gc()", id * 1_000L, id == 1 ? 900L : 50L);
+        }
+        var first = tracker.observeExplicitGc(null, 0L, 140_000L);
+        MemoryEvaluation known = new ExternalExplicitGcRule()
+                .evaluateWithEvidence(gcContext(140_000L, 1_500L, 50L).withExplicitGc(first.data()));
+        assertThat(first.data().count()).isEqualTo(128L);
+        assertThat(known.result().status()).isEqualTo("VIOLATION");
+        assertThat(known.usable()).isTrue();
+        assertThat(known.requiredUnknown()).isTrue();
+        assertThat(known.result().sampleViolations().get(0)).contains("history is incomplete");
+        assertThat(MemoryScanner.evidence(List.of(known)).coverageComplete()).isFalse();
+        assertThat(MemoryScanner.evidence(List.of(known)).limitations())
+                .anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(140L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(900L);
+
+        var next = tracker.observeExplicitGc(first.cursor(), 0L, 141_000L);
+        assertThat(next.data().count()).isZero();
+        assertThat(next.data().limitation()).isNull();
+        tracker.recordGcNotification("PS MarkSweep", 1L, "end of major GC", "System.gc()", 142_000L, 900L);
+        // Later-completing notifications can evict every retained event from the current interval.
+        for (long id = 141; id <= 268; id++) {
+            tracker.recordGcNotification("G1 Old Generation", id, "end of major GC", "System.gc()", 200_000L + id, 50L);
+        }
+        var lost = tracker.observeExplicitGc(next.cursor(), 0L, 142_000L);
+        MemoryEvaluation unknown = new ExternalExplicitGcRule()
+                .evaluateWithEvidence(gcContext(142_000L, 1_500L, 50L).withExplicitGc(lost.data()));
+        assertThat(lost.data().count()).isZero();
+        assertThat(unknown.result().status()).isEqualTo("SKIPPED");
+        assertThat(unknown.usable()).isFalse();
+        assertThat(unknown.requiredUnknown()).isTrue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void evictedLateTimedGcRetainsHistoricalUncertaintyAndKnownCurrentFindings(boolean knownCurrentEvent) {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        var baseline = tracker.observeExplicitGc(null, 0L, 1_000L);
+        tracker.recordGcNotification("PS MarkSweep", 1L, "end of major GC", "System.gc()", 900L, 900L);
+        if (knownCurrentEvent) {
+            tracker.recordGcNotification("MarkSweepCompact", 1L, "end of major GC", "System.gc()", 1_500L, 100L);
+        }
+        int futureNotifications = knownCurrentEvent ? 127 : 128;
+        for (long id = 1; id <= futureNotifications; id++) {
+            tracker.recordGcNotification("G1 Old Generation", id, "end of major GC", "System.gc()", 3_000L, 50L);
+        }
+        var observed = tracker.observeExplicitGc(baseline.cursor(), 0L, 2_000L);
+        MemoryEvaluation evaluation = new ExternalExplicitGcRule()
+                .evaluateWithEvidence(gcContext(2_000L, 1_500L, 50L).withExplicitGc(observed.data()));
+        assertThat(observed.data().count()).isEqualTo(knownCurrentEvent ? 1L : 0L);
+        assertThat(observed.data().limitation()).contains("delivered after");
+        assertThat(evaluation.requiredUnknown()).isTrue();
+        assertThat(evaluation.usable()).isEqualTo(knownCurrentEvent);
+        assertThat(evaluation.result().status()).isEqualTo(knownCurrentEvent ? "VIOLATION" : "SKIPPED");
+        if (knownCurrentEvent) {
+            assertThat(evaluation.result().severity()).isEqualTo("LOW");
+            assertThat(observed.data().maxDurationMillis()).isEqualTo(100L);
+        }
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(129L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(900L);
+        var recovered = tracker.observeExplicitGc(observed.cursor(), 0L, 2_100L);
+        assertThat(recovered.data().count()).isZero();
+        assertThat(recovered.data().limitation()).isNull();
+    }
+
+    @Test
+    void explicitGcResetWithUnknownClockCannotClaimAComparableNewEpochWindow() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable, true, resetClock::get);
+        var first = tracker.observeExplicitGc(null, 0L, 1_000L);
+        resetClock.set(-1L);
+        tracker.reset();
+        var reset = tracker.observeExplicitGc(first.cursor(), tracker.snapshot().epoch(), 1_000L, true);
+        assertThat(reset.data().limitation()).contains("incomparable");
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 1_100L, 900L);
+        var baseline =
+                tracker.observeExplicitGc(reset.cursor(), tracker.snapshot().epoch(), 1_400L);
+        assertThat(baseline.data().count()).isZero();
+        assertThat(baseline.data().limitation()).contains("incomparable");
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 1_600L, 100L);
+        var comparable =
+                tracker.observeExplicitGc(baseline.cursor(), tracker.snapshot().epoch(), 2_000L);
+        assertThat(comparable.data().count()).isEqualTo(1L);
+        assertThat(comparable.data().maxDurationMillis()).isEqualTo(100L);
+        assertThat(comparable.data().limitation()).isNull();
+    }
+
+    @Test
+    void explicitGcBoundaryBeforeListenerInitializationCannotBecomeAHealthyEmptyWindow() {
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable, true, () -> 1_000L);
+        var first = tracker.observeExplicitGc(null, 0L, 0L);
+        var second = tracker.observeExplicitGc(first.cursor(), 0L, 0L);
+        assertThat(first.data().limitation()).contains("incomparable");
+        assertThat(second.data().limitation()).contains("incomparable");
+        var baseline = tracker.observeExplicitGc(second.cursor(), 0L, 2_000L);
+        assertThat(baseline.data().count()).isZero();
+        assertThat(baseline.data().limitation()).contains("incomparable");
+        var comparable = tracker.observeExplicitGc(baseline.cursor(), 0L, 3_000L);
+        assertThat(comparable.data().limitation()).isNull();
+    }
+
+    @Test
+    void explicitGcTrackerEpochAndUntimedNotificationsRequireTruthfulNewEvidence() {
+        var uptime = new java.util.concurrent.atomic.AtomicLong(100L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable, true, uptime::get);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 200L, 900L);
+        var first = tracker.observeExplicitGc(null, 0L, 300L);
+        uptime.set(400L);
+        tracker.reset();
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 450L, 900L);
+        var reset = tracker.observeExplicitGc(first.cursor(), tracker.snapshot().epoch(), 500L);
+        assertThat(reset.data().count()).isZero();
+        assertThat(reset.data().limitation()).contains("incomparable");
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 600L, 100L);
+        var newWindow =
+                tracker.observeExplicitGc(reset.cursor(), tracker.snapshot().epoch(), 700L);
+        assertThat(newWindow.data().count()).isEqualTo(1L);
+        assertThat(newWindow.data().maxDurationMillis()).isEqualTo(100L);
+        assertThat(newWindow.data().limitation()).isNull();
+
+        tracker.recordGcNotification("PS MarkSweep", 1L, "end of major GC", "System.gc()", -1L, 900L);
+        var untimed =
+                tracker.observeExplicitGc(newWindow.cursor(), tracker.snapshot().epoch(), 800L);
+        assertThat(untimed.data().count()).isZero();
+        assertThat(untimed.data().limitation()).contains("untimed");
+        var afterUntimed =
+                tracker.observeExplicitGc(untimed.cursor(), tracker.snapshot().epoch(), 900L);
+        assertThat(afterUntimed.data().count()).isZero();
+        assertThat(afterUntimed.data().limitation()).isNull();
+    }
+
+    @Test
+    void diagnosticAccountingRejectsAnActiveWindowUntilItsCounterDeltaIsRecorded() {
+        var sample = new java.util.concurrent.atomic.AtomicReference<>(
+                new GcSample(1_000L, 0L, 0L, Map.of("G1 Old Generation", 0L)));
+        var event = new java.util.concurrent.atomic.AtomicReference<>(GcEvent.unavailable());
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(sample::get, event::get);
+        GcEvent own = new GcEvent(1L, 2_000L, 2_000L, "G1 Old Generation");
+        var absent = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+        assertThat(absent.time()).isEqualTo(Accounting.NOT_INCLUDED);
+        assertThat(absent.count()).isEqualTo(Accounting.NOT_INCLUDED);
+
+        tracker.run(() -> {
+            sample.set(new GcSample(2_000L, 2_000L, 1L, Map.of("G1 Old Generation", 1L)));
+            event.set(own);
+            var pending = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+            assertThat(pending.time()).isEqualTo(Accounting.UNKNOWN);
+            assertThat(pending.count()).isEqualTo(Accounting.UNKNOWN);
+        });
+
+        var included = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+        assertThat(included.time()).isEqualTo(Accounting.INCLUDED);
+        assertThat(included.count()).isEqualTo(Accounting.INCLUDED);
+    }
+
+    @Test
+    void diagnosticAccountingRejectsEvictedWindowProvenanceEvenWithAFreshSnapshot() {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        GcEvent own = new GcEvent(1L, 2_000L, 2_000L, "G1 Old Generation");
+        tracker.recordWindow(
+                new GcSample(1_000L, 0L, 0L, Map.of("G1 Old Generation", 0L)),
+                new GcSample(2_000L, 2_000L, 1L, Map.of("G1 Old Generation", 1L)),
+                GcEvent.unavailable(),
+                own);
+        var included = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+        assertThat(included.time()).isEqualTo(Accounting.INCLUDED);
+        assertThat(included.count()).isEqualTo(Accounting.INCLUDED);
+        for (int i = 0; i < 129; i++) {
+            GcSample idle = new GcSample(3_000L + i, 2_000L, 1L, Map.of("G1 Old Generation", 1L));
+            tracker.recordWindow(idle, idle, GcEvent.unavailable(), GcEvent.unavailable());
+        }
+
+        var lost = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+        assertThat(lost.time()).isEqualTo(Accounting.UNKNOWN);
+        assertThat(lost.count()).isEqualTo(Accounting.UNKNOWN);
+        assertThat(tracker.snapshot().gcTimeMillis()).isEqualTo(2_000L);
+        assertThat(tracker.snapshot().gcCount()).isEqualTo(1L);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(
+            strings = {"epoch", "gcTimeMillis", "gcCount", "perCollectorCounts", "latestEvent", "maxEndTimeMillis"})
+    void diagnosticAccountingRejectsEachIndependentlyStaleSnapshotComponent(String changedField) {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        GcEvent own = new GcEvent(1L, 2_000L, 2_000L, "G1 Old Generation");
+        GcEvent earlier = new GcEvent(10L, 6_000L, 0L, "G1 Old Generation");
+        if (changedField.equals("latestEvent") || changedField.equals("maxEndTimeMillis")) {
+            tracker.recordWindow(
+                    new GcSample(5_000L, 0L, 0L), new GcSample(6_000L, 0L, 0L), GcEvent.unavailable(), earlier);
+        }
+        var stale = tracker.snapshot();
+        GcSample before = new GcSample(3_000L, 0L, 0L);
+        GcSample after = new GcSample(4_000L, 0L, 0L);
+        switch (changedField) {
+            case "epoch" -> tracker.reset();
+            case "gcTimeMillis" ->
+                tracker.recordWindow(
+                        before, new GcSample(4_000L, 2_000L, 0L), GcEvent.unavailable(), GcEvent.unavailable());
+            case "gcCount" ->
+                tracker.recordWindow(
+                        before, new GcSample(4_000L, 0L, 1L), GcEvent.unavailable(), GcEvent.unavailable());
+            case "perCollectorCounts" ->
+                tracker.recordWindow(
+                        new GcSample(3_000L, 0L, 0L, Map.of("ZGC Cycles", 0L)),
+                        new GcSample(4_000L, 0L, 0L, Map.of("ZGC Cycles", 1L)),
+                        GcEvent.unavailable(),
+                        GcEvent.unavailable());
+            case "latestEvent" ->
+                tracker.recordWindow(
+                        before, after, GcEvent.unavailable(), new GcEvent(2L, 4_000L, 0L, "G1 Old Generation"));
+            case "maxEndTimeMillis" -> {
+                tracker.recordWindow(
+                        new GcSample(9_000L, 0L, 0L),
+                        new GcSample(10_000L, 0L, 0L),
+                        GcEvent.unavailable(),
+                        new GcEvent(11L, 10_000L, 0L, "G1 Old Generation"));
+                tracker.recordWindow(
+                        new GcSample(5_000L, 0L, 0L), new GcSample(6_000L, 0L, 0L), GcEvent.unavailable(), earlier);
+            }
+            default -> throw new IllegalArgumentException(changedField);
+        }
+        var fresh = tracker.snapshot();
+        assertThat(fresh).isNotEqualTo(stale);
+        assertThat(fresh)
+                .usingRecursiveComparison()
+                .ignoringFields(changedField)
+                .isEqualTo(stale);
+        var current = tracker.diagnosticAccounting(fresh, own, 2_000L);
+        assertThat(current.time()).isEqualTo(Accounting.NOT_INCLUDED);
+        assertThat(current.count()).isEqualTo(Accounting.NOT_INCLUDED);
+        var inconsistent = tracker.diagnosticAccounting(stale, own, 2_000L);
+        assertThat(inconsistent.time()).isEqualTo(Accounting.UNKNOWN);
+        assertThat(inconsistent.count()).isEqualTo(Accounting.UNKNOWN);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void diagnosticAccountingKeepsInsufficientOrUnknownTimerSeparateFromIncludedCount(boolean unknownWindowTimer) {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        GcEvent own = new GcEvent(1L, 2_000L, 2_000L, "G1 Old Generation");
+        tracker.recordWindow(
+                new GcSample(1_000L, unknownWindowTimer ? -1L : 0L, 0L, Map.of("G1 Old Generation", 0L)),
+                new GcSample(2_000L, 1_000L, 1L, Map.of("G1 Old Generation", 1L)),
+                GcEvent.unavailable(),
+                own);
+        var accounting = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+        assertThat(accounting.time()).isEqualTo(Accounting.UNKNOWN);
+        assertThat(accounting.count()).isEqualTo(Accounting.INCLUDED);
+    }
+
+    @Test
+    void diagnosticAccountingUnknownOwnTimeDoesNotEraseKnownCountAbsence() {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        var accounting = tracker.diagnosticAccounting(
+                tracker.snapshot(), new GcEvent(1L, 2_000L, 2_000L, "G1 Old Generation"), -1L);
+        assertThat(accounting.time()).isEqualTo(Accounting.UNKNOWN);
+        assertThat(accounting.count()).isEqualTo(Accounting.NOT_INCLUDED);
+    }
+
+    @Test
+    void diagnosticAccountingKnownTimeDoesNotEraseUnknownWindowCount() {
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(() -> null, GcEvent::unavailable);
+        GcEvent own = new GcEvent(1L, 2_000L, 2_000L, "G1 Old Generation");
+        tracker.recordWindow(
+                new GcSample(1_000L, 0L, -1L, Map.of("G1 Old Generation", 0L)),
+                new GcSample(2_000L, 2_000L, -1L, Map.of("G1 Old Generation", 1L)),
+                GcEvent.unavailable(),
+                own);
+        var accounting = tracker.diagnosticAccounting(tracker.snapshot(), own, 2_000L);
+        assertThat(accounting.time()).isEqualTo(Accounting.INCLUDED);
+        assertThat(accounting.count()).isEqualTo(Accounting.UNKNOWN);
     }
 
     @Test

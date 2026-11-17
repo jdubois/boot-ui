@@ -7,6 +7,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import javax.management.Notification;
 import javax.management.NotificationEmitter;
@@ -34,6 +35,8 @@ public final class BootUiDiagnosticGcTracker {
 
     private final Supplier<MemoryContext.GcSample> sampleSupplier;
     private final Supplier<MemoryContext.GcEvent> eventSupplier;
+    private final LongSupplier uptimeSupplier;
+    private long observationStartUptimeMillis;
 
     private int activeDepth;
     private MemoryContext.GcSample activeBeforeSample;
@@ -48,13 +51,23 @@ public final class BootUiDiagnosticGcTracker {
     private MemoryContext.GcEvent latestEvent = MemoryContext.GcEvent.unavailable();
     private long maxEndTimeMillis = -1;
     private final Deque<DiagnosticWindow> diagnosticWindows = new ArrayDeque<>();
+    private boolean diagnosticHistoryTruncated;
     private final Deque<ExternalExplicitGcEvent> externalExplicitGcs = new ArrayDeque<>();
     private long evictedExplicitGcCount;
     private long evictedExplicitGcMaxDurationMillis = -1;
     private long evictedExplicitGcTotalDurationMillis;
+    private long notificationSequence;
+    private long evictedExplicitGcMinEndTimeMillis = Long.MAX_VALUE;
+    private long evictedExplicitGcMaxEndTimeMillis = -1;
+    private long evictedTimedExplicitGcSequence;
+    private long untimedExplicitGcSequence;
 
     public BootUiDiagnosticGcTracker() {
-        this(() -> null, MemoryContext.GcEvent::unavailable, true);
+        this(
+                () -> null,
+                MemoryContext.GcEvent::unavailable,
+                true,
+                () -> ManagementFactory.getRuntimeMXBean().getUptime());
     }
 
     BootUiDiagnosticGcTracker(
@@ -66,8 +79,18 @@ public final class BootUiDiagnosticGcTracker {
             Supplier<MemoryContext.GcSample> sampleSupplier,
             Supplier<MemoryContext.GcEvent> eventSupplier,
             boolean notificationsObserved) {
+        this(sampleSupplier, eventSupplier, notificationsObserved, () -> 0L);
+    }
+
+    BootUiDiagnosticGcTracker(
+            Supplier<MemoryContext.GcSample> sampleSupplier,
+            Supplier<MemoryContext.GcEvent> eventSupplier,
+            boolean notificationsObserved,
+            LongSupplier uptimeSupplier) {
         this.sampleSupplier = Objects.requireNonNull(sampleSupplier, "sampleSupplier");
         this.eventSupplier = Objects.requireNonNull(eventSupplier, "eventSupplier");
+        this.uptimeSupplier = Objects.requireNonNull(uptimeSupplier, "uptimeSupplier");
+        this.observationStartUptimeMillis = safeUptime();
         this.notificationsObserved = notificationsObserved;
     }
 
@@ -75,7 +98,8 @@ public final class BootUiDiagnosticGcTracker {
         BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(
                 MemoryCollector::currentGcSample,
                 () -> MemoryCollector.readLastGcEvent().asGcEvent(),
-                false);
+                false,
+                () -> ManagementFactory.getRuntimeMXBean().getUptime());
         tracker.attachJvmNotificationListeners();
         return tracker;
     }
@@ -197,14 +221,19 @@ public final class BootUiDiagnosticGcTracker {
                 }
             }
             DiagnosticWindow window = new DiagnosticWindow(
-                    Map.copyOf(collectorRanges), before.uptimeMillis(), after.uptimeMillis(), recordedEvent);
+                    Map.copyOf(collectorRanges),
+                    before.uptimeMillis(),
+                    after.uptimeMillis(),
+                    recordedEvent,
+                    before.gcTimeMillis() >= 0 && after.gcTimeMillis() >= before.gcTimeMillis() ? timeDelta : -1L,
+                    before.gcCount() >= 0 && after.gcCount() >= before.gcCount() ? countDelta : -1L);
             appendDiagnosticWindow(window);
         } else if (afterEvent != null && afterEvent.available() && !afterEvent.sameEvent(beforeEvent)) {
             latestEvent = afterEvent;
             if (afterEvent.endTimeMillis() > maxEndTimeMillis) {
                 maxEndTimeMillis = afterEvent.endTimeMillis();
             }
-            appendDiagnosticWindow(new DiagnosticWindow(Map.of(), -1, -1, afterEvent));
+            appendDiagnosticWindow(new DiagnosticWindow(Map.of(), -1, -1, afterEvent, -1, -1));
         }
     }
 
@@ -221,8 +250,8 @@ public final class BootUiDiagnosticGcTracker {
         if (activeDepth > 0 && isInActiveDiagnosticWindow(collector, gcId, endTimeMillis)) {
             return;
         }
-        ExternalExplicitGcEvent candidate =
-                new ExternalExplicitGcEvent(collector, gcId, endTimeMillis, Math.max(0L, durationMillis));
+        ExternalExplicitGcEvent candidate = new ExternalExplicitGcEvent(
+                collector, gcId, endTimeMillis, Math.max(0L, durationMillis), saturateAdd(notificationSequence, 1));
         for (DiagnosticWindow window : diagnosticWindows) {
             if (window.matches(candidate)) {
                 return;
@@ -233,12 +262,23 @@ public final class BootUiDiagnosticGcTracker {
                 return;
             }
         }
+        notificationSequence = candidate.sequence();
+        if (endTimeMillis < 0) {
+            untimedExplicitGcSequence = notificationSequence;
+        }
         while (externalExplicitGcs.size() >= MAX_RETAINED_WINDOWS) {
             ExternalExplicitGcEvent evicted = externalExplicitGcs.removeFirst();
             evictedExplicitGcCount = saturateAdd(evictedExplicitGcCount, 1L);
             evictedExplicitGcMaxDurationMillis = Math.max(evictedExplicitGcMaxDurationMillis, evicted.durationMillis());
             evictedExplicitGcTotalDurationMillis =
                     saturateAdd(evictedExplicitGcTotalDurationMillis, evicted.durationMillis());
+            if (evicted.endTimeMillis() >= 0) {
+                evictedTimedExplicitGcSequence = Math.max(evictedTimedExplicitGcSequence, evicted.sequence());
+                evictedExplicitGcMinEndTimeMillis =
+                        Math.min(evictedExplicitGcMinEndTimeMillis, evicted.endTimeMillis());
+                evictedExplicitGcMaxEndTimeMillis =
+                        Math.max(evictedExplicitGcMaxEndTimeMillis, evicted.endTimeMillis());
+            }
         }
         externalExplicitGcs.addLast(candidate);
     }
@@ -278,9 +318,142 @@ public final class BootUiDiagnosticGcTracker {
         resetInternal();
     }
 
+    synchronized Snapshot resetIfEpoch(long expectedEpoch) {
+        if (epoch == expectedEpoch) {
+            resetInternal();
+        }
+        return snapshot();
+    }
+
+    synchronized DiagnosticAccounting diagnosticAccounting(
+            Snapshot expected, MemoryContext.GcEvent event, long ownGcTimeMillis) {
+        if (activeDepth > 0
+                || diagnosticHistoryTruncated
+                || expected.epoch() != epoch
+                || expected.gcTimeMillis() != cumulativeGcTimeMillis
+                || expected.gcCount() != cumulativeGcCount
+                || !expected.perCollectorCounts().equals(cumulativePerCollectorCounts)
+                || !expected.latestEvent().equals(latestEvent)
+                || expected.maxEndTimeMillis() != maxEndTimeMillis
+                || event.collectorName() == null) {
+            return new DiagnosticAccounting(Accounting.UNKNOWN, Accounting.UNKNOWN);
+        }
+        Accounting time = ownGcTimeMillis < 0 ? Accounting.UNKNOWN : Accounting.NOT_INCLUDED;
+        Accounting count = Accounting.NOT_INCLUDED;
+        for (DiagnosticWindow window : diagnosticWindows) {
+            LongRange ids = window.collectorRanges().get(event.collectorName());
+            if (ids != null && !ids.contains(event.id())) {
+                continue;
+            }
+            if (window.beforeUptimeMillis() >= 0
+                    && window.afterUptimeMillis() >= window.beforeUptimeMillis()
+                    && (event.endTimeMillis() < window.beforeUptimeMillis()
+                            || event.endTimeMillis() > window.afterUptimeMillis())) {
+                continue;
+            }
+            boolean included = ids != null && ids.contains(event.id());
+            time = accounting(time, included, window.gcTimeMillis(), ownGcTimeMillis);
+            count = accounting(count, included, window.gcCount(), 1L);
+        }
+        return new DiagnosticAccounting(time, count);
+    }
+
+    private static Accounting accounting(Accounting current, boolean included, long observed, long required) {
+        if (current == Accounting.INCLUDED || observed == 0) {
+            return current;
+        }
+        return included && required >= 0 && observed >= required ? Accounting.INCLUDED : Accounting.UNKNOWN;
+    }
+
+    /**
+     * Reads (previous boundary, current boundary] without consuming notification history or changing
+     * the cumulative diagnostic accounting. The cursor belongs to one scanner, not to the tracker.
+     */
+    synchronized ExplicitGcObservation observeExplicitGc(
+            ExplicitGcCursor previous, long expectedEpoch, long throughUptimeMillis) {
+        return observeExplicitGc(previous, expectedEpoch, throughUptimeMillis, false);
+    }
+
+    synchronized ExplicitGcObservation observeExplicitGc(
+            ExplicitGcCursor previous, long expectedEpoch, long throughUptimeMillis, boolean resetObservation) {
+        long since = previous == null ? observationStartUptimeMillis : previous.throughUptimeMillis();
+        boolean epochChanged = expectedEpoch != epoch || (previous != null && previous.epoch() != epoch);
+        long nextBoundary = throughUptimeMillis;
+        if (resetObservation || epochChanged) {
+            // Reset may happen after the context's last uptime sample. Its cleared interval is
+            // unknown, and the next comparable interval must start no earlier than the actual reset.
+            nextBoundary = observationStartUptimeMillis < 0
+                    ? -1L
+                    : Math.max(observationStartUptimeMillis, throughUptimeMillis);
+        }
+        ExplicitGcCursor cursor = new ExplicitGcCursor(epoch, nextBoundary, notificationSequence);
+        if (resetObservation
+                || epochChanged
+                || since < 0
+                || since < observationStartUptimeMillis
+                || throughUptimeMillis < since) {
+            return new ExplicitGcObservation(
+                    cursor,
+                    new MemoryContext.ExplicitGcData(
+                            0,
+                            -1,
+                            0,
+                            null,
+                            notificationsObserved,
+                            "Explicit-GC observation boundaries are unavailable or incomparable; a new baseline is required."));
+        }
+
+        long previousSequence = previous == null ? 0 : previous.notificationSequence();
+        // A bounded time envelope can conservatively overstate loss after out-of-order delivery,
+        // but must never turn evicted in-window events into complete clean coverage.
+        boolean incomplete = untimedExplicitGcSequence > previousSequence
+                || (evictedExplicitGcMaxEndTimeMillis > since
+                        && evictedExplicitGcMinEndTimeMillis <= throughUptimeMillis)
+                || (previous != null
+                        && evictedTimedExplicitGcSequence > previousSequence
+                        && evictedExplicitGcMinEndTimeMillis <= since
+                        && evictedExplicitGcMaxEndTimeMillis > observationStartUptimeMillis);
+        long count = 0;
+        long maxDuration = -1;
+        long totalDuration = 0;
+        long latestEnd = -1;
+        String lastCollector = null;
+        for (ExternalExplicitGcEvent event : externalExplicitGcs) {
+            if (previous != null
+                    && event.sequence() > previousSequence
+                    && event.endTimeMillis() > observationStartUptimeMillis
+                    && event.endTimeMillis() <= since) {
+                // Late delivery cannot retroactively repair a report already published for that interval.
+                incomplete = true;
+            }
+            if (event.endTimeMillis() > since && event.endTimeMillis() <= throughUptimeMillis) {
+                count++;
+                maxDuration = Math.max(maxDuration, event.durationMillis());
+                totalDuration = saturateAdd(totalDuration, event.durationMillis());
+                if (event.endTimeMillis() >= latestEnd) {
+                    latestEnd = event.endTimeMillis();
+                    lastCollector = event.collector();
+                }
+            }
+        }
+        String limitation = null;
+        if (!notificationsObserved) {
+            limitation = "GC cause notifications are not active on this runtime; external System.gc() pauses could not"
+                    + " be fully observed.";
+        } else if (incomplete) {
+            limitation = "Explicit-GC notification history is incomplete: events were evicted, untimed, or delivered"
+                    + " after their scan boundary.";
+        }
+        return new ExplicitGcObservation(
+                cursor,
+                new MemoryContext.ExplicitGcData(
+                        count, maxDuration, totalDuration, lastCollector, notificationsObserved, limitation));
+    }
+
     private void appendDiagnosticWindow(DiagnosticWindow window) {
         while (diagnosticWindows.size() >= MAX_RETAINED_WINDOWS) {
             diagnosticWindows.removeFirst();
+            diagnosticHistoryTruncated = true;
         }
         diagnosticWindows.addLast(window);
         externalExplicitGcs.removeIf(window::matches);
@@ -331,10 +504,17 @@ public final class BootUiDiagnosticGcTracker {
         latestEvent = MemoryContext.GcEvent.unavailable();
         maxEndTimeMillis = -1L;
         diagnosticWindows.clear();
+        diagnosticHistoryTruncated = false;
         externalExplicitGcs.clear();
         evictedExplicitGcCount = 0L;
         evictedExplicitGcMaxDurationMillis = -1L;
         evictedExplicitGcTotalDurationMillis = 0L;
+        notificationSequence = 0L;
+        evictedExplicitGcMinEndTimeMillis = Long.MAX_VALUE;
+        evictedExplicitGcMaxEndTimeMillis = -1L;
+        evictedTimedExplicitGcSequence = 0L;
+        untimedExplicitGcSequence = 0L;
+        observationStartUptimeMillis = safeUptime();
     }
 
     private static boolean isNewDiagnosticEvent(
@@ -413,6 +593,14 @@ public final class BootUiDiagnosticGcTracker {
         }
     }
 
+    private long safeUptime() {
+        try {
+            return uptimeSupplier.getAsLong();
+        } catch (RuntimeException | LinkageError ex) {
+            return -1L;
+        }
+    }
+
     private record LongRange(long fromExclusive, long toInclusive) {
         boolean contains(long value) {
             return value > fromExclusive && value <= toInclusive;
@@ -423,7 +611,9 @@ public final class BootUiDiagnosticGcTracker {
             Map<String, LongRange> collectorRanges,
             long beforeUptimeMillis,
             long afterUptimeMillis,
-            MemoryContext.GcEvent afterEvent) {
+            MemoryContext.GcEvent afterEvent,
+            long gcTimeMillis,
+            long gcCount) {
 
         boolean matches(ExternalExplicitGcEvent candidate) {
             LongRange range = collectorRanges.get(candidate.collector());
@@ -444,12 +634,13 @@ public final class BootUiDiagnosticGcTracker {
                     && candidate.gcId() < 0
                     && beforeUptimeMillis >= 0
                     && afterUptimeMillis >= beforeUptimeMillis
-                    && candidate.endTimeMillis() >= beforeUptimeMillis
+                    && candidate.endTimeMillis() > beforeUptimeMillis
                     && candidate.endTimeMillis() <= afterUptimeMillis;
         }
     }
 
-    private record ExternalExplicitGcEvent(String collector, long gcId, long endTimeMillis, long durationMillis) {
+    private record ExternalExplicitGcEvent(
+            String collector, long gcId, long endTimeMillis, long durationMillis, long sequence) {
 
         boolean sameNotification(ExternalExplicitGcEvent other) {
             if (!Objects.equals(collector, other.collector())) {
@@ -461,6 +652,18 @@ public final class BootUiDiagnosticGcTracker {
             return endTimeMillis >= 0 && endTimeMillis == other.endTimeMillis();
         }
     }
+
+    record ExplicitGcCursor(long epoch, long throughUptimeMillis, long notificationSequence) {}
+
+    record ExplicitGcObservation(ExplicitGcCursor cursor, MemoryContext.ExplicitGcData data) {}
+
+    enum Accounting {
+        NOT_INCLUDED,
+        INCLUDED,
+        UNKNOWN
+    }
+
+    record DiagnosticAccounting(Accounting time, Accounting count) {}
 
     record Snapshot(
             long epoch,

@@ -62,13 +62,22 @@ public final class MemoryScanner {
                     MemoryRuleRegistry.activeRules(), rule -> rule.definition().id()));
 
     /**
-     * Post-histogram GC counters from the previous scan, used as the lower bound of the recent-GC
-     * window. Guarded by the scanner's single-flight admission.
+     * Post-histogram GC counters from the previous successful scan, retained across collection
+     * failures for reset detection even when the recent-GC trend is interrupted. Guarded by the
+     * scanner's single-flight admission.
      */
     private MemoryContext.GcSample previousGcSample;
 
+    private boolean gcTrendInterrupted;
+
     /** Post-histogram latest GC event from the previous scan, guarded by single-flight admission. */
     private MemoryContext.GcEvent previousPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
+
+    /** Possible histogram event without a comparable epoch; never used as a time high-water mark. */
+    private MemoryContext.GcEvent uncertainPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
+
+    /** Identity only after invalidation: its old end time must never become a new-epoch watermark. */
+    private MemoryContext.GcEvent invalidatedPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
 
     /** Highest GC event endTimeMillis excluded by prior scans or BootUI diagnostic GCs. */
     private long previousMaxExcludedGcEndTimeMillis = -1;
@@ -78,15 +87,21 @@ public final class MemoryScanner {
 
     private long cumulativeHistogramGcCount;
 
+    private boolean histogramGcTimeUncertain;
+    private boolean histogramGcCountUncertain;
+
     /** Snapshot of BootUI diagnostic GC activity as of the previous scan. */
     private BootUiDiagnosticGcTracker.Snapshot previousDiagnosticSnapshot = BootUiDiagnosticGcTracker.Snapshot.empty();
+
+    /** Successful explicit-GC observation boundary, guarded by single-flight admission. */
+    private BootUiDiagnosticGcTracker.ExplicitGcCursor previousExplicitGcCursor;
 
     MemoryScanner(MemoryCollector collector, Clock clock) {
         this(collector::collect, clock, BootUiDiagnosticGcTracker.SHARED);
     }
 
     MemoryScanner(Supplier<MemoryContext> contextSupplier, Clock clock) {
-        this(contextSupplier, clock, new BootUiDiagnosticGcTracker());
+        this(contextSupplier, clock, new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable));
     }
 
     MemoryScanner(Supplier<MemoryContext> contextSupplier, Clock clock, BootUiDiagnosticGcTracker diagnosticGcTracker) {
@@ -158,7 +173,7 @@ public final class MemoryScanner {
         try {
             context = contextSupplier.get();
         } catch (RuntimeException | LinkageError ex) {
-            resetObservations();
+            invalidateGcTrend();
             return report(
                     "ERROR",
                     "Memory Advisor could not read the JVM runtime: " + safeMessage(ex),
@@ -171,43 +186,84 @@ public final class MemoryScanner {
 
         MemoryContext.GcSample preGc = context.preHistogramGc();
         MemoryContext.GcSample postGc = context.postHistogramGc();
-        boolean counterDiscontinuity =
-                previousGcSample != null && BootUiDiagnosticGcTracker.hasCounterDiscontinuity(previousGcSample, preGc);
+        boolean counterDiscontinuityDuringCollection = BootUiDiagnosticGcTracker.hasCounterDiscontinuity(preGc, postGc);
+        boolean diagnosticEpochChangedDuringCollection = postDiagnostic.epoch() != preDiagnostic.epoch();
+        boolean collectionEpochComparable =
+                !counterDiscontinuityDuringCollection && !diagnosticEpochChangedDuringCollection;
+        boolean counterDiscontinuity = counterDiscontinuityDuringCollection
+                || (previousGcSample != null
+                        && BootUiDiagnosticGcTracker.hasCounterDiscontinuity(previousGcSample, preGc));
         if (counterDiscontinuity) {
-            diagnosticGcTracker.reset();
-            preDiagnostic = diagnosticGcTracker.snapshot();
-            postDiagnostic = preDiagnostic;
+            boolean trackerAlreadyReset = diagnosticEpochChangedDuringCollection
+                    || (!counterDiscontinuityDuringCollection
+                            && preDiagnostic.epoch() != previousDiagnosticSnapshot.epoch());
+            postDiagnostic = trackerAlreadyReset
+                    ? diagnosticGcTracker.snapshot()
+                    : diagnosticGcTracker.resetIfEpoch(postDiagnostic.epoch());
+            preDiagnostic = postDiagnostic;
         }
-        if (counterDiscontinuity
+        boolean invalidatedGcBaselines = counterDiscontinuity
                 || preDiagnostic.epoch() != previousDiagnosticSnapshot.epoch()
-                || postDiagnostic.epoch() != preDiagnostic.epoch()) {
+                || postDiagnostic.epoch() != preDiagnostic.epoch();
+        if (invalidatedGcBaselines) {
             cumulativeHistogramGcTimeMillis = 0L;
             cumulativeHistogramGcCount = 0L;
+            histogramGcTimeUncertain = false;
+            histogramGcCountUncertain = false;
+            previousGcSample = null;
+            if (previousPostHistogramGcEvent.available()) {
+                invalidatedPostHistogramGcEvent = previousPostHistogramGcEvent;
+            }
+            previousPostHistogramGcEvent = MemoryContext.GcEvent.unavailable();
             previousMaxExcludedGcEndTimeMillis = -1L;
         }
 
-        MemoryContext.GcTrend rawTrend = previousGcSample == null
+        MemoryContext.GcTrend rawTrend = previousGcSample == null || gcTrendInterrupted
                 ? MemoryContext.GcTrend.unavailable()
                 : MemoryContext.GcTrend.between(previousGcSample, preGc);
         MemoryContext.GcTrend trend = adjustTrendForDiagnosticGcs(rawTrend, previousDiagnosticSnapshot, preDiagnostic);
-        MemoryContext.RuntimeData adjustedRuntime = adjustRuntimeForDiagnosticGcs(
-                context.runtime(), preGc, cumulativeHistogramGcTimeMillis, cumulativeHistogramGcCount, preDiagnostic);
-        MemoryContext.GcEvent latestGcEvent = shouldSuppressGcEvent(
-                        context.latestGcEvent(),
-                        previousPostHistogramGcEvent,
-                        previousMaxExcludedGcEndTimeMillis,
+        MemoryContext.RuntimeData adjustedRuntime = collectionEpochComparable
+                ? adjustRuntimeForDiagnosticGcs(
+                        context.runtime(),
+                        preGc,
+                        cumulativeHistogramGcTimeMillis,
+                        cumulativeHistogramGcCount,
                         preDiagnostic)
+                : context.runtime().withGcCounters(context.runtime().uptimeMillis(), -1L, -1L);
+        if (histogramGcTimeUncertain || histogramGcCountUncertain) {
+            adjustedRuntime = adjustedRuntime.withGcCounters(
+                    adjustedRuntime.uptimeMillis(),
+                    histogramGcTimeUncertain ? -1L : adjustedRuntime.gcCollectionTimeMillis(),
+                    histogramGcCountUncertain ? -1L : adjustedRuntime.gcCollectionCount());
+        }
+        boolean comparablePostEvent = !couldBeSameGcEvent(context.postHistogramGcEvent(), uncertainPostHistogramGcEvent)
+                && !couldBeSameGcEvent(context.postHistogramGcEvent(), invalidatedPostHistogramGcEvent)
+                && ((collectionEpochComparable && !invalidatedGcBaselines)
+                        || isNewEpochPostHistogramEvent(preGc, postGc, context.postHistogramGcEvent()));
+        MemoryContext.GcEvent latestGcEvent = !collectionEpochComparable
+                        || couldBeSameGcEvent(context.latestGcEvent(), uncertainPostHistogramGcEvent)
+                        || couldBeSameGcEvent(context.latestGcEvent(), invalidatedPostHistogramGcEvent)
+                        || shouldSuppressGcEvent(
+                                context.latestGcEvent(),
+                                previousPostHistogramGcEvent,
+                                previousMaxExcludedGcEndTimeMillis,
+                                preDiagnostic)
                 ? MemoryContext.GcEvent.unavailable()
                 : context.latestGcEvent();
 
         previousGcSample = postGc;
+        gcTrendInterrupted = false;
         if (context.postHistogramGcEvent().available()) {
-            previousPostHistogramGcEvent = context.postHistogramGcEvent();
+            if (comparablePostEvent) {
+                previousPostHistogramGcEvent = context.postHistogramGcEvent();
+            } else {
+                uncertainPostHistogramGcEvent = context.postHistogramGcEvent();
+            }
         }
         previousMaxExcludedGcEndTimeMillis = Math.max(
                 Math.max(
                         previousMaxExcludedGcEndTimeMillis,
-                        context.postHistogramGcEvent().endTimeMillis()),
+                        comparablePostEvent ? context.postHistogramGcEvent().endTimeMillis() : -1L),
                 postDiagnostic.maxEndTimeMillis());
         previousDiagnosticSnapshot = postDiagnostic;
         long concurrentDiagTime = postDiagnostic.epoch() == preDiagnostic.epoch()
@@ -216,24 +272,29 @@ public final class MemoryScanner {
         long concurrentDiagCount = postDiagnostic.epoch() == preDiagnostic.epoch()
                 ? Math.max(0L, postDiagnostic.gcCount() - preDiagnostic.gcCount())
                 : 0L;
-        if (preGc.gcTimeMillis() >= 0 && postGc.gcTimeMillis() >= preGc.gcTimeMillis()) {
+        if (collectionEpochComparable && preGc.gcTimeMillis() >= 0 && postGc.gcTimeMillis() >= preGc.gcTimeMillis()) {
             long histogramOnlyTime = Math.max(0L, (postGc.gcTimeMillis() - preGc.gcTimeMillis()) - concurrentDiagTime);
             cumulativeHistogramGcTimeMillis =
                     BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcTimeMillis, histogramOnlyTime);
         }
-        if (preGc.gcCount() >= 0 && postGc.gcCount() >= preGc.gcCount()) {
+        if (collectionEpochComparable && preGc.gcCount() >= 0 && postGc.gcCount() >= preGc.gcCount()) {
             long histogramOnlyCount = Math.max(0L, (postGc.gcCount() - preGc.gcCount()) - concurrentDiagCount);
             cumulativeHistogramGcCount =
                     BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, histogramOnlyCount);
         }
+        if (!collectionEpochComparable) {
+            recordResetHistogramGc(context, postDiagnostic, comparablePostEvent);
+        }
 
         MemoryContext withEvent =
                 context.withRuntime(adjustedRuntime).withGcTrend(trend).withLatestGcEvent(latestGcEvent);
-        MemoryContext withExplicitGc = withEvent.explicitGc().count() == 0
-                        && (postDiagnostic.explicitGc().count() > 0
-                                || !postDiagnostic.explicitGc().notificationsObserved())
-                ? withEvent.withExplicitGc(postDiagnostic.explicitGc())
-                : withEvent;
+        long explicitGcBoundary = preGc.uptimeMillis() >= 0 ? postGc.uptimeMillis() : -1L;
+        BootUiDiagnosticGcTracker.ExplicitGcObservation explicitObservation = diagnosticGcTracker.observeExplicitGc(
+                previousExplicitGcCursor,
+                postDiagnostic.epoch(),
+                explicitGcBoundary,
+                counterDiscontinuity || diagnosticEpochChangedDuringCollection);
+        MemoryContext withExplicitGc = withEvent.withExplicitGc(explicitObservation.data());
         MemoryContext evaluated = withExplicitGc.withViolationCollector(collector);
 
         List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
@@ -247,8 +308,10 @@ public final class MemoryScanner {
         if (hadErrors) {
             message += " Some rules could not be evaluated.";
         }
-        return report(
+        MemoryReport completed = report(
                 status, message, clock.millis(), summary(evaluated), results.size(), results, evidence(evaluations));
+        previousExplicitGcCursor = explicitObservation.cursor();
+        return completed;
     }
 
     private static MemoryContext.GcTrend adjustTrendForDiagnosticGcs(
@@ -300,6 +363,95 @@ public final class MemoryScanner {
             return runtime;
         }
         return runtime.withGcCounters(baseUptime, adjustedGcTime, adjustedGcCount);
+    }
+
+    private void recordResetHistogramGc(
+            MemoryContext context, BootUiDiagnosticGcTracker.Snapshot diagnostic, boolean comparablePostEvent) {
+        MemoryContext.GcSample post = context.postHistogramGc();
+        MemoryContext.GcEvent event = context.postHistogramGcEvent();
+        boolean singleOwnCollection = comparablePostEvent && event.id() == 1L && post.gcCount() == 1L;
+        for (Map.Entry<String, Long> collector : post.perCollectorCounts().entrySet()) {
+            if (!MemoryCollector.isConcurrentCycleBean(collector.getKey())
+                    && (collector.getValue() < 0
+                            || (!collector.getKey().equals(event.collectorName()) && collector.getValue() > 0))) {
+                singleOwnCollection = false;
+            }
+        }
+        if (!singleOwnCollection) {
+            histogramGcTimeUncertain = true;
+            histogramGcCountUncertain = true;
+            return;
+        }
+        MemoryContext.GcSample pre = context.preHistogramGc();
+        boolean timerRebased =
+                pre.gcTimeMillis() >= 0 && post.gcTimeMillis() >= 0 && post.gcTimeMillis() < pre.gcTimeMillis();
+        boolean wholeTimerOwned = timerRebased
+                && hasSoleTimingCollector(pre, event.collectorName())
+                && hasSoleTimingCollector(post, event.collectorName());
+        // A net decrease can hide retained time from another collector, even at zero count.
+        // Count proof stays separate; GcInfo duration cannot establish whole-timer ownership.
+        BootUiDiagnosticGcTracker.DiagnosticAccounting accounted = diagnosticGcTracker.diagnosticAccounting(
+                diagnostic, event, wholeTimerOwned ? post.gcTimeMillis() : -1L);
+        if (accounted.time() == BootUiDiagnosticGcTracker.Accounting.UNKNOWN) {
+            histogramGcTimeUncertain = true;
+        } else if (accounted.time() == BootUiDiagnosticGcTracker.Accounting.NOT_INCLUDED) {
+            cumulativeHistogramGcTimeMillis =
+                    BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcTimeMillis, post.gcTimeMillis());
+        }
+        if (accounted.count() == BootUiDiagnosticGcTracker.Accounting.UNKNOWN) {
+            histogramGcCountUncertain = true;
+        } else if (accounted.count() == BootUiDiagnosticGcTracker.Accounting.NOT_INCLUDED) {
+            cumulativeHistogramGcCount = BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, 1L);
+        }
+    }
+
+    private static boolean hasSoleTimingCollector(MemoryContext.GcSample sample, String collectorName) {
+        boolean found = false;
+        for (String name : sample.perCollectorCounts().keySet()) {
+            if (MemoryCollector.isConcurrentCycleBean(name)) {
+                continue;
+            }
+            if (found || !name.equals(collectorName)) {
+                return false;
+            }
+            found = true;
+        }
+        return found;
+    }
+
+    private static boolean isNewEpochPostHistogramEvent(
+            MemoryContext.GcSample before, MemoryContext.GcSample after, MemoryContext.GcEvent event) {
+        if (!event.available()
+                || event.id() < 0
+                || event.collectorName() == null
+                || before.uptimeMillis() < 0
+                || after.uptimeMillis() < before.uptimeMillis()
+                || event.endTimeMillis() <= before.uptimeMillis()
+                || event.endTimeMillis() > after.uptimeMillis()) {
+            return false;
+        }
+        // A completion inside a monotonic sample interval plus the current collector-local id
+        // ties this event to the post-reset counters, not to an old clock or cached notification.
+        Long beforeCount = before.perCollectorCounts().get(event.collectorName());
+        Long afterCount = after.perCollectorCounts().get(event.collectorName());
+        return beforeCount != null && beforeCount >= 0 && afterCount != null && afterCount == event.id();
+    }
+
+    private static boolean couldBeSameGcEvent(MemoryContext.GcEvent candidate, MemoryContext.GcEvent uncertain) {
+        if (!candidate.available() || !uncertain.available()) {
+            return false;
+        }
+        if (candidate.collectorName() != null
+                && uncertain.collectorName() != null
+                && !candidate.collectorName().equals(uncertain.collectorName())) {
+            return false;
+        }
+        if (candidate.id() >= 0 && uncertain.id() >= 0 && candidate.id() != uncertain.id()) {
+            return false;
+        }
+        return candidate.endTimeMillis() < 0
+                || uncertain.endTimeMillis() < 0
+                || candidate.endTimeMillis() == uncertain.endTimeMillis();
     }
 
     private static boolean shouldSuppressGcEvent(
@@ -364,8 +516,8 @@ public final class MemoryScanner {
         return compared;
     }
 
-    private void resetObservations() {
-        previousGcSample = null;
+    private void invalidateGcTrend() {
+        gcTrendInterrupted = true;
     }
 
     private MemoryReport report(

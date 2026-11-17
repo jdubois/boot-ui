@@ -627,6 +627,10 @@ expose. The scan is on demand and caches the last report. See [MEMORY-CHECKS.md]
 [Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
 you re-run the checks.
 
+External stop-the-world `System.gc()` findings cover only events ending since the previous successful scan boundary
+(since the listener started on the first scan), not lifetime activity. Rescanning without new events clears that
+finding; lost or incomparable evidence remains an explicit coverage limitation.
+
 ## Security
 
 The Security panel runs an explicit, read-only scan of the application's security configuration to flag hardening gaps

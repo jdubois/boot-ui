@@ -1158,7 +1158,8 @@ final class HighGcOverheadRule extends AbstractMemoryRule {
             return skipped("JVM uptime is too short to assess lifetime GC overhead.");
         }
         if (runtime.gcCollectionTimeMillis() < 0) {
-            return skipped("Cumulative GC time is not reported by this JVM.");
+            return skipped(
+                    "Cumulative GC time is unavailable from this JVM or unknown after counter-epoch normalization.");
         }
         int percent = MemoryFormat.percentOf(runtime.gcCollectionTimeMillis(), runtime.uptimeMillis());
         if (percent >= THRESHOLD_PERCENT) {
@@ -1967,7 +1968,8 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
                                 + " 'System.gc()' (excluding 'Heap Inspection Initiated GC', 'Heap Dump Initiated GC', and"
                                 + " BootUI's own memory offload and low-footprint actions). Unlike allocation-driven"
                                 + " collections, explicit System.gc() calls in application or library code force full-heap"
-                                + " pauses across all threads unless handled concurrently.",
+                                + " pauses across all threads unless handled concurrently. Counts and durations cover"
+                                + " only the current scan observation window, not lifetime activity.",
                         "Remove explicit System.gc() calls from application code, increase RMI DGC intervals if RMI triggers"
                                 + " periodic collections, or add -XX:+ExplicitGCInvokesConcurrent so explicit GC requests run"
                                 + " concurrently without disabling NIO direct-buffer reserve cleanup.",
@@ -1991,6 +1993,9 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
                     || memory.usesGarbageCollector("shenandoah")) {
                 return inapplicable("The active collector handles explicit GC cycles concurrently.");
             }
+            if (explicitGc.limitation() != null) {
+                return skipped(explicitGc.limitation());
+            }
             if (memory.gcCollectorNames().isEmpty()) {
                 return missingPass();
             }
@@ -2012,12 +2017,14 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
                                 : "")
                         + ")"
                 : "";
-        return violation(
+        MemoryEvaluation finding = violation(
                 context,
                 mediumSeverity ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW,
                 "Observed " + explicitGc.count() + " external stop-the-world System.gc() pause(s)"
-                        + collectorNote + durationNote
+                        + " in this scan observation window" + collectorNote + durationNote
+                        + (explicitGc.limitation() == null ? "" : "; " + explicitGc.limitation())
                         + " (GC cause 'System.gc()', excluding Heap Inspection and BootUI memory actions); explicit"
                         + " Full GCs pause application threads across the entire heap.");
+        return explicitGc.limitation() == null ? finding : finding.withMissingEvidence();
     }
 }

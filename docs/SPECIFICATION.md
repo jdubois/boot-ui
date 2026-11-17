@@ -1161,6 +1161,9 @@ Features:
 Acceptance criteria:
 
 - Memory values serialize through stable BootUI DTOs.
+- Memory advisor `MEM-GC-009` assesses external explicit-GC pauses within a bounded JVM-uptime scan interval,
+  not lifetime notification totals; missing interval evidence remains unknown alongside known findings.
+  See [Memory check time boundaries](MEMORY-CHECKS.md#time-and-collector-boundaries).
 - Suggested options are clearly presented as recommendations, not automatic changes.
 - JVM argument disclosure is reviewed as part of release hardening.
 

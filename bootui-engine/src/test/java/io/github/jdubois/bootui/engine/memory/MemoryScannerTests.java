@@ -725,9 +725,611 @@ class MemoryScannerTests {
     }
 
     @Test
+    void externalExplicitGcFindingsUseOnlyTheLatestSuccessfulScanWindow() {
+        var uptime = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, () -> 100L);
+        MemoryScanner scanner = new MemoryScanner(
+                () -> explicitGcContext(uptime.get())
+                        .withLatestGcEvent(
+                                new MemoryContext.GcEvent(1L, 1_000L, 500L, "G1 Old Generation", "System.gc()")),
+                CLOCK,
+                tracker);
+        tracker.recordGcNotification("G1 Old Generation", 0L, "end of major GC", "System.gc()", 99L, 900L);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 1_000L, 500L);
+        assertThat(explicitGcFinding(scanner.scan()).severity()).isEqualTo("MEDIUM");
+
+        uptime.set(1_100L);
+        assertThat(explicitGcFinding(scanner.scan())).isNull();
+        assertThat(explicitGcFinding(scanner.lastReport())).isNull();
+
+        uptime.set(1_200L);
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 1_200L, 100L);
+        MemoryRuleResultDto shortPause = explicitGcFinding(scanner.scan());
+        assertThat(shortPause.severity()).isEqualTo("LOW");
+        assertThat(shortPause.sampleViolations().get(0))
+                .contains("1 external", "100 ms")
+                .doesNotContain("500 ms");
+
+        // Equal end times and reused collector-local ids still describe distinct notifications.
+        uptime.set(1_400L);
+        tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 1_300L, 100L);
+        tracker.recordGcNotification("G1 Old Generation", 4L, "end of major GC", "System.gc()", 1_300L, 100L);
+        tracker.recordGcNotification("PS MarkSweep", 3L, "end of major GC", "System.gc()", 1_300L, 100L);
+        tracker.recordGcNotification("PS MarkSweep", 3L, "end of major GC", "System.gc()", 1_300L, 100L);
+        MemoryRuleResultDto frequent = explicitGcFinding(scanner.scan());
+        assertThat(frequent.severity()).isEqualTo("MEDIUM");
+        assertThat(frequent.sampleViolations().get(0)).contains("3 external", "total 300 ms");
+
+        uptime.set(1_500L);
+        assertThat(explicitGcFinding(scanner.scan())).isNull();
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(6L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(900L);
+    }
+
+    @Test
+    void failedScanDoesNotAdvanceTheExplicitGcObservationBoundary() {
+        AtomicInteger call = new AtomicInteger();
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable);
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    int step = call.incrementAndGet();
+                    if (step == 2) {
+                        tracker.recordGcNotification(
+                                "G1 Old Generation", 2L, "end of major GC", "System.gc()", 15_000L, 100L);
+                        throw new IllegalStateException("transient observation failure");
+                    }
+                    MemoryContext.GcSample sample = new MemoryContext.GcSample(
+                            step * 10_000L,
+                            step >= 3 ? 8_000L : 1_500L,
+                            step >= 3 ? 51L : 50L,
+                            java.util.Map.of("G1 Old Generation", step >= 3 ? 2L : 1L));
+                    return explicitGcContext(sample, sample);
+                },
+                CLOCK,
+                tracker);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 500L, 900L);
+        assertThat(explicitGcFinding(scanner.scan()).severity()).isEqualTo("MEDIUM");
+        assertThat(scanner.scan().scan().status()).isEqualTo("ERROR");
+        MemoryReport recovered = scanner.scan();
+        assertThat(explicitGcFinding(recovered).severity()).isEqualTo("LOW");
+        assertThat(recovered.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-003", "MEM-GC-005");
+        assertThat(explicitGcFinding(scanner.scan())).isNull();
+    }
+
+    @Test
+    void failedCollectionPreservesTheLastSuccessfulCounterBaselineForResetAndReusedIds() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample first =
+                new MemoryContext.GcSample(200_000L, 1_000L, 10L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcSample reset =
+                new MemoryContext.GcSample(210_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcSample recovered =
+                new MemoryContext.GcSample(230_000L, 300L, 2L, java.util.Map.of("G1 Old Generation", 2L));
+        AtomicInteger call = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> switch (call.incrementAndGet()) {
+                    case 1 -> explicitGcContext(first, first);
+                    case 2 -> throw new IllegalStateException("transient collection failure");
+                    case 3 -> explicitGcContext(reset, reset);
+                    default -> explicitGcContext(recovered, recovered);
+                },
+                CLOCK,
+                tracker);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 100_000L, 900L);
+        assertThat(explicitGcFinding(scanner.scan()).severity()).isEqualTo("MEDIUM");
+        assertThat(scanner.scan().scan().status()).isEqualTo("ERROR");
+
+        resetClock.set(210_005L);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 205_000L, 100L);
+        MemoryReport newBaseline = scanner.scan();
+        assertThat(explicitGcFinding(newBaseline)).isNull();
+        assertThat(newBaseline.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(tracker.snapshot().explicitGc().count()).isZero();
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 205_000L, 100L);
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 220_000L, 100L);
+        MemoryReport newEpoch = scanner.scan();
+        assertThat(explicitGcFinding(newEpoch).severity()).isEqualTo("LOW");
+        assertThat(newEpoch.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(explicitGcFinding(newEpoch).sampleViolations().get(0)).contains("1 external", "100 ms");
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(2L);
+    }
+
+    @Test
+    void unknownExplicitGcUptimeEstablishesANewBaselineWithoutReplayingHistory() {
+        var uptime = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable);
+        MemoryScanner scanner = new MemoryScanner(() -> explicitGcContext(uptime.get()), CLOCK, tracker);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 500L, 900L);
+        scanner.scan();
+        uptime.set(-1L);
+        MemoryReport unknown = scanner.scan();
+        assertThat(explicitGcFinding(unknown)).isNull();
+        assertThat(unknown.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 1_500L, 900L);
+        uptime.set(2_000L);
+        MemoryReport newBaseline = scanner.scan();
+        assertThat(explicitGcFinding(newBaseline)).isNull();
+        assertThat(newBaseline.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        uptime.set(3_000L);
+        MemoryReport cleanWindow = scanner.scan();
+        assertThat(explicitGcFinding(cleanWindow)).isNull();
+        assertThat(cleanWindow.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-009:"));
+    }
+
+    @Test
+    void counterResetInsideCollectionCannotCreateAComparableExplicitGcWindow() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        tracker.recordWindow(
+                new MemoryContext.GcSample(800_000L, 0L, 0L, java.util.Map.of("G1 Old Generation", 0L)),
+                new MemoryContext.GcSample(860_000L, 60_000L, 1L, java.util.Map.of("G1 Old Generation", 1L)),
+                MemoryContext.GcEvent.unavailable(),
+                MemoryContext.GcEvent.unavailable());
+        MemoryContext first = explicitGcContext(
+                new MemoryContext.GcSample(1_000_000L, 120_000L, 100L, java.util.Map.of("G1 Old Generation", 7L)),
+                new MemoryContext.GcSample(1_050_000L, 170_000L, 101L, java.util.Map.of("G1 Old Generation", 8L)));
+        MemoryContext.GcEvent histogramEvent =
+                new MemoryContext.GcEvent(1L, 1_070_000L, 2_000L, "G1 Old Generation", "Heap Inspection Initiated GC");
+        MemoryContext resetDuringCollection = explicitGcContext(
+                new MemoryContext.GcSample(1_060_000L, 170_000L, 101L, java.util.Map.of("G1 Old Generation", 8L)),
+                new MemoryContext.GcSample(1_070_000L, 2_000L, 1L, java.util.Map.of("G1 Old Generation", 1L)),
+                new MemoryContext.GcEvent(8L, 1_050_000L, 50_000L, "G1 Old Generation"),
+                histogramEvent);
+        MemoryContext.GcSample quietSample =
+                new MemoryContext.GcSample(1_075_000L, 2_000L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext afterOwnHistogram = explicitGcContext(quietSample, quietSample, histogramEvent, histogramEvent);
+        MemoryContext.GcSample recoveredSample =
+                new MemoryContext.GcSample(1_100_000L, 120_000L, 8L, java.util.Map.of("G1 Old Generation", 7L));
+        MemoryContext.GcEvent applicationEvent =
+                new MemoryContext.GcEvent(7L, 1_080_000L, 1_500L, "G1 Old Generation", "System.gc()");
+        MemoryContext recovered =
+                explicitGcContext(recoveredSample, recoveredSample, applicationEvent, applicationEvent);
+        AtomicInteger step = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> switch (step.incrementAndGet()) {
+                    case 1 -> first;
+                    case 2 -> resetDuringCollection;
+                    case 3 -> afterOwnHistogram;
+                    default -> recovered;
+                },
+                CLOCK,
+                tracker);
+        tracker.recordGcNotification("G1 Old Generation", 7L, "end of major GC", "System.gc()", 900_000L, 900L);
+        MemoryReport initial = scanner.scan();
+        assertThat(explicitGcFinding(initial)).isNotNull();
+        assertThat(initial.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-002");
+
+        resetClock.set(1_070_005L);
+        MemoryReport reset = scanner.scan();
+        assertThat(explicitGcFinding(reset)).isNull();
+        assertThat(reset.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(reset.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-006");
+        assertThat(reset.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-002:"));
+        assertThat(reset.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-003:"));
+        assertThat(reset.summary().heapUsedPercent()).isEqualTo(25);
+        assertThat(tracker.snapshot().explicitGc().count()).isZero();
+        assertThat(tracker.snapshot().gcTimeMillis()).isZero();
+        assertThat(tracker.snapshot().gcCount()).isZero();
+
+        MemoryReport afterHistogram = scanner.scan();
+        assertThat(afterHistogram.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-006");
+        tracker.recordGcNotification("G1 Old Generation", 7L, "end of major GC", "System.gc()", 1_080_000L, 1_500L);
+        MemoryReport afterReset = scanner.scan();
+        assertThat(explicitGcFinding(afterReset).severity()).isEqualTo("MEDIUM");
+        assertThat(explicitGcFinding(afterReset).sampleViolations().get(0)).contains("1 external", "1500 ms");
+        assertThat(afterReset.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(afterReset.results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-002", "MEM-GC-006");
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+        assertThat(explicitGcFinding(scanner.scan())).isNull();
+    }
+
+    @Test
+    void incomparablePostHistogramMetadataStaysUnknownWithoutHidingLaterExternalPause() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(50_005L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample before =
+                new MemoryContext.GcSample(2_000_000L, 100_000L, 100L, java.util.Map.of("G1 Old Generation", 8L));
+        MemoryContext.GcSample after =
+                new MemoryContext.GcSample(50_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcEvent oldClockEvent =
+                new MemoryContext.GcEvent(8L, 1_900_000L, 2_000L, "G1 Old Generation", "Heap Inspection Initiated GC");
+        MemoryContext.GcSample quiet =
+                new MemoryContext.GcSample(70_000L, 200L, 2L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcSample application =
+                new MemoryContext.GcSample(90_000L, 2_000L, 3L, java.util.Map.of("G1 Old Generation", 3L));
+        MemoryContext.GcEvent applicationEvent =
+                new MemoryContext.GcEvent(3L, 80_000L, 1_500L, "G1 Old Generation", "System.gc()");
+        AtomicInteger step = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> switch (step.incrementAndGet()) {
+                    case 1 -> explicitGcContext(before, after, oldClockEvent, oldClockEvent);
+                    case 2 -> explicitGcContext(quiet, quiet, oldClockEvent, oldClockEvent);
+                    default -> explicitGcContext(application, application, applicationEvent, applicationEvent);
+                },
+                CLOCK,
+                tracker);
+
+        MemoryReport reset = scanner.scan();
+        assertThat(reset.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-006");
+        MemoryReport uncertain = scanner.scan();
+        assertThat(uncertain.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-006");
+        assertThat(uncertain.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-006:"));
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-006");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void postResetOwnHistogramIsExcludedOnQuietRescanWithoutDiagnosticDoubleCounting(boolean diagnosticOverlap) {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample before =
+                new MemoryContext.GcSample(800_000L, 300_000L, 100L, java.util.Map.of("G1 Old Generation", 8L));
+        MemoryContext.GcSample after =
+                new MemoryContext.GcSample(1_000_000L, 200_000L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcEvent own = new MemoryContext.GcEvent(
+                1L,
+                1_000_000L,
+                diagnosticOverlap ? 200_000L : 50_000L,
+                "G1 Old Generation",
+                "Heap Inspection Initiated GC");
+        MemoryContext.GcSample quiet =
+                new MemoryContext.GcSample(1_010_000L, 200_000L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcSample application =
+                new MemoryContext.GcSample(1_100_000L, 320_000L, 2L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcEvent external =
+                new MemoryContext.GcEvent(2L, 1_090_000L, 1_500L, "G1 Old Generation", "System.gc()");
+        AtomicInteger call = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    if (call.incrementAndGet() == 1) {
+                        resetClock.set(1_000_005L);
+                        if (diagnosticOverlap) {
+                            tracker.recordWindow(
+                                    before,
+                                    after,
+                                    MemoryContext.GcEvent.unavailable(),
+                                    MemoryContext.GcEvent.unavailable());
+                            tracker.recordWindow(
+                                    new MemoryContext.GcSample(
+                                            800_000L, 0L, 0L, java.util.Map.of("G1 Old Generation", 0L)),
+                                    after,
+                                    MemoryContext.GcEvent.unavailable(),
+                                    own);
+                        }
+                        return explicitGcContext(before, after, MemoryContext.GcEvent.unavailable(), own);
+                    }
+                    return call.get() == 2
+                            ? explicitGcContext(quiet, quiet, own, own)
+                            : explicitGcContext(application, application, external, external);
+                },
+                CLOCK,
+                tracker);
+
+        assertThat(scanner.scan().evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-002:"));
+        MemoryReport noApplicationGc = scanner.scan();
+        assertThat(noApplicationGc.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-006");
+        assertThat(noApplicationGc.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-002:"));
+        assertThat(tracker.snapshot().gcTimeMillis()).isEqualTo(diagnosticOverlap ? 200_000L : 0L);
+        assertThat(tracker.snapshot().gcCount()).isEqualTo(diagnosticOverlap ? 1L : 0L);
+        MemoryReport knownApplicationGc = scanner.scan();
+        assertThat(knownApplicationGc.results())
+                .extracting(MemoryRuleResultDto::id)
+                .contains("MEM-GC-002", "MEM-GC-006");
+        assertThat(knownApplicationGc.results())
+                .filteredOn(result -> result.id().equals("MEM-GC-002"))
+                .singleElement()
+                .satisfies(
+                        result -> assertThat(result.sampleViolations().get(0)).contains("across 1 collections"));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {0, 1, 2})
+    void countProofDoesNotTurnMonotonicOrPartiallyAccountedTimeIntoHealthyZero(int scenario) {
+        boolean partialDiagnosticTimer = scenario == 1;
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample before = new MemoryContext.GcSample(
+                800_000L,
+                partialDiagnosticTimer ? 300_000L : 200_000L,
+                100L,
+                java.util.Map.of("G1 Old Generation", 8L));
+        MemoryContext.GcSample after = new MemoryContext.GcSample(
+                1_000_000L, scenario == 0 ? 220_000L : 200_000L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcEvent own = new MemoryContext.GcEvent(
+                1L,
+                1_000_000L,
+                partialDiagnosticTimer ? 150_000L : 20_000L,
+                "G1 Old Generation",
+                "Heap Inspection Initiated GC");
+        MemoryContext.GcSample quiet = new MemoryContext.GcSample(
+                1_010_000L, after.gcTimeMillis(), 1L, java.util.Map.of("G1 Old Generation", 1L));
+        AtomicInteger call = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    if (call.incrementAndGet() == 1) {
+                        resetClock.set(1_000_005L);
+                        if (partialDiagnosticTimer) {
+                            tracker.recordWindow(
+                                    before,
+                                    after,
+                                    MemoryContext.GcEvent.unavailable(),
+                                    MemoryContext.GcEvent.unavailable());
+                            tracker.recordWindow(
+                                    new MemoryContext.GcSample(
+                                            800_000L, 20_000L, 0L, java.util.Map.of("G1 Old Generation", 0L)),
+                                    after,
+                                    MemoryContext.GcEvent.unavailable(),
+                                    own);
+                        }
+                        return explicitGcContext(before, after, MemoryContext.GcEvent.unavailable(), own);
+                    }
+                    return explicitGcContext(quiet, quiet, own, own);
+                },
+                CLOCK,
+                tracker);
+
+        scanner.scan();
+        var accounting = tracker.diagnosticAccounting(
+                tracker.snapshot(), own, partialDiagnosticTimer ? after.gcTimeMillis() : -1L);
+        assertThat(accounting.time()).isEqualTo(BootUiDiagnosticGcTracker.Accounting.UNKNOWN);
+        assertThat(accounting.count())
+                .isEqualTo(
+                        partialDiagnosticTimer
+                                ? BootUiDiagnosticGcTracker.Accounting.INCLUDED
+                                : BootUiDiagnosticGcTracker.Accounting.NOT_INCLUDED);
+        MemoryReport report = scanner.scan();
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-002");
+        assertThat(report.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-002:"));
+        assertThat(report.summary().heapUsedPercent()).isEqualTo(25);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {0, 1, 2, 3, 4, 5})
+    void postTimerAttributionRequiresTheSameSoleRelevantCollectorInBothSamples(int shape) {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        java.util.Map<String, Long> beforeCollectors =
+                switch (shape) {
+                    case 0, 1 -> java.util.Map.of("G1 Old Generation", 99L, "G1 Young Generation", 1L);
+                    case 3 -> null;
+                    case 4 -> java.util.Map.of("PS MarkSweep", 100L);
+                    case 5 -> java.util.Map.of("G1 Old Generation", 100L, "ZGC Cycles", 5L);
+                    default -> java.util.Map.of("G1 Old Generation", 100L);
+                };
+        java.util.Map<String, Long> afterCollectors =
+                switch (shape) {
+                    case 0, 2 -> java.util.Map.of("G1 Old Generation", 1L, "G1 Young Generation", 0L);
+                    case 3 -> java.util.Map.of();
+                    case 5 -> java.util.Map.of("G1 Old Generation", 1L, "ZGC Cycles", 0L);
+                    default -> java.util.Map.of("G1 Old Generation", 1L);
+                };
+        MemoryContext.GcSample before = new MemoryContext.GcSample(800_000L, 300_000L, 100L, beforeCollectors);
+        MemoryContext.GcSample after = new MemoryContext.GcSample(1_000_000L, 220_000L, 1L, afterCollectors);
+        MemoryContext.GcEvent own =
+                new MemoryContext.GcEvent(1L, 1_000_000L, 20_000L, "G1 Old Generation", "Heap Inspection Initiated GC");
+        MemoryContext.GcSample quiet = new MemoryContext.GcSample(1_010_000L, 220_000L, 1L, afterCollectors);
+        AtomicInteger call = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    if (call.incrementAndGet() == 1) {
+                        resetClock.set(1_000_005L);
+                        return explicitGcContext(before, after, MemoryContext.GcEvent.unavailable(), own);
+                    }
+                    return explicitGcContext(quiet, quiet, own, own);
+                },
+                CLOCK,
+                tracker);
+
+        scanner.scan();
+        MemoryReport report = scanner.scan();
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-002");
+        if (shape == 5) {
+            assertThat(report.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-002:"));
+        } else {
+            assertThat(report.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-002:"));
+        }
+        assertThat(report.summary().heapUsedPercent()).isEqualTo(25);
+        if (shape < 3) {
+            var accounting = tracker.diagnosticAccounting(tracker.snapshot(), own, -1L);
+            assertThat(accounting.time()).isEqualTo(BootUiDiagnosticGcTracker.Accounting.UNKNOWN);
+            assertThat(accounting.count()).isEqualTo(BootUiDiagnosticGcTracker.Accounting.NOT_INCLUDED);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void unprovenPostResetHistogramStaysUnknownAndDoesNotHideDistinctApplicationEvents(boolean wrongId) {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample before = new MemoryContext.GcSample(
+                800_000L, 300_000L, 100L, java.util.Map.of("G1 Old Generation", 8L, "PS MarkSweep", 0L));
+        MemoryContext.GcSample after = new MemoryContext.GcSample(
+                1_000_000L, 200_000L, 1L, java.util.Map.of("G1 Old Generation", 1L, "PS MarkSweep", 0L));
+        MemoryContext.GcEvent unproven = new MemoryContext.GcEvent(
+                wrongId ? 2L : 1L,
+                wrongId ? 1_000_000L : 2_000_000L,
+                200_000L,
+                "G1 Old Generation",
+                "Heap Inspection Initiated GC");
+        MemoryContext.GcSample quiet = new MemoryContext.GcSample(
+                1_010_000L, 200_000L, 1L, java.util.Map.of("G1 Old Generation", 1L, "PS MarkSweep", 0L));
+        MemoryContext.GcSample application = new MemoryContext.GcSample(
+                wrongId ? 1_100_000L : 2_100_000L,
+                201_500L,
+                2L,
+                java.util.Map.of("G1 Old Generation", wrongId ? 2L : 1L, "PS MarkSweep", wrongId ? 0L : 1L));
+        MemoryContext.GcEvent external = new MemoryContext.GcEvent(
+                wrongId ? 2L : 1L,
+                wrongId ? 1_090_000L : 2_000_000L,
+                1_500L,
+                wrongId ? "G1 Old Generation" : "PS MarkSweep",
+                "System.gc()");
+        AtomicInteger call = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    if (call.incrementAndGet() == 1) {
+                        resetClock.set(1_000_005L);
+                        return explicitGcContext(before, after, MemoryContext.GcEvent.unavailable(), unproven);
+                    }
+                    return call.get() == 2
+                            ? explicitGcContext(quiet, quiet, unproven, unproven)
+                            : explicitGcContext(application, application, external, external);
+                },
+                CLOCK,
+                tracker);
+
+        scanner.scan();
+        MemoryReport uncertain = scanner.scan();
+        assertThat(uncertain.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-002", "MEM-GC-006");
+        assertThat(uncertain.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-002:"));
+        assertThat(uncertain.summary().heapUsedPercent()).isEqualTo(25);
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-006");
+    }
+
+    @Test
+    void betweenScanResetRetainsPossibleOwnIdentityWithoutOldClockWatermark() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample before =
+                new MemoryContext.GcSample(900_000L, 10_000L, 10L, java.util.Map.of("G1 Old Generation", 7L));
+        MemoryContext.GcSample ownSample =
+                new MemoryContext.GcSample(1_000_000L, 12_000L, 11L, java.util.Map.of("G1 Old Generation", 8L));
+        MemoryContext.GcEvent own =
+                new MemoryContext.GcEvent(8L, 1_000_000L, 2_000L, "G1 Old Generation", "Heap Inspection Initiated GC");
+        MemoryContext.GcSample reset =
+                new MemoryContext.GcSample(50_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcSample quiet =
+                new MemoryContext.GcSample(70_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcSample application =
+                new MemoryContext.GcSample(90_000L, 1_600L, 8L, java.util.Map.of("G1 Old Generation", 8L));
+        MemoryContext.GcEvent external =
+                new MemoryContext.GcEvent(8L, 80_000L, 1_500L, "G1 Old Generation", "System.gc()");
+        AtomicInteger call = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> switch (call.incrementAndGet()) {
+                    case 1 -> explicitGcContext(before, ownSample, MemoryContext.GcEvent.unavailable(), own);
+                    case 2 -> explicitGcContext(reset, reset, own, own);
+                    case 3 -> explicitGcContext(quiet, quiet, own, own);
+                    default -> explicitGcContext(application, application, external, external);
+                },
+                CLOCK,
+                tracker);
+        scanner.scan();
+        resetClock.set(50_005L);
+        MemoryReport newBaseline = scanner.scan();
+        assertThat(newBaseline.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-006");
+        assertThat(newBaseline.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-006:"));
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-006");
+        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-006");
+    }
+
+    @Test
+    void counterResetRecordedBeforeCollectionPreservesTheNewEpochNotification() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample first =
+                new MemoryContext.GcSample(200_000L, 1_000L, 10L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcSample reset =
+                new MemoryContext.GcSample(50_000L, 100L, 1L, java.util.Map.of("G1 Old Generation", 0L));
+        MemoryContext.GcSample afterReset =
+                new MemoryContext.GcSample(70_000L, 200L, 2L, java.util.Map.of("G1 Old Generation", 1L));
+        MemoryContext.GcSample recovered =
+                new MemoryContext.GcSample(80_000L, 300L, 3L, java.util.Map.of("G1 Old Generation", 2L));
+        AtomicInteger step = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> switch (step.incrementAndGet()) {
+                    case 1 -> explicitGcContext(first, first);
+                    case 2 -> explicitGcContext(afterReset, afterReset);
+                    default -> explicitGcContext(recovered, recovered);
+                },
+                CLOCK,
+                tracker);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 100_000L, 900L);
+        scanner.scan();
+        resetClock.set(50_005L);
+        tracker.recordWindow(first, reset, MemoryContext.GcEvent.unavailable(), MemoryContext.GcEvent.unavailable());
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 60_000L, 100L);
+        long newEpoch = tracker.snapshot().epoch();
+
+        MemoryReport newBaseline = scanner.scan();
+        assertThat(explicitGcFinding(newBaseline)).isNull();
+        assertThat(newBaseline.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(tracker.snapshot().epoch()).isEqualTo(newEpoch);
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 75_000L, 100L);
+        MemoryReport newActivity = scanner.scan();
+        assertThat(explicitGcFinding(newActivity).severity()).isEqualTo("LOW");
+        assertThat(explicitGcFinding(newActivity).sampleViolations().get(0)).contains("1 external", "100 ms");
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(2L);
+        assertThat(tracker.snapshot().epoch()).isEqualTo(newEpoch);
+    }
+
+    @Test
+    void counterResetAlreadyRecordedDuringCollectionPreservesTheNewEpochNotification() {
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
+        MemoryContext.GcSample before =
+                new MemoryContext.GcSample(1_000L, 100L, 50L, java.util.Map.of("G1 Old Generation", 2L));
+        MemoryContext.GcSample after =
+                new MemoryContext.GcSample(2_000L, 10L, 1L, java.util.Map.of("G1 Old Generation", 0L));
+        MemoryContext.GcSample recovered =
+                new MemoryContext.GcSample(2_100L, 100L, 2L, java.util.Map.of("G1 Old Generation", 1L));
+        AtomicInteger step = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    if (step.incrementAndGet() == 1) {
+                        resetClock.set(2_005L);
+                        tracker.recordWindow(
+                                before,
+                                after,
+                                MemoryContext.GcEvent.unavailable(),
+                                MemoryContext.GcEvent.unavailable());
+                        tracker.recordGcNotification(
+                                "G1 Old Generation", 1L, "end of major GC", "System.gc()", 2_010L, 100L);
+                        return explicitGcContext(before, after);
+                    }
+                    return explicitGcContext(recovered, recovered);
+                },
+                CLOCK,
+                tracker);
+        tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 900L, 900L);
+
+        MemoryReport reset = scanner.scan();
+        assertThat(explicitGcFinding(reset)).isNull();
+        assertThat(reset.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
+        long newEpoch = tracker.snapshot().epoch();
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+        MemoryReport afterReset = scanner.scan();
+        assertThat(explicitGcFinding(afterReset).severity()).isEqualTo("LOW");
+        assertThat(afterReset.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-009:"));
+        assertThat(tracker.snapshot().epoch()).isEqualTo(newEpoch);
+    }
+
+    @Test
     void counterDiscontinuityBetweenScansResetsTrackerExplicitGcObservationsAndAcceptsReusedIds() {
         AtomicInteger step = new AtomicInteger();
-        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker();
+        var resetClock = new java.util.concurrent.atomic.AtomicLong(0L);
+        BootUiDiagnosticGcTracker tracker =
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable, true, resetClock::get);
         MemoryContext.GcSample firstSample =
                 new MemoryContext.GcSample(200_000L, 1_000L, 10L, java.util.Map.of("G1 Old Generation", 2L));
         MemoryContext.GcSample resetSample =
@@ -757,18 +1359,70 @@ class MemoryScannerTests {
                 MemoryContext.GcEvent.unavailable(),
                 MemoryContext.GcTrend.unavailable());
 
-        MemoryScanner scanner =
-                new MemoryScanner(() -> step.incrementAndGet() == 1 ? first : afterReset, CLOCK, tracker);
+        MemoryScanner scanner = new MemoryScanner(
+                () -> switch (step.incrementAndGet()) {
+                    case 1 -> first;
+                    case 2 -> afterReset;
+                    default -> explicitGcContext(70_000L);
+                },
+                CLOCK,
+                tracker);
 
         tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 100_000L, 250L);
         assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-009");
 
         // Counter discontinuity on Scan 2 clears pre-reset explicit GCs
-        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-009");
+        resetClock.set(50_005L);
+        MemoryReport reset = scanner.scan();
+        assertThat(reset.results()).extracting(MemoryRuleResultDto::id).doesNotContain("MEM-GC-009");
+        assertThat(reset.evidence().limitations()).anyMatch(note -> note.startsWith("MEM-GC-009:"));
 
         // Reused gcId=1 in the new epoch is accepted again
         tracker.recordGcNotification("G1 Old Generation", 1L, "end of major GC", "System.gc()", 60_000L, 300L);
-        assertThat(scanner.scan().results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-009");
+        MemoryReport recoveredReport = scanner.scan();
+        assertThat(recoveredReport.results())
+                .extracting(MemoryRuleResultDto::id)
+                .contains("MEM-GC-009");
+        assertThat(recoveredReport.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-009:"));
+    }
+
+    private static MemoryContext explicitGcContext(MemoryContext.GcSample pre, MemoryContext.GcSample post) {
+        return explicitGcContext(pre, post, MemoryContext.GcEvent.unavailable(), MemoryContext.GcEvent.unavailable());
+    }
+
+    private static MemoryContext explicitGcContext(
+            MemoryContext.GcSample pre,
+            MemoryContext.GcSample post,
+            MemoryContext.GcEvent latestEvent,
+            MemoryContext.GcEvent postEvent) {
+        return new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                ClassLoadingData.empty(),
+                new RuntimeData(pre.uptimeMillis(), pre.gcTimeMillis(), pre.gcCount(), 0, -1, MB, 4, -1, -1, null),
+                pre,
+                post,
+                latestEvent,
+                postEvent,
+                MemoryContext.GcTrend.unavailable());
+    }
+
+    private static MemoryContext explicitGcContext(long uptime) {
+        return new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                ClassLoadingData.empty(),
+                new RuntimeData(uptime, 1_500L, 50L, 0, -1, MB, 4, -1, -1, null));
+    }
+
+    private static MemoryRuleResultDto explicitGcFinding(MemoryReport report) {
+        return report.results().stream()
+                .filter(result -> result.id().equals("MEM-GC-009"))
+                .findFirst()
+                .orElse(null);
     }
 
     private static MemoryRuleResultDto result(String id, String status) {
