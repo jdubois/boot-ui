@@ -121,6 +121,36 @@ query and fragment components, encoded separators, consecutive interior slashes,
 `bootui.path` may not live under the reserved `/bootui/**` namespace. See the [property reference](PROPERTIES.md#custom-ui-and-api-paths).
 :::
 
+## Use the CLI (optional)
+
+Prefer a terminal? The `bootui` CLI connects to your running BootUI-enabled Spring Boot or Quarkus application.
+It needs Java 17 or later. The CLI endpoint is enabled by default; enabling MCP is not required.
+
+::: tabs#cli-install
+
+@tab Linux and macOS
+
+```bash
+curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
+```
+
+@tab Windows (PowerShell)
+
+```powershell
+irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex
+```
+
+:::
+
+With your application still running, try a read-only diagnostic:
+
+```bash
+bootui --url http://localhost:8080 beans
+```
+
+For installation details and alternatives, see [Install the CLI](CLI.md#install).
+The [Command line reference](CLI.md) covers commands, custom URLs, output formats, and configuration.
+
 ## What to read next
 
 Everything below is optional.
@@ -129,6 +159,7 @@ Everything below is optional.
 | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | Understand when BootUI turns on, or keep it out of your prod build | [Activation and safety](setup/activation.md)                     |
 | Run BootUI on WebFlux or Quarkus                                   | [Spring WebFlux](setup/webflux.md) · [Quarkus](setup/quarkus.md) |
+| Query your running application from a terminal                    | [Command line](CLI.md)                                          |
 | Run inside Docker, or in a command-line app                        | [Non-standard runtimes](setup/environments.md)                   |
 | See which methods ran, and whether your change did                 | [Java agent](setup/java-agent.md)                                |
 | Fix something that is not working                                  | [Troubleshooting](setup/troubleshooting.md)                      |
