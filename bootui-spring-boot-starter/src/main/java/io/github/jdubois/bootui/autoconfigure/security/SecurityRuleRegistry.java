@@ -42,6 +42,7 @@ final class SecurityRuleRegistry {
             new EffectivelyDisabledSecurityRule(),
             new CatchAllChainOrderingRule(),
             new AuthorizationRuleShadowedRule(),
+            new IgnoredSecurityPatternsRule(),
             // CSRF
             new CsrfDisabledStatefulRule(),
             new CsrfGloballyDisabledRule(),

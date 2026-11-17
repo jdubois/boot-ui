@@ -1,7 +1,7 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**50 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
+**51 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
 analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
 execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
 to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
@@ -183,7 +183,7 @@ Dismissed rules remove all of their findings from the score.
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
 
 - **Severity**: HIGH (MEDIUM for the servlet method-authorization coverage review described below)
-- **Detects**: A known chain installs no standard HTTP `AuthorizationFilter`. Custom filters and external controls are not observed, so absence does not prove all matched requests are unguarded. The finding remains when method-security families qualify for MEDIUM.
+- **Detects**: A known chain with installed filters has no standard HTTP `AuthorizationFilter`. Proven supported filterless chains are excluded and reviewed by SEC-AUTHZ-006 instead; an unsupported chain's empty placeholder list is not proof. Custom filters and external controls are not observed, so absence does not prove all matched requests are unguarded. The finding remains when method-security families qualify for MEDIUM.
 - **Recommendation**: Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization is still absent.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
@@ -230,6 +230,15 @@ checks are unchanged.
 - **Severity**: INFO (HIGH for a supported unconditional grant shadowing a later constant denial or non-anonymous restriction)
 - **Detects**: An unconditional, method-agnostic matcher precedes later authorization mappings in the same chain. The default is an ordering advisory; unconditional grant (`permitAll`), unconditional denial (`denyAll`), non-anonymous restriction (`authenticated`, `fullyAuthenticated`, `rememberMe`, `hasRole`/`hasAuthority`/`hasAllRoles`/`hasAllAuthorities` excluding `ROLE_ANONYMOUS`), and unknown authorization effects are distinguished. A known unconditional grant hiding a later denial or non-anonymous restriction raises severity to HIGH. Unsupported matcher/manager structure remains unknown.
 - **Recommendation**: Register narrower matchers (e.g. requestMatchers("/admin/**").hasRole("ADMIN")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
+
+### SEC-AUTHZ-006 - Prefer permitAll within a security chain to ignoring requests
+
+- **Severity**: LOW (HIGH if at least one ignored matcher is structurally proven unconditional)
+- **Detects**: Supported native chains with a known empty filter inventory, including Spring's `web.ignoring()` representation. The rule emits **one inventory-scoped finding** listing the observed ignored scopes, not one counted occurrence per matcher or chain. The finding and its retained detail count are both one, even when several patterns are listed; normal detail-text bounds can abbreviate the list. Proven unconditional scopes appear first, retaining their HIGH justification before bounded scopes; original order is preserved within each group. Its single severity is HIGH if any ignored scope is proven unconditional, otherwise LOW.
+- **Recommendation**: Prefer `requestMatchers(...).permitAll()` inside a real security chain so public requests retain its security headers and other applicable protections; do not ignore every request. This does not claim that every public endpoint needs CSRF or authentication.
+- **Bounds**: Only supported, trustworthy filter inventory proves bypass. A positively nonempty supported native chain is not filterless, even when custom filter types are unknown; this discharges only SEC-AUTHZ-006, not discovery or other-rule uncertainty. Unsupported or unreadable chains and unproven empty placeholders remain unknown, and unknown matcher semantics keep coverage incomplete even when a known filterless chain produces a LOW review. Passive typed matcher facts, never text such as `/**`, prove unconditional scope: HTTP method, base path, composite constraints, and unknown branches matter. No matcher or application callback runs. A normal `permitAll` mapping in a nonempty chain is not this finding.
+- **Migration and availability**: Servlet MVC only; WebFlux retains its `SEC-RXF-*` catalogue and Quarkus its native `QS-*` rules. Previously, ignored chains each produced HIGH SEC-AUTHZ-001 advice; they now produce one SEC-AUTHZ-006 review with the severity above. SEC-AUTHZ-001 dismissals still apply to actual filtered-chain findings and are **not copied** to the new ID. Retired SEC-CONFIG-004 remains reserved. Other authentication, header, CSRF, and authorization checks retain their independent evidence and scoring; this is not a generic grouping policy or a change to strict CI eligibility. Partial sample observations remain partial.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
 ## CSRF

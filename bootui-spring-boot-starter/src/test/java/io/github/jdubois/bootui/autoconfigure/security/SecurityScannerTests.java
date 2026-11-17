@@ -64,7 +64,7 @@ import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 50;
+    private static final int RULE_COUNT = 51;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @TempDir

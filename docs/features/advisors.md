@@ -652,7 +652,7 @@ these passive observations do not prove an exploitable injection. Unknown policy
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it evaluates a 50-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
+On Spring Boot it evaluates a 51-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
 supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
 also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
 check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
@@ -664,6 +664,10 @@ used family; otherwise they stay **HIGH**. MEDIUM calls for annotation, proxy an
 that endpoints are protected: HTTP authorization is still absent or broad. Unknown chains remain incomplete; unresolved
 bean types can remain outside this method-family observation. This calibration does not change the separate WebFlux or
 Quarkus rules.
+
+Proven filterless/ignored request scopes produce one `SEC-AUTHZ-006` review instead of per-chain missing-authorization
+advice: LOW normally, HIGH for a passively proven unconditional ignored matcher. Prefer public `permitAll` mappings
+inside a real chain. Unknown scope stays incomplete, and existing `SEC-AUTHZ-001` dismissals do not dismiss the new ID.
 
 ### Spring WebFlux
 

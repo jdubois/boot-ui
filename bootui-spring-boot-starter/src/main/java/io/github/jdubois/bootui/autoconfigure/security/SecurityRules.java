@@ -373,7 +373,7 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
                 "Every filter chain should enforce authorization",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects a known chain without the standard HTTP authorization filter. MEDIUM requires known inspected bean method-family metadata, at least one observed used family and matching activation for all used families; it is a coverage review, not proof of endpoint protection.",
+                "Detects a known nonempty chain without the standard HTTP authorization filter. Proven supported filterless chains are reviewed by SEC-AUTHZ-006 instead. MEDIUM requires known inspected bean method-family metadata, at least one observed used family and matching activation for all used families; it is a coverage review, not proof of endpoint protection.",
                 "Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll). If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization is still absent.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
@@ -383,6 +383,9 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         boolean unknown = false;
         for (FilterChainModel chain : context.chains()) {
+            if (chain.isKnownFilterless()) {
+                continue;
+            }
             if (chain.hasAuthorizationFilter()) {
                 context.applies(true);
             } else if (context.applies(chain.details().filtersKnown())) {
@@ -559,6 +562,55 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
             return skipped("Authorization matcher order could not be inspected for any filter chain.");
         }
         return violation(context, permissiveShadow ? SecurityRuleSupport.HIGH : SecurityRuleSupport.INFO, details);
+    }
+}
+
+final class IgnoredSecurityPatternsRule extends AbstractSecurityRule {
+
+    IgnoredSecurityPatternsRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-AUTHZ-006",
+                "Prefer permitAll within a security chain to ignoring requests",
+                SecurityCategory.AUTHORIZATION,
+                "LOW",
+                "Reports one inventory-level finding for supported filterless chains, including web.ignoring patterns. A structurally proven unconditional ignored matcher raises severity to HIGH; unknown scope remains incomplete.",
+                "Prefer requestMatchers(...).permitAll() inside a real security chain so public requests retain its security headers and other applicable protections. Do not ignore every request.",
+                "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> ignored = new ArrayList<>();
+        List<String> unconditionalScopes = new ArrayList<>();
+        boolean unknown = false;
+        boolean unconditional = false;
+        for (FilterChainModel chain : context.targets(context.chains())) {
+            if (chain.details().chainSupported() && !chain.filterNames().isEmpty()) {
+                continue;
+            }
+            if (!context.required(chain.isKnownFilterless())) {
+                unknown = true;
+                continue;
+            }
+            var matcher = chain.details().matcher();
+            context.required(matcher != null && matcher.complete());
+            if (matcher != null && matcher.unconditional()) {
+                unconditional = true;
+                unconditionalScopes.add(chain.describe());
+            } else {
+                ignored.add(chain.describe());
+            }
+        }
+        ignored.addAll(0, unconditionalScopes);
+        if (ignored.isEmpty()) {
+            return unknown
+                    ? skipped("Some filter inventories are unsupported; ignored requests cannot be excluded.")
+                    : pass();
+        }
+        return violation(
+                context,
+                unconditional ? SecurityRuleSupport.HIGH : null,
+                List.of("Requests bypass the security filter chain: " + String.join("; ", ignored) + "."));
     }
 }
 

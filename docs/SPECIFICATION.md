@@ -3333,6 +3333,19 @@ return-type metadata. Default-mode final-method skips alone are outside this rul
 rejection, conditional strict-mode deferral, and unverified failure stages are distinguished in the
 [rule catalog](QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005-normal-scoped-bean-cannot-be-client-proxied).
 
+On servlet MVC, supported native filterless chains (including `web.ignoring()`) are excluded from missing-authorization
+`SEC-AUTHZ-001` and produce one inventory-scoped `SEC-AUTHZ-006` finding listing the observed ignored scopes. Its
+`violationCount` and retained detail count are one, not the number of patterns; standard detail-text bounds still
+apply. Proven unconditional scopes are listed first, preserving original order within unconditional and remaining
+groups, so truncation retains the HIGH justification. Severity is LOW unless passive typed matcher facts prove at
+least one ignored scope unconditional, then HIGH. A positively nonempty supported native chain discharges only this
+rule's filterless obligation, even when custom filter types are unknown; global and other-rule uncertainty remains.
+Method/base-path constraints and unknown matcher semantics cannot be erased by a textual `/**`. Unsupported empty
+placeholders do not prove ignored requests; unknown scope retains incomplete coverage alongside any known finding.
+Normal nonempty `permitAll` chains are not SEC-AUTHZ-006 targets. The new ID does not inherit SEC-AUTHZ-001 dismissals
+or reuse retired SEC-CONFIG-004. WebFlux and Quarkus retain their own catalogues; no DTO, generic scoring, strict CI
+eligibility, or whole-sample completeness contract changes.
+
 #### Advisor violation pages
 
 The seven compact rule advisors (`architecture`, `hibernate`, `spring`, `rest-api`, `memory`, `security`,

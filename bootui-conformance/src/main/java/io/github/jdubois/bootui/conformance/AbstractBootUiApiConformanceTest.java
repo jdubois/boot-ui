@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.JsonType;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ReadContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.io.IOException;
 import java.io.InputStream;
@@ -1042,6 +1043,26 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(aligned.isArray()).as(subject + " is an array").isTrue();
         if (aligned.isEmpty()) return;
         assertThat(aligned.size()).as(subject + " aligns with the violations").isEqualTo(texts.size());
+    }
+
+    @Test
+    void ignoredSecurityRuleRegistrationMatchesTheNativePlatform() {
+        BootUiHttpProbe probe = probe();
+        String platform = probe.get(api("/panels")).json().path("platform").asText();
+        assertThat(platform).isIn("spring-boot", "spring-boot-reactive", "quarkus");
+        Response scanned = probe.request("POST", api("/security/scan"), stateChangingHeaders(probe), "");
+        assertThat(scanned.status()).isEqualTo(200);
+        JsonNode report = scanned.json();
+        String scanId = report.path("violationDetails").path("scanId").asText();
+        assertThat(scanId).isNotBlank();
+        Response detail = probe.get(api("/security/rules/SEC-AUTHZ-006/violations") + "?scanId="
+                + URLEncoder.encode(scanId, StandardCharsets.UTF_8));
+        assertThat(detail.status()).isEqualTo(404);
+        assertThat(detail.json().path("error").asText())
+                .isEqualTo(
+                        "spring-boot".equals(platform)
+                                ? AdvisorScanState.NO_FINDINGS_MESSAGE
+                                : AdvisorScanState.UNKNOWN_RULE_MESSAGE);
     }
 
     @Test

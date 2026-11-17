@@ -2024,7 +2024,7 @@ class SecurityAuditAccuracyTests {
 
     @Test
     void approvedRetiredIdsStayAbsentAndStaticKeyIsInfo() {
-        assertThat(SecurityRuleRegistry.activeRules()).hasSize(50);
+        assertThat(SecurityRuleRegistry.activeRules()).hasSize(51);
         assertThat(SecurityRules.RETIRED_RULE_IDS)
                 .isEqualTo(SecurityRuleRegistry.RETIRED_RULE_IDS)
                 .containsExactlyInAnyOrder(

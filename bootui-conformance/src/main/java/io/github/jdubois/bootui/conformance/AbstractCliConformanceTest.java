@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
@@ -89,6 +90,25 @@ public abstract class AbstractCliConformanceTest {
                 Path.of("target/cli-conformance/boot-ui.yml"),
                 () -> PentestingDismissalContract.response(invoke("pentest_scan", "{}")),
                 () -> PentestingDismissalContract.response(invoke("get_pentest_report", "{}")));
+    }
+
+    @Test
+    void testCliIgnoredSecurityRuleRegistrationMatchesTheNativePlatform() {
+        String platform =
+                probe().get("/bootui/api/panels").json().path("platform").asText();
+        assertThat(platform).isIn("spring-boot", "spring-boot-reactive", "quarkus");
+        Response scanned = invoke("security_scan", "{}");
+        assertThat(scanned.status()).isEqualTo(200);
+        String scanId = scanned.json().path("violationDetails").path("scanId").asText();
+        assertThat(scanId).isNotBlank();
+        Response detail =
+                invoke("get_security_rule_violations", "{\"id\":\"SEC-AUTHZ-006\",\"scanId\":\"" + scanId + "\"}");
+        assertThat(detail.status()).as("detail response: %s", detail.body()).isEqualTo(400);
+        assertThat(detail.json().path("error").asText())
+                .isEqualTo(
+                        "spring-boot".equals(platform)
+                                ? AdvisorScanState.NO_FINDINGS_MESSAGE
+                                : AdvisorScanState.UNKNOWN_RULE_MESSAGE);
     }
 
     @Test
