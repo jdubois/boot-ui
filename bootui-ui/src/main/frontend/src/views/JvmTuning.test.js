@@ -13,7 +13,7 @@ function memoryReport({
   kubernetesBurstableEnabled = false,
   kubernetesActuatorEnabled = true
 } = {}) {
-  const requestMemory = kubernetesBurstableEnabled ? '512Mi' : '1024Mi'
+  const requestMemory = kubernetesBurstableEnabled ? '768Mi' : '1024Mi'
   const qosClass = kubernetesBurstableEnabled ? 'Burstable' : 'Depends on CPU'
   const javaToolOptions = '-XX:MaxRAMPercentage=62.5 -XX:MinRAMPercentage=62.5 -XX:InitialRAMPercentage=62.5'
   const probeYaml = kubernetesActuatorEnabled
@@ -54,14 +54,14 @@ function memoryReport({
       error: null
     },
     kubernetes: {
-      requestMemoryBytes: kubernetesBurstableEnabled ? 512 * MB : 1024 * MB,
+      requestMemoryBytes: kubernetesBurstableEnabled ? 768 * MB : 1024 * MB,
       limitMemoryBytes: 1024 * MB,
-      burstableRequestMemoryBytes: 512 * MB,
+      burstableRequestMemoryBytes: 768 * MB,
       currentSnapshotBytes: 432 * MB,
       detectedContainerLimitBytes: 1024 * MB,
       requestMemory,
       limitMemory: '1024Mi',
-      burstableRequestMemory: '512Mi',
+      burstableRequestMemory: '768Mi',
       currentSnapshotMemory: '432Mi',
       detectedContainerLimitMemory: '1024Mi',
       qosClass,
@@ -248,6 +248,62 @@ describe('JvmTuning', () => {
     expect(wrapper.text()).toContain('CPU settings also required')
   })
 
+  it('keeps a Kubernetes-only refusal separate from valid bare-metal options', async () => {
+    const report = memoryReport({kubernetesBurstableEnabled: true})
+    const reason =
+      'Insufficient Kubernetes memory budget: the modeled heap plus observed non-heap commitment exceeds the selected memory limit. Review modeled headroom and reservations, or disable Burstable to keep equal memory request and limit.'
+    report.nonHeap = {...report.nonHeap, committedBytes: 1024 * MB, usedPercent: 6}
+    report.kubernetes = {
+      ...report.kubernetes,
+      requestMemoryBytes: 0,
+      burstableRequestMemoryBytes: 0,
+      requestMemory: '',
+      burstableRequestMemory: '',
+      qosClass: 'Unavailable',
+      confidence: 'Low',
+      warnings: [reason],
+      yaml: '',
+      maxRamPercentage: 0,
+      initialRamPercentage: 0,
+      javaToolOptions: ''
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+
+    const kubernetesCard = wrapper.findAll('.card').find((card) => card.text().includes('Kubernetes calculator'))
+    const bareMetalCard = wrapper.findAll('.card').find((card) => card.text().includes('Bare metal JVM options'))
+    expect(kubernetesCard.text()).toContain(reason)
+    expect(kubernetesCard.text()).toContain('Low model confidence')
+    expect(kubernetesCard.findAll('.fs-5').map((value) => value.text())).toEqual([
+      '—',
+      '1024Mi',
+      '—',
+      'Unavailable',
+      '432Mi'
+    ])
+    expect(kubernetesCard.text()).toContain('No memory request generated')
+    expect(kubernetesCard.text()).toContain('No heap percentage generated')
+    expect(kubernetesCard.text()).toContain('No QoS recommendation')
+    for (const claim of [
+      'Burstable scheduling request',
+      'Memory request equals limit',
+      'Max/Min RAM percentage',
+      'Determined by memory settings',
+      'CPU settings also required',
+      'Adjust calculator inputs until a valid heap is available.'
+    ]) {
+      expect(kubernetesCard.text()).not.toContain(claim)
+    }
+    expect(kubernetesCard.get('.options-box code').text()).toBe(
+      'Kubernetes recommendation is unavailable. Review the sizing notes below.'
+    )
+    expect(kubernetesCard.get('button').attributes('disabled')).toBeDefined()
+    expect(bareMetalCard.get('.options-box code').text()).toBe(report.suggestedJvmOptions)
+    expect(bareMetalCard.get('button').attributes('disabled')).toBeUndefined()
+  })
+
   it('reloads recommendations when Kubernetes toggles are changed', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
     vi.stubGlobal('fetch', fetchMock)
@@ -277,22 +333,62 @@ describe('JvmTuning', () => {
       error: 'Insufficient heap budget: the 2048 MiB default cannot request at least 128 MiB.'
     }
     invalid.suggestedJvmOptions = ''
-    invalid.kubernetes = {...invalid.kubernetes, yaml: '', javaToolOptions: '', qosClass: 'Unavailable'}
+    invalid.kubernetes = {
+      ...invalid.kubernetes,
+      requestMemoryBytes: 0,
+      limitMemoryBytes: 2048 * MB,
+      burstableRequestMemoryBytes: 0,
+      requestMemory: '',
+      limitMemory: '2048Mi',
+      burstableRequestMemory: '',
+      detectedContainerLimitBytes: null,
+      detectedContainerLimitMemory: null,
+      qosClass: 'Unavailable',
+      confidence: 'Low',
+      warnings: [invalid.calculation.error],
+      yaml: '',
+      maxRamPercentage: 0,
+      initialRamPercentage: 0,
+      javaToolOptions: ''
+    }
     const fetchMock = vi.fn().mockImplementation((url) => {
       const manual = new URL(url, 'http://localhost/').searchParams.has('totalMemoryMb')
       return Promise.resolve(jsonResponse(manual ? memoryReport() : invalid))
     })
     vi.stubGlobal('fetch', fetchMock)
+    const expectInvalidDefaultState = () => {
+      const kubernetesCard = wrapper.findAll('.card').find((card) => card.text().includes('Kubernetes calculator'))
+      const bareMetalCard = wrapper.findAll('.card').find((card) => card.text().includes('Bare metal JVM options'))
+      expect(wrapper.text()).toContain(invalid.calculation.error)
+      expect(kubernetesCard.get('.options-box code').text()).toBe(
+        'Adjust calculator inputs until a valid heap is available.'
+      )
+      expect(kubernetesCard.text()).toContain('No memory request generated')
+      expect(kubernetesCard.text()).toContain('No heap percentage generated')
+      expect(kubernetesCard.text()).toContain('No QoS recommendation')
+      for (const claim of [
+        'Burstable scheduling request',
+        'Memory request equals limit',
+        'Max/Min RAM percentage',
+        'Determined by memory settings',
+        'CPU settings also required',
+        'Kubernetes recommendation is unavailable. Review the sizing notes below.'
+      ]) {
+        expect(kubernetesCard.text()).not.toContain(claim)
+      }
+      expect(kubernetesCard.get('button').attributes('disabled')).toBeDefined()
+      expect(bareMetalCard.get('button').attributes('disabled')).toBeDefined()
+    }
 
     wrapper = mount(JvmTuning)
     await flushPromises()
     expect(wrapper.get('#jvm-target-memory').element.value).toBe('2048')
-    expect(wrapper.text()).toContain(invalid.calculation.error)
+    expectInvalidDefaultState()
 
     for (let refresh = 0; refresh < 2; refresh++) {
       vi.advanceTimersByTime(10_000)
       await flushPromises()
-      expect(wrapper.text()).toContain(invalid.calculation.error)
+      expectInvalidDefaultState()
       expect(wrapper.text()).not.toContain('-Xms512m')
     }
     expect(fetchMock).toHaveBeenCalledTimes(3)
@@ -312,6 +408,14 @@ describe('JvmTuning', () => {
     )
     expect(wrapper.text()).not.toContain(invalid.calculation.error)
     expect(wrapper.text()).toContain('-Xms512m')
+    expect(wrapper.text()).not.toContain('Adjust calculator inputs until a valid heap is available.')
+    expect(wrapper.text()).not.toContain('No memory request generated')
+    const kubernetesCard = wrapper.findAll('.card').find((card) => card.text().includes('Kubernetes calculator'))
+    const bareMetalCard = wrapper.findAll('.card').find((card) => card.text().includes('Bare metal JVM options'))
+    expect(kubernetesCard.text()).toContain('Memory request equals limit')
+    expect(kubernetesCard.get('.options-box code').text()).toContain('JAVA_TOOL_OPTIONS')
+    expect(kubernetesCard.get('button').attributes('disabled')).toBeUndefined()
+    expect(bareMetalCard.get('button').attributes('disabled')).toBeUndefined()
   })
 
   it('refreshes untouched displayed defaults while preserving only actual sizing overrides', async () => {

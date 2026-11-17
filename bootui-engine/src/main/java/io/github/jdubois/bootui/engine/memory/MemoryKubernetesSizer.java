@@ -72,10 +72,16 @@ final class MemoryKubernetesSizer {
                 detectedContainerCurrentUsageBytes);
         String detectedContainerLimitMemory =
                 detectedContainerLimitBytes == null ? null : formatMi(detectedContainerLimitBytes);
+        long limitBytes = calculation.totalMemoryBytes();
+        long modeledHeapAndNonHeapBytes =
+                saturatedAdd(nonNegative(calculation.heapBytes()), nonNegative(nonHeapCommittedBytes));
 
-        if (!calculation.valid()) {
+        if (!calculation.valid() || (burstableEnabled && modeledHeapAndNonHeapBytes > limitBytes)) {
             List<String> warnings = new ArrayList<>();
-            warnings.add(calculation.error());
+            warnings.add(
+                    calculation.valid()
+                            ? "Insufficient Kubernetes memory budget: the modeled heap plus observed non-heap commitment exceeds the selected memory limit. Review modeled headroom and reservations, or disable Burstable to keep equal memory request and limit."
+                            : calculation.error());
             return new KubernetesMemoryRecommendationDto(
                     0,
                     calculation.totalMemoryBytes(),
@@ -98,8 +104,8 @@ final class MemoryKubernetesSizer {
                     healthProbesEnabled);
         }
 
-        long limitBytes = calculation.totalMemoryBytes();
-        long burstableRequestBytes = estimateBurstableRequestBytes(limitBytes, currentSnapshotBytes);
+        long burstableRequestBytes =
+                estimateBurstableRequestBytes(limitBytes, currentSnapshotBytes, modeledHeapAndNonHeapBytes);
         long requestBytes = burstableEnabled ? burstableRequestBytes : limitBytes;
         List<String> warnings = buildWarnings(
                 calculation,
@@ -164,13 +170,15 @@ final class MemoryKubernetesSizer {
         return saturatedAdd(committedPools, nonNegative(directBufferMemoryUsedBytes));
     }
 
-    private static long estimateBurstableRequestBytes(long limitBytes, long currentSnapshotBytes) {
+    private static long estimateBurstableRequestBytes(
+            long limitBytes, long currentSnapshotBytes, long modeledHeapAndNonHeapBytes) {
         long marginBytes =
                 Math.max(MIN_SNAPSHOT_MARGIN_BYTES, Math.round(currentSnapshotBytes * SNAPSHOT_MARGIN_FACTOR));
         long snapshotWithMargin = currentSnapshotBytes > Long.MAX_VALUE - marginBytes
                 ? Long.MAX_VALUE
                 : currentSnapshotBytes + marginBytes;
-        long requestWithFloor = Math.max(MIN_BURSTABLE_REQUEST_BYTES, snapshotWithMargin);
+        long requestWithFloor =
+                Math.max(Math.max(MIN_BURSTABLE_REQUEST_BYTES, snapshotWithMargin), modeledHeapAndNonHeapBytes);
         if (requestWithFloor >= limitBytes) {
             return limitBytes;
         }
@@ -200,8 +208,12 @@ final class MemoryKubernetesSizer {
                     "Memory request equals memory limit. Kubernetes Guaranteed QoS additionally requires equal, non-zero CPU request and limit for every container in the Pod.");
             if (burstableEnabled) {
                 warnings.add(
-                        "Burstable mode did not lower requests.memory because the current snapshot plus its safety margin reaches the selected limit.");
+                        "Burstable mode did not lower requests.memory because the snapshot margin or modeled-heap/non-heap floor reaches the selected limit.");
             }
+        }
+        if (burstableEnabled) {
+            warnings.add(
+                    "Burstable sizing keeps the current snapshot plus the larger of 15% and 64 MiB, floored at the modeled heap plus observed non-heap committed. The modeled heap also covers the downward-rounded InitialRAMPercentage target against the selected limit. These are starting bounds, not effective aligned heap or peak demand.");
         }
         if (!healthProbesEnabled) {
             warnings.add(healthProbeManifest.probesOmittedWarning());
@@ -246,10 +258,10 @@ final class MemoryKubernetesSizer {
         if (burstableRequestBytes < limitBytes) {
             if (detectedContainerCurrentUsageBytes != null) {
                 warnings.add(
-                        "The burstable request starts from the current cgroup memory.current snapshot and can still be too low after warmup or a workload change.");
+                        "The Burstable snapshot term uses the current cgroup memory.current observation alongside the modeled-heap/non-heap floor; neither predicts demand after warmup or a workload change.");
             } else {
                 warnings.add(
-                        "cgroup memory.current is unavailable, so the burstable request falls back to committed JVM pools plus observed direct buffers and can be too low after warmup.");
+                        "cgroup memory.current is unavailable, so the Burstable snapshot term uses committed JVM pools plus observed direct buffers alongside the modeled-heap/non-heap floor; neither predicts demand after warmup.");
             }
         }
         return warnings;

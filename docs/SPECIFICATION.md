@@ -1167,7 +1167,16 @@ Features:
   Equal memory request and limit values are reported as `Depends on CPU`, because Kubernetes Guaranteed QoS also
   requires equal, non-zero CPU request and limit values for every container.
 - The JVM Tuning panel lets the user attempt a lower, Burstable Kubernetes request based first on the current cgroup
-  memory snapshot, with committed JVM pools plus observed direct buffers as a lower-confidence fallback. It can include
+  memory snapshot, with committed JVM pools plus observed direct buffers as a lower-confidence fallback. It retains
+  the larger of 15% and 64 MiB as a snapshot margin, a 128 MiB minimum, and upward 64 MiB request rounding. The request
+  also covers the modeled heap plus observed aggregate non-heap committed, without adding individual pools again.
+  The raw JVM aggregate may itself include overlapping pool accounting; BootUI retains it without deduplication.
+  The modeled heap also bounds the downward-rounded initial-heap option against the selected limit.
+  An opt-in floor that exceeds the fixed limit produces an
+  `Unavailable` Kubernetes recommendation with an explanation and no options or YAML, not a higher limit or a request
+  below that floor; the bare-metal calculation and default emitted equal request/limit, QoS, and YAML are unchanged.
+  The informational Burstable alternative is also floored while opt-in is off. These are snapshot
+  heuristics, not peak-demand, live-after-GC, or effective-heap guarantees. It can include
   startup/readiness/liveness probes using framework-default paths and the named container port `http`; operators must
   verify both when application, management-server, or container-port configuration differs.
 - The model, generated-option inventory, platform behavior, evidence, and limitations are documented in

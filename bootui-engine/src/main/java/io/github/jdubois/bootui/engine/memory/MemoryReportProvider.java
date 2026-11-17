@@ -29,6 +29,7 @@ public class MemoryReportProvider {
     private final Supplier<List<String>> inputArgumentsSupplier;
     private final Supplier<MemoryUsage> heapUsageSupplier;
     private final Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier;
+    private final Supplier<MemoryUsage> nonHeapUsageSupplier;
 
     public MemoryReportProvider() {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS);
@@ -110,6 +111,26 @@ public class MemoryReportProvider {
             Supplier<List<String>> inputArgumentsSupplier,
             Supplier<MemoryUsage> heapUsageSupplier,
             Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier) {
+        this(
+                calculator,
+                containerMemoryLimitDetector,
+                runtimeConfig,
+                exposure,
+                inputArgumentsSupplier,
+                heapUsageSupplier,
+                memoryPoolsSupplier,
+                () -> ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage());
+    }
+
+    MemoryReportProvider(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector containerMemoryLimitDetector,
+            MemoryRuntimeConfig runtimeConfig,
+            ExposurePolicy exposure,
+            Supplier<List<String>> inputArgumentsSupplier,
+            Supplier<MemoryUsage> heapUsageSupplier,
+            Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier,
+            Supplier<MemoryUsage> nonHeapUsageSupplier) {
         this.calculator = calculator;
         this.containerMemoryLimitDetector = containerMemoryLimitDetector;
         this.runtimeConfig = runtimeConfig;
@@ -117,6 +138,7 @@ public class MemoryReportProvider {
         this.inputArgumentsSupplier = inputArgumentsSupplier;
         this.heapUsageSupplier = heapUsageSupplier;
         this.memoryPoolsSupplier = memoryPoolsSupplier;
+        this.nonHeapUsageSupplier = nonHeapUsageSupplier;
     }
 
     private static List<String> runtimeInputArguments() {
@@ -129,12 +151,11 @@ public class MemoryReportProvider {
             Integer headRoomPercent,
             Boolean kubernetesBurstableEnabled,
             Boolean kubernetesActuatorEnabled) {
-        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
         ClassLoadingMXBean classBean = ManagementFactory.getClassLoadingMXBean();
         ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
 
         MemoryUsage heapUsage = heapUsageSupplier.get();
-        MemoryUsage nonHeapUsage = memBean.getNonHeapMemoryUsage();
+        MemoryUsage nonHeapUsage = nonHeapUsageSupplier.get();
 
         MemoryPoolDto heap = toDto("Heap", heapUsage);
         MemoryPoolDto nonHeap = toDto("Non-Heap", nonHeapUsage);

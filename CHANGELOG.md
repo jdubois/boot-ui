@@ -35,6 +35,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **JVM Metaspace recommendations** reserve at least observed committed metadata plus a documented 25% starting
   allowance, retain larger class estimates, and reject insufficient budgets without emitting options or YAML
   ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **Opt-in Burstable memory requests** cover the modeled heap plus observed non-heap commitment while
+  retaining the snapshot margin. Infeasible floors produce no Kubernetes options or YAML, without inflating the limit
+  or changing default emitted request/limit, QoS, or YAML. The informational Burstable alternative is also floored when
+  opt-in is off ([model](docs/JVM-TUNING-CHECKS.md#kubernetes-behavior)).
 - **Quarkus producer-proxy precision** avoids HIGH findings for proxyable JDK types such as abstract `Clock` and
   retains native ArC unproxyability errors without inferring their failure stage from type shape
   ([Quarkus client-proxy checks](docs/QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005---normal-scoped-bean-cannot-be-client-proxied)).

@@ -25,6 +25,7 @@ and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, 
 | [Paketo Java memory calculator reference](https://paketo.io/docs/reference/java-reference/#memory-calculator), [pinned `libjvm` calculator](https://github.com/paketo-buildpacks/libjvm/blob/83e37180564a488c514ce039217dde75b8fcfa39/calc/calculator.go), and [launch helper](https://github.com/paketo-buildpacks/libjvm/blob/83e37180564a488c514ce039217dde75b8fcfa39/helper/memory_calculator.go) | Supplies the partition formula and the 10 MiB direct-memory, 240 MiB code-cache, 1 MiB stack, and 250-thread modeling defaults. Paketo's headroom default is 0%, not BootUI's 10%; upstream calculation does not establish portable minimum heaps or comprehensive overflow validation. |
 | [`ClassLoadingMXBean`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/ClassLoadingMXBean.html) and [`BufferPoolMXBean`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/BufferPoolMXBean.html) | Provide observable current loaded-class count and estimated direct-buffer memory usage. Both are snapshots, not peak forecasts. |
 | [`MemoryMXBean.getHeapMemoryUsage()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryMXBean.html#getHeapMemoryUsage()) and [`MemoryUsage.getUsed()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryUsage.html#getUsed()) | Supply the observed heap-used lower bound. Reading usage does not request GC; this is not a live-after-GC measurement and can include reclaimable objects. |
+| [`MemoryMXBean.getNonHeapMemoryUsage()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryMXBean.html#getNonHeapMemoryUsage()) | Used and committed aggregate all non-heap pools. Raw pool accounting can overlap; BootUI retains this conservative aggregate rather than deduplicating it. |
 | [JEP 444: Virtual Threads](https://openjdk.org/jeps/444) | Virtual threads are not tied one-to-one to OS threads and are mounted on carrier platform threads. Their presence does not provide an observable, deterministic replacement for a platform-thread native-stack budget. |
 | [JEP 491](https://openjdk.org/jeps/491) and [`ThreadMXBean`](https://docs.oracle.com/en/java/javase/26/docs/api/java.management/java/lang/management/ThreadMXBean.html) | ThreadMXBean observes platform threads, not virtual threads. Synchronized-related virtual-thread pinning changed in JDK 24; older pinning guidance is version-dependent. |
 | [Oracle GC ergonomics guidance](https://docs.oracle.com/en/java/javase/17/gctuning/ergonomics.html) | GC sizing and pause/throughput choices are competing workload goals; heap size alone is not sufficient evidence for changing collectors or enabling pre-touch. |
@@ -143,10 +144,26 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 
 - The hard memory limit is the calculator total.
 - The default memory request equals that limit. The panel reports QoS as `Depends on CPU`; it cannot see or safely invent
-  the CPU settings and resources of every container in the final Pod.
-- Burstable mode attempts to lower the request using `current snapshot + max(15%, 64 MiB)`, rounded up to 64 MiB,
-  floored at 128 MiB, and capped by the limit. If the result reaches the limit, memory request and limit stay equal and
-  QoS remains `Depends on CPU`. This is explicitly a starting heuristic.
+  the CPU settings and resources of every container in the final Pod. Default emitted request/limit, QoS, and YAML
+  retain their equal-request policy; the informational `burstableRequestMemory*` alternative is floored even when
+  opt-in is off, so not every DTO value is unchanged.
+- Opt-in Burstable mode retains `current snapshot + max(15% of snapshot, 64 MiB)` and the 128 MiB minimum,
+  but also floors the request at the modeled heap plus observed non-heap committed bytes. The modeled heap also
+  covers the numerical emitted `InitialRAMPercentage` target against the selected limit because that percentage
+  is rounded downward. The larger bound is rounded up to 64 MiB and capped by the limit.
+  `InitialRAMPercentage` remains equal to `MaxRAMPercentage`; it is not omitted to obtain a smaller request.
+  If the floor itself exceeds the fixed limit, the Kubernetes recommendation is `Unavailable`, with an explanation
+  and no options or YAML, not a request clamped below that bound or an inflated limit. The separate bare-metal
+  calculation remains unchanged. Review whether modeled headroom and reservations reflect the intended deployment,
+  or disable Burstable to retain default equal memory request/limit output. Increasing the total alone need not
+  resolve the floor, because it also increases modeled heap. If a fitting result reaches the limit, memory request
+  and limit stay equal and QoS remains `Depends on CPU`.
+- The snapshot margin and modeled-heap/non-heap floor are starting heuristics, not peak forecasts, live-after-GC
+  measurements, or effective aligned heap sizes. The floor adds the aggregate non-heap commitment once, not the
+  individual Metaspace or Compressed Class Space pools again. The raw JVM aggregate sums all non-heap pools and may
+  itself contain overlapping accounting: HotSpot's named Metaspace pool already includes compressed class metadata.
+  BootUI does not deduplicate this conservative aggregate or infer a vendor-independent overlap amount.
+  Oversized sums saturate and are refused when they cannot fit; default emitted resources remain equal-request.
 - `memory.current` (or the cgroup v1 current-usage file) is preferred for the snapshot. When unavailable, the fallback is
   committed heap + committed non-heap + observed direct buffers. Reserved stack address space is not added to resident
   memory. Limit and usage come from one detector invocation, not separate re-selections; the underlying file reads are
@@ -190,7 +207,7 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 | Deduplication, compact headers, pre-touch | **RETAIN REMOVAL** | No snapshot-based workload justification; compact-header productization does not make it universally available or appropriate. |
 | OOM exit/dump paths and policy | **RETAIN REMOVAL** | Restart/storage/sensitive-data policy belongs to the deployment. |
 | Equal requests/limits and `Depends on CPU` | **RETAIN** | Container memory alone cannot establish Guaranteed Pod QoS. Newer Pod-level resource policy is cluster-dependent and outside this fragment. |
-| Opt-in Burstable snapshot margin/floor/rounding | **RETAIN** | Explicit heuristic, capped at limit; no peak or production forecast. |
+| Opt-in Burstable snapshot margin/floor/rounding | **UPDATE** | Retain the snapshot heuristic; also cover the modeled heap plus observed non-heap committed, then round the request upward. The model bounds the downward-rounded initial-heap option. Refuse an infeasible floor without raising the limit; no peak or production forecast. |
 | Cgroup current vs committed-pool fallback | **UPDATE READ COHERENCE** | Reuse one detector sample; charged memory and JVM commitment are not interchangeable physical-memory measures. |
 | Overflow/unknown observation handling | **UPDATE** | Preserve large quantities without wrapping to zero; retain low confidence without required observations. |
 | Medium model confidence | **RETAIN WITH LIMITATIONS** | Matching observed inputs only; no inference of sibling usage, future demand, or guaranteed free memory. |

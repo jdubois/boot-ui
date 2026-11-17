@@ -25,7 +25,7 @@ class MemoryKubernetesSizerTests {
                 8 * MB,
                 true,
                 1024 * MB,
-                512 * MB,
+                200 * MB,
                 false,
                 true,
                 HealthProbeManifest.SPRING_ACTUATOR);
@@ -34,6 +34,9 @@ class MemoryKubernetesSizerTests {
         assertThat(recommendation.limitMemoryBytes()).isEqualTo(1024 * MB);
         assertThat(recommendation.requestMemory()).isEqualTo("1024Mi");
         assertThat(recommendation.limitMemory()).isEqualTo("1024Mi");
+        assertThat(recommendation.currentSnapshotBytes()).isEqualTo(200 * MB);
+        assertThat(recommendation.burstableRequestMemoryBytes()).isEqualTo(512 * MB);
+        assertThat(recommendation.burstableRequestMemory()).isEqualTo("512Mi");
         assertThat(recommendation.qosClass()).isEqualTo("Depends on CPU");
         assertThat(recommendation.burstableEnabled()).isFalse();
         assertThat(recommendation.healthProbesEnabled()).isTrue();
@@ -64,7 +67,7 @@ class MemoryKubernetesSizerTests {
     }
 
     @Test
-    void burstableRequestUsesCgroupCurrentWhenAvailable() {
+    void burstableRequestCoversModeledHeapAndNonHeapWhenCgroupSnapshotIsSmall() {
         MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 10, 5_000);
 
         KubernetesMemoryRecommendationDto recommendation = recommend(
@@ -80,10 +83,152 @@ class MemoryKubernetesSizerTests {
                 HealthProbeManifest.SPRING_ACTUATOR);
 
         assertThat(recommendation.currentSnapshotBytes()).isEqualTo(200 * MB);
-        assertThat(recommendation.burstableRequestMemoryBytes()).isEqualTo(320 * MB);
-        assertThat(recommendation.requestMemoryBytes()).isEqualTo(320 * MB);
+        assertThat(recommendation.burstableRequestMemoryBytes()).isEqualTo(448 * MB);
+        assertThat(recommendation.requestMemoryBytes()).isEqualTo(448 * MB);
+        assertThat(recommendation.javaToolOptions()).contains("-XX:InitialRAMPercentage=36.093");
         assertThat(recommendation.warnings())
-                .anySatisfy(warning -> assertThat(warning).contains("cgroup memory.current"));
+                .anySatisfy(warning -> assertThat(warning).contains("cgroup memory.current"))
+                .anySatisfy(warning -> assertThat(warning).contains("15%", "64 MiB", "non-heap committed"));
+    }
+
+    @Test
+    void burstableFloorRoundsUpAtTheModeledHeapAndNonHeapByteBoundary() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 10, 5_000);
+        // The emitted percentage rounds down; the larger modeled heap remains the request floor.
+        long nonHeapAtBoundary = 448 * MB - calculation.heapBytes();
+
+        KubernetesMemoryRecommendationDto atBoundary = recommend(
+                calculation,
+                64 * MB,
+                nonHeapAtBoundary,
+                0,
+                false,
+                1024 * MB,
+                200 * MB,
+                true,
+                false,
+                HealthProbeManifest.SPRING_ACTUATOR);
+        KubernetesMemoryRecommendationDto aboveBoundary = recommend(
+                calculation,
+                64 * MB,
+                nonHeapAtBoundary + 1,
+                0,
+                false,
+                1024 * MB,
+                200 * MB,
+                true,
+                false,
+                HealthProbeManifest.SPRING_ACTUATOR);
+
+        assertThat(atBoundary.javaToolOptions()).contains("-XX:InitialRAMPercentage=36.093");
+        assertThat(36_093L * calculation.totalMemoryBytes()).isLessThan(calculation.heapBytes() * 100_000L);
+        assertThat(atBoundary.requestMemoryBytes()).isEqualTo(448 * MB);
+        assertThat(aboveBoundary.requestMemoryBytes()).isEqualTo(512 * MB);
+        assertThat(atBoundary.currentSnapshotBytes()).isEqualTo(aboveBoundary.currentSnapshotBytes());
+    }
+
+    @Test
+    void burstableSnapshotMarginStillWinsAboveTheModeledHeapFloor() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 10, 5_000);
+
+        KubernetesMemoryRecommendationDto minimumMargin = recommend(
+                calculation,
+                64 * MB,
+                64 * MB,
+                0,
+                false,
+                1024 * MB,
+                400 * MB,
+                true,
+                false,
+                HealthProbeManifest.SPRING_ACTUATOR);
+        KubernetesMemoryRecommendationDto percentageMargin = recommend(
+                calculation,
+                64 * MB,
+                64 * MB,
+                0,
+                false,
+                1024 * MB,
+                600 * MB,
+                true,
+                false,
+                HealthProbeManifest.SPRING_ACTUATOR);
+
+        assertThat(minimumMargin.requestMemoryBytes()).isEqualTo(512 * MB);
+        assertThat(percentageMargin.requestMemoryBytes()).isEqualTo(704 * MB);
+    }
+
+    @Test
+    void burstableFloorMayReachButNeverExceedItsFixedLimit() {
+        MemoryCalculationDto calculation = calculator.calculate(400 * MB, 5, 0, 0, 5, 0);
+
+        KubernetesMemoryRecommendationDto recommendation = recommend(
+                calculation,
+                64 * MB,
+                272 * MB,
+                0,
+                false,
+                400 * MB,
+                64 * MB,
+                true,
+                false,
+                HealthProbeManifest.SPRING_ACTUATOR);
+
+        assertThat(calculation.valid()).isTrue();
+        assertThat(recommendation.javaToolOptions()).contains("-XX:InitialRAMPercentage=32");
+        assertThat(recommendation.requestMemoryBytes()).isEqualTo(400 * MB);
+        assertThat(recommendation.limitMemoryBytes()).isEqualTo(400 * MB);
+        assertThat(recommendation.qosClass()).isEqualTo("Depends on CPU");
+        assertThat(recommendation.yaml()).contains("memory: \"400Mi\"");
+    }
+
+    @Test
+    void burstableRefusesAnInfeasibleOrOverflowingFloorWithoutChangingDefaultMode() {
+        MemoryCalculationDto calculation = calculator.calculate(400 * MB, 5, 0, 0, 5, 0);
+
+        for (long nonHeapCommittedBytes : new long[] {272 * MB + 1, Long.MAX_VALUE}) {
+            KubernetesMemoryRecommendationDto refused = recommend(
+                    calculation,
+                    64 * MB,
+                    nonHeapCommittedBytes,
+                    0,
+                    false,
+                    400 * MB,
+                    64 * MB,
+                    true,
+                    false,
+                    HealthProbeManifest.SPRING_ACTUATOR);
+            KubernetesMemoryRecommendationDto defaultMode = recommend(
+                    calculation,
+                    64 * MB,
+                    nonHeapCommittedBytes,
+                    0,
+                    false,
+                    400 * MB,
+                    64 * MB,
+                    false,
+                    false,
+                    HealthProbeManifest.SPRING_ACTUATOR);
+
+            assertThat(calculation.valid()).isTrue();
+            assertThat(refused.qosClass()).isEqualTo("Unavailable");
+            assertThat(refused.confidence()).isEqualTo("Low");
+            assertThat(refused.requestMemoryBytes()).isZero();
+            assertThat(refused.burstableRequestMemoryBytes()).isZero();
+            assertThat(refused.limitMemoryBytes()).isEqualTo(400 * MB);
+            assertThat(refused.currentSnapshotBytes()).isEqualTo(64 * MB);
+            assertThat(refused.yaml()).isEmpty();
+            assertThat(refused.javaToolOptions()).isEmpty();
+            assertThat(refused.maxRamPercentage()).isZero();
+            assertThat(refused.initialRamPercentage()).isZero();
+            assertThat(refused.warnings())
+                    .singleElement()
+                    .satisfies(warning -> assertThat(warning)
+                            .contains("modeled heap", "non-heap commitment", "selected memory limit"));
+            assertThat(defaultMode.requestMemoryBytes()).isEqualTo(400 * MB);
+            assertThat(defaultMode.qosClass()).isEqualTo("Depends on CPU");
+            assertThat(defaultMode.yaml()).isNotEmpty();
+        }
     }
 
     @Test
@@ -94,7 +239,7 @@ class MemoryKubernetesSizerTests {
                 calculation, 64 * MB, 64 * MB, 0, false, null, null, true, true, HealthProbeManifest.SPRING_ACTUATOR);
 
         assertThat(recommendation.currentSnapshotBytes()).isEqualTo(128 * MB);
-        assertThat(recommendation.burstableRequestMemoryBytes()).isEqualTo(192 * MB);
+        assertThat(recommendation.burstableRequestMemoryBytes()).isEqualTo(448 * MB);
         assertThat(recommendation.warnings())
                 .anySatisfy(warning -> assertThat(warning).contains("committed JVM pools"));
     }
@@ -117,7 +262,7 @@ class MemoryKubernetesSizerTests {
 
         assertThat(recommendation.qosClass()).isEqualTo("Burstable");
         assertThat(recommendation.yaml())
-                .startsWith("resources:\n  requests:\n    memory: \"320Mi\"\n  limits:\n    memory: \"1024Mi\"");
+                .startsWith("resources:\n  requests:\n    memory: \"448Mi\"\n  limits:\n    memory: \"1024Mi\"");
         assertThat(recommendation.warnings())
                 .anySatisfy(warning -> assertThat(warning).contains("prevents the Pod from receiving Guaranteed QoS"));
     }
@@ -153,7 +298,7 @@ class MemoryKubernetesSizerTests {
         KubernetesMemoryRecommendationDto recommendation = recommend(
                 calculation,
                 Long.MAX_VALUE,
-                Long.MAX_VALUE,
+                64 * MB,
                 Long.MAX_VALUE,
                 false,
                 null,

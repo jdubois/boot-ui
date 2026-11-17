@@ -165,7 +165,13 @@ Verify those paths and that port name against your deployment.
   exceeding `MaxMetaspaceSize` can cause `OutOfMemoryError: Metaspace`.
 - The Kubernetes calculator sets equal memory request and limit by default but labels Pod QoS `Depends on CPU`, because
   Guaranteed QoS also needs matching non-zero CPU resources on every container. You can attempt a lower, snapshot-based
-  Burstable request instead.
+  Burstable request instead. It retains the 15%/64 MiB snapshot margin but covers at least the modeled heap plus
+  observed non-heap committed. The model also bounds the downward-rounded initial-heap option against the selected
+  limit. The raw non-heap aggregate can contain overlapping pool accounting; BootUI does not deduplicate it or add
+  individual pools again. An infeasible floor produces no Kubernetes options or YAML rather than exceeding the limit
+  or shrinking below that bound. Review modeled headroom/reservations or turn Burstable off; a larger total alone
+  need not fix the floor. Default emitted resources stay equal-request, while the informational Burstable alternative
+  is also floored when opt-in is off. These remain starting heuristics, not peak-demand or effective-heap guarantees.
 - On Spring the startup probe reuses `/actuator/health/liveness`, while Quarkus has a dedicated `/q/health/started`.
 
 The full model is recorded in
