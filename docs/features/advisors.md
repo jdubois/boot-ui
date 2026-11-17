@@ -321,6 +321,10 @@ violation count. Treat it as a starting point that complements a project-specifi
 checks (`ARCH-CODE-*`) exclude classes positively identified as generated; see
 [generated-code scope and limitations](../ARCHITECTURE-CHECKS.md#generated-application-code).
 
+The retained `java.util.logging` prompt (`ARCH-CODE-003`) is an INFO convention on Spring, with no score penalty.
+Spring Boot routes JUL into its configured logging system by default; custom handlers or disabled bridging still
+need separate routing and coverage checks. Logger field modifiers remain independently checked by `ARCH-CODE-012`.
+
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
 > `ClassFileImporter`, which is incompatible with a native executable; the panel moves to the sidebar's
 > _Disabled / unavailable_ group and explains why.

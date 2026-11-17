@@ -59,6 +59,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **JUL advice moves to INFO** on Spring, retaining detection, IDs, and dismissals without score penalties or LOW-gate failures
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-003---classes-should-not-use-javautillogging)).
 - **Hibernate eager-fetch guidance** lowers to-one HIB-FETCH-001 from HIGH to MEDIUM; new HIB-FETCH-010 keeps collections
   HIGH. Old HIB-FETCH-001 dismissals are not copied, so hidden collection findings reappear on rescan. Unreadable fetch
   declarations now report incomplete evidence rather than silently passing

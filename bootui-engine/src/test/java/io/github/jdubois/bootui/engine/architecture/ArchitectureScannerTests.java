@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
+import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
@@ -357,6 +358,77 @@ class ArchitectureScannerTests {
             assertThat(report.evidence().coverageComplete()).isTrue();
             assertThat(report.evidence().limitations()).isEmpty();
         }
+    }
+
+    @Test
+    void julConventionRetainsItsInfoCountAlongsideIndependentLowAndHighFindings() {
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(
+                        ArchitectureRuleAuditTests.MutableJulUser.class, ArchitectureRuleAuditTests.AbruptExit.class);
+        ArchitectureScanner scanner = new ArchitectureScanner(
+                () -> List.of(ArchitectureRuleAuditTests.class.getPackageName()),
+                packages -> classes,
+                ArchitecturePlatform.SPRING,
+                CLOCK,
+                List.of(
+                        new NoJavaUtilLoggingRule(),
+                        new LoggersShouldBePrivateStaticFinalRule(),
+                        new NoSystemExitRule()));
+
+        ArchitectureReport report = scanner.scan();
+
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.violationsFound()).isEqualTo(3);
+        assertThat(report.results())
+                .extracting(
+                        ArchitectureRuleResultDto::id,
+                        ArchitectureRuleResultDto::severity,
+                        ArchitectureRuleResultDto::violationCount)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("ARCH-CODE-006", "HIGH", 1),
+                        org.assertj.core.groups.Tuple.tuple("ARCH-CODE-012", "LOW", 1),
+                        org.assertj.core.groups.Tuple.tuple("ARCH-CODE-003", "INFO", 1));
+        assertThat(report.severityCounts())
+                .extracting("severity", "count")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("CRITICAL", 0),
+                        org.assertj.core.groups.Tuple.tuple("HIGH", 1),
+                        org.assertj.core.groups.Tuple.tuple("MEDIUM", 0),
+                        org.assertj.core.groups.Tuple.tuple("LOW", 1),
+                        org.assertj.core.groups.Tuple.tuple("INFO", 1));
+        var summary = McpScanSummaries.architecture(report);
+        assertThat(summary).containsEntry("findingsFound", 3).containsEntry("severityCounts", report.severityCounts());
+        assertThat(summary.get("topFindings"))
+                .isEqualTo(report.results().stream()
+                        .map(result -> new McpScanSummaries.Finding(
+                                result.id(), result.name(), result.severity(), result.violationCount()))
+                        .toList());
+
+        ArchitectureRuleResultDto jul = report.results().get(2);
+        String scanId = report.violationDetails().scanId();
+        var page = scanner.ruleViolations("ARCH-CODE-003", scanId, 0, 10);
+        assertThat(page.violationCount()).isEqualTo(1);
+        assertThat(page.violations()).isEqualTo(jul.sampleViolations());
+        assertThat(page.locations()).isEqualTo(jul.sampleLocations());
+        assertThat(report.violationDetails().total()).isEqualTo(3);
+
+        ArchitectureReport dismissed = scanner.applyDismissals(report, Set.of("ARCH-CODE-003"));
+        assertThat(dismissed.violationsFound()).isEqualTo(2);
+        assertThat(dismissed.results()).contains(jul.withDismissed(true));
+        assertThat(dismissed.violationDetails()).isEqualTo(report.violationDetails());
+        assertThat(dismissed.evidence()).isEqualTo(report.evidence());
+        assertThat(dismissed.severityCounts())
+                .filteredOn(count -> !count.severity().equals("INFO"))
+                .containsExactlyElementsOf(report.severityCounts().stream()
+                        .filter(count -> !count.severity().equals("INFO"))
+                        .toList());
+        assertThat(dismissed.severityCounts())
+                .filteredOn(count -> count.severity().equals("INFO"))
+                .extracting("count")
+                .containsExactly(0);
+        assertThat(McpScanSummaries.architecture(dismissed)).containsEntry("findingsFound", 2);
+        assertThat(scanner.ruleViolations("ARCH-CODE-003", scanId, 0, 10)).isEqualTo(page);
     }
 
     @Test

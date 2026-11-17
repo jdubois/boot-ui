@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.library.GeneralCodingRules;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.architecture.modulefixtures.moduletwo.ModuleTwoConsumer;
@@ -43,15 +44,67 @@ class ArchitectureRuleAuditTests {
 
     @Test
     void javaUtilLoggingIsReportedOnSpringButNotEvaluatedOnQuarkus() {
-        ArchitectureRuleResultDto spring =
-                evaluate(ArchitecturePlatform.SPRING, new NoJavaUtilLoggingRule(), JulUser.class);
+        JavaClasses classes = new ClassFileImporter().importClasses(JulUser.class);
+        ArchitectureRuleResultDto spring = evaluate(ArchitecturePlatform.SPRING, new NoJavaUtilLoggingRule(), classes);
         ArchitectureRuleResultDto quarkus =
-                evaluate(ArchitecturePlatform.QUARKUS, new NoJavaUtilLoggingRule(), JulUser.class);
+                evaluate(ArchitecturePlatform.QUARKUS, new NoJavaUtilLoggingRule(), classes);
+        List<String> rawDetails = GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING
+                .evaluate(classes)
+                .getFailureReport()
+                .getDetails();
 
         assertThat(spring.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(spring.id()).isEqualTo("ARCH-CODE-003");
+        assertThat(spring.violationCount()).isEqualTo(1);
+        assertThat(spring.sampleViolations())
+                .containsExactlyElementsOf(
+                        rawDetails.stream().map(ArchitectureRuleSupport::detail).toList());
+        assertThat(spring.sampleLocations()).singleElement().satisfies(location -> {
+            assertThat(location.className()).isEqualTo(JulUser.class.getName());
+            assertThat(location.sourceFile()).isEqualTo("ArchitectureRuleAuditTests.java");
+            assertThat(location.line()).isPositive();
+            assertThat(rawDetails)
+                    .singleElement()
+                    .asString()
+                    .endsWith("(ArchitectureRuleAuditTests.java:" + location.line() + ")");
+        });
         assertThat(quarkus.status())
                 .as("JUL is a built-in Quarkus logging API, and @LoggingFilter must implement java.util.logging.Filter")
                 .isEqualTo(ArchitectureRuleSupport.SKIPPED);
+        assertThat(quarkus.violationCount()).isZero();
+        assertThat(quarkus.sampleLocations()).isEmpty();
+        assertThat(spring.severity()).isEqualTo("INFO");
+    }
+
+    @Test
+    void facadeUseAndLibraryLoggerTuningAreNotJulConventionFindings() {
+        assertThat(evaluate(
+                                ArchitecturePlatform.SPRING,
+                                new NoJavaUtilLoggingRule(),
+                                FacadeUser.class,
+                                JulLibraryTuning.class)
+                        .status())
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void informationalJulConventionDoesNotRelaxLoggerFieldModifiers() {
+        ArchitectureRuleResultDto convention =
+                evaluate(ArchitecturePlatform.SPRING, new NoJavaUtilLoggingRule(), MutableJulUser.class);
+        assertThat(convention.violationCount()).isEqualTo(1);
+
+        for (ArchitecturePlatform platform : ArchitecturePlatform.values()) {
+            ArchitectureRuleResultDto modifiers =
+                    evaluate(platform, new LoggersShouldBePrivateStaticFinalRule(), MutableJulUser.class);
+            assertThat(modifiers.id()).isEqualTo("ARCH-CODE-012");
+            assertThat(modifiers.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+            assertThat(modifiers.severity()).isEqualTo("LOW");
+            assertThat(modifiers.violationCount()).isEqualTo(1);
+            assertThat(evaluate(platform, new LoggersShouldBePrivateStaticFinalRule(), JulUser.class, FacadeUser.class)
+                            .status())
+                    .isEqualTo(ArchitectureRuleSupport.PASS);
+        }
+        assertThat(convention.severity()).isEqualTo("INFO");
     }
 
     // ARCH-CODE-013
@@ -425,6 +478,34 @@ class ArchitectureRuleAuditTests {
 
         void log() {
             LOG.info("message");
+        }
+    }
+
+    static class MutableJulUser {
+
+        private Logger log = Logger.getLogger("audit.mutable");
+    }
+
+    static class FacadeUser {
+
+        private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FacadeUser.class);
+
+        void log() {
+            LOG.info("message");
+        }
+    }
+
+    static class JulLibraryTuning {
+
+        void tune() {
+            Logger.getLogger("audit.library").setLevel(java.util.logging.Level.WARNING);
+        }
+    }
+
+    static class AbruptExit {
+
+        void stop() {
+            System.exit(1);
         }
     }
 

@@ -240,8 +240,8 @@ Severity reflects the worst plausible impact if the finding is real, not how lik
 | **CRITICAL** | Supported for the most severe correctness or safety problems. No active check emits it. |
 | **HIGH** | A serious structural problem with clear maintenance impact, such as package cycles or forcibly terminating the JVM. |
 | **MEDIUM** | Weakens maintainability or layering and usually warrants a fix, such as field injection or layering inversions. |
-| **LOW** | A defense-in-depth or hygiene gap, such as standard-stream use, generic exceptions, or `java.util.logging`. |
-| **INFO** | An informational convention prompt, such as legacy library use or deprecated APIs. |
+| **LOW** | A defense-in-depth or hygiene gap, such as standard-stream use, generic exceptions, or mutable logger fields. |
+| **INFO** | An informational convention prompt, such as logging-facade preference, legacy library use, or deprecated APIs. |
 
 The scan evaluates every registered rule, but the results panel lists only rules that found violations. They are
 ordered by severity, then by the number of violating instances, and include a few sample detail lines from ArchUnit.
@@ -306,17 +306,25 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-003 - Classes should not use java.util.logging
 
-- **Severity**: LOW
+- **Severity**: INFO (logging-facade convention, with no score penalty)
 - **Inspects**: assignments to fields of a `java.util.logging` type (via ArchUnit's `GeneralCodingRules`), typically a
   `java.util.logging.Logger` field.
 - **Fires when**: application code stores a `java.util.logging` logger or handler in a field instead of using the
   project logging facade. Tuning a JUL-based library's logger without storing it, such as
   `Logger.getLogger("org.example").setLevel(Level.WARNING)`, is not reported.
+- **Meaning and limits**: Spring Boot routes JUL records into its configured logging system by default, so this
+  finding is not evidence of broken routing or missing log coverage. Custom JUL handlers or disabled bridging can
+  still bypass that system. With Logback, the runtime journal independently checks routing gaps for WARN-and-above
+  caught-exception coverage; it is not a general JUL audit or a check of every logging implementation.
 - **Quarkus**: not evaluated (`SKIPPED`). Quarkus lists `java.util.logging` as a
   [built-in logging API](https://quarkus.io/guides/logging) backed by JBoss LogManager, and its `@LoggingFilter`
   extension point implements `java.util.logging.Filter`.
-- **Recommendation**: use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent
-  logging.
+- **Recommendation**: prefer the project logging facade (SLF4J over Logback by default in Spring Boot) as a convention;
+  verify routing separately when customizing JUL handlers or bridges.
+- **Compatibility**: reclassified from LOW to INFO without changing the predicate, rule ID, occurrence counts,
+  locations, or dismissals. It no longer contributes a score penalty or counts toward `--fail-on low`; it never
+  counted toward higher severity thresholds. `--fail-on info` still includes it. ARCH-CODE-012 continues to check
+  logger field modifiers independently.
 
 ### ARCH-CODE-004 - Classes should not use Joda-Time
 

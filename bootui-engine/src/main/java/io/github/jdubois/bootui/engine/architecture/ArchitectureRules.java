@@ -530,12 +530,15 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
                 "ARCH-CODE-003",
                 "Classes should not use java.util.logging",
                 ArchitectureCategory.CODING_PRACTICES,
-                "LOW",
+                "INFO",
                 "Detects application code that assigns a field of a java.util.logging type, typically a"
                         + " java.util.logging.Logger field, instead of using the project logging facade on Spring."
+                        + " This is an informational convention: Spring Boot routes JUL into its configured logging"
+                        + " system by default, but custom handlers or disabled bridging can leave routing gaps."
                         + " Tuning a JUL-based library's logger without storing it is not reported. Not evaluated on"
                         + " Quarkus, where java.util.logging is a built-in logging API backed by JBoss LogManager.",
-                "Use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent logging.",
+                "Prefer the project logging facade (SLF4J over Logback by default in Spring Boot) as a convention."
+                        + " Verify JUL routing separately when customizing handlers or bridges.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
 

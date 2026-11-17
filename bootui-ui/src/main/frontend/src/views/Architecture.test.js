@@ -124,6 +124,31 @@ describe('Architecture', () => {
     expect(wrapper.text()).not.toContain('Passing informational rule')
   })
 
+  it.each([false, true])(
+    'retains the JUL convention without a penalty and preserves independent penalties (%s)',
+    async (withDefects) => {
+      const results = [ruleResult('ARCH-CODE-003', 'Classes should not use java.util.logging', 'INFO', 'VIOLATION', 1)]
+      if (withDefects) {
+        results.push(
+          ruleResult('ARCH-CODE-012', 'Loggers should be private final or container-managed', 'LOW', 'VIOLATION', 1),
+          ruleResult('ARCH-CODE-006', 'Classes should not forcibly terminate the JVM', 'HIGH', 'VIOLATION', 1)
+        )
+      }
+      const wrapper = await mountWithReport(architectureReport(results))
+
+      expect(wrapper.get('.advisor-summary__value').text()).toBe(withDefects ? '89' : '100')
+      expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual(
+        withDefects
+          ? [
+              'Classes should not forcibly terminate the JVM',
+              'Loggers should be private final or container-managed',
+              'Classes should not use java.util.logging'
+            ]
+          : ['Classes should not use java.util.logging']
+      )
+    }
+  )
+
   it.each([true, false])(
     'keeps score 91 and forwards scan notes independently of scan status (%s)',
     async (incomplete) => {
