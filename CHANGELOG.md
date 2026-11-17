@@ -7,12 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- Upgrade the shared Quarkus build baseline to 3.40.1.2, the latest micro release of the 3.40 LTS stream,
-  while retaining support and compatibility coverage for Quarkus 3.33 and later in the 3.x line.
-
-## [2.5.0] - 2026-11-14
+## [2.5.0] - 2026-11-17
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.
 It also adds local CLI discovery and setup, expands advisor coverage, and removes noisy checks.
@@ -34,6 +29,8 @@ It also adds local CLI discovery and setup, expands advisor coverage, and remove
 
 ### Changed
 
+- **Quarkus LTS baseline** advances to 3.40.1.2 while retaining support for Quarkus 3.33 and later in the 3.x line
+  ([#1729](https://github.com/jdubois/boot-ui/pull/1729)).
 - **Investigation navigation** adds subject grouping, clearer request profiles, route-exchange drawers, and recognizable cross-panel links
   ([Runtime Insights](docs/features/runtime-insights.md); [#1711](https://github.com/jdubois/boot-ui/pull/1711), [#1712](https://github.com/jdubois/boot-ui/pull/1712), [#1713](https://github.com/jdubois/boot-ui/pull/1713)).
 - **Request ID response header** is enabled by default for loopback and trusted-peer requests while HTTP Exchanges is enabled, with an opt-out
