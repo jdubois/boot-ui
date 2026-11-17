@@ -400,6 +400,10 @@ against the running application and its MicroProfile `Config`:
 - Managed REST-client timers, HTTP compression, and request-draining configuration.
 - Conditional synchronized virtual-thread pinning on JDK 21-23.
 
+Client-proxy checks retain native ArC unproxyability errors before classifying types such as abstract `Clock`.
+Default-mode final-method skips are a separate proxy-use hazard, while native strict-mode errors remain findings.
+The failure stage is not inferred from a type's shape alone.
+
 Missing annotations or production overrides are not defects by themselves, and incomplete evidence is reported
 explicitly rather than treated as clean. See [QUARKUS-ADVISOR-CHECKS.md](../QUARKUS-ADVISOR-CHECKS.md).
 

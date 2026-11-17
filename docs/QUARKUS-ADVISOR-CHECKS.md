@@ -118,28 +118,62 @@ Review whether the field should expose an immutable value or an encapsulated ope
 object deeply immutable. Do not move the field to a normal scope such as request scope: that turns it into a
 QA-CDI-004 client-proxy defect.
 
-### QA-CDI-005 - Normal-scoped bean has a deferred runtime UnproxyableResolutionException
+### QA-CDI-005 - Normal-scoped bean cannot be client-proxied
 
 - **Severity**: HIGH
 
 A resolved normal-scoped application bean (`@ApplicationScoped`, `@RequestScoped`, `@SessionScoped`, or custom normal
-scope — either a class bean or a `@Produces` method/field) has an unproxyable bean class or producer return type:
+scope — either a class bean or a `@Produces` method/field) has a native ArC unproxyability error or an unproxyable
+bean class or producer return type:
 
-- `sealed` class
+- A native ArC validation result declaring the bean unproxyable, including final-method errors in strict compatibility
+  mode even when its constructor shape otherwise permits a proxy
+- `sealed` class or interface
 - `final` class when `quarkus.arc.transform-unproxyable-classes=false`
 - Missing a non-private no-arg constructor when ArC cannot synthesize one because its superclass is not `Object` and
   lacks an accessible no-arg constructor (or when `quarkus.arc.transform-unproxyable-classes=false`)
-- Concrete `java.*` class (such as `java.time.Clock`, `java.lang.String`, or `java.util.Optional`), which ArC cannot
-  bytecode-transform and whose `final` methods are skipped on generated client proxies
+- A `java.*` producer type that is final or sealed, or a JDK class without a **public or protected no-arg constructor**.
+  ArC cannot transform JDK classes or place its generated subclass in a `java.*` package, so a package-private
+  constructor is insufficient.
 
-When a normal-scoped bean is not directly injected into a static `@Inject` point (for example when resolved through
-`Instance<T>`, `Arc.container().instance(...)`, `BeanManager`, or `@Named`), ArC (`Beans.validateBean` /
-`BeanDeployment.deferUnproxyableErrorToRuntime`) defers the unproxyable error to runtime and generates a bean provider
-that unconditionally throws `jakarta.enterprise.inject.UnproxyableResolutionException` on first lookup.
+The package name alone is not a defect. The **abstract** classes `java.time.Clock` and `java.net.http.HttpClient`
+have protected no-arg constructors and support normal-scoped client proxies with default ArC settings. Non-sealed
+interfaces also have proxyable shapes. A positive native ArC error takes precedence over that shape and is retained
+even without static return-type metadata. Metadata comes from the index or non-initializing JDK class inspection;
+BootUI never calls a producer to decide this. Without a positive native error, missing type metadata is incomplete
+rule coverage, not a clean result.
 
-Add a package-private or public no-arg constructor, remove the `final` or `sealed` modifier, expose the bean through an
-interface, or change `@Produces` methods returning concrete JDK or unproxyable third-party types from
-`@ApplicationScoped` to `@Singleton`.
+**Failure stages depend on the shape and settings.** Real boot fixtures prove that default ArC rejects a sealed
+producer during augmentation even when it is reached through `Instance<T>`. That does not establish augmentation-time
+rejection for every impossible JDK shape: default ArC can schedule transformations for final types or missing no-arg
+constructors that cannot actually be applied to JDK classes, with failure possible when a proxy is loaded or used.
+The rule does not infer a precise stage or exception type from the shape alone.
+
+For a default-mode normal-scoped `Optional<String>` producer retained through `Instance<T>`, the native fixture passes
+augmentation but fails while loading its generated client proxy during ArC container startup, **before**
+`Instance.get()`. The root cause is `IncompatibleClassChangeError` because a subclass cannot inherit from final
+`java.util.Optional`, wrapped in `ExceptionInInitializerError` by the failed application startup. This is not a deferred
+lookup-time `UnproxyableResolutionException`.
+
+With `quarkus.arc.strict-compatibility=true`, a surviving unproxyable bean that is not directly injected can instead
+retain a provider that throws
+`jakarta.enterprise.inject.UnproxyableResolutionException` on lookup. This is ArC's conditional validation policy,
+not the default and not a guarantee that every invalid shape can reach runtime. See
+[ArC validation policy](https://github.com/quarkusio/quarkus/blob/3.40.1.1/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/BeanInfo.java).
+
+**Validation limit:** the Optional fixture establishes that final-type startup failure, not every JDK shape's failure
+stage; no-arg-only JDK producer failure stages remain unverified. Strict-mode, transformation-disabled lookup controls
+could not bootstrap because existing BootUI and Quarkus REST dependencies themselves need transformation. That runtime
+combination also remains unverified; this correction does not establish full BootUI support for it.
+
+In default mode, final methods can be skipped by a generated proxy and then operate on the proxy rather than the
+contextual instance, silently producing the wrong value. That separate proxy-use hazard is not covered by this rule.
+In strict mode, a positive native ArC deferred error remains a **HIGH** finding, including when final methods caused
+it; it is not discarded merely because the class has an accessible constructor.
+
+Supply a no-arg constructor accessible to the generated subclass, remove `final` or `sealed` where appropriate,
+expose the value through a proxyable interface, or consider `@Singleton` for producer values that do not need a client
+proxy. Review lifecycle differences before changing scope.
 
 ### QA-CDI-006 - Application bean declared in the default package
 
@@ -482,7 +516,7 @@ models before implementation.
 | QA-CDI-002 | Updated | Now singleton resources only; application- or request-scoped resources move to QA-CDI-004. |
 | QA-CDI-003 | Updated | Recommendation no longer suggests request scope, which would create a QA-CDI-004 defect. |
 | QA-CDI-004 | Added | Public fields on every normal scope, including request and session scope; atomics and concurrent collections are not exempt behind a proxy. |
-| QA-CDI-005 | Added | Normal-scoped beans or producers with a deferred runtime `UnproxyableResolutionException` (`sealed`, `final` with `transform-unproxyable-classes=false`, missing `<init>()` when superclass lacks `<init>()`, or concrete `java.*` class). |
+| QA-CDI-005 | Corrected | Native ArC unproxyability errors take precedence over type shape; otherwise valid JDK types such as abstract `Clock` are excluded. Sealed classes and interfaces are covered; failure stages are not inferred from shape alone. |
 | QA-CDI-006 | Added | Application beans declared in the default package (parity with `SPRING-WIRING-008`). |
 | QA-CDI-007 | Added | ArC build-time safety validation disabled (`fail-on-intercepted-private-method=false` or `detect-wrong-annotations=false`). |
 | QA-CFG-004 | Updated | Also detects the deprecated `create-schemas` and `halt-on-error` keys, names each replacement and reports once per unit. |

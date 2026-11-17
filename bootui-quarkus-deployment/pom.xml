@@ -119,6 +119,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- Native augmentation fixtures share derived artifacts under target/test-classes. -->
+                    <forkCount>1</forkCount>
                     <classpathDependencyExcludes>
                         <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
                     </classpathDependencyExcludes>

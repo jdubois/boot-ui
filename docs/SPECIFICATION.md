@@ -3285,6 +3285,14 @@ resolves remote configuration; missing build files and indeterminate inspections
 `SEC-STATIC-001` is INFO advice only and does not establish runtime security evidence or a score. Cached report GETs
 do not inspect project files.
 
+The Quarkus application advisor's `QA-CDI-005` reports normal-scoped beans or producer types that cannot be
+client-proxied, not every JDK return type. Indexed or non-initializing JDK metadata must distinguish valid abstract
+types such as `Clock` from final, sealed, or constructor-inaccessible types; unresolved metadata remains unknown.
+A positive native ArC unproxyability error takes precedence over an apparently proxyable shape or missing static
+return-type metadata. Default-mode final-method skips alone are outside this rule. Observed sealed-producer build-time
+rejection, conditional strict-mode deferral, and unverified failure stages are distinguished in the
+[rule catalog](QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005-normal-scoped-bean-cannot-be-client-proxied).
+
 #### Advisor violation pages
 
 The seven compact rule advisors (`architecture`, `hibernate`, `spring`, `rest-api`, `memory`, `security`,
