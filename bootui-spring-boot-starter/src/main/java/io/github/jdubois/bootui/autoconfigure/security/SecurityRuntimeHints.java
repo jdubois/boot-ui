@@ -151,6 +151,7 @@ public final class SecurityRuntimeHints implements RuntimeHintsRegistrar {
 
     private static final String[] REACTIVE_TYPES = {
         "org.springframework.security.web.server.MatcherSecurityWebFilterChain",
+        "org.springframework.security.web.server.csrf.CsrfWebFilter",
         "org.springframework.security.web.server.authentication.AuthenticationWebFilter",
         "org.springframework.security.oauth2.client.web.server.authentication.OAuth2LoginAuthenticationWebFilter",
         "org.springframework.security.config.web.server.ServerHttpSecurity$OAuth2LoginSpec$OidcSessionRegistryAuthenticationWebFilter",

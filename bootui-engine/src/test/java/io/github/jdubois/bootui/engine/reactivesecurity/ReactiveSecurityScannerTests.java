@@ -861,7 +861,7 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
-    void formLoginChainWithCsrfWebFilterDoesNotTriggerCsrfRule() {
+    void legacyFilterNamesDoNotEstablishCsrfMatcherEvidence() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
                 "any request",
@@ -882,6 +882,125 @@ class ReactiveSecurityScannerTests {
         SecurityReport report = scan(chain, List.of(), false);
 
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CSRF-001");
+        ReactiveSecurityContext context = new ReactiveSecurityContext(
+                List.of(chain), List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveCsrfDisabledLoginRule().evaluate(context).status())
+                .isEqualTo("SKIPPED");
+        assertThat(context.evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(context.evaluation().evidence(List.of()).coverageComplete()).isFalse();
+    }
+
+    @Test
+    void csrfRulesDistinguishObservedDefaultsMissingFiltersAndUnknownMatchers() {
+        for (boolean basic : List.of(false, true)) {
+            ReactiveSecurityRule rule = basic ? new ReactiveBasicCsrfRule() : new ReactiveCsrfDisabledLoginRule();
+            ReactiveSecurityContext known = new ReactiveSecurityContext(
+                    List.of(csrfChain(0, !basic, basic, false, true, true)),
+                    List.of(),
+                    true,
+                    ReactiveSecurityEnvironmentSnapshot.empty());
+            assertThat(rule.evaluate(known).status()).isEqualTo("PASS");
+            assertThat(known.evaluation().evidence(List.of()).usable()).isTrue();
+            assertThat(known.evaluation().evidence(List.of()).coverageComplete())
+                    .isTrue();
+
+            ReactiveSecurityContext unknown = new ReactiveSecurityContext(
+                    List.of(csrfChain(0, !basic, basic, false, true, false)),
+                    List.of(),
+                    true,
+                    ReactiveSecurityEnvironmentSnapshot.empty());
+            assertThat(rule.evaluate(unknown).status()).isEqualTo("SKIPPED");
+            assertThat(unknown.evaluation().evidence(List.of()).usable()).isFalse();
+            assertThat(unknown.evaluation().evidence(List.of()).coverageComplete())
+                    .isFalse();
+
+            ReactiveSecurityContext missing = new ReactiveSecurityContext(
+                    List.of(csrfChain(0, !basic, basic, false, false, false)),
+                    List.of(),
+                    true,
+                    ReactiveSecurityEnvironmentSnapshot.empty());
+            SecurityRuleResultDto finding = rule.evaluate(missing);
+            assertThat(finding.status()).isEqualTo("VIOLATION");
+            assertThat(finding.violationCount()).isOne();
+            assertThat(finding.severity()).isEqualTo(basic ? "MEDIUM" : "HIGH");
+            assertThat(missing.evaluation().evidence(List.of()).usable()).isTrue();
+            assertThat(missing.evaluation().evidence(List.of()).coverageComplete())
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void irrelevantCsrfMatchersDoNotCreateEvidenceGapsOrDuplicateLoginFindings() {
+        for (ReactiveSecurityRule rule : List.of(new ReactiveCsrfDisabledLoginRule(), new ReactiveBasicCsrfRule())) {
+            for (List<WebFilterChainObservation> chains : List.of(
+                    List.<WebFilterChainObservation>of(),
+                    List.of(csrfChain(0, false, false, false, true, false)),
+                    List.of(csrfChain(0, false, false, true, true, false)))) {
+                ReactiveSecurityContext context = new ReactiveSecurityContext(
+                        chains, List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+                assertThat(rule.evaluate(context).status()).isEqualTo("PASS");
+                assertThat(context.evaluation().evidence(List.of()).usable()).isFalse();
+                assertThat(context.evaluation().evidence(List.of()).coverageComplete())
+                        .isTrue();
+            }
+        }
+        ReactiveSecurityContext mixed = new ReactiveSecurityContext(
+                List.of(csrfChain(0, true, true, false, true, false)),
+                List.of(),
+                true,
+                ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveBasicCsrfRule().evaluate(mixed).status()).isEqualTo("PASS");
+        assertThat(mixed.evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(mixed.evaluation().evidence(List.of()).coverageComplete()).isTrue();
+        assertThat(new ReactiveCsrfDisabledLoginRule().evaluate(mixed).status()).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void missingCsrfFindingsSurviveAnIndependentUnknownMatcherInEitherChainOrder() {
+        for (boolean basic : List.of(false, true)) {
+            ReactiveSecurityRule rule = basic ? new ReactiveBasicCsrfRule() : new ReactiveCsrfDisabledLoginRule();
+            WebFilterChainObservation missing = csrfChain(0, !basic, basic, false, false, true);
+            WebFilterChainObservation unknown = csrfChain(1, !basic, basic, false, true, false);
+            for (List<WebFilterChainObservation> chains :
+                    List.of(List.of(missing, unknown), List.of(unknown, missing))) {
+                ReactiveSecurityContext context = new ReactiveSecurityContext(
+                        chains, List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+                SecurityRuleResultDto finding = rule.evaluate(context);
+                assertThat(finding.status()).isEqualTo("VIOLATION");
+                assertThat(finding.violationCount()).isOne();
+                assertThat(finding.sampleViolations())
+                        .singleElement()
+                        .asString()
+                        .contains("Chain 0");
+                assertThat(context.evaluation().evidence(List.of()).usable()).isTrue();
+                assertThat(context.evaluation().evidence(List.of()).coverageComplete())
+                        .isFalse();
+            }
+        }
+    }
+
+    private static WebFilterChainObservation csrfChain(
+            int index, boolean form, boolean basic, boolean bearer, boolean csrfPresent, boolean matcherObserved) {
+        return new WebFilterChainObservation(
+                index,
+                "any request",
+                csrfPresent ? List.of("CsrfWebFilter") : List.of(),
+                false,
+                bearer,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                true,
+                form,
+                basic,
+                true,
+                true,
+                List.of(),
+                false,
+                null,
+                matcherObserved);
     }
 
     @Test

@@ -44,6 +44,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.MatcherSecurityWebFilterChain;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.csrf.CsrfWebFilter;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.server.WebFilter;
@@ -373,6 +374,7 @@ public final class SpringReactiveSecurityObservationCollector {
         boolean form = false;
         boolean bearer = false;
         boolean authComplete = true;
+        boolean csrfMatcherObserved = true;
         boolean redirect = false;
         for (int i = 0; i < filters.size() && i < MAX_ITEMS; i++) {
             Object filter = filters.get(i);
@@ -393,6 +395,11 @@ public final class SpringReactiveSecurityObservationCollector {
                             : filter.getClass().getSimpleName());
             if (exact(filter, HEADERS + "HttpHeaderWriterWebFilter")) {
                 headerFilters.add(filter);
+            }
+            if (exact(filter, SECURITY + "csrf.CsrfWebFilter")) {
+                // Only the held native default proves the supported unsafe-method scope; never match a request.
+                csrfMatcherObserved &= filter.getClass() == CsrfWebFilter.class
+                        && readField(filter, "requireCsrfProtectionMatcher") == CsrfWebFilter.DEFAULT_CSRF_MATCHER;
             }
             if (exact(filter, SECURITY + "authentication.AuthenticationWebFilter")) {
                 Object converter = readField(filter, "authenticationConverter");
@@ -449,7 +456,9 @@ public final class SpringReactiveSecurityObservationCollector {
                 filtersComplete && authComplete,
                 unconditional,
                 headers.policies,
-                redirect);
+                redirect,
+                null,
+                filtersComplete && csrfMatcherObserved);
     }
 
     private static Boolean unconditionalMatcher(Object matcher) {

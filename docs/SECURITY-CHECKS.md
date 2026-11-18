@@ -709,6 +709,13 @@ Custom dynamic ordering remains inconclusive; no matcher or `Ordered.getOrder()`
 - **Recommendation**: Keep CSRF protection for browser-accessible Basic authentication, or establish that clients cannot automatically attach credentials. Statelessness alone is not a defense; bearer-only APIs are not flagged.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html>
 
+For both reactive CSRF checks, an installed filter establishes the supported matcher scope only when its held
+`requireCsrfProtectionMatcher` is Spring's `CsrfWebFilter.DEFAULT_CSRF_MATCHER`. Custom, composed, or unreadable
+matchers leave the applicable check skipped and coverage incomplete, not assessed-safe and not an automatic finding.
+No matcher is executed. Unknown matcher metadata on bearer-only or no-credential chains does not limit these checks;
+a known missing-filter finding on another relevant chain survives. Rule IDs, severities, and dismissal identities
+are unchanged. This is reactive matcher evidence, not servlet firewall or Quarkus CSRF coverage.
+
 ### SEC-RXF-CORS-001 - CORS should not allow wildcard origins in reactive applications
 
 - **Severity**: LOW

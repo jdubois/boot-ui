@@ -29,12 +29,15 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.OverridingClassLoader;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -48,6 +51,7 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.AuthenticationWebFilter;
 import org.springframework.security.web.server.authentication.ServerAuthenticationConverter;
 import org.springframework.security.web.server.context.SecurityContextServerWebExchangeWebFilter;
+import org.springframework.security.web.server.csrf.CsrfWebFilter;
 import org.springframework.security.web.server.header.CompositeServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.HttpHeaderWriterWebFilter;
@@ -123,6 +127,7 @@ class SpringReactiveSecurityObservationCollectorTests {
         assertThat(first.basicAuthentication()).isTrue();
         assertThat(first.formLoginAuthentication()).isFalse();
         assertThat(first.authenticationObserved()).isTrue();
+        assertThat(first.csrfProtectionMatcherObserved()).isTrue();
         assertThat(first.authorizationFilterPresent()).isTrue();
         assertThat(first.webFilterNames()).contains("CsrfWebFilter", "HttpHeaderWriterWebFilter");
         assertThat(first.headerWritersObserved()).isTrue();
@@ -130,10 +135,154 @@ class SpringReactiveSecurityObservationCollectorTests {
         assertThat(first.headerWriterNames()).doesNotContain("ContentSecurityPolicyServerHttpHeadersWriter");
         assertThat(first.hstsMaxAgeSeconds()).isEqualTo(31536000L);
         assertThat(observation.chains().get(1).formLoginAuthentication()).isTrue();
+        assertThat(observation.chains().get(1).csrfProtectionMatcherObserved()).isTrue();
         assertThat(scan(observation).results())
                 .extracting(SecurityRuleResultDto::id)
                 .contains("SEC-RXF-HEAD-004")
                 .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002");
+        assertThat(scan(observation).evidence().limitations()).noneMatch(limit -> limit.contains("SEC-RXF-CSRF-"));
+    }
+
+    @Test
+    void nativeDefaultRejectsMissingPostTokenWhileGetOnlyMatcherSkipsProtection() {
+        CsrfWebFilter standard = new CsrfWebFilter();
+        CsrfWebFilter getOnly = new CsrfWebFilter();
+        getOnly.setRequireCsrfProtectionMatcher(new PathPatternParserServerWebExchangeMatcher("/**", HttpMethod.GET));
+        AtomicInteger downstream = new AtomicInteger();
+        MockServerWebExchange defaultPost = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/transfer").build());
+        MockServerWebExchange getOnlyPost = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/transfer").build());
+
+        standard.filter(defaultPost, exchange -> {
+                    downstream.incrementAndGet();
+                    return Mono.empty();
+                })
+                .block(Duration.ofSeconds(2));
+        assertThat(defaultPost.getResponse().getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN);
+        assertThat(downstream).hasValue(0);
+
+        getOnly.filter(getOnlyPost, exchange -> {
+                    downstream.incrementAndGet();
+                    return Mono.empty();
+                })
+                .block(Duration.ofSeconds(2));
+        assertThat(getOnlyPost.getResponse().getStatusCode()).isNull();
+        assertThat(downstream).hasValue(1);
+    }
+
+    @Test
+    void nativeCsrfFilterWithCustomMatcherDoesNotEstablishProtectionOrExecuteCallbacks() {
+        ServerWebExchangeMatcher callbackTrap = exchange -> {
+            throw new AssertionError("CSRF matcher must not execute");
+        };
+        for (boolean basic : List.of(false, true)) {
+            for (ServerWebExchangeMatcher matcher :
+                    List.of(new PathPatternParserServerWebExchangeMatcher("/**", HttpMethod.GET), callbackTrap)) {
+                ServerHttpSecurity security = basic
+                        ? http().httpBasic(Customizer.withDefaults())
+                        : http().formLogin(Customizer.withDefaults());
+                SecurityWebFilterChain configured = security.csrf(csrf -> csrf.requireCsrfProtectionMatcher(matcher))
+                        .build();
+                ReactiveSecurityObservation observation = collect(new MockEnvironment(), configured);
+                assertThat(observation.chains()).singleElement().satisfies(chain -> {
+                    assertThat(chain.webFilterNames()).contains("CsrfWebFilter");
+                    assertThat(chain.authenticationObserved()).isTrue();
+                    assertThat(chain.csrfProtectionMatcherObserved()).isFalse();
+                });
+                String rule = basic ? "SEC-RXF-CSRF-002" : "SEC-RXF-CSRF-001";
+                SecurityReport report = scan(observation);
+                assertThat(report.results())
+                        .extracting(SecurityRuleResultDto::id)
+                        .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002");
+                assertThat(report.evidence().coverageComplete()).isFalse();
+                assertThat(report.evidence().limitations()).anyMatch(limit -> limit.startsWith(rule + ":"));
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void sameNamedCsrfFilterFromAnotherClassLoaderDoesNotEstablishKnownProtection() throws Exception {
+        ClassLoader isolated = new OverridingClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected boolean isEligibleForOverriding(String className) {
+                return className.equals(CsrfWebFilter.class.getName())
+                        || className.startsWith(CsrfWebFilter.class.getName() + "$");
+            }
+        };
+        WebFilter csrf = (WebFilter) Class.forName(CsrfWebFilter.class.getName(), true, isolated)
+                .getDeclaredConstructor()
+                .newInstance();
+        assertThat(csrf.getClass()).isNotEqualTo(CsrfWebFilter.class);
+        assertThat(csrf.getClass().getName()).isEqualTo(CsrfWebFilter.class.getName());
+        AuthenticationWebFilter form = new AuthenticationWebFilter(NO_AUTH);
+        form.setServerAuthenticationConverter(
+                new org.springframework.security.web.server.authentication.ServerFormLoginAuthenticationConverter());
+        ReactiveSecurityObservation observation = collect(new MockEnvironment(), chain(form, csrf));
+
+        assertThat(observation.chains()).singleElement().satisfies(chain -> {
+            assertThat(chain.webFilterNames()).contains("CsrfWebFilter");
+            assertThat(chain.authenticationObserved()).isTrue();
+            assertThat(chain.csrfProtectionMatcherObserved()).isFalse();
+        });
+        SecurityReport report = scan(observation);
+        assertThat(report.evidence().limitations()).anyMatch(limit -> limit.startsWith("SEC-RXF-CSRF-001:"));
+        assertThat(report.analysisErrors()).isEmpty();
+    }
+
+    @Test
+    void customCsrfMatcherDoesNotLimitBearerOnlyOrNoCredentialChains() {
+        CsrfWebFilter csrf = new CsrfWebFilter();
+        csrf.setRequireCsrfProtectionMatcher(exchange -> {
+            throw new AssertionError("Irrelevant CSRF matcher must not execute");
+        });
+        AuthenticationWebFilter bearer = new AuthenticationWebFilter(NO_AUTH);
+        bearer.setServerAuthenticationConverter(new org.springframework.security.oauth2.server.resource.web.server
+                .authentication.ServerBearerTokenAuthenticationConverter());
+        for (SecurityWebFilterChain configured : List.of(chain(csrf), chain(bearer, csrf))) {
+            ReactiveSecurityObservation observation = collect(new MockEnvironment(), configured);
+            assertThat(observation.chains().get(0).csrfProtectionMatcherObserved())
+                    .isFalse();
+            SecurityReport report = scan(observation);
+            assertThat(report.evidence().limitations()).noneMatch(limit -> limit.contains("SEC-RXF-CSRF-"));
+            assertThat(report.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002");
+        }
+    }
+
+    @Test
+    void knownMissingCsrfFindingSurvivesAnotherChainsUnknownMatcher() {
+        for (boolean basic : List.of(false, true)) {
+            ServerHttpSecurity missing =
+                    basic ? http().httpBasic(Customizer.withDefaults()) : http().formLogin(Customizer.withDefaults());
+            ServerHttpSecurity unknown =
+                    basic ? http().httpBasic(Customizer.withDefaults()) : http().formLogin(Customizer.withDefaults());
+            SecurityWebFilterChain missingChain =
+                    missing.csrf(ServerHttpSecurity.CsrfSpec::disable).build();
+            SecurityWebFilterChain unknownChain = unknown.csrf(csrf -> csrf.requireCsrfProtectionMatcher(exchange -> {
+                        throw new AssertionError("CSRF matcher must not execute");
+                    }))
+                    .build();
+            for (List<SecurityWebFilterChain> chains :
+                    List.of(List.of(missingChain, unknownChain), List.of(unknownChain, missingChain))) {
+                ReactiveSecurityObservation observation =
+                        collect(new MockEnvironment(), chains.toArray(SecurityWebFilterChain[]::new));
+                String rule = basic ? "SEC-RXF-CSRF-002" : "SEC-RXF-CSRF-001";
+                SecurityReport report = scan(observation);
+                assertThat(report.results())
+                        .filteredOn(result -> result.id().equals(rule))
+                        .singleElement()
+                        .satisfies(result -> {
+                            assertThat(result.status()).isEqualTo("VIOLATION");
+                            assertThat(result.violationCount()).isOne();
+                            assertThat(result.severity()).isEqualTo(basic ? "MEDIUM" : "HIGH");
+                        });
+                assertThat(report.evidence().limitations()).anyMatch(limit -> limit.startsWith(rule + ":"));
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
     }
 
     @Test

@@ -124,6 +124,7 @@ class BootUiRuntimeHintsTests {
         "org.springframework.security.crypto.password.DelegatingPasswordEncoder, passwordEncoderForEncode",
         "org.springframework.security.web.server.MatcherSecurityWebFilterChain, filters",
         "org.springframework.security.web.server.MatcherSecurityWebFilterChain, matcher",
+        "org.springframework.security.web.server.csrf.CsrfWebFilter, requireCsrfProtectionMatcher",
         "org.springframework.security.web.server.header.HttpHeaderWriterWebFilter, writer",
         "org.springframework.security.web.server.header.CompositeServerHttpHeadersWriter, writers",
         "org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter, delegate",
