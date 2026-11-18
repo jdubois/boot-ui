@@ -269,6 +269,18 @@ depend on each JAR having a manifest or Maven descriptor, search arbitrary direc
 Archive identification counts remain distinct from SBOM package totals and OSV query completion; an SBOM with no
 enumerable archives still has `UNAVAILABLE` coverage.
 
+For an otherwise unidentified ordinary local JAR, Spring also recognizes the exact
+`modules-2/files-2.1/group/artifact/version/hash/artifact-version.jar` Gradle cache suffix. The supplied and canonical
+paths must agree, coordinate segments must be safe, and the hash directory must use Gradle's lowercase SHA-1 format
+with leading zeroes omitted. Already identified shipped-SBOM, descriptor, and classpath matches take precedence.
+Embedded Maven descriptors (including malformed descriptors), bundled archives, classified/custom filenames, and
+shadowed basenames prevent this inference. Only archives newly identified by this Gradle source are excluded from
+the later filename-based rescue of excluded/test-only SBOM components; other Maven/descriptor/SBOM conflict semantics
+are unchanged. The curated `spring-boot-jarmode-tools` manifest checks remain separate. Only already-enumerated local
+files are inspected:
+no cache traversal, sibling metadata search, checksum lookup, external lookup, or Gradle execution is added.
+The source is cache-layout provenance, not authenticated publication identity or discovery of shaded constituents.
+
 An archive still unidentified after coordinate attribution is inspected once more, reading only its manifest and
 entry names and stopping at the first class outside the application's base packages. A nested `BOOT-INF/lib/` entry is
 inspected only when stored uncompressed; only its central directory and a manifest of at most 64 KiB are read, never

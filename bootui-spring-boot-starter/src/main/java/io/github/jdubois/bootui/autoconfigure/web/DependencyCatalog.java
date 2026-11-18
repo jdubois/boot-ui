@@ -54,7 +54,7 @@ import tools.jackson.databind.ObjectMapper;
  *       whose {@code purl} values carry the {@code groupId};</li>
  *   <li>{@code META-INF/maven/*}{@code /*}{@code /pom.properties} descriptors on the classpath;</li>
  *   <li>the {@code java.class.path} entries, read through the Maven repository directory layout or an
- *       adjacent {@code .pom}.</li>
+ *       adjacent {@code .pom}, and otherwise unidentified local JARs in the standard Gradle module cache.</li>
  * </ol>
  *
  * <p>An SBOM component declared not shipped ({@code scope: "excluded"}, or the
@@ -69,7 +69,7 @@ import tools.jackson.databind.ObjectMapper;
  * source 3 is dead too, because {@code java.class.path} is then just the application archive. No JAR
  * manifest header carries a {@code groupId} &mdash; {@code Implementation-Title} is a display name as often
  * as an artifact id, and {@code Implementation-Vendor-Id} is not a group id &mdash; so an application
- * without an SBOM genuinely cannot resolve those artifacts locally.</p>
+ * without an SBOM or a recognized repository/cache path genuinely cannot resolve those artifacts locally.</p>
  *
  * <p>That is why the catalogue also takes a census of the application's real archives ({@code BOOT-INF/lib/}
  * entries inside a repackaged JAR or WAR, classpath and application-classloader JARs otherwise) and reports
@@ -133,6 +133,13 @@ public final class DependencyCatalog implements DependencyProvider {
     private static final String SPRING_BOOT_GROUP_ID = "org.springframework.boot";
 
     private static final String BOOT_MANIFEST_SOURCE = "Spring Boot manifest";
+
+    // Gradle strips leading zeroes from SHA-1 directory names; this checks layout, not content.
+    private static final Pattern GRADLE_CACHE_HASH = Pattern.compile("[1-9a-f][0-9a-f]{0,39}");
+
+    private static final Pattern GRADLE_COORDINATE_SEGMENT = Pattern.compile("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*");
+
+    private static final Pattern GRADLE_VERSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+\\-]*");
 
     private final ResourcePatternResolver resolver;
 
@@ -244,11 +251,33 @@ public final class DependencyCatalog implements DependencyProvider {
                 dependencies.putIfAbsent(dependencyKey, dependency);
             }
         }
+        List<DependencyDto> previouslyResolved = List.copyOf(dependencies.values());
+        Set<CensusArchive> gradleIdentifiedArchives = new HashSet<>();
+        for (CensusArchive archive : archives) {
+            if (archive.shadowed()
+                    || archive.nestedEntry() != null
+                    || archive.name().startsWith(JARMODE_TOOLS_ARTIFACT_ID + "-")
+                    || identifiedArchives.contains(archive.name())
+                    || isIdentified(archive.name(), previouslyResolved)) {
+                continue;
+            }
+            DependencyDto dependency = dependencyFromGradleCache(archive);
+            if (dependency != null && !sbom.applicationPackages().contains(dependency.packageName())) {
+                String dependencyKey = key(dependency);
+                runtimeConfirmedKeys.add(dependencyKey);
+                dependencies.putIfAbsent(dependencyKey, dependency);
+                gradleIdentifiedArchives.add(archive);
+            }
+        }
 
+        // An identified Gradle archive cannot also vouch for an excluded component's other coordinate.
+        List<CensusArchive> sbomRescueArchives = archives.stream()
+                .filter(archive -> !gradleIdentifiedArchives.contains(archive))
+                .toList();
         for (DependencyDto dependency : sbom.notShipped()) {
             if (!dependencies.containsKey(key(dependency))
                     && !sbom.applicationPackages().contains(dependency.packageName())
-                    && isShipped(dependency, archives)) {
+                    && isShipped(dependency, sbomRescueArchives)) {
                 String dependencyKey = key(dependency);
                 runtimeConfirmedKeys.add(dependencyKey);
                 dependencies.put(dependencyKey, dependency);
@@ -1258,6 +1287,68 @@ public final class DependencyCatalog implements DependencyProvider {
                 .map(this::dependencyFromClassPathEntry)
                 .filter(dependency -> dependency != null)
                 .toList();
+    }
+
+    private DependencyDto dependencyFromGradleCache(CensusArchive archive) {
+        Path path = archive.file();
+        if (path.getNameCount() < 7) {
+            return null;
+        }
+        Path suffix = path.subpath(path.getNameCount() - 7, path.getNameCount());
+        if (!"modules-2".equals(suffix.getName(0).toString())
+                || !"files-2.1".equals(suffix.getName(1).toString())) {
+            return null;
+        }
+        String group = suffix.getName(2).toString();
+        String artifact = suffix.getName(3).toString();
+        String version = suffix.getName(4).toString();
+        if (!GRADLE_COORDINATE_SEGMENT.matcher(group).matches()
+                || !GRADLE_COORDINATE_SEGMENT.matcher(artifact).matches()
+                || !GRADLE_VERSION.matcher(version).matches()
+                || version.contains("..")
+                || !GRADLE_CACHE_HASH.matcher(suffix.getName(5).toString()).matches()
+                || !(artifact + "-" + version + ".jar").equals(suffix.getName(6).toString())) {
+            return null;
+        }
+        try {
+            Path real = path.toRealPath();
+            if (real.getNameCount() < 7
+                    || !suffix.equals(real.subpath(real.getNameCount() - 7, real.getNameCount()))
+                    || !Files.isRegularFile(real)) {
+                return null;
+            }
+            try (JarFile jar = new JarFile(real.toFile(), false)) {
+                // Embedded descriptors may describe shaded contents; a cache path must not add another identity.
+                boolean ambiguous = jar.stream().anyMatch(entry -> {
+                    String name = entry.getName();
+                    String lower = name.toLowerCase(Locale.ROOT);
+                    return (name.startsWith("META-INF/maven/") && name.endsWith("/pom.properties"))
+                            || lower.endsWith(".jar")
+                            || lower.endsWith(".war")
+                            || lower.endsWith(".zip");
+                });
+                if (ambiguous) {
+                    return null;
+                }
+            }
+            return new DependencyDto(
+                    group,
+                    artifact,
+                    version,
+                    group + ":" + artifact,
+                    "Gradle module cache",
+                    0,
+                    "NONE",
+                    List.of(),
+                    DependencyAssessmentDto.unknown());
+        } catch (IOException | SecurityException ex) {
+            LOGGER.log(
+                    System.Logger.Level.DEBUG,
+                    "Could not inspect Gradle cache archive {0}: {1}",
+                    archive.name(),
+                    ex.getClass().getSimpleName());
+            return null;
+        }
     }
 
     private DependencyDto dependencyFromClassPathEntry(String entry) {

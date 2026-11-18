@@ -1229,6 +1229,13 @@ Data sources:
   SBOM entries are also reconciled out.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
+- Otherwise unidentified ordinary local JARs in the Gradle `modules-2/files-2.1` cache layout, supplied through the
+  classpath or application loader. Require exact main-artifact filename and canonical path agreement, safe coordinate
+  segments, and Gradle's unpadded lowercase SHA-1 directory format. Embedded Maven descriptors, bundled archives, and
+  shadowed basenames prevent this fallback; already identified shipped-SBOM, descriptor, and classpath matches take
+  precedence. A newly Gradle-identified archive is not used by the later filename-based rescue of excluded/test-only
+  SBOM components. The path is discovery provenance, not verified publication identity; no cache search, checksum
+  lookup, or external request is performed.
 - Quarkus instead reads coordinates captured from its build-time resolved application model. A missing/blank model, a
   malformed entry, or a coordinate the build step could not encode reports `UNAVAILABLE` coverage, never `COMPLETE`.
 - OSV.dev Maven vulnerability data for explicit on-demand scans.
@@ -1432,7 +1439,7 @@ Acceptance criteria:
   shaded coordinates naming it), reach is `UNKNOWN`, as it is for web-resource jars and artifacts whose classes the agent
   never records.
 
-Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
+Known limitations: further inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
 classifiers. Unreadable container/archive
 diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
@@ -1442,8 +1449,8 @@ nor a consumer trusting that flag independently verifies a complete runtime inve
 The dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
 manifest header carries a `groupId` (the curated `spring-boot-jarmode-tools` exception above relies on its fixed, known
 group) — `Implementation-Title` is a display name as often as an artifact id, and
-`Implementation-Vendor-Id` is not a group id. An application built without a CycloneDX SBOM therefore cannot resolve
-coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
+`Implementation-Vendor-Id` is not a group id. Without a CycloneDX SBOM or a recognized repository/cache path, Spring
+cannot resolve coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
 `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the PostgreSQL driver, and the `opentelemetry-*` and
 `micrometer-*` families among them), and inside a repackaged fat JAR the `java.class.path` fallback is dead too. Archives
 detected as unidentified by the census are reported through `coverage`, subject to the attribution limitations above;

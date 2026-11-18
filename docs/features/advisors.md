@@ -817,7 +817,7 @@ visible (dimmed, with a _Restore_ button) and leave the vulnerable counts. Contr
 
 ::: details How Spring discovers dependencies
 
-The Spring adapter resolves coordinates from three sources, in decreasing authority:
+The Spring adapter resolves coordinates from four sources, in decreasing authority:
 
 1. **The embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`). Maven PURLs carry
    the `groupId` no manifest header carries. A component declared not shipped (`scope: "excluded"`, or the
@@ -827,8 +827,15 @@ The Spring adapter resolves coordinates from three sources, in decreasing author
 2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, including inside a repackaged archive's nested
    JARs.
 3. **`java.class.path` entries**, read through the Maven repository layout or an adjacent POM. A group id is derived from
-   a path only when a literal `repository` directory makes it unambiguous. Inside a repackaged fat JAR this source is
-   dead.
+   a Maven path only when a literal `repository` directory identifies the layout. Inside a repackaged fat JAR this source
+   is dead.
+4. **Standard Gradle module-cache paths**, for otherwise unidentified local JARs already supplied on the classpath or
+   application loader. The `modules-2/files-2.1/group/artifact/version/hash/artifact-version.jar` suffix must agree with
+   the real path and Gradle's unpadded lowercase SHA-1 directory format. Embedded Maven descriptors, bundled archives,
+   shadowed basenames, and classified/custom filenames prevent inference. Already identified shipped-SBOM, descriptor,
+   and classpath matches take precedence. An archive newly identified here cannot also rescue an excluded/test-only
+   SBOM component by filename. This is path provenance, not proof of upstream publication; BootUI does not search the
+   cache or perform a hash lookup.
 
 Unreadable resources, a malformed SBOM, and unreadable archives are logged and skipped rather than failing the
 inventory.
@@ -906,9 +913,9 @@ unencodable coordinate reports `UNAVAILABLE`, keeping every readable dependency.
 
 - **Discovery can overclaim coverage.** Spring de-duplicates archive basenames and matches filenames without group
   identity, so case or classifier ambiguity can overstate identification.
-- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`, so artifacts published
-  without a Maven descriptor (Spring Framework, Spring Boot, `tomcat-embed-*`, `hibernate-core`, and others) cannot be
-  resolved. They appear through coverage as unidentified.
+- **Without metadata or a recognized repository layout, some JARs cannot be identified.** No JAR manifest header carries
+  a `groupId`. An SBOM can identify artifacts without Maven descriptors or a supported local cache path; otherwise they
+  appear through coverage as unidentified.
 - **Shaded/uber JARs are invisible.** The inventory is coordinate-based, so a library relocated inside a shaded JAR is
   not seen.
 - **No direct-vs-transitive provenance.** "Introduced through" is not tracked on either adapter.

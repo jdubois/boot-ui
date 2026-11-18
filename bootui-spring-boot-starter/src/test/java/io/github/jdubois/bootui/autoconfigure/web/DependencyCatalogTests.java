@@ -2,11 +2,18 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.javaagent.AgentJars;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,7 +26,9 @@ import java.net.URLStreamHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,10 +40,23 @@ import java.util.stream.IntStream;
 import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.reactive.config.EnableWebFlux;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 class DependencyCatalogTests {
 
@@ -111,6 +133,400 @@ class DependencyCatalogTests {
         Path wrongVersionJar = Files.createFile(versionDirectory.resolve("widget-1.0.1.jar"));
 
         assertThat(withClassPath(emptyResolver(), wrongVersionJar.toString())).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void discoversGradleCacheCoordinatesFromActiveLoader(boolean shortenedHash) throws Exception {
+        Path jar = gradleJar(tempDir, "com.acme", "widget", "1.2.3", shortenedHash, Map.of());
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {jar.toUri().toURL()}, null)) {
+            assertThat(loader.loadClass(GradleCacheMarker.class.getName())
+                            .getMethod("identity")
+                            .invoke(null))
+                    .isEqualTo("gradle-cache-marker");
+            DependencyProvider provider = DependencyCatalog.forApplication(List::of, loader);
+            DependencyInventory loaderOnly = withClassPathInventory(provider, "");
+            DependencyInventory alsoOnClassPath = withClassPathInventory(provider, jar.toString());
+
+            assertThat(loaderOnly.dependencies())
+                    .extracting(DependencyDto::packageName, DependencyDto::version, DependencyDto::source)
+                    .containsExactly(tuple("com.acme:widget", "1.2.3", "Gradle module cache"));
+            assertThat(loaderOnly.coverage()).isEqualTo(DependencyCoverageDto.of(1, 0, List.of()));
+            assertThat(loaderOnly.dependencies().get(0).assessment()).isEqualTo(DependencyAssessmentDto.unknown());
+            assertThat(loaderOnly.dependencies().get(0).vulnerabilities()).isEmpty();
+            assertThat(alsoOnClassPath).isEqualTo(loaderOnly);
+        }
+    }
+
+    @Test
+    void gradleCacheFallbackPreservesAuthoritativeSourcesAndRejectsEmbeddedDescriptorGuesses() throws Exception {
+        Path jar = gradleJar(tempDir, "com.acme", "widget", "1.2.3", false, Map.of());
+        var sbom = sbomResolver("""
+                {"components":[{"purl":"pkg:maven/another.group/widget@1.2.3"}]}
+                """);
+        assertThat(withClassPath(sbom, jar.toString()))
+                .extracting(DependencyDto::packageName, DependencyDto::source)
+                .containsExactly(tuple("another.group:widget", "CycloneDX SBOM"));
+
+        for (byte[] descriptor : List.of(WIDGET_DESCRIPTOR, "invalid descriptor".getBytes(StandardCharsets.UTF_8))) {
+            Path described = gradleJar(
+                    tempDir.resolve(Integer.toString(descriptor.length)),
+                    "untrusted.group",
+                    "widget",
+                    "1.2.3",
+                    false,
+                    Map.of("META-INF/maven/com.acme/widget/pom.properties", descriptor));
+            assertThat(withClassPath(emptyResolver(), described.toString())).isEmpty();
+            if (descriptor == WIDGET_DESCRIPTOR) {
+                try (URLClassLoader loader =
+                        new URLClassLoader(new URL[] {described.toUri().toURL()}, null)) {
+                    var resolver = new PathMatchingResourcePatternResolver(loader);
+                    resolver.setUseCaches(false);
+                    assertThat(withClassPath(resolver, described.toString()))
+                            .extracting(DependencyDto::packageName, DependencyDto::source)
+                            .containsExactly(tuple("com.acme:widget", "Maven metadata"));
+                }
+            }
+        }
+    }
+
+    @Test
+    void gradleCacheIdentityPreventsExcludedSbomRescueFromInventingAnotherGroup() throws Exception {
+        byte[] sbom = """
+                {"components":[
+                  {"purl":"pkg:maven/packaging.group/widget@1.2.3","scope":"excluded"},
+                  {"purl":"pkg:maven/packaging.group/unrelated@2.0","scope":"excluded"}
+                ]}
+                """.getBytes(StandardCharsets.UTF_8);
+        Path jar = gradleJar(
+                tempDir, "runtime.group", "widget", "1.2.3", false, Map.of("META-INF/sbom/application.cdx.json", sbom));
+        Path unrelated = plainJar("unrelated-2.0.jar");
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[] {jar.toUri().toURL(), unrelated.toUri().toURL()}, null)) {
+            Class<?> marker = loader.loadClass(GradleCacheMarker.class.getName());
+            assertThat(marker.getClassLoader()).isSameAs(loader);
+            assertThat(marker.getMethod("identity").invoke(null)).isEqualTo("gradle-cache-marker");
+            DependencyInventory inventory =
+                    withClassPathInventory(DependencyCatalog.forApplication(List::of, loader), "");
+
+            assertThat(inventory.dependencies())
+                    .filteredOn(dependency -> dependency.packageName().equals("runtime.group:widget"))
+                    .singleElement()
+                    .satisfies(dependency -> {
+                        assertThat(dependency.source()).isEqualTo("Gradle module cache");
+                        assertThat(dependency.assessment()).isEqualTo(DependencyAssessmentDto.unknown());
+                        assertThat(dependency.vulnerabilities()).isEmpty();
+                    });
+            assertThat(inventory.dependencies())
+                    .extracting(DependencyDto::packageName, DependencyDto::source)
+                    .containsExactly(
+                            tuple("packaging.group:unrelated", "CycloneDX SBOM"),
+                            tuple("runtime.group:widget", "Gradle module cache"));
+            assertThat(DependencyReports.scanCandidates(inventory.dependencies(), 500))
+                    .extracting(DependencyDto::packageName, DependencyDto::version)
+                    .containsExactly(tuple("packaging.group:unrelated", "2.0"), tuple("runtime.group:widget", "1.2.3"));
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 0, List.of()));
+        }
+    }
+
+    @Test
+    void rejectsMisleadingGradleCachePathsWithoutDroppingARealDependency() throws Exception {
+        Path real = gradleJar(tempDir, "com.acme", "widget", "1.2.3", false, Map.of());
+        String hash = real.getParent().getFileName().toString();
+        List<String> invalidSuffixes = List.of(
+                "custom-cache/com.acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.0/com.acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com/acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com..acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com:acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com.acme/widget/${version}/" + hash + "/widget-${version}.jar",
+                "modules-2/files-2.1/com.acme/widget/1.2.3/not-a-hash/widget-1.2.3.jar",
+                "modules-2/files-2.1/com.acme/widget/1.2.3/0" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com.acme/widget/1.2.3/" + "a".repeat(41) + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com.acme/widget/1.2.3/" + hash + "/widget-1.2.30.jar",
+                "modules-2/files-2.1/com.acme/widget/1.2.3/" + hash + "/widget-1.2.3-linux.jar");
+        for (int i = 0; i < invalidSuffixes.size(); i++) {
+            Path invalid = tempDir.resolve("negative-" + i).resolve(invalidSuffixes.get(i));
+            Files.createDirectories(invalid.getParent());
+            Files.copy(real, invalid);
+            assertThat(withClassPath(emptyResolver(), invalid.toString()))
+                    .as("unrecognized cache suffix %s", invalidSuffixes.get(i))
+                    .isEmpty();
+        }
+        Path corrupt = tempDir.resolve("modules-2/files-2.1/com.acme/corrupt/1.0/abcdef/corrupt-1.0.jar");
+        Files.createDirectories(corrupt.getParent());
+        Files.writeString(corrupt, "not a ZIP");
+        DependencyInventory inventory = withClassPathInventory(emptyResolver(), real.toString(), corrupt.toString());
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("com.acme:widget");
+        assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 1, List.of("corrupt-1.0.jar")));
+    }
+
+    @Test
+    void rejectsGradleCacheSymlinkIdentityChangesAndShadowedArchives() throws Exception {
+        Path real = gradleJar(tempDir, "com.acme", "widget", "1.2.3", false, Map.of());
+        Path misleading = tempDir.resolve("alias/modules-2/files-2.1/another.group/widget/1.2.3")
+                .resolve(real.getParent().getFileName())
+                .resolve(real.getFileName());
+        Files.createDirectories(misleading.getParent());
+        Files.createSymbolicLink(misleading, real);
+        assertThat(withClassPath(emptyResolver(), misleading.toString())).isEmpty();
+
+        Path arbitrary = tempDir.resolve("arbitrary.jar");
+        Files.copy(real, arbitrary);
+        Path cacheShaped = tempDir.resolve("alias/modules-2/files-2.1/com.acme/widget/1.2.3/abcdef/widget-1.2.3.jar");
+        Files.createDirectories(cacheShaped.getParent());
+        Files.createSymbolicLink(cacheShaped, arbitrary);
+        assertThat(withClassPath(emptyResolver(), cacheShaped.toString())).isEmpty();
+
+        Path alias = tempDir.resolve("root-alias");
+        Files.createSymbolicLink(alias, tempDir.toRealPath());
+        Path aliased = alias.resolve("modules-2/files-2.1/com.acme/widget/1.2.3")
+                .resolve(real.getParent().getFileName())
+                .resolve(real.getFileName());
+        assertThat(withClassPath(emptyResolver(), aliased.toString()))
+                .extracting(DependencyDto::packageName)
+                .containsExactly("com.acme:widget");
+
+        Path other = gradleJar(tempDir.resolve("other"), "another.group", "widget", "1.2.3", false, Map.of());
+        DependencyInventory shadowed = withClassPathInventory(emptyResolver(), real.toString(), other.toString());
+        assertThat(shadowed.dependencies()).isEmpty();
+        assertThat(shadowed.coverage()).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("widget-1.2.3.jar")));
+    }
+
+    @Test
+    void rejectsBundledGradleArchivesAndDoesNotInterpretManifestDisplayValuesAsCoordinates() throws Exception {
+        Path bundled = gradleJar(
+                tempDir, "com.acme", "widget", "1.2.3", false, Map.of("lib/embedded.jar", new byte[] {1, 2, 3}));
+        assertThat(withClassPath(emptyResolver(), bundled.toString())).isEmpty();
+        Path manifestOnly = writeJar(
+                tempDir.resolve("display-1.0.jar"),
+                manifest(Map.of(
+                        "Implementation-Title", "display",
+                        "Implementation-Version", "1.0",
+                        "Implementation-Vendor-Id", "com.acme")),
+                List.of(GradleCacheMarker.class.getName().replace('.', '/') + ".class"));
+        assertThat(withClassPath(emptyResolver(), manifestOnly.toString())).isEmpty();
+        Path jarmode = gradleJar(
+                tempDir.resolve("jarmode"),
+                "org.springframework.boot",
+                DependencyCatalog.JARMODE_TOOLS_ARTIFACT_ID,
+                "4.2.0",
+                false,
+                Map.of());
+        DependencyInventory inventory = withClassPathInventory(emptyResolver(), jarmode.toString());
+        assertThat(inventory.dependencies()).isEmpty();
+        assertThat(inventory.coverage().unidentifiedArchives()).containsExactly("spring-boot-jarmode-tools-4.2.0.jar");
+    }
+
+    @Test
+    void resolvesRelativeGradleEntriesAndEscapedUrlsWithoutOpeningRemoteUrls() throws Exception {
+        Path jar = gradleJar(tempDir.resolve("cache root+literal"), "com.acme", "widget", "1.2.3", false, Map.of());
+        Path relative = Path.of("").toAbsolutePath().relativize(jar);
+        assertThat(withClassPath(emptyResolver(), relative.toString()))
+                .extracting(DependencyDto::packageName)
+                .containsExactly("com.acme:widget");
+        URL remote = new URL(null, "https://example.invalid/widget-1.2.3.jar", new URLStreamHandler() {
+            @Override
+            protected URLConnection openConnection(URL url) {
+                throw new AssertionError("Gradle fallback must not open remote URLs");
+            }
+        });
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[] {
+                    remote,
+                    new URL("file:relative.jar"),
+                    new URL("file://remote.invalid/widget-1.2.3.jar"),
+                    new URL("file:/invalid%zz.jar"),
+                    jar.toUri().toURL()
+                },
+                null)) {
+            DependencyInventory inventory = withClassPathInventory(patternResolver(Map.of(), loader), "");
+            assertThat(inventory.dependencies())
+                    .extracting(DependencyDto::packageName)
+                    .containsExactly("com.acme:widget");
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 0, List.of()));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void nativeSpringGetReadsGradleJarFromApplicationLoaderWithoutScanning(boolean reactive) throws Exception {
+        Path jar = gradleJar(tempDir, "com.acme", "widget", "1.2.3", false, Map.of());
+        String previousClassPath = System.getProperty("java.class.path");
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[] {jar.toUri().toURL()}, getClass().getClassLoader()) {
+            @Override
+            protected synchronized Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (!name.equals(GradleCacheMarker.class.getName())) {
+                    return super.loadClass(name, resolve);
+                }
+                Class<?> marker = findLoadedClass(name);
+                if (marker == null) {
+                    marker = findClass(name);
+                }
+                if (resolve) {
+                    resolveClass(marker);
+                }
+                return marker;
+            }
+        }) {
+            Class<?> marker = loader.loadClass(GradleCacheMarker.class.getName());
+            assertThat(marker.getClassLoader()).isSameAs(loader);
+            assertThat(marker.getMethod("identity").invoke(null)).isEqualTo("gradle-cache-marker");
+            System.setProperty("java.class.path", "");
+            if (reactive) {
+                new ReactiveWebApplicationContextRunner()
+                        .withClassLoader(loader)
+                        .withUserConfiguration(NativeInventoryConfiguration.class, ReactiveInventoryConfiguration.class)
+                        .run(context -> {
+                            assertThat(context).hasNotFailed();
+                            assertThat(context.getClassLoader()).isSameAs(loader);
+                            byte[] body = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                                    .build()
+                                    .get()
+                                    .uri("/bootui/api/vulnerabilities")
+                                    .exchange()
+                                    .expectStatus()
+                                    .isOk()
+                                    .expectBody()
+                                    .returnResult()
+                                    .getResponseBody();
+                            assertNativeGradleReport(
+                                    new String(java.util.Objects.requireNonNull(body), StandardCharsets.UTF_8));
+                        });
+            } else {
+                new WebApplicationContextRunner()
+                        .withClassLoader(loader)
+                        .withUserConfiguration(NativeInventoryConfiguration.class, MvcInventoryConfiguration.class)
+                        .run(context -> {
+                            assertThat(context).hasNotFailed();
+                            assertThat(context.getClassLoader()).isSameAs(loader);
+                            var response = MockMvcBuilders.webAppContextSetup(context.getSourceApplicationContext())
+                                    .build()
+                                    .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                                            "/bootui/api/vulnerabilities"))
+                                    .andReturn()
+                                    .getResponse();
+                            assertThat(response.getStatus()).isEqualTo(200);
+                            assertNativeGradleReport(response.getContentAsString());
+                        });
+            }
+        } finally {
+            if (previousClassPath == null) {
+                System.clearProperty("java.class.path");
+            } else {
+                System.setProperty("java.class.path", previousClassPath);
+            }
+        }
+    }
+
+    private static void assertNativeGradleReport(String body) {
+        JsonNode report = new ObjectMapper().readTree(body);
+        assertThat(report.path("scan").path("status").asText()).isEqualTo("NOT_SCANNED");
+        List<JsonNode> matching = new ArrayList<>();
+        for (JsonNode dependency : report.path("dependencies")) {
+            if ("com.acme:widget".equals(dependency.path("packageName").asText())) {
+                matching.add(dependency);
+            }
+        }
+        assertThat(matching).hasSize(1);
+        JsonNode widget = matching.get(0);
+        assertThat(widget.path("source").asText()).isEqualTo("Gradle module cache");
+        assertThat(widget.path("version").asText()).isEqualTo("1.2.3");
+        assertThat(widget.path("assessment").path("queryComplete").asBoolean()).isFalse();
+        assertThat(widget.path("assessment").path("detailAssessmentComplete").asBoolean())
+                .isFalse();
+        assertThat(widget.path("vulnerabilities").isEmpty()).isTrue();
+        assertThat(body).doesNotContain("modules-2", "files-2.1");
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class NativeInventoryConfiguration {
+        @Bean
+        VulnerabilitiesController vulnerabilitiesController(ApplicationContext context) {
+            DismissedRulesStore dismissed = mock(DismissedRulesStore.class);
+            when(dismissed.load()).thenReturn(Set.of());
+            return new VulnerabilitiesController(
+                    new BootUiProperties(),
+                    DependencyCatalog.forApplication(List::of, context.getClassLoader()),
+                    inventory -> {
+                        throw new AssertionError("A local inventory GET must not invoke the external scanner");
+                    },
+                    dismissed);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebMvc
+    static class MvcInventoryConfiguration {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebFlux
+    static class ReactiveInventoryConfiguration {}
+
+    private Path gradleJar(
+            Path root,
+            String group,
+            String artifact,
+            String version,
+            boolean shortenedHash,
+            Map<String, byte[]> extraEntries)
+            throws Exception {
+        String marker = GradleCacheMarker.class.getName().replace('.', '/') + ".class";
+        byte[] markerBytes;
+        try (InputStream input = GradleCacheMarker.class.getResourceAsStream("/" + marker)) {
+            markerBytes = java.util.Objects.requireNonNull(input).readAllBytes();
+        }
+        for (int nonce = 0; nonce < 4096; nonce++) {
+            var bytes = new java.io.ByteArrayOutputStream();
+            try (JarOutputStream jar = new JarOutputStream(bytes)) {
+                Map<String, byte[]> entries = new java.util.LinkedHashMap<>(extraEntries);
+                entries.put(marker, markerBytes);
+                entries.put("nonce", Integer.toString(nonce).getBytes(StandardCharsets.UTF_8));
+                Set<String> directories = new java.util.HashSet<>();
+                for (var entry : entries.entrySet()) {
+                    for (int slash = entry.getKey().indexOf('/');
+                            slash >= 0;
+                            slash = entry.getKey().indexOf('/', slash + 1)) {
+                        String directory = entry.getKey().substring(0, slash + 1);
+                        if (directories.add(directory)) {
+                            ZipEntry directoryEntry = new ZipEntry(directory);
+                            directoryEntry.setTime(0);
+                            jar.putNextEntry(directoryEntry);
+                            jar.closeEntry();
+                        }
+                    }
+                    ZipEntry zipEntry = new ZipEntry(entry.getKey());
+                    zipEntry.setTime(0);
+                    jar.putNextEntry(zipEntry);
+                    jar.write(entry.getValue());
+                    jar.closeEntry();
+                }
+            }
+            String hash =
+                    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(bytes.toByteArray()));
+            if (hash.startsWith("0") != shortenedHash) {
+                continue;
+            }
+            Path jar = root.resolve("modules-2/files-2.1")
+                    .resolve(group)
+                    .resolve(artifact)
+                    .resolve(version)
+                    .resolve(hash.replaceFirst("^0+", ""))
+                    .resolve(artifact + "-" + version + ".jar");
+            Files.createDirectories(jar.getParent());
+            Files.write(jar, bytes.toByteArray());
+            return jar;
+        }
+        throw new AssertionError("Could not construct a bounded SHA-1 cache fixture");
+    }
+
+    public static class GradleCacheMarker {
+        public static String identity() {
+            return "gradle-cache-marker";
+        }
     }
 
     // -----------------------------------------------------------------------------------------------
@@ -1207,7 +1623,7 @@ class DependencyCatalogTests {
         return withClassPathInventory(new DependencyCatalog(resolver), entries);
     }
 
-    private DependencyInventory withClassPathInventory(DependencyCatalog catalog, String... entries) {
+    private DependencyInventory withClassPathInventory(DependencyProvider catalog, String... entries) {
         String previousClassPath = System.getProperty("java.class.path");
         try {
             System.setProperty("java.class.path", String.join(File.pathSeparator, entries));

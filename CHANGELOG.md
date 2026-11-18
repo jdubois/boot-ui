@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Gradle cache coordinates** recognize eligible local main JARs without searching caches or starting scans.
+  Shipped SBOM, descriptor and identified classpath matches retain precedence; newly identified cache archives do
+  not rescue conflicting excluded-SBOM coordinates. Path-derived coordinates remain unassessed, not publication
+  authentication ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
 - **Captured management-port references** support `management.server.port=${server.port}` only when the matching
   literal value was already captured with consistent provenance. Other expressions and uncertain sources remain
   unassessed ([Security checks](docs/SECURITY-CHECKS.md)).
