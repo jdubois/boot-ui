@@ -136,6 +136,21 @@ use the secret rather than copying registry credentials into the project.
 Without `--secret`, npm keeps its default registry configuration. There is no
 new requirement for normal developers or CI, and no secret is needed at runtime.
 
+### Docker-profile CI validation
+
+Before running Playwright, **Publish Docker images** prepares the chat model configured
+in `application-docker.properties`. It retries the model pull and local availability
+check up to three times, with a 15-second delay and a three-minute limit per pull.
+Preparation failures fail the job and print Compose logs; they never skip chat validation.
+Ollama is stopped without removing its model files so Spring Boot still starts the
+complete stack normally. Developer startup is unchanged.
+
+Run the offline preparation checks with:
+
+```bash
+python3 -B -m unittest discover -s .github/scripts -p 'test_ollama_model.py'
+```
+
 ### Docker Hub image retention
 
 The **Publish Docker images** workflow retains seven days of sample images, measured
