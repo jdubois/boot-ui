@@ -221,9 +221,12 @@ An error-free scan means the imported classes were evaluated. It does not prove 
 completeness. ArchUnit can resolve external references to stubs without full annotation or hierarchy information, and
 those omissions need not throw.
 
-Imports are restricted by package roots rather than a class-count or execution-time budget, so runtime test output
-under the same roots is not automatically excluded. Package cycles are evaluated per root and top-level slice, not
-across every possible module boundary.
+Imports are restricted by package roots rather than a class-count or execution-time budget. Classes positively
+located in local Maven or Gradle test output are excluded before evaluation and application-class counts. Known
+excluded test callers and subclasses do not change production receiver or shared-bean conclusions; genuine
+production and unresolved relationships remain, including production dependencies on test-fixture targets.
+Archives and unknown output layouts are not treated as test output. Package cycles are evaluated per root and
+top-level slice, not across every possible module boundary.
 
 Most Spring rules recognize direct annotations rather than Spring's full merged and aliased metadata model, though the
 scheduling check also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK, CGLIB, or
@@ -460,7 +463,8 @@ ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
   Spring Test and Mock, Spring Security Test, Spring Boot Test, Reactor Test, Testcontainers, Quarkus's
   `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
 - **Fires when**: an application class references a test framework type. Classes whose class file sits in a local test
-  output directory (`target/test-classes`, `build/classes/java/test`, or `build/classes/kotlin/test`) are not judged:
+  output directory (`target/test-classes`, `build/classes/java/test`, or `build/classes/kotlin/test`) are excluded
+  from the Architecture scan before any rule is evaluated:
   they are on the classpath when the application runs from its tests, as with `spring-boot:test-run` or Gradle's
   `bootTestRun`, and may use test APIs by definition. Classes from archives and other layouts stay judged.
 - **Why it matters**: production code that depends on test frameworks is usually an accidental source-set leak and can

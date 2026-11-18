@@ -7,6 +7,7 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureSeverityCountDto;
+import java.nio.file.Path;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -24,10 +25,13 @@ import java.util.TimeZone;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 class NoLegacyDateTimeRuleTests {
+    @TempDir
+    Path tempDir;
 
     @ParameterizedTest
     @EnumSource(ArchitecturePlatform.class)
@@ -155,7 +159,8 @@ class NoLegacyDateTimeRuleTests {
     void scannerRetainsOnlyRealFindingsAndTheirEvidence(ArchitecturePlatform platform) {
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(getClass().getPackageName()),
-                packages -> new ClassFileImporter().importClasses(BridgeCalls.class, MixedUse.class),
+                packages ->
+                        CompiledOutputFixtures.importFrom(tempDir, "target/classes", BridgeCalls.class, MixedUse.class),
                 platform,
                 Clock.systemUTC(),
                 List.of(new NoLegacyDateTimeRule()));

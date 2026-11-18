@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Optional precision for ARCH-SPRING-004, not a general receiver or alias analysis. Only recognized
@@ -48,6 +49,11 @@ final class ProxyReceiverEvidence {
     }
 
     static ProxyReceiverEvidence read(JavaClass type, ArchUnitBytecodeImports.Bytecode captured) {
+        return read(type, captured, ignored -> true);
+    }
+
+    static ProxyReceiverEvidence read(
+            JavaClass type, ArchUnitBytecodeImports.Bytecode captured, Predicate<JavaClass> observedOrigin) {
         if (KotlinBytecode.isKotlinClass(type)
                 || type.getMethodCallsFromSelf().stream()
                                 .noneMatch(access -> access.getTargetOwner().equals(type))
@@ -55,16 +61,22 @@ final class ProxyReceiverEvidence {
                                 .noneMatch(access -> access.getTargetOwner().equals(type))) {
             return NONE;
         }
-        return captured.bytesOf(type).map(bytes -> parse(type, bytes)).orElse(NONE);
+        return captured.bytesOf(type)
+                .map(bytes -> parse(type, bytes, observedOrigin))
+                .orElse(NONE);
     }
 
     static ProxyReceiverEvidence parse(JavaClass type, byte[] bytes) {
+        return parse(type, bytes, ignored -> true);
+    }
+
+    private static ProxyReceiverEvidence parse(JavaClass type, byte[] bytes, Predicate<JavaClass> observedOrigin) {
         try {
             if (bytes.length > MAX_CLASS_BYTES) {
                 LOGGER.log(System.Logger.Level.DEBUG, "Receiver precision bytecode limit: {0}", type.getName());
                 return NONE;
             }
-            Bytecode bytecode = new Bytecode(type);
+            Bytecode bytecode = new Bytecode(type, observedOrigin);
             new ClassReader(bytes).accept(bytecode, ClassReader.SKIP_FRAMES);
             return bytecode.evidence();
         } catch (IllegalArgumentException
@@ -125,14 +137,15 @@ final class ProxyReceiverEvidence {
         private final Map<MethodKey, ExpressionVisitor> methods = new HashMap<>();
         private final Map<MethodKey, Set<MethodKey>> enclosing = new HashMap<>();
 
-        Bytecode(JavaClass type) {
+        Bytecode(JavaClass type, Predicate<JavaClass> observedOrigin) {
             super(Opcodes.ASM9);
             owner = type.getName().replace('.', '/');
             for (JavaField field : type.getFields()) {
                 if (field.getModifiers().contains(JavaModifier.STATIC)
                         || !isInjected(field)
                         || field.getAccessesToSelf().stream()
-                                .anyMatch(access -> access.getAccessType() == JavaFieldAccess.AccessType.SET)) {
+                                .anyMatch(access -> access.getAccessType() == JavaFieldAccess.AccessType.SET
+                                        && observedOrigin.test(access.getOriginOwner()))) {
                     continue;
                 }
                 if (field.getRawType().getName().equals(PROVIDER.replace('/', '.'))

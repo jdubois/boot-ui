@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Architecture application scope** excludes known local test output without losing genuine production findings or
+  borrowing test-only callers and subclasses. Archives, unknown layouts and production dependencies stay eligible
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#static-analysis-limits)).
 - **Generated-code evidence** recognizes Spring AOT's retained class marker, including classes imported from archives,
   under the existing coding-rule and generated HTTP-client exemptions. It does not trust name suffixes or load Spring
   APIs ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#generated-application-code)).

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.architecture;
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
@@ -211,7 +212,10 @@ public final class ArchitectureScanner {
             imported = platform == ArchitecturePlatform.SPRING
                     ? Objects.requireNonNull(importer.importWithBytecode(basePackages))
                     : ArchUnitBytecodeImports.Result.uncaptured(importer.importPackages(basePackages));
-            classes = Objects.requireNonNull(imported.classes());
+            classes = Objects.requireNonNull(imported.classes())
+                    .that(DescribedPredicate.describe(
+                            "are not compiled into recognized local test output",
+                            type -> !ArchitectureRuleSupport.isTestOutput(type)));
             // Catch LinkageError (e.g. NoClassDefFoundError/ClassFormatError) as well as RuntimeException so a
             // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
             // VirtualMachineError (OutOfMemoryError, StackOverflowError) is deliberately not caught here.

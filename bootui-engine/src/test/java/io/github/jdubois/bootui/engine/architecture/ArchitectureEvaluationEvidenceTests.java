@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.repository.CrudRepository;
@@ -18,6 +20,9 @@ import org.springframework.scheduling.annotation.Schedules;
 import org.springframework.transaction.annotation.Transactional;
 
 class ArchitectureEvaluationEvidenceTests {
+    @TempDir
+    Path tempDir;
+
     @Test
     void selectedArchUnitTargetsNotEmptyShouldSuccessEstablishCompletion() {
         ArchitectureContext context = context(NoFields.class);
@@ -84,7 +89,7 @@ class ArchitectureEvaluationEvidenceTests {
 
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(getClass().getPackageName()),
-                packages -> new ClassFileImporter().importClasses(LegacyDate.class),
+                packages -> CompiledOutputFixtures.importFrom(tempDir, "target/classes", LegacyDate.class),
                 ArchitecturePlatform.SPRING,
                 Clock.systemUTC(),
                 List.of(new NoLegacyDateTimeRule(), broken));

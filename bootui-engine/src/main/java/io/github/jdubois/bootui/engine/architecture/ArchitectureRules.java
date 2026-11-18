@@ -40,7 +40,6 @@ import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
-import io.github.jdubois.bootui.engine.source.LocalSourceModule;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1214,14 +1213,25 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
  */
 final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRule {
 
-    private final BiFunction<JavaClass, ArchUnitBytecodeImports.Bytecode, ProxyReceiverEvidence> receiverEvidence;
+    @FunctionalInterface
+    private interface ReceiverEvidenceReader {
+        ProxyReceiverEvidence read(
+                JavaClass type, ArchUnitBytecodeImports.Bytecode captured, ArchitectureContext context);
+    }
+
+    private final ReceiverEvidenceReader receiverEvidence;
 
     NoSelfInvocationOfProxiedMethodsRule() {
-        this(ProxyReceiverEvidence::read);
+        this((type, captured, context) -> ProxyReceiverEvidence.read(
+                type, captured, origin -> ArchitectureRuleSupport.isObservedOrigin(origin, context.classes())));
     }
 
     NoSelfInvocationOfProxiedMethodsRule(
             BiFunction<JavaClass, ArchUnitBytecodeImports.Bytecode, ProxyReceiverEvidence> receiverEvidence) {
+        this((type, captured, context) -> receiverEvidence.apply(type, captured));
+    }
+
+    private NoSelfInvocationOfProxiedMethodsRule(ReceiverEvidenceReader receiverEvidence) {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-004",
                 "Beans should not self-invoke their own proxied methods",
@@ -1328,7 +1338,8 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
         if (interceptable
                 && receivers
                         .computeIfAbsent(
-                                access.getOriginOwner(), type -> receiverEvidence.apply(type, context.bytecode()))
+                                access.getOriginOwner(),
+                                type -> receiverEvidence.read(type, context.bytecode(), context))
                         .isProxyReceiver(access)) {
             return false;
         }
@@ -1645,11 +1656,7 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
      * {@code spring-boot:test-run} or Gradle's {@code bootTestRun}. Archives and unknown layouts stay judged.
      */
     static boolean isTestOutput(JavaClass javaClass) {
-        return javaClass
-                .getSource()
-                .flatMap(source -> LocalSourceModule.of(javaClass.getName(), source.getUri()))
-                .filter(module -> module.sourceSet().equals("test"))
-                .isPresent();
+        return ArchitectureRuleSupport.isTestOutput(javaClass);
     }
 }
 
@@ -2244,7 +2251,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                                 "be final with a private constructor when only static members are exposed") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
-                                if (!isUtilityClass(javaClass)) {
+                                if (!isUtilityClass(javaClass, context.classes())) {
                                     return;
                                 }
                                 context.evidence().observed();
@@ -2267,7 +2274,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                 .as("Utility classes should be final with a private constructor");
     }
 
-    private static boolean isUtilityClass(JavaClass javaClass) {
+    private static boolean isUtilityClass(JavaClass javaClass, JavaClasses view) {
         if (KotlinBytecode.isCompilerGenerated(javaClass)) {
             // Kotlin file facades (FooKt), companion holders, DefaultImpls and WhenMappings tables are
             // emitted by the compiler, so their finality and constructors are not the author's to change.
@@ -2286,7 +2293,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                         .map(superclass -> superclass.isEquivalentTo(Object.class))
                         .orElse(true)
                 || !javaClass.getRawInterfaces().isEmpty()
-                || !javaClass.getSubclasses().isEmpty()) {
+                || !ArchitectureRuleSupport.observedSubclasses(javaClass, view).isEmpty()) {
             return false;
         }
         if (ContainerBeans.isAnnotatedBean(javaClass) || ContainerBeans.declaresFactoryMethods(javaClass)) {
@@ -3455,7 +3462,7 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
                                 "be registered as a container bean when declaring @Scheduled or @EventListener methods") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
-                                if (!isConcreteTopLevelLeafClass(javaClass)) {
+                                if (!isConcreteTopLevelLeafClass(javaClass, context.classes())) {
                                     return;
                                 }
                                 List<JavaMethod> triggered = new ArrayList<>();
@@ -3484,14 +3491,14 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
                 .as("Scheduled and event-listener methods should be declared on container-managed beans");
     }
 
-    private static boolean isConcreteTopLevelLeafClass(JavaClass javaClass) {
+    private static boolean isConcreteTopLevelLeafClass(JavaClass javaClass, JavaClasses view) {
         return javaClass.isTopLevelClass()
                 && !javaClass.isInterface()
                 && !javaClass.isAnnotation()
                 && !javaClass.isEnum()
                 && !javaClass.getModifiers().contains(JavaModifier.ABSTRACT)
                 && !KotlinBytecode.isCompilerGenerated(javaClass)
-                && javaClass.getSubclasses().isEmpty();
+                && ArchitectureRuleSupport.observedSubclasses(javaClass, view).isEmpty();
     }
 
     private static boolean isScheduledOrEventListenerMethod(JavaMethod method) {
@@ -3653,7 +3660,10 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
                                 return !ArchitectureRuleSupport.isCompilerGenerated(field)
                                         && (field.getModifiers().contains(JavaModifier.STATIC)
                                                 || isSharedScopeBeanOrInheritedByOne(
-                                                        field.getOwner(), sharedProducedTypes, context.platform()));
+                                                        field.getOwner(),
+                                                        sharedProducedTypes,
+                                                        context.platform(),
+                                                        context.classes()));
                             }
                         })
                 .and(observed(DescribedPredicate.alwaysTrue(), context))
@@ -3707,11 +3717,11 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
     }
 
     private static boolean isSharedScopeBeanOrInheritedByOne(
-            JavaClass javaClass, Set<String> sharedProducedTypes, ArchitecturePlatform platform) {
+            JavaClass javaClass, Set<String> sharedProducedTypes, ArchitecturePlatform platform, JavaClasses view) {
         if (isDirectSharedScopeBean(javaClass, sharedProducedTypes, platform)) {
             return true;
         }
-        for (JavaClass subclass : javaClass.getSubclasses()) {
+        for (JavaClass subclass : ArchitectureRuleSupport.observedSubclasses(javaClass, view)) {
             if (isDirectSharedScopeBean(subclass, sharedProducedTypes, platform)) {
                 return true;
             }

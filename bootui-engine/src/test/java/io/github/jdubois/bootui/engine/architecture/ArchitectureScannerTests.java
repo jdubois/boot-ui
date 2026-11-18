@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -27,21 +28,33 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class ArchitectureScannerTests {
+    @TempDir
+    Path tempDir;
 
     private static final String FIXTURES = "io.github.jdubois.bootui.engine.architecture.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
     private static final String SENSITIVE_DETAIL = "password=secret\njdbc://private-host\t" + "private".repeat(200);
 
     private ArchitectureScanner scanner(List<String> basePackages) {
-        return new ArchitectureScanner(
-                () -> basePackages, new ClassFileArchitectureImporter(), ArchitecturePlatform.SPRING, CLOCK);
+        return new ArchitectureScanner(() -> basePackages, fixtureImporter(), ArchitecturePlatform.SPRING, CLOCK);
+    }
+
+    private ArchitectureClassImporter fixtureImporter() {
+        return CompiledOutputFixtures.importer(CompiledOutputFixtures.copyInto(
+                tempDir.resolve("default-fixtures"),
+                "target/classes",
+                io.github.jdubois.bootui.engine.architecture.fixtures.CleanComponent.class,
+                io.github.jdubois.bootui.engine.architecture.fixtures.ProblematicSpringBean.class,
+                io.github.jdubois.bootui.engine.architecture.fixtures.StandardStreamUser.class));
     }
 
     @Test
     void capturedInputFlowsThroughTheScannerWhileLegacyCustomImportersKeepTheHeuristic() {
-        var imported = ArchUnitBytecodeImports.importClasses(ProxyReceiverEvidenceTests.ProxyFixture.class);
+        var imported = CompiledOutputFixtures.importWithBytecodeFrom(
+                tempDir, "target/classes", ProxyReceiverEvidenceTests.ProxyFixture.class);
         ArchitectureClassImporter captured = new ArchitectureClassImporter() {
             @Override
             public JavaClasses importPackages(List<String> packages) {
@@ -76,7 +89,8 @@ class ArchitectureScannerTests {
 
     @Test
     void quarkusDoesNotUseTheOptionalSpringReceiverImportPath() {
-        JavaClasses classes = new ClassFileImporter().importClasses(ProxyReceiverEvidenceTests.ProxyFixture.class);
+        JavaClasses classes = CompiledOutputFixtures.importFrom(
+                tempDir, "target/classes", ProxyReceiverEvidenceTests.ProxyFixture.class);
         ArchitectureClassImporter importer = new ArchitectureClassImporter() {
             @Override
             public JavaClasses importPackages(List<String> packages) {
@@ -168,7 +182,7 @@ class ArchitectureScannerTests {
         java.util.concurrent.atomic.AtomicBoolean interrupt = new java.util.concurrent.atomic.AtomicBoolean();
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(FIXTURES),
-                new ClassFileArchitectureImporter(),
+                fixtureImporter(),
                 ArchitecturePlatform.SPRING,
                 CLOCK,
                 ArchitectureRuleRegistry.activeRules(),
@@ -362,9 +376,11 @@ class ArchitectureScannerTests {
 
     @Test
     void julConventionRetainsItsInfoCountAlongsideIndependentLowAndHighFindings() {
-        JavaClasses classes = new ClassFileImporter()
-                .importClasses(
-                        ArchitectureRuleAuditTests.MutableJulUser.class, ArchitectureRuleAuditTests.AbruptExit.class);
+        JavaClasses classes = CompiledOutputFixtures.importFrom(
+                tempDir,
+                "target/classes",
+                ArchitectureRuleAuditTests.MutableJulUser.class,
+                ArchitectureRuleAuditTests.AbruptExit.class);
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(ArchitectureRuleAuditTests.class.getPackageName()),
                 packages -> classes,
@@ -663,7 +679,7 @@ class ArchitectureScannerTests {
             imports.incrementAndGet();
             entered.countDown();
             await(release);
-            return new ClassFileArchitectureImporter().importPackages(basePackages);
+            return fixtureImporter().importPackages(basePackages);
         };
         ArchitectureScanner scanner =
                 new ArchitectureScanner(() -> List.of(FIXTURES), importer, ArchitecturePlatform.SPRING, CLOCK);
