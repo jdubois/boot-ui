@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Spring REST handler discovery** retains inherited and composed MVC/WebFlux mappings, concrete dispatch and
+  independent inherited binding/status evidence without counting implemented interface blueprints twice. Newly
+  observable findings use existing IDs, severities, dismissals and strict CI gates; unresolved mappings remain partial
+  ([REST API checks](docs/REST-API-CHECKS.md#what-bootui-does)).
 - **Unassessed advisory candidates** remain discoverable when OSV detail requests fail or hit scan bounds, without
   inventing interpreted vulnerabilities, severities or confirmed-vulnerable counts
   ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).

@@ -176,7 +176,11 @@ final class RestApiModel {
         }
     }
 
-    /** One request-handling method on a controller, with the facts the rules need pre-extracted. */
+    /**
+     * One request-handling method on a controller, including inherited Spring mappings. Controller identity
+     * belongs to the concrete inspected type; return/body facts come from the dispatched method, not a
+     * bridge or an overridden mapping declaration.
+     */
     record HandlerMethodModel(
             String controllerClassName,
             String controllerSimpleName,

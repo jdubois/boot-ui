@@ -70,7 +70,14 @@ the Spring starter supplies ArchUnit transitively.
   return does not prove an empty wire response. The scanner does not inspect builder chains, filters, advice, or
   emitted bytes to recover their status, headers, or body.
 - **Paths are declarations, not full route enumeration.** Root/leaf composition preserves meaningful interior and
-  trailing slashes. Spring type/method HTTP-method constraints combine by union. Required Spring
+  trailing slashes. On Spring MVC and WebFlux, bounded handler discovery includes unstereotyped superclasses,
+  interfaces, and default methods. The concrete override supplies return/body facts; compiler bridges and
+  unrelated overloads do not create extra handlers. Composed type/method `@RequestMapping` declarations and
+  explicit `@AliasFor` chains retain path alternatives, media types, and dispatch conditions. A concrete mapping
+  overrides its inherited declaration rather than adding the old route. Binding and response-status annotations
+  are discovered independently of the mapping declaration. When a concrete controller implements an imported
+  controller interface, handlers belong to the concrete controller, not also to that interface blueprint;
+  standalone interface-only imports remain supported. Spring type/method HTTP-method constraints combine by union. Required Spring
   path bindings (including `-parameters` bytecode parameter names when the annotation omits an explicit name) are
   checked against each complete mapping alternative; optional/`Optional` and aggregate map
   bindings do not establish a missing-required-variable failure. Unannotated Quarkus REST path parameters matching
@@ -134,8 +141,11 @@ counts, and status never depend on it.
 - It excludes MicroProfile `@RegisterRestClient` interfaces, which represent outbound clients rather than inbound resources.
 - It does not inspect actual response content, validation execution, database result limits, caching policy, retry
   deduplication, generated OpenAPI documents, or headers supplied elsewhere.
-- It does not resolve every Spring composed/inherited mapping, functional endpoint, runtime route registration,
-  arbitrary generic hierarchy, or dynamic JAX-RS subresource locator graph.
+- It does not enumerate functional endpoints, runtime route registration, arbitrary generic hierarchies, or dynamic
+  JAX-RS subresource locator graphs. Spring mapping/annotation ancestry is bounded to ten levels and cycle-safe.
+  Unsupported inherited parameter annotation merges or generic signature substitutions, conflicting mapping aliases,
+  unresolved cross-package package-private dispatch, and exceeded discovery bounds produce incomplete extraction,
+  not a confirmed empty handler set. A method-local discovery failure retains independently resolved sibling handlers.
 - It does not infer omitted parameter names from unavailable source metadata or interpret unresolved `${...}` and
   `#{...}` path expressions as literal naming violations.
 - It does not replace contract tests or scope/selector/precedence-aware exception resolution. The separate declared
@@ -948,8 +958,8 @@ declarations that break requests deterministically. No ID was reused or repurpos
 | RAPI-VER-001, RAPI-VER-006 | Fixed | A leading `/v3` segment no longer marks an API handler as documentation; only `api-docs`/`swagger-ui` paths do. |
 | All emitting rules | Metadata | Rule names now match these headings, and learn-more links point at the specific primary source instead of a generic page. |
 
-Considered and not added: server-side `@HttpExchange` controller mappings (Spring 6.1+) are usually declared on
-interfaces and need inherited-mapping resolution the bounded model lacks; an `Optional` rule for JAX-RS awaits verified
+Considered and not added: server-side `@HttpExchange` controller mappings require their own annotation-contract
+model and are not covered by the supported inherited `@RequestMapping` discovery; an `Optional` rule for JAX-RS awaits verified
 Quarkus REST semantics; and counting `HttpEntity` parameters toward RAPI-VALID-006 was left out to keep that rule's
 evidence to explicit `@RequestBody` declarations.
 

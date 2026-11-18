@@ -18,7 +18,6 @@ class RestApiHandlerModelBuilderTests {
     private static final String PHASE3_BAD = "io.github.jdubois.bootui.engine.restapi.phase3.bad";
     private static final String PHASE3_FIXES = "io.github.jdubois.bootui.engine.restapi.phase3.fixes";
     private static final String ACCURACY = "io.github.jdubois.bootui.engine.restapi.accuracy";
-    private static final String SPEC_FIRST = "io.github.jdubois.bootui.engine.restapi.specfirst";
 
     private RestApiHandlerModelBuilder model() {
         JavaClasses classes = new ClassFileImporter().importPackages(FIXTURES);
@@ -261,7 +260,10 @@ class RestApiHandlerModelBuilderTests {
 
     @Test
     void recordsWhetherAControllerTypeIsAnInterface() {
-        JavaClasses classes = new ClassFileImporter().importPackages(SPEC_FIRST);
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(
+                        io.github.jdubois.bootui.engine.restapi.specfirst.GeneratedPaymentsGuestApi.class,
+                        io.github.jdubois.bootui.engine.restapi.specfirst.HandWrittenRefundsController.class);
         RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
 
         assertThat(model.controllers())
