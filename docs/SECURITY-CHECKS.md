@@ -58,6 +58,12 @@ provide this access, affected configuration remains unknown rather than being tr
 JDKs may emit deprecation warnings or diagnostic events for the optional internal access.
 Native bootstrap and callback-safety regressions cover Java 17, 21 and 25.
 
+For Spring MVC and WebFlux management-port checks, the exact declaration
+`management.server.port=${server.port}` can use an already captured literal `server.port` when host provenance and
+the captured effective value agree. This is one nonrecursive port reference, not general placeholder resolution:
+missing or uncertain dependencies, defaults, other keys, nested expressions and interpolation remain unknown.
+No live property provider is invoked.
+
 Here, "native" framework objects means the framework's own implementations, not necessarily a GraalVM executable.
 GraalVM additionally requires reflection metadata for the passive readers' private fields. BootUI supplies
 classpath-conditional field hints for supported Spring Security chains, filters, headers, matchers, provider

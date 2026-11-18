@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
@@ -141,15 +142,20 @@ class SecurityAuditAccuracyTests {
                             new FilterChainProxy(new DefaultSecurityFilterChain(
                                     AnyRequestMatcher.INSTANCE,
                                     new AuthorizationFilter(SingleResultAuthorizationManager.permitAll()))));
-            SecurityReport report = scanExisting(
-                    application.getDefaultListableBeanFactory(),
-                    new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "prometheus"));
-            assertThat(calls).hasValue(0);
-            assertThat(report.results())
-                    .filteredOn(result -> result.id().equals("SEC-ACT-003"))
-                    .hasSize(1)
-                    .allSatisfy(result ->
-                            assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("prometheus")));
+            for (String managementPort : List.of("9090", "${server.port}")) {
+                SecurityReport report = scanExisting(
+                        application.getDefaultListableBeanFactory(),
+                        new MockEnvironment()
+                                .withProperty("server.port", "9090")
+                                .withProperty("management.server.port", managementPort)
+                                .withProperty("management.endpoints.web.exposure.include", "prometheus"));
+                assertThat(calls).hasValue(0);
+                assertThat(report.results())
+                        .filteredOn(result -> result.id().equals("SEC-ACT-003"))
+                        .hasSize(1)
+                        .allSatisfy(result -> assertThat(result.sampleViolations())
+                                .anyMatch(detail -> detail.contains("prometheus")));
+            }
         }
     }
 
@@ -1341,6 +1347,111 @@ class SecurityAuditAccuracyTests {
         environment.setProperty("management.server.port", "-1");
         assertThat(SecurityActuatorObservation.observe(environment).managementDisabled())
                 .isTrue();
+    }
+
+    @Test
+    void capturedPortReferenceRetainsOrderedUnknownValueBarriersWithoutConvertingValues() {
+        AtomicInteger calls = new AtomicInteger();
+        Object unreadable = new Object() {
+            @Override
+            public String toString() {
+                calls.incrementAndGet();
+                throw new AssertionError("Application port value must not be converted");
+            }
+        };
+        var unknown = new MapPropertySource("unknown-port", Map.of("server.port", unreadable));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("server.port", "9090")
+                .withProperty("management.server.port", "${server.port}");
+        environment.getPropertySources().addLast(unknown);
+        assertThat(SecurityActuatorObservation.observe(environment).complete()).isTrue();
+        assertThat(SecurityActuatorObservation.observe(environment).separateManagementPort())
+                .isFalse();
+        environment.getPropertySources().addFirst(unknown);
+        environment
+                .getPropertySources()
+                .addFirst(new MapPropertySource("management-port", Map.of("management.server.port", "${server.port}")));
+        var blocked = SecurityActuatorObservation.observe(environment);
+        assertThat(blocked.complete()).isFalse();
+        assertThat(blocked.errors()).isEmpty();
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void capturedPortReferencePreservesHostDefaultFilteringAndRejectsDevToolsWinnerMismatch() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("server.port", "9090")
+                .withProperty("management.server.port", "${server.port}");
+        environment
+                .getPropertySources()
+                .addLast(new MapPropertySource(
+                        "defaultProperties",
+                        Map.of(
+                                "management.endpoints.web.exposure.include",
+                                BootUiActuatorDefaultsEnvironmentPostProcessor.REQUIRED_ENDPOINTS)));
+        var hostOnly = SecurityActuatorObservation.observe(environment);
+        assertThat(hostOnly.complete()).isTrue();
+        assertThat(hostOnly.exposedEndpoints()).containsExactly("health");
+        environment.getPropertySources().addFirst(new MapPropertySource("devtools", Map.of("server.port", "9191")));
+        var mismatch = SecurityActuatorObservation.observe(environment);
+        assertThat(mismatch.complete()).isFalse();
+        assertThat(mismatch.errors()).isEmpty();
+    }
+
+    @Test
+    void capturedPortReferenceStaysDetachedFromLaterValuesAndOpaqueProviders() {
+        AtomicInteger calls = new AtomicInteger();
+        Map<String, Object> values = new HashMap<>(Map.of(
+                "server.port", "9090",
+                "management.server.port", "${server.port}"));
+        MockEnvironment environment = new MockEnvironment();
+        environment.getPropertySources().addFirst(new MapPropertySource("ports", values));
+        Environment captured = SecurityEnvironmentSnapshot.capture(environment);
+        values.put("server.port", "${external.port}");
+        assertThat(SecurityActuatorObservation.observe(environment).complete()).isFalse();
+        environment.getPropertySources().addFirst(new org.springframework.core.env.PropertySource<>("external") {
+            @Override
+            public Object getProperty(String key) {
+                calls.incrementAndGet();
+                throw new AssertionError("Application property provider must not run");
+            }
+        });
+        var retained = SecurityActuatorObservation.observe(captured);
+        assertThat(retained.complete()).isTrue();
+        assertThat(retained.separateManagementPort()).isFalse();
+        assertThat(captured.getProperty("server.port")).isEqualTo("9090");
+        var current = SecurityActuatorObservation.observe(environment);
+        assertThat(current.complete()).isFalse();
+        assertThat(current.errors()).isEmpty();
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void capturedPortReferenceNeverInfersMissingDependenciesOrSupportsOtherExpressions() {
+        MockEnvironment missing = new MockEnvironment().withProperty("management.server.port", "${server.port}");
+        assertThat(SecurityActuatorObservation.observe(missing).complete()).isFalse();
+        for (String unsupported : List.of(
+                "${server.port:8080}",
+                "${SERVER_PORT}",
+                "${other.port}",
+                "${server.port}${server.port}",
+                "${${server.port}}",
+                "prefix${server.port}",
+                "\\${server.port}")) {
+            var observed = SecurityActuatorObservation.observe(new MockEnvironment()
+                    .withProperty("server.port", "9090")
+                    .withProperty("management.server.port", unsupported));
+            assertThat(observed.complete()).as(unsupported).isFalse();
+            assertThat(observed.errors()).isEmpty();
+        }
+        for (String unsupportedDependency :
+                List.of("${server.port}", "${management.server.port}", "${external:9090}")) {
+            var observed = SecurityActuatorObservation.observe(new MockEnvironment()
+                    .withProperty("server.port", unsupportedDependency)
+                    .withProperty("management.server.port", "${server.port}"));
+            assertThat(observed.complete()).as(unsupportedDependency).isFalse();
+            assertThat(observed.errors()).isEmpty();
+        }
     }
 
     @Test

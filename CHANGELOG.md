@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Captured management-port references** support `management.server.port=${server.port}` only when the matching
+  literal value was already captured with consistent provenance. Other expressions and uncertain sources remain
+  unassessed ([Security checks](docs/SECURITY-CHECKS.md)).
 - **Active Hibernate grades** follow the remaining known findings after a per-finding dismissal when retention is
   complete. Raw snapshots, all-active grading, identities and strict CI suppression guards are unchanged; incomplete
   retention remains conservative ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
