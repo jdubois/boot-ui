@@ -202,18 +202,30 @@ Beyond the checks, a scan produces four things.
 
 ### Dependency survey
 
-With **Include dependencies** on, which is the default, the scan reports which third-party JARs already ship bundled
-reachability metadata under `META-INF/native-image/`.
+With **Include dependencies** on, which is the default, the scan inventories dependency hint sources: bundled
+reachability metadata under `META-INF/native-image/`, Spring AOT factories, or a matching repository entry.
 
 BootUI recognizes the unified `reachability-metadata.json` name and the canonical legacy files — `reflect-config.json`,
 `resource-config.json`, `proxy-config.json`, `serialization-config.json`, `jni-config.json`, and
 `predefined-classes-config.json`. Arbitrary JSON does not count. A JAR carrying only `native-image.properties` is
 reported as bundling build arguments, not reachability metadata.
 
+The exact `META-INF/spring/aot.factories` resource is a separate **Spring AOT factories** source
+(`shipsSpringAotFactories` in the dependency DTO), never counted as bundled reachability JSON (`shipsMetadata`).
+Its presence only identifies a contributor-declaration resource: BootUI does not load the contributors, validate their
+declarations, or establish that they run or provide the hints this application needs. Both sources are reported when a
+library bundles both. Evidence comes from the inspected library itself, including its own nested JAR entries.
+
 The survey opens classpath JARs only, stops before opening nested libraries beyond its remaining 500-JAR budget, and
-warns when that cap is hit. A library without bundled metadata may need your own configuration, repository metadata, or
-the tracing agent. Repository coverage uses an exact metadata or tested-version match first, then the first valid Java
-regular expression in the repository row's `default-for` field.
+warns when that cap is hit. JARs with bundled reachability JSON or Spring AOT factories need no external lookup for this
+source inventory and consume no repository-lookup budget. Build arguments alone and unrelated resources do not skip
+lookup. For JARs without either bundled source, the configured, bounded repository lookup uses an exact metadata or
+tested-version match first, then the first valid Java regular expression in the repository row's `default-for` field.
+Existing repository cache, cancellation, disabled/error states, and lookup limits still apply.
+
+**None found is not itself a defect.** A library may need no hints, or application/framework contributions may supply
+them. Conversely, a bundled file, contributor resource, or repository match does not prove metadata validity, build
+inclusion, complete hints, or native-image compatibility. Validate relevant workloads in an actual native build.
 
 ::: details Why one classpath entry can expand into several dependencies
 When the application runs as a Spring Boot fat jar, `java.class.path` contains only the outer launcher jar, because
@@ -280,7 +292,7 @@ not need to copy BootUI-specific hints into their own configuration.
   or an actual native-image build**. Static analysis cannot see reflection driven by runtime data, so the checks are
   heuristic review prompts, and the generated metadata is a scaffold to review and complete — not a finished file.
 - It does not analyze third-party dependency bytecode for readiness; for dependencies it only reports whether classpath
-  JARs ship bundled reachability metadata JSON or native-image build arguments.
+  JARs ship bundled reachability metadata JSON, Spring AOT factories, or native-image build arguments.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
 - Spring AOT covers supported framework contracts, not every reflective operation in a Spring-managed bean. Compare
   findings with the actual generated/custom/dependency hints before deciding that they are already covered.

@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **GraalVM dependency hint sources** distinguish bundled JSON, Spring AOT contributor declarations and repository
+  matches. Bundled sources avoid redundant lookups without claiming native-image compatibility
+  ([GraalVM readiness](docs/GRAALVM-READINESS-CHECKS.md#dependency-survey)).
 - **Spring health-probe defaults** honor native endpoint access settings and warn that development-time Actuator
   does not prove deployment dependencies or endpoint reachability
   ([JVM tuning](docs/JVM-TUNING-CHECKS.md#platform-behavior-and-limitations)).

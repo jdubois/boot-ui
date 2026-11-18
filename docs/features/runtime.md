@@ -270,12 +270,18 @@ The checks are heuristic review aids that complement the GraalVM tracing agent a
 This panel is unavailable when the application already runs as a native image, and not applicable on Quarkus, which
 compiles native images itself.
 
-### Dependency reachability metadata
+### Dependency hint sources
 
 With **Include dependencies** on (the default), the panel also reports which third-party libraries already ship
-reachability metadata under `META-INF/native-image/`. For libraries that do not, it consults Oracle's
+reachability metadata under `META-INF/native-image/` or a Spring AOT contributor-declaration resource at
+`META-INF/spring/aot.factories`. These are distinct sources; Spring AOT factories are not counted as bundled JSON.
+For libraries with neither bundled source, it consults Oracle's
 [reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) and reports the detected
-version as `covered`, `partial`, or `none`, with links to the matching entry.
+version match or another available version, with links to the matching entry. Bundled sources skip that lookup and
+consume no repository-lookup budget.
+
+**None found is not itself a defect**, and finding a source does not prove working or complete native-image hints.
+The inventory does not execute AOT contributors or validate native compatibility.
 
 That lookup is the panel's only outbound network call. It is user-initiated and time-bounded, can be aborted from the
 panel, and is disabled with `bootui.graalvm.repository-lookup-enabled=false`.
