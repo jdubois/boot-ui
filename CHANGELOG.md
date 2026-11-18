@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **CRaC resource inventory** distinguishes datasource observations from proven pools and recognizes additional exact
+  Spring-managed factories without invoking clients or certifying checkpoint safety
+  ([CRaC checks](docs/CRAC-READINESS-CHECKS.md#crac-pool-001---non-hikari-resources-need-verified-checkpoint-lifecycle-support)).
 - **Runtime Insights write classification** recognizes leading-comment DML and `REPLACE` consistently in safe-method,
   split-transaction and after-completion-listener observations, without treating commented SELECTs as writes or
   changing captured execution/transaction provenance. CTE-headed writes and procedure calls remain outside the

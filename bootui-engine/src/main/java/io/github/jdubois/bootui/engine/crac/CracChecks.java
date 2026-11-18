@@ -905,8 +905,8 @@ final class TlsMaterialFieldCheck implements CracCheck {
 }
 
 /**
- * Flags non-Hikari connection pools and remote clients that need library-specific checkpoint lifecycle
- * verification.
+ * Flags non-Hikari connection pools, remote clients and datasource observations that need library-specific
+ * checkpoint lifecycle verification.
  *
  * <p>Unlike the other checks this one reads the live {@link CracRuntimeInventory} rather than the
  * imported application bytecode, because pools are contributed by Spring Boot auto-configuration and
@@ -921,10 +921,10 @@ final class ConnectionPoolCheck implements CracCheck {
 
     private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
             "CRAC-POOL-001",
-            "Non-Hikari pools need verified checkpoint lifecycle support",
+            "Non-Hikari resources need verified checkpoint lifecycle support",
             CracCategory.POOLS,
             "HIGH",
-            "Reviews non-Hikari pool and remote-client metadata without proving an open connection. Known existing Spring-managed factories with documented lifecycle handling are distinguished from generic interfaces and unknown ownership. Their on-demand stop/restart support is not a guarantee for early initialization before the original onRefresh checkpoint.",
+            "Reviews non-Hikari pool and remote-client metadata without proving an open connection. Embedded, non-pooling, delegating and unknown datasources remain separate resource observations, not proof of a pool. Known existing Spring-managed factories with documented lifecycle handling are distinguished from generic interfaces and unknown ownership. Their on-demand stop/restart support is not a guarantee for early initialization before the original onRefresh checkpoint.",
             "Verify ownership, initialization timing and the exact library version. Preserve documented Spring-managed lifecycle handling instead of wrapping or closing it twice. Add explicit quiescence/recreation only for resources not already managed. Service availability requirements depend on startup and restore behavior. Hikari is assessed separately by CRAC-POOL-004.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
@@ -937,6 +937,7 @@ final class ConnectionPoolCheck implements CracCheck {
     public CracFindingDto evaluate(CracContext context) {
         try {
             List<String> poolBeans = new ArrayList<>(context.runtime().connectionPoolBeans());
+            poolBeans.addAll(context.runtime().dataSourceObservations());
             boolean knownManagedOnly = poolBeans.isEmpty();
             if (!context.runtime().applicationRunning() || !context.runtime().cracApiPresent()) {
                 context.runtime()

@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.crac;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.zaxxer.hikari.HikariDataSource;
@@ -11,10 +13,13 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import liquibase.integration.spring.SpringLiquibase;
+import org.h2.jdbcx.JdbcConnectionPool;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.aop.TargetSource;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.asm.ClassWriter;
+import org.springframework.asm.Opcodes;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.jdbc.HikariCheckpointRestoreLifecycle;
@@ -33,7 +38,12 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
+import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jms.connection.SingleConnectionFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
@@ -58,11 +68,11 @@ class CracRuntimeInventoryCollectorTests {
     }
 
     @Test
-    void remainsClassloadingSafeWhenHikariIsAbsentFromTheApplicationClassLoader() {
+    void remainsClassloadingSafeWhenHikariAndSpringJdbcAreAbsentFromTheApplicationClassLoader() {
         ClassLoader noHikari = new ClassLoader(getClass().getClassLoader()) {
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-                if (name.startsWith("com.zaxxer.hikari.")) {
+                if (name.startsWith("com.zaxxer.hikari.") || name.startsWith("org.springframework.jdbc.")) {
                     throw new ClassNotFoundException(name);
                 }
                 return super.loadClass(name, resolve);
@@ -72,11 +82,17 @@ class CracRuntimeInventoryCollectorTests {
             context.setClassLoader(noHikari);
             context.register(EmptyConfig.class);
             context.refresh();
+            context.getBeanFactory().registerSingleton("unknownDataSource", mock(DataSource.class));
 
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
 
             assertThat(inventory.connectionPoolBeans()).isEmpty();
             assertThat(inventory.hikariPoolIssues()).isEmpty();
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.dataSourceObservations())
+                    .singleElement()
+                    .asString()
+                    .contains("unknownDataSource", "pooling is unverified");
         }
     }
 
@@ -115,15 +131,108 @@ class CracRuntimeInventoryCollectorTests {
 
     @Test
     void collectsNonHikariPoolBeans() {
-        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(PoolConfig.class)) {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            JdbcConnectionPool pool = spy(JdbcConnectionPool.create("jdbc:h2:mem:crac", "sa", ""));
+            context.getBeanFactory().registerSingleton("dataSource", pool);
+
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
 
-            assertThat(inventory.connectionPoolBeans())
-                    .singleElement()
-                    .asString()
-                    .contains("dataSource")
-                    .contains("DataSource");
+            assertThat(inventory.connectionPoolBeans()).containsExactly("dataSource : org.h2.jdbcx.JdbcConnectionPool");
             assertThat(inventory.hikariPoolIssues()).isEmpty();
+            assertThat(inventory.dataSourceObservations()).isEmpty();
+            verifyNoInteractions(pool);
+        }
+    }
+
+    @Test
+    void consumerFactoriesAreNotConnectionPools() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            DefaultKafkaConsumerFactory<Object, Object> factory = spy(new DefaultKafkaConsumerFactory<>(Map.of()));
+            context.getBeanFactory().registerSingleton("consumers", factory);
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.connectionPoolBeans()).isEmpty();
+            assertThat(inventory.managedConnectionPoolBeans()).isEmpty();
+            verifyNoInteractions(factory);
+        }
+    }
+
+    @Test
+    void recognizesTheExactJmsCachingFactoryWithoutInvokingClientOrLifecycleMethods() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            jakarta.jms.ConnectionFactory target = mock(jakarta.jms.ConnectionFactory.class);
+            org.springframework.jms.connection.CachingConnectionFactory factory =
+                    spy(new org.springframework.jms.connection.CachingConnectionFactory(target));
+            context.getBeanFactory().registerSingleton("cachedJms", factory);
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.managedConnectionPoolBeans())
+                    .containsExactly("cachedJms : org.springframework.jms.connection.CachingConnectionFactory");
+            assertThat(inventory.connectionPoolBeans()).isEmpty();
+            verifyNoInteractions(factory, target);
+        }
+    }
+
+    @Test
+    void knownFactoryNamesWithoutTheSpringLifecycleContractRemainUnverified() throws ClassNotFoundException {
+        for (String name : List.of(
+                "org.springframework.data.redis.connection.jedis.JedisConnectionFactory",
+                "org.springframework.jms.connection.CachingConnectionFactory")) {
+            ClassWriter writer = new ClassWriter(0);
+            writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, name.replace('.', '/'), null, "java/lang/Object", null);
+            writer.visitEnd();
+            Class<?> nonLifecycleType = new ClassLoader(null) {
+                @Override
+                protected Class<?> findClass(String requested) throws ClassNotFoundException {
+                    if (!name.equals(requested)) {
+                        throw new ClassNotFoundException(requested);
+                    }
+                    byte[] bytes = writer.toByteArray();
+                    return defineClass(requested, bytes, 0, bytes.length);
+                }
+            }.loadClass(name);
+
+            assertThat(CracRuntimeInventoryCollector.isKnownManagedType(nonLifecycleType))
+                    .as(name + " without Lifecycle")
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void distinguishesEmbeddedDelegatingAndUnknownDataSourcesFromPoolEvidence() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(EmptyConfig.class)) {
+            EmbeddedDatabase embedded = mock(EmbeddedDatabase.class);
+            DataSource unknown = mock(DataSource.class);
+            DelegatingDataSource delegating = spy(new DelegatingDataSource(unknown));
+            LazyConnectionDataSourceProxy lazy = new LazyConnectionDataSourceProxy();
+            lazy.setTargetDataSource(unknown);
+            context.getBeanFactory().registerSingleton("embedded", embedded);
+            context.getBeanFactory().registerSingleton("delegating", delegating);
+            context.getBeanFactory().registerSingleton("lazy", lazy);
+            context.getBeanFactory().registerSingleton("unknown", unknown);
+            context.getBeanFactory().registerSingleton("unpooled", new DriverManagerDataSource());
+            context.getBeanFactory().registerSingleton("pool", new HikariDataSource());
+            org.mockito.Mockito.clearInvocations(delegating, unknown);
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.available()).isTrue();
+            assertThat(inventory.connectionPoolBeans()).isEmpty();
+            assertThat(inventory.managedConnectionPoolBeans()).isEmpty();
+            assertThat(inventory.hikariPoolIssues()).singleElement().asString().startsWith("pool :");
+            assertThat(inventory.dataSourceObservations())
+                    .hasSize(5)
+                    .anyMatch(value -> value.startsWith("embedded :") && value.contains("embedded DataSource"))
+                    .anyMatch(value -> value.startsWith("delegating :") && value.contains("delegating DataSource"))
+                    .anyMatch(value -> value.startsWith("lazy :") && value.contains("delegating DataSource"))
+                    .anyMatch(value -> value.startsWith("unpooled :") && value.contains("non-pooling DataSource"))
+                    .anyMatch(value -> value.startsWith("unknown :") && value.contains("pooling is unverified"))
+                    .allMatch(value -> value.contains("checkpoint handling is unverified"));
+            verifyNoInteractions(embedded, unknown, delegating);
         }
     }
 
@@ -347,10 +456,11 @@ class CracRuntimeInventoryCollectorTests {
             CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
 
             assertThat(targetRequested).isFalse();
-            assertThat(inventory.connectionPoolBeans())
+            assertThat(inventory.dataSourceObservations())
                     .singleElement()
                     .asString()
-                    .contains("dataSource");
+                    .contains("dataSource", "pooling is unverified", "checkpoint handling is unverified");
+            assertThat(inventory.connectionPoolBeans()).isEmpty();
             assertThat(inventory.hikariPoolIssues()).isEmpty();
         }
     }
@@ -593,6 +703,12 @@ class CracRuntimeInventoryCollectorTests {
                 getClass().getClassLoader());
         assertThat(CracRuntimeInventoryCollector.isKnownManagedType(lettuceFactory))
                 .isTrue();
+        Class<?> jedisFactory = Class.forName(
+                "org.springframework.data.redis.connection.jedis.JedisConnectionFactory",
+                false,
+                getClass().getClassLoader());
+        assertThat(CracRuntimeInventoryCollector.isKnownManagedType(jedisFactory))
+                .isTrue();
         assertThat(CracRuntimeInventoryCollector.isKnownManagedType(CachingConnectionFactory.class))
                 .isTrue();
         assertThat(CracRuntimeInventoryCollector.isKnownManagedType(DefaultKafkaProducerFactory.class))
@@ -735,15 +851,6 @@ class CracRuntimeInventoryCollectorTests {
 
     @Configuration
     static class EmptyConfig {}
-
-    @Configuration
-    static class PoolConfig {
-
-        @Bean
-        DataSource dataSource() {
-            return mock(DataSource.class);
-        }
-    }
 
     @Configuration
     static class NoOpCacheConfig {

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
+import javax.sql.DataSource;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
@@ -37,7 +38,6 @@ public final class CracRuntimeInventoryCollector {
             "org.springframework.data.redis.connection.RedisConnectionFactory",
             "org.springframework.amqp.rabbit.connection.ConnectionFactory",
             "org.springframework.kafka.core.ProducerFactory",
-            "org.springframework.kafka.core.ConsumerFactory",
             "com.mongodb.client.MongoClient",
             "com.mongodb.reactivestreams.client.MongoClient",
             "com.datastax.oss.driver.api.core.CqlSession",
@@ -52,9 +52,23 @@ public final class CracRuntimeInventoryCollector {
     // the documented stop/restart behavior. No optional client API is linked here.
     private static final Set<String> MANAGED_POOL_TYPE_NAMES = Set.of(
             "org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory",
+            "org.springframework.data.redis.connection.jedis.JedisConnectionFactory",
             "org.springframework.amqp.rabbit.connection.CachingConnectionFactory",
             "org.springframework.kafka.core.DefaultKafkaProducerFactory",
-            "org.springframework.jms.connection.SingleConnectionFactory");
+            "org.springframework.jms.connection.SingleConnectionFactory",
+            "org.springframework.jms.connection.CachingConnectionFactory");
+
+    private static final Set<String> JDBC_POOL_TYPE_NAMES = Set.of(
+            "org.apache.tomcat.jdbc.pool.DataSource",
+            "org.apache.commons.dbcp2.BasicDataSource",
+            "com.alibaba.druid.pool.DruidDataSource",
+            "oracle.ucp.jdbc.PoolDataSourceImpl",
+            "org.h2.jdbcx.JdbcConnectionPool");
+
+    private static final Set<String> NON_POOLING_DATA_SOURCE_TYPE_NAMES = Set.of(
+            "org.springframework.jdbc.datasource.DriverManagerDataSource",
+            "org.springframework.jdbc.datasource.SimpleDriverDataSource",
+            "org.springframework.jdbc.datasource.SingleConnectionDataSource");
 
     private static final List<String> PARTIAL_TASK_LIFECYCLE_TYPE_NAMES = List.of(
             "org.springframework.core.task.SimpleAsyncTaskExecutor",
@@ -131,7 +145,13 @@ public final class CracRuntimeInventoryCollector {
                 .toList();
         List<String> managedPools = new ArrayList<>();
         List<String> unverifiedPools = new ArrayList<>();
+        List<String> dataSourceObservations = new ArrayList<>();
         for (BeanObservation pool : nonHikariPools) {
+            String dataSourceObservation = dataSourceObservation(pool, classLoader);
+            if (dataSourceObservation != null) {
+                dataSourceObservations.add(dataSourceObservation);
+                continue;
+            }
             Object singleton = existingSingleton(applicationContext, pool.name());
             boolean managed = singleton != null && isKnownManagedType(singleton.getClass());
             (managed ? managedPools : unverifiedPools).add(pool.display());
@@ -186,7 +206,8 @@ public final class CracRuntimeInventoryCollector {
                 managedPools,
                 true,
                 warnings,
-                startupDatabaseAccess);
+                startupDatabaseAccess,
+                dataSourceObservations);
     }
 
     /**
@@ -327,6 +348,32 @@ public final class CracRuntimeInventoryCollector {
 
     static boolean isKnownManagedType(Class<?> type) {
         return MANAGED_POOL_TYPE_NAMES.contains(type.getName()) && Lifecycle.class.isAssignableFrom(type);
+    }
+
+    private static String dataSourceObservation(BeanObservation observation, ClassLoader classLoader) {
+        Class<?> type = observation.type();
+        if (!DataSource.class.isAssignableFrom(type) || JDBC_POOL_TYPE_NAMES.contains(type.getName())) {
+            return null;
+        }
+        String kind;
+        if (isAssignableTo(type, "org.springframework.jdbc.datasource.embedded.EmbeddedDatabase", classLoader)) {
+            kind = "embedded DataSource";
+        } else if (isAssignableTo(type, "org.springframework.jdbc.datasource.DelegatingDataSource", classLoader)) {
+            kind = "delegating DataSource; target pooling is unverified";
+        } else if (NON_POOLING_DATA_SOURCE_TYPE_NAMES.contains(type.getName())) {
+            kind = "non-pooling DataSource";
+        } else {
+            kind = "DataSource; pooling is unverified";
+        }
+        return observation.display() + " - " + kind + "; checkpoint handling is unverified";
+    }
+
+    private static boolean isAssignableTo(Class<?> type, String typeName, ClassLoader classLoader) {
+        try {
+            return ClassUtils.forName(typeName, classLoader).isAssignableFrom(type);
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
     }
 
     private static boolean isHikariPool(

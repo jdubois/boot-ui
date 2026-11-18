@@ -148,15 +148,26 @@ deployed JDK's specific descriptor policy; never apply a blanket ignore policy.
 limits as FILE-001. Verify lifecycle ownership and close/recreate only where needed; a constructor does not establish
 an active connection at checkpoint.
 
-### CRAC-POOL-001 - Non-Hikari pools need verified checkpoint lifecycle support
+<a id="crac-pool-001---non-hikari-pools-need-verified-checkpoint-lifecycle-support"></a>
 
-**HIGH** for unverified generic pools/clients; **MEDIUM** when only known managed factories need startup/API review.
-The bounded inventory covers DataSource, R2DBC, Redis, RabbitMQ, Kafka, MongoDB, Cassandra, Elasticsearch and JMS.
-Specific existing Spring-managed Lettuce, Caching Rabbit, Default Kafka producer and JMS SingleConnectionFactory
-implementations have documented handling of their owned resources. A running lifecycle with the compatibility API
+### CRAC-POOL-001 - Non-Hikari resources need verified checkpoint lifecycle support
+
+**HIGH** for unverified generic pools, clients and datasource observations; **MEDIUM** when only known managed factories
+need startup/API review.
+The bounded inventory covers JDBC pools, R2DBC, Redis, RabbitMQ, Kafka producer factories, MongoDB, Cassandra,
+Elasticsearch and JMS. Kafka `ConsumerFactory` is a consumer-creation strategy, not pool evidence. Embedded,
+non-pooling, delegating and unknown JDBC datasources are reported separately as resource observations, not asserted
+to be pools; their checkpoint handling remains unverified. Unknown wrapper targets are never resolved for inspection.
+Specific existing Spring-managed Lettuce,
+[Jedis](https://github.com/spring-projects/spring-data-redis/blob/4.1.2/src/main/java/org/springframework/data/redis/connection/jedis/JedisConnectionFactory.java),
+Caching Rabbit, Default Kafka producer and JMS `SingleConnectionFactory` /
+[`CachingConnectionFactory`](https://github.com/spring-projects/spring-framework/blob/v7.0.10/spring-jms/src/main/java/org/springframework/jms/connection/CachingConnectionFactory.java)
+implementations have documented handling of their owned resources, credited only for the exact implementation with
+Spring's `Lifecycle` contract. A running lifecycle with the compatibility API
 receives that credit, but generic interfaces, unknown wrappers/subclasses, externally shared resources and original
 startup initialization do not become universally safe. Do not wrap/close managed resources twice or require every
-backing service to be reachable at checkpoint regardless of initialization behavior.
+backing service to be reachable at checkpoint regardless of initialization behavior. Neither managed classification nor
+ordinary-JDK inventory tests prove successful checkpoint/restore, resource pairing, or global resource coverage.
 
 ### CRAC-POOL-002 - Transport-owning client fields need checkpoint lifecycle review
 

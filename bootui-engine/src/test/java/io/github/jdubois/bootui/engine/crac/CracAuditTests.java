@@ -397,6 +397,34 @@ class CracAuditTests {
         }
     }
 
+    @Test
+    void datasourceMetadataRemainsAResourceReviewWithoutClaimingAPoolOrGlobalCoverage() {
+        String observation =
+                "embedded : example.EmbeddedDatabase - embedded DataSource; " + "checkpoint handling is unverified";
+        CracRuntimeInventory runtime = new CracRuntimeInventory(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false,
+                false,
+                true,
+                List.of("managedJms"),
+                true,
+                List.of(),
+                List.of(),
+                List.of(observation));
+
+        CracFindingDto result = finding(scan(runtime, SuppliedDate.class), "CRAC-POOL-001");
+
+        assertThat(result.status()).isEqualTo("REVIEW");
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.occurrenceCount()).isEqualTo(1);
+        assertThat(result.sampleOccurrences()).containsExactly(observation);
+        assertThat(result.name()).contains("resources");
+    }
+
     private static CracScanResult scan(CracRuntimeInventory runtime, Class<?>... classes) {
         return new CracReadinessScanner(
                         () -> List.of("example"),
