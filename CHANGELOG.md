@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Actuator endpoint identity** survives root and remapped MVC paths through bounded, passive native metadata.
+  Additional health paths retain their proven health identity and actual evidence URLs; endpoint presence alone
+  does not establish exposure ([Pentesting checks](docs/PENTEST-CHECKS.md)).
 - **Gradle cache coordinates** recognize eligible local main JARs without searching caches or starting scans.
   Shipped SBOM, descriptor and identified classpath matches retain precedence; newly identified cache archives do
   not rescue conflicting excluded-SBOM coordinates. Path-derived coordinates remain unassessed, not publication

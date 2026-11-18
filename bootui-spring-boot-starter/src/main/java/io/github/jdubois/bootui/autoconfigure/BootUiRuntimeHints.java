@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityRuntimeHints;
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -101,6 +102,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
 
         registerDtoBindingHints(hints, classLoader);
         new SecurityRuntimeHints().registerHints(hints, classLoader);
+        new ActuatorRuntimeHints().registerHints(hints, classLoader);
 
         // Heap Dump panel: HeapDumpService reflectively calls HotSpotDiagnosticMXBean#dumpHeap.
         hints.reflection()

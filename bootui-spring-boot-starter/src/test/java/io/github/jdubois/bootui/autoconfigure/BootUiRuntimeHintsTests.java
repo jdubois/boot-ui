@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.StartupStepDto;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.TypeReference;
@@ -167,6 +168,92 @@ class BootUiRuntimeHintsTests {
                         .onType(TypeReference.of("org.springframework.core.env.AbstractEnvironment"))
                         .withMemberCategory(MemberCategory.ACCESS_DECLARED_FIELDS))
                 .accepts(filteredHints);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping, endpointMapping",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AdditionalHealthEndpointPathsWebMvcHandlerMapping, healthEndpoint",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping, endpoints",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$OperationHandler, operation",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$ServletWebOperationAdapter, operation",
+        "org.springframework.boot.actuate.endpoint.web.EndpointMapping, path",
+        "org.springframework.boot.actuate.endpoint.annotation.EndpointDiscoverer, endpoints",
+        "org.springframework.boot.actuate.endpoint.annotation.AbstractDiscoveredEndpoint, discoverer",
+        "org.springframework.boot.actuate.endpoint.AbstractExposableEndpoint, id",
+        "org.springframework.boot.actuate.endpoint.AbstractExposableEndpoint, operations",
+        "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebEndpoint, rootPath",
+        "org.springframework.boot.actuate.endpoint.EndpointId, value",
+        "org.springframework.web.method.HandlerMethod, bean"
+    })
+    void registersEveryPassiveActuatorIdentityField(String type, String name) throws Exception {
+        var field = Class.forName(type).getDeclaredField(name);
+        RuntimeHints actuatorHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(actuatorHints, getClass().getClassLoader());
+        assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(field)).accepts(actuatorHints);
+        assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(field)).accepts(hints);
+        RuntimeHints methodOnly = new RuntimeHints();
+        methodOnly.reflection().registerType(field.getDeclaringClass(), MemberCategory.INVOKE_PUBLIC_METHODS);
+        assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(field)).rejects(methodOnly);
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AdditionalHealthEndpointPathsWebMvcHandlerMapping",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$WebMvcEndpointHandlerMethod",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping$WebMvcLinksHandler",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$OperationHandler",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$ServletWebOperationAdapter",
+                "org.springframework.boot.actuate.endpoint.web.EndpointMapping",
+                "org.springframework.boot.actuate.endpoint.annotation.EndpointDiscoverer",
+                "org.springframework.boot.actuate.endpoint.web.annotation.WebEndpointDiscoverer",
+                "org.springframework.boot.actuate.endpoint.annotation.AbstractDiscoveredEndpoint",
+                "org.springframework.boot.actuate.endpoint.AbstractExposableEndpoint",
+                "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebEndpoint",
+                "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebOperation",
+                "org.springframework.boot.actuate.endpoint.EndpointId",
+                "org.springframework.web.method.HandlerMethod"
+            })
+    void registersEveryTypeResolvedByThePassiveActuatorReader(String type) {
+        RuntimeHints actuatorHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(actuatorHints, getClass().getClassLoader());
+        assertThat(RuntimeHintsPredicates.reflection().onType(TypeReference.of(type)))
+                .as(type)
+                .accepts(actuatorHints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(type))
+                        .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
+                .rejects(actuatorHints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(type))
+                        .withMemberCategory(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS))
+                .rejects(actuatorHints);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"org.springframework.boot.webmvc", "org.springframework.boot.actuate"})
+    void actuatorTypeLookupsRemainOptionalWhenEitherFrameworkPackageIsAbsent(String absentPackage) {
+        RuntimeHints filteredHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(filteredHints, new FilteredClassLoader(absentPackage));
+        assertThat(filteredHints.reflection().typeHints())
+                .noneMatch(hint -> hint.getType().getName().startsWith(absentPackage));
+    }
+
+    @Test
+    void actuatorFieldHintsRemainOptionalWithoutActuatorOrMvc() {
+        RuntimeHints filteredHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(
+                        filteredHints,
+                        new FilteredClassLoader("org.springframework.boot.actuate", "org.springframework.boot.webmvc"));
+        assertThat(filteredHints.reflection().typeHints())
+                .noneMatch(hint -> hint.getType().getName().startsWith("org.springframework.boot."));
     }
 
     @Test
