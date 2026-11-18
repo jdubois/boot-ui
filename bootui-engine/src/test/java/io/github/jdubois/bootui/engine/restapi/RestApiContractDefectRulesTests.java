@@ -389,7 +389,7 @@ class RestApiContractDefectRulesTests {
                 .contains("BrokenOrderRequest.shippingAddress")
                 .contains("BrokenOrderRequest.items")
                 .contains("BrokenOrderRequest.keyOnlyMap")
-                .contains("BrokenOrderRequest.customer")
+                .doesNotContain("BrokenOrderRequest.customer")
                 .doesNotContain("metadata", "cycle", "#createValid");
     }
 

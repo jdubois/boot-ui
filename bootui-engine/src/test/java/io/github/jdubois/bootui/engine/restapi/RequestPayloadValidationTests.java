@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.restapi;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.ArchConfiguration;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
@@ -32,6 +33,64 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 class RequestPayloadValidationTests {
+    @Test
+    void unknownNestedConstraintMetadataRetainsTheHandlerButMakesExtractionIncomplete() {
+        ArchConfiguration.withThreadLocalScope(configuration -> {
+            configuration.setResolveMissingDependenciesFromClassPath(false);
+            for (boolean known : List.of(false, true)) {
+                var types = new java.util.ArrayList<Class<?>>(List.of(
+                        UnknownNestedBody.class,
+                        UnknownNestedRoot.class,
+                        RestController.class,
+                        Controller.class,
+                        Component.class,
+                        PostMapping.class,
+                        RequestMapping.class,
+                        AliasFor.class,
+                        RequestBody.class,
+                        Valid.class));
+                if (known) types.add(Unconstrained.class);
+                var classes = new ClassFileImporter()
+                        .importClasses(types.toArray(Class<?>[]::new))
+                        .that(JavaClass.Predicates.resideInAPackage(getClass().getPackageName()));
+                var model = RestApiHandlerModelBuilder.build(classes);
+                assertThat(model.handlers()).hasSize(1);
+                assertThat(model.incomplete()).isEqualTo(!known);
+                var report = new RestApiScanner(
+                                () -> List.of(getClass().getPackageName()),
+                                packages -> classes,
+                                () -> false,
+                                () -> false,
+                                Clock.systemUTC(),
+                                List.of(new NestedDtoValidationCascadeRule()))
+                        .scan();
+                assertThat(report.violationsFound()).isZero();
+                assertThat(report.scan().status()).isEqualTo(known ? "SCANNED" : "PARTIAL");
+                assertThat(report.evidence().coverageComplete()).isEqualTo(known);
+            }
+            return null;
+        });
+    }
+
+    @Test
+    void nestedCascadeReviewsRequireReachableConstraintsRatherThanCascadeMarkers() {
+        RestApiContext context = context(
+                NestedCascadeBodies.class,
+                EmptyNestedRoot.class,
+                DeadEndNestedRoot.class,
+                CyclicNestedRoot.class,
+                ConstrainedNestedRoot.class,
+                CascadedPlain.class,
+                Unconstrained.class,
+                Uncascaded.class,
+                ConstraintCycle.class,
+                Cascaded.class,
+                Constrained.class);
+        var result = new NestedDtoValidationCascadeRule().evaluate(context);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations()).singleElement().asString().contains("#constrained");
+    }
+
     @Test
     void transientConstraintsAndCascadesParticipateWhileStaticFieldsDoNot() {
         RestApiContext context = context(
@@ -414,6 +473,21 @@ class RequestPayloadValidationTests {
 
     record Uncascaded(Constrained child) {}
 
+    record EmptyNestedRoot(CascadedPlain child) {}
+
+    record DeadEndNestedRoot(Uncascaded child) {}
+
+    record CyclicNestedRoot(ConstraintCycle child) {}
+
+    record ConstrainedNestedRoot(Cascaded child) {}
+
+    record UnknownNestedRoot(Unconstrained child) {}
+
+    static class ConstraintCycle {
+        @Valid
+        ConstraintCycle child;
+    }
+
     record CascadedMapKey(Map<@Valid Constrained, String> children) {}
 
     @Entity
@@ -465,6 +539,27 @@ class RequestPayloadValidationTests {
         @jakarta.ws.rs.POST
         @jakarta.ws.rs.Path("/valid")
         public void jaxValid(@Valid Constrained body) {}
+    }
+
+    @RestController
+    static class UnknownNestedBody {
+        @PostMapping("/nested-unknown")
+        void unknown(@Valid @RequestBody UnknownNestedRoot body) {}
+    }
+
+    @RestController
+    static class NestedCascadeBodies {
+        @PostMapping("/nested-empty")
+        void empty(@Valid @RequestBody EmptyNestedRoot body) {}
+
+        @PostMapping("/nested-dead-end")
+        void unreachable(@Valid @RequestBody DeadEndNestedRoot body) {}
+
+        @PostMapping("/nested-cycle")
+        void cycle(@Valid @RequestBody CyclicNestedRoot body) {}
+
+        @PostMapping("/nested-constrained")
+        void constrained(@Valid @RequestBody ConstrainedNestedRoot body) {}
     }
 
     @RestController

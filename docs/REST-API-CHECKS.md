@@ -529,10 +529,14 @@ dismissal ID remains reserved.
 
 - **Severity**: HIGH
 - **Detects**: A request body parameter carries `@Valid` or `@Validated`, and its payload DTO has a non-static field
-  whose type (or `Collection`, `Map`, `Optional`, or array element type) in the application's base packages declares
-  `jakarta.validation.constraints.*` (or `@Valid`) while the parent field, accessor, and container type argument omit
-  `@Valid` (up to bounded depth 3). Jakarta Bean Validation silently skips constraints on nested objects unless `@Valid`
-  cascades into them.
+  whose type (or `Collection`, `Map`, `Optional`, or array element type) in the application's base packages has
+  positively observed Bean Validation constraints reachable through its own `@Valid` cascades, while the parent field,
+  accessor, and container type argument omit `@Valid` (up to bounded depth 3). Bare cascade markers, constraint-free
+  cycles and constraints behind another missing cascade do not establish this finding. Unavailable constraint
+  metadata leaves extraction incomplete rather than proving absence. Jakarta Bean Validation silently skips
+  constraints on nested objects unless `@Valid` cascades into them.
+- **Limit**: this does not diagnose a whole chain of missing cascades. If reaching a constraint would require adding
+  `@Valid` at several currently unannotated levels, that path is outside this check's positively observed targets.
 - **Recommendation**: Annotate the parent DTO field or container type argument (for example `List<@Valid LineItemDto>`)
   with `@Valid` so nested constraints execute during request validation.
 - **Learn more**: [Spring validation][spring-validation]; [Jakarta REST entity validation][jaxrs-validation].

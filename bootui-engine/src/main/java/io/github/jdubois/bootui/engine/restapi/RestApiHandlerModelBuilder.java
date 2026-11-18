@@ -2315,7 +2315,7 @@ final class RestApiHandlerModelBuilder {
                     boolean cascaded = hasValidCascadeOnField(cursor, field, candidate, typeAnnotations);
                     if (cascaded) {
                         collectMissingNestedValidFields(childType, sink, new LinkedHashSet<>(visited), depth + 1);
-                    } else if (declaresValidationConstraints(childType, new LinkedHashSet<>(visited), depth + 1)) {
+                    } else if (declaresValidationConstraints(childType)) {
                         sink.add(new MissingNestedValidField(
                                 safeSimpleName(currentDto) + "." + field.getName(),
                                 currentDto.getName(),
@@ -2397,76 +2397,12 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
-    private boolean declaresValidationConstraints(JavaClass type, Set<String> visited, int depth) {
-        if (depth > MAX_NESTED_DTO_DEPTH
-                || type == null
-                || !visited.add(type.getName())
-                || isFrameworkOrJdkType(type.getName())) {
-            return false;
+    private boolean declaresValidationConstraints(JavaClass type) {
+        var constraints = requestPayloadConstraints.inspect(type);
+        if (constraints == RestApiModel.ValidationConstraints.UNKNOWN) {
+            incomplete = true;
         }
-        JavaClass cursor = type;
-        for (int superDepth = 0;
-                superDepth < 5
-                        && cursor != null
-                        && !"java.lang.Object".equals(cursor.getName())
-                        && !"java.lang.Record".equals(cursor.getName());
-                superDepth++) {
-            Map<String, Set<String>> typeAnnotations = memberTypeAnnotations(cursor);
-            for (Set<String> names : typeAnnotations.values()) {
-                for (String name : names) {
-                    if (name.startsWith(Types.CONSTRAINT_PACKAGE) || Types.VALID.equals(name)) {
-                        return true;
-                    }
-                }
-            }
-            for (JavaField field : KotlinBytecode.declaredFields(cursor)) {
-                if (field.getModifiers().contains(JavaModifier.STATIC)
-                        || field.getModifiers().contains(JavaModifier.TRANSIENT)) {
-                    continue;
-                }
-                if (hasValidationConstraintOrCascade(field.getAnnotations())) {
-                    return true;
-                }
-            }
-            for (JavaMethod method : KotlinBytecode.declaredMethods(cursor)) {
-                if (method.getRawParameterTypes().isEmpty()
-                        && hasValidationConstraintOrCascade(method.getAnnotations())) {
-                    return true;
-                }
-            }
-            for (JavaField field : KotlinBytecode.declaredFields(cursor)) {
-                if (field.getModifiers().contains(JavaModifier.STATIC)
-                        || field.getModifiers().contains(JavaModifier.TRANSIENT)) {
-                    continue;
-                }
-                for (NestedCandidate child : nestedCandidateTypes(field)) {
-                    JavaClass childType = child.type();
-                    if (childType != null
-                            && !isSimpleBodyType(childType)
-                            && !safeIsInterface(childType)
-                            && !safeIsEnum(childType)
-                            && !isPrimitive(childType)
-                            && declaresValidationConstraints(childType, new LinkedHashSet<>(visited), depth + 1)) {
-                        return true;
-                    }
-                }
-            }
-            cursor = cursor.getRawSuperclass().orElse(null);
-        }
-        return false;
-    }
-
-    private static boolean hasValidationConstraintOrCascade(Set<? extends JavaAnnotation<?>> annotations) {
-        for (JavaAnnotation<?> annotation : annotations) {
-            JavaClass rawType = annotation.getRawType();
-            String name = rawType.getName();
-            if (name.startsWith(Types.CONSTRAINT_PACKAGE)
-                    || Types.VALID.equals(name)
-                    || rawType.isAnnotatedWith("jakarta.validation.Constraint")) {
-                return true;
-            }
-        }
-        return false;
+        return constraints == RestApiModel.ValidationConstraints.PRESENT;
     }
 
     private Map<String, Set<String>> memberTypeAnnotations(JavaClass type) {

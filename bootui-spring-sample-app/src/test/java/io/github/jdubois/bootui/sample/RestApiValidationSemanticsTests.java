@@ -17,6 +17,22 @@ import org.junit.jupiter.api.Test;
 /** Provider-level counterproof for REST payload metadata; no application or web stack is bootstrapped. */
 class RestApiValidationSemanticsTests {
     @Test
+    void cascadeMarkersOnlyReachConstraintsThroughOtherCascadedMembers() {
+        try (var factory = Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            assertThat(validator.validate(new EmptyCascade(new NullabilityPayload(null))))
+                    .isEmpty();
+            assertThat(validator.validate(new UncascadedChild(new Child("")))).isEmpty();
+            var cycle = new CascadeCycle();
+            cycle.child = cycle;
+            assertThat(validator.validate(cycle)).isEmpty();
+            assertThat(validator.validate(new ConstrainedCascade(new Child(""))))
+                    .extracting(violation -> violation.getPropertyPath().toString())
+                    .containsExactly("child.value");
+        }
+    }
+
+    @Test
     void transientFieldsStillCarryConstraintsAndValidationCascades() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             var validator = factory.getValidator();
@@ -58,6 +74,17 @@ class RestApiValidationSemanticsTests {
     }
 
     record Child(@jakarta.validation.constraints.NotBlank String value) {}
+
+    record EmptyCascade(@Valid NullabilityPayload child) {}
+
+    record UncascadedChild(Child child) {}
+
+    record ConstrainedCascade(@Valid Child child) {}
+
+    static class CascadeCycle {
+        @Valid
+        CascadeCycle child;
+    }
 
     record NullabilityPayload(
             @org.jspecify.annotations.NonNull String value) {}

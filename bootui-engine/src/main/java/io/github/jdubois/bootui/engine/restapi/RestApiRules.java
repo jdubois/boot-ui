@@ -2492,8 +2492,8 @@ final class NestedDtoValidationCascadeRule extends AbstractRestApiRule {
                 RestApiCategory.VALIDATION,
                 "HIGH",
                 "A request body parameter carries @Valid or @Validated, but a nested DTO field (or"
-                        + " collection/map/array element type) in the application's base packages declares Jakarta"
-                        + " Bean Validation constraints while the parent field omits @Valid. Bean Validation silently"
+                        + " collection/map/array element type) in the application's base packages has Bean Validation"
+                        + " constraints reachable through its own cascades while the parent field omits @Valid. Bean Validation silently"
                         + " skips constraints on nested objects unless @Valid cascades into them.",
                 "Annotate the parent DTO field (or collection/map type argument, e.g. List<@Valid ItemDto>) with"
                         + " @Valid so nested constraints are evaluated.",

@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.restapi.RestApiModel.Types;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ValidationConstraints;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +37,7 @@ final class RequestPayloadConstraints {
             Set.of("org.jspecify.annotations.Nullable", "org.jspecify.annotations.NonNull");
 
     private final Map<String, JavaClass> annotationTypes;
+    private final Map<JavaClass, ValidationConstraints> inspectedTypes = new IdentityHashMap<>();
 
     RequestPayloadConstraints(List<JavaClass> classes) {
         Map<String, JavaClass> types = new HashMap<>();
@@ -48,11 +50,18 @@ final class RequestPayloadConstraints {
     }
 
     ValidationConstraints inspect(JavaClass payload) {
-        try {
-            return inspect(payload, new HashSet<>(), 0);
-        } catch (RuntimeException | LinkageError unavailable) {
-            return ValidationConstraints.UNKNOWN;
+        ValidationConstraints cached = inspectedTypes.get(payload);
+        if (cached != null) {
+            return cached;
         }
+        ValidationConstraints result;
+        try {
+            result = inspect(payload, new HashSet<>(), 0);
+        } catch (RuntimeException | LinkageError unavailable) {
+            result = ValidationConstraints.UNKNOWN;
+        }
+        inspectedTypes.put(payload, result);
+        return result;
     }
 
     private ValidationConstraints inspect(JavaClass type, Set<String> visited, int depth) {

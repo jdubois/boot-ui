@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Nested validation evidence** requires reachable constraints rather than bare cascade markers or constraint-free
+  cycles. Missing metadata stays incomplete under the existing strict policy; finding identities and grouping are
+  unchanged ([REST API checks](docs/REST-API-CHECKS.md)).
 - **Reactive CSRF evidence** distinguishes the supported default matcher from filter presence alone. Relevant
   custom matcher policies remain unassessed without invoking them, while known missing-filter findings and
   unrelated assessed observations remain visible ([Security checks](docs/SECURITY-CHECKS.md)).
