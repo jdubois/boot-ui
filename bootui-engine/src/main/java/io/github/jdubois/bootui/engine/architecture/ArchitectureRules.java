@@ -37,9 +37,11 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.lang.conditions.ArchConditions;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -3599,8 +3601,8 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
 }
 
 /**
- * Flags non-thread-safe JDK formatters and XML processors stored in {@code static} fields or in
- * instance fields of shared-scope Spring or CDI beans.
+ * Flags stateful JDK processors stored in {@code static} fields or in instance fields of shared-scope
+ * Spring or CDI beans, including positively identified subtypes.
  */
 final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitectureRule {
 
@@ -3613,7 +3615,12 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
             "javax.xml.parsers.DocumentBuilder",
             "javax.xml.parsers.SAXParser",
             "javax.xml.transform.Transformer",
-            "javax.xml.validation.Validator");
+            "javax.xml.validation.Validator",
+            "java.security.MessageDigest",
+            "javax.crypto.Cipher",
+            "javax.crypto.Mac",
+            "java.security.Signature",
+            "java.util.regex.Matcher");
 
     private static final Set<String> NON_SHARED_SCOPE_ANNOTATIONS = Set.of(
             "jakarta.enterprise.context.RequestScoped",
@@ -3639,24 +3646,24 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
     NoSharedStatefulJdkFormattersAndParsersRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-019",
-                "Classes should not store non-thread-safe JDK formatters or XML processors in static or shared-bean"
-                        + " fields",
+                "Classes should not store stateful JDK processors in static or shared-bean fields",
                 ArchitectureCategory.CODING_PRACTICES,
                 "MEDIUM",
-                "Detects non-thread-safe JDK formatters and XML processors (SimpleDateFormat, DateFormat,"
+                "Detects shared JDK formatters, XML processors, cryptographic engines, and regex matchers (SimpleDateFormat, DateFormat,"
                         + " DecimalFormat, NumberFormat, MessageFormat, DocumentBuilder, SAXParser, Transformer, or"
-                        + " javax.xml.validation.Validator) stored in static fields or in instance fields of"
-                        + " shared-scope Spring or CDI beans. These types mutate internal state during formatting,"
-                        + " parsing, and validation and are not thread-safe.",
-                "Use java.time.format.DateTimeFormatter for dates and times, create a fresh formatter or XML processor"
-                        + " per operation (from a thread-safe factory when applicable), or guard per-thread instances"
-                        + " with ThreadLocal.",
+                        + " javax.xml.validation.Validator; MessageDigest, Cipher, Mac, Signature, Matcher), including"
+                        + " known subtypes. Static fields and instance fields on shared-scope Spring or CDI beans"
+                        + " can share mutable operation state. A subtype or provider does not establish safe concurrent use.",
+                "Use java.time.format.DateTimeFormatter for dates and times, share Pattern rather than Matcher,"
+                        + " create a fresh processor per operation, isolate instances with ThreadLocal, or synchronize"
+                        + " the entire operation. Field declarations alone do not prove synchronization.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/text/SimpleDateFormat.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         Set<String> sharedProducedTypes = sharedProducedTypes(context.classes());
+        Map<String, Optional<String>> jdkSuperclasses = new HashMap<>();
         return fields().that(
                         new DescribedPredicate<JavaField>("are static or declared on a shared-scope container bean") {
                             @Override
@@ -3671,26 +3678,84 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
                             }
                         })
                 .and(observed(DescribedPredicate.alwaysTrue(), context))
-                .should(new ArchCondition<JavaField>("not store non-thread-safe JDK formatters or XML processors") {
+                .should(new ArchCondition<JavaField>("not share mutable JDK processor state") {
                     @Override
                     public void check(JavaField field, ConditionEvents events) {
                         String typeName = field.getRawType().getName();
-                        if (!UNSAFE_SHARED_FIELD_TYPES.contains(typeName)) {
+                        if (!isStatefulType(field.getRawType(), context, jdkSuperclasses)) {
                             return;
                         }
                         boolean isStatic = field.getModifiers().contains(JavaModifier.STATIC);
-                        events.add(SimpleConditionEvent.violated(
-                                field,
-                                (isStatic ? "Static field " : "Shared-bean field ")
-                                        + field.getFullName()
-                                        + " stores non-thread-safe type "
-                                        + typeName
-                                        + " without per-call or ThreadLocal isolation"));
+                        events.add(
+                                SimpleConditionEvent.violated(
+                                        field,
+                                        (isStatic ? "Static field " : "Shared-bean field ")
+                                                + field.getFullName()
+                                                + " stores stateful JDK processor type "
+                                                + typeName
+                                                + "; review per-call or ThreadLocal isolation, or whole-operation synchronization"));
                     }
                 })
-                .as("Classes should not store non-thread-safe JDK formatters or XML processors in static or"
-                        + " shared-bean fields")
+                .as("Classes should not store stateful JDK processors in static or shared-bean fields")
                 .allowEmptyShould(true);
+    }
+
+    private static boolean isStatefulType(
+            JavaClass type, ArchitectureContext context, Map<String, Optional<String>> jdkSuperclasses) {
+        Set<String> visited = new HashSet<>();
+        while (!type.isPrimitive() && !type.isArray() && !type.isEquivalentTo(Object.class)) {
+            if (!visited.add(type.getName())) {
+                context.evidence().markRequiredUnknown();
+                return false;
+            }
+            if (UNSAFE_SHARED_FIELD_TYPES.contains(type.getName())) {
+                return true;
+            }
+            if (!type.isFullyImported()) {
+                String name = type.getName();
+                while (!name.equals(Object.class.getName())) {
+                    if (UNSAFE_SHARED_FIELD_TYPES.contains(name)) {
+                        return true;
+                    }
+                    Optional<String> parent = jdkSuperclasses.computeIfAbsent(
+                            name, NoSharedStatefulJdkFormattersAndParsersRule::jdkSuperclass);
+                    if (parent.isEmpty() || !visited.add(parent.get())) {
+                        context.evidence().markRequiredUnknown();
+                        return false;
+                    }
+                    name = parent.get();
+                }
+                return false;
+            }
+            Optional<JavaClass> parent = type.getRawSuperclass();
+            if (parent.isEmpty()) {
+                return false;
+            }
+            type = parent.get();
+        }
+        return false;
+    }
+
+    private static Optional<String> jdkSuperclass(String name) {
+        // Only the platform loader may fill JDK stubs; never resolve or load application/provider classes.
+        try (var input = ClassLoader.getPlatformClassLoader().getResourceAsStream(name.replace('.', '/') + ".class")) {
+            if (input == null) {
+                return Optional.empty();
+            }
+            ClassReader reader;
+            try {
+                reader = new ClassReader(input);
+            } catch (IllegalArgumentException ex) {
+                // A future JDK class version can exceed the bundled ASM's supported versions.
+                return Optional.empty();
+            }
+            if (!reader.getClassName().replace('/', '.').equals(name)) {
+                throw new IllegalStateException("JDK processor hierarchy bytecode does not match the requested class");
+            }
+            return Optional.ofNullable(reader.getSuperName()).map(parent -> parent.replace('/', '.'));
+        } catch (IOException ex) {
+            throw new IllegalStateException("JDK processor hierarchy bytecode could not be read", ex);
+        }
     }
 
     private static Set<String> sharedProducedTypes(Iterable<JavaClass> classes) {

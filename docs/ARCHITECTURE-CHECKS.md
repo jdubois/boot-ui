@@ -565,24 +565,33 @@ ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
 never matches Kotlin's messageless `assert(cond)` (compiled to `new AssertionError((Object) "Assertion failed")`) and
 false-positives on explicit `throw new AssertionError()` in unreachable `switch` or exhaustive branches.
 
-### ARCH-CODE-019 - Classes should not store non-thread-safe JDK formatters or XML processors in static or shared-bean fields
+### ARCH-CODE-019 - Classes should not store stateful JDK processors in static or shared-bean fields
 
 - **Severity**: MEDIUM
-- **Inspects**: developer-declared fields whose raw type is `java.text.SimpleDateFormat`, `java.text.DateFormat`,
+- **Inspects**: developer-declared fields whose raw type is, or is a positively identified subtype of,
+  `java.text.SimpleDateFormat`, `java.text.DateFormat`,
   `java.text.DecimalFormat`, `java.text.NumberFormat`, `java.text.MessageFormat`,
-  `javax.xml.parsers.DocumentBuilder`, `javax.xml.parsers.SAXParser`, `javax.xml.transform.Transformer`, or
-  `javax.xml.validation.Validator`.
+  `javax.xml.parsers.DocumentBuilder`, `javax.xml.parsers.SAXParser`, `javax.xml.transform.Transformer`,
+  `javax.xml.validation.Validator`, `java.security.MessageDigest`, `javax.crypto.Cipher`, `javax.crypto.Mac`,
+  `java.security.Signature`, or `java.util.regex.Matcher`. This includes JDK subclasses such as
+  `java.text.ChoiceFormat` and imported application or third-party subclasses.
 - **Fires when**: such a field is `static` (regardless of visibility or `final`) or is an instance field on a
   shared-scope Spring or CDI bean.
-- **Why it matters**: these JDK formatters and XML processors mutate internal state during formatting, parsing,
-  transformation, and validation and are explicitly documented as not thread-safe. Sharing one instance across concurrent
-  requests or virtual threads corrupts output or fails with runtime exceptions.
+- **Why it matters**: formatters, XML processors, and matchers document restrictions on concurrent use.
+  Cryptographic engines retain mutable initialization, update, and finalization state; sharing an operation across
+  threads can mix data or fail. Their API contracts do not establish safe concurrent use for every provider.
 - **Not reported**: thread-safe replacements such as `java.time.format.DateTimeFormatter`, Bean Validation's
-  `jakarta.validation.Validator`, `ThreadLocal<...>` wrappers, and instance fields on plain value objects or
+  `jakarta.validation.Validator`, reusable regex `Pattern`, `ThreadLocal<...>` wrappers, and instance fields on plain value objects or
   non-shared bean scopes (`@Scope("prototype")`, `@RequestScope`, `@SessionScope`, `@StepScope`, `@JobScope`,
   `@RequestScoped`, `@SessionScoped`, `@ConversationScoped`, `@Dependent`).
-- **Recommendation**: use `java.time.format.DateTimeFormatter` for dates and times, create a fresh formatter or XML
-  processor per operation, or isolate per-thread instances behind `ThreadLocal`.
+- **Recommendation**: use `java.time.format.DateTimeFormatter` for dates and times, share `Pattern` rather than
+  `Matcher`, create a fresh processor per operation, isolate per-thread instances behind `ThreadLocal`, or
+  synchronize the entire operation.
+- **Limits**: this is a declaration-based sharing heuristic, not proof of a race. It does not analyze locking,
+  provider guarantees, subtype overrides, or values hidden behind unrelated field types such as `Object`.
+  Application and third-party ancestry comes only from imported metadata; JDK stubs can be completed from platform
+  class resources without loading application classes. Unresolved ancestry marks coverage incomplete and retains any
+  other proven findings; it is not evidence that the field is safe.
 
 ## Spring stereotypes
 
