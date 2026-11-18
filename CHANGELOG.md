@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Generated-code evidence** recognizes Spring AOT's retained class marker, including classes imported from archives,
+  under the existing coding-rule and generated HTTP-client exemptions. It does not trust name suffixes or load Spring
+  APIs ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#generated-application-code)).
 - **ARCH-CODE-013 test-library detection** also flags production references to Spring Mock, Spring Security Test,
   Reactor Test, TestNG and MockK. New MEDIUM findings use unchanged scoring and CI severity policies
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-013---application-classes-should-not-depend-on-test-frameworks)).

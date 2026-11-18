@@ -6,11 +6,15 @@ import static io.github.jdubois.bootui.engine.architecture.ArchitectureGenerated
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitLocations;
 import io.github.jdubois.bootui.engine.source.LocalSourceModule;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -100,6 +104,95 @@ class ArchitectureGeneratedCodeTests {
                                 + "public class ApiUtil { public void run() { throw new RuntimeException(); } }"));
         assertThat(ArchitectureGeneratedCode.resolve(classes).generatedClasses())
                 .isEmpty();
+    }
+
+    @Test
+    void retainedSpringAotMarkerExemptsCodingButNotAnUnmarkedSuffix() throws IOException {
+        JavaClasses classes = springAotMarkerFixture(root);
+        assertOnlyMarkedTypesAreGenerated(classes);
+    }
+
+    @Test
+    void retainedSpringAotMarkerWorksThroughProductionArchiveImport() throws IOException {
+        Path module = root.resolve("archive-input");
+        springAotMarkerFixture(module);
+        Path jar = root.resolve("aot-fixture.jar");
+        try (var archive = new JarOutputStream(Files.newOutputStream(jar))) {
+            for (String entry : List.of(
+                    "sample/AotComponent.class",
+                    "sample/AotComponent$Nested.class",
+                    "sample/Business__BeanDefinitions.class",
+                    "sample/Generated.class",
+                    "sample/Lookalike.class")) {
+                archive.putNextEntry(new JarEntry(entry));
+                Files.copy(module.resolve("target/classes").resolve(entry), archive);
+                archive.closeEntry();
+            }
+        }
+        Thread thread = Thread.currentThread();
+        ClassLoader previous = thread.getContextClassLoader();
+        try (JarFile cached = cachedJar(jar);
+                var loader = new URLClassLoader(new URL[] {jar.toUri().toURL()}, previous)) {
+            assertThat(cached.getJarEntry("org/springframework/aot/generate/Generated.class"))
+                    .isNull();
+            thread.setContextClassLoader(loader);
+            JavaClasses imported = ArchUnitClassImports.importPackages(List.of("sample"));
+            assertThat(imported.stream()
+                            .map(type -> type.getSource().orElseThrow().getUri().getScheme()))
+                    .containsOnly("jar");
+            assertThat(imported.contain("org.springframework.aot.generate.Generated"))
+                    .isFalse();
+            assertOnlyMarkedTypesAreGenerated(imported);
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
+    }
+
+    private static JavaClasses springAotMarkerFixture(Path module) throws IOException {
+        // The real annotation comes from the existing Spring test dependency; no AOT generator runs.
+        return compile(
+                module,
+                "target/classes",
+                Map.of(
+                        "src/main/java/sample/AotComponent.java",
+                        "package sample; @org.springframework.aot.generate.Generated public class AotComponent {"
+                                + " public void run() { throw new RuntimeException(); }"
+                                + " public static class Nested {"
+                                + " public void run() { throw new RuntimeException(); } } }",
+                        "src/main/java/sample/Business__BeanDefinitions.java",
+                        "package sample; public class Business__BeanDefinitions {"
+                                + " public void run() { throw new RuntimeException(); } }",
+                        "src/main/java/sample/Lookalike.java",
+                        "package sample;"
+                                + " @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)"
+                                + " @java.lang.annotation.Target(java.lang.annotation.ElementType.TYPE)"
+                                + " @interface Generated {}"
+                                + " @Generated public class Lookalike {"
+                                + " public void run() { throw new RuntimeException(); } }"));
+    }
+
+    private static void assertOnlyMarkedTypesAreGenerated(JavaClasses classes) {
+        var generated = ArchitectureGeneratedCode.resolve(classes);
+        assertThat(generated.generatedClasses())
+                .containsExactlyInAnyOrder("sample.AotComponent", "sample.AotComponent$Nested");
+        assertThat(generated.limitations()).isEmpty();
+        assertThat(generated.templateClasses()).isEmpty();
+        var report = new ArchitectureScanner(
+                        () -> List.of("sample"),
+                        packages -> classes,
+                        ArchitecturePlatform.SPRING,
+                        Clock.systemUTC(),
+                        List.of(new NoGenericExceptionsRule()))
+                .scan();
+        assertThat(report.classesAnalyzed()).isEqualTo(5);
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("ARCH-CODE-002");
+            assertThat(result.violationCount()).isEqualTo(2);
+            assertThat(result.sampleViolations())
+                    .anySatisfy(sample -> assertThat(sample).contains("Business__BeanDefinitions"))
+                    .anySatisfy(sample -> assertThat(sample).contains("sample.Lookalike"));
+        });
+        assertThat(report.evidence().coverageComplete()).isTrue();
     }
 
     @Test

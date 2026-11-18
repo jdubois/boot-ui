@@ -26,12 +26,16 @@ import java.util.Set;
 
 /**
  * Scan-local generated-source provenance. Standard Generated annotations have SOURCE retention;
- * compiled output directories alone cannot distinguish generated from handwritten application code.
+ * Spring AOT also supplies a retained marker. Compiled output directories alone cannot distinguish
+ * generated from handwritten application code.
  */
 final class ArchitectureGeneratedCode {
     static final Limits DEFAULT_LIMITS = new Limits(64, 50_000, 32, 256 * 1024, 16 * 1024 * 1024);
     private static final Set<String> ANNOTATIONS = Set.of(
-            "jakarta.annotation.Generated", "javax.annotation.Generated", "javax.annotation.processing.Generated");
+            "jakarta.annotation.Generated",
+            "javax.annotation.Generated",
+            "javax.annotation.processing.Generated",
+            "org.springframework.aot.generate.Generated");
     private static final Set<String> DEPENDENCY_DIRECTORIES = Set.of(".git", ".gradle", ".m2", "node_modules");
 
     record Limits(int modules, int entries, int depth, int fileBytes, int totalBytes) {

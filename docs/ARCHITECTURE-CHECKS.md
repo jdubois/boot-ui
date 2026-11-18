@@ -80,13 +80,18 @@ set.
 
 ## Generated application code
 
-The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-019** exclude classes BootUI can positively identify as
-generated, so OpenAPI Generator's `ApiUtil` helpers do not contribute generic-exception findings while a handwritten
-generic throw still does.
+The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-019**, and the existing generated-client exemption in
+**ARCH-SPRING-025**, exclude classes BootUI can positively identify as generated. OpenAPI Generator's `ApiUtil` helpers
+do not contribute generic-exception findings while a handwritten generic throw still does.
 
 This is a class-level exemption. It is not a rule dismissal, and it does not exclude every class named `ApiUtil` or
-every `api` package. Package-cycle, module-boundary, and Spring or CDI checks keep the full class graph, including
-generated types, and handwritten callers and subclasses stay eligible for coding checks.
+every `api` package. Package-cycle, module-boundary, and other Spring or CDI checks keep the full class graph, including
+generated types. Handwritten callers and subclasses stay eligible for coding checks.
+
+A retained `org.springframework.aot.generate.Generated` marker on the class or its top-level enclosing type declares
+generated ownership, including for classes imported from an archive. BootUI trusts that declaration without loading
+Spring APIs; it does not verify that a generator ran. A `__BeanDefinitions` name suffix or a JPA static metamodel role
+alone does not establish generated ownership.
 
 Identification happens only during an explicit scan. BootUI matches imported classes to their local source ownership
 using their module, package, recorded source filename, and enclosing type:
@@ -106,8 +111,9 @@ prevent an exemption, as do Maven compiler-input lists that identify sources out
 without opening those external files.
 
 Classes read from inside an archive, such as an executable jar, an extracted `BOOT-INF/lib` image layout, or a Quarkus
-`lib` directory, can never have local source ownership. For those classes only, BootUI recognizes one bytecode
-fingerprint: the OpenAPI Generator Spring servlet `ApiUtil` template, as a Java class (`JavaSpring`) or a Kotlin
+`lib` directory, can never have local source ownership. A supported marker present in bytecode still applies.
+For unmarked archive classes only, BootUI recognizes one bytecode fingerprint: the OpenAPI Generator Spring servlet
+`ApiUtil` template, as a Java class (`JavaSpring`) or a Kotlin
 `object` (`kotlin-spring`), with either `jakarta.servlet` or `javax.servlet`. The class must be a top-level `ApiUtil`
 compiled from `ApiUtil.java` or `ApiUtil.kt`, with no members beyond the template's. The complete instruction stream of
 `setExampleResponse(NativeWebRequest, String, String)` must equal the verified output of a known compiler: javac
@@ -124,9 +130,9 @@ findings.
 
 ::: details Why source lookup is needed at all
 The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
-annotations have SOURCE retention, so they normally disappear from compiled bytecode. A same-named class-level marker
-is recognized when it is actually present, but normal generator output needs local source provenance, and the Kotlin
-OpenAPI `ApiUtil` template carries no such marker at all.
+annotations have SOURCE retention, so they normally disappear from compiled bytecode. A supported marker is recognized
+when it is actually present; Spring AOT's distinct `org.springframework.aot.generate.Generated` marker has RUNTIME
+retention. Other unmarked generator output needs local source provenance or the narrowly supported archive fingerprint.
 
 BootUI still evaluates bytecode, not source-level coding rules. The source lookup only establishes ownership.
 :::
@@ -138,10 +144,10 @@ arbitrary ancestors or the process working directory, downloads sources, or runs
 violation-detail reads reuse the completed scan without reading sources again.
 :::
 
-The policy is conservative. Apart from the packaged `ApiUtil` template fingerprint, classes in packaged jars,
-unsupported or custom output layouts, classes with missing sources or `SourceFile` metadata, and ambiguous matches all
-retain their findings, and a SOURCE-retained annotation in a non-generated source layout does not by itself exempt a
-class.
+The policy is conservative. Apart from supported markers present in bytecode or the archive-only `ApiUtil` template
+fingerprint, classes in packaged jars, unsupported or custom output layouts, classes with missing sources or
+`SourceFile` metadata, and ambiguous matches all retain their findings. A SOURCE-retained annotation in a non-generated
+source layout does not by itself exempt a class.
 
 Ownership recognition handles multiline declarations, Java Unicode escapes, and Kotlin string templates, but it is not
 a full Java or Kotlin parser. Kotlin file facades, including `@file:JvmName` facades, are not treated as explicit

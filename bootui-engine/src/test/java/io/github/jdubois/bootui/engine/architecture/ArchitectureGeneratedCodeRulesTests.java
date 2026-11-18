@@ -244,6 +244,56 @@ class ArchitectureGeneratedCodeRulesTests {
     }
 
     @Test
+    void retainedSpringAotMarkerPreservesOtherRulesFullGraph() throws IOException {
+        var classes = compile(
+                root,
+                "target/classes",
+                Map.of(
+                        "src/main/java/Service.java",
+                        "package sample.service; @org.springframework.aot.generate.Generated"
+                                + " @org.springframework.stereotype.Service public class Service {"
+                                + " sample.web.Controller controller; }",
+                        "src/main/java/Controller.java",
+                        "package sample.web; @org.springframework.web.bind.annotation.RestController"
+                                + " public class Controller { sample.service.Service service; }"));
+        var generated = ArchitectureGeneratedCode.resolve(classes);
+        assertThat(generated.generatedClasses()).containsExactly("sample.service.Service");
+        for (ArchitectureRule rule :
+                List.of(new FreeOfPackageCyclesRule(), new ServicesShouldNotDependOnControllersRule())) {
+            var original =
+                    rule.evaluate(new ArchitectureContext(classes, List.of("sample"), ArchitecturePlatform.SPRING));
+            assertThat(original.violationCount()).isPositive();
+            assertThat(rule.evaluate(
+                            context(classes, generated.handwrittenClasses(classes), ArchitecturePlatform.SPRING)))
+                    .isEqualTo(original);
+        }
+    }
+
+    @Test
+    void retainedSpringAotMarkerPreservesTheExistingHttpBuilderExemption() throws IOException {
+        var classes = compile(
+                root,
+                "target/classes",
+                Map.of(
+                        "src/main/java/GeneratedClient.java",
+                        "package sample; @org.springframework.aot.generate.Generated public class GeneratedClient {"
+                                + " public Object client() { return org.springframework.web.client.RestClient.create(); } }",
+                        "src/main/java/HandwrittenClient.java",
+                        "package sample; public class HandwrittenClient {"
+                                + " public Object client() { return org.springframework.web.client.RestClient.create(); } }"));
+        var rule = new HttpClientsShouldUseBootBuildersRule(ignored -> true);
+        var original = rule.evaluate(new ArchitectureContext(classes, List.of("sample"), ArchitecturePlatform.SPRING));
+        assertThat(original.violationCount()).isEqualTo(2);
+        var generated = ArchitectureGeneratedCode.resolve(classes);
+        assertThat(generated.generatedClasses()).containsExactly("sample.GeneratedClient");
+        var result =
+                rule.evaluate(context(classes, generated.handwrittenClasses(classes), ArchitecturePlatform.SPRING));
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.sampleViolations()).singleElement().asString().contains("sample.HandwrittenClient");
+    }
+
+    @Test
     void failedLookupKeepsFindingsAndReportsSanitizedIncompleteEvidence() throws IOException {
         var classes = compile(
                 root, "target/classes", Map.of("target/generated-sources/openapi/ApiUtil.java", apiUtil("sample")));
