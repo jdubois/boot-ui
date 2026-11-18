@@ -9,7 +9,8 @@ Quarkus. The compatibility baseline is Java 17 through Java 26, Spring Boot 4.1,
 
 The full audit behind [#955](https://github.com/jdubois/boot-ui/issues/955) retains the existing partition and
 operator policies, corrects numerical/output boundaries, and separates generated requests from effective JVM memory.
-Observed-metaspace sizing now bounds the class model; richer effective health-probe detection remains deferred below.
+Observed-metaspace sizing now bounds the class model; Spring health capability honors native endpoint access settings
+without treating development-time Actuator as proof of the deployed artifact's dependencies.
 Sources were independently revalidated against JDK 17–26 GA source, Spring Boot 4.1.1,
 and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, collector, and architecture.
 
@@ -37,6 +38,7 @@ and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, 
 | [Oracle Native Memory Tracking](https://docs.oracle.com/en/java/javase/17/vm/native-memory-tracking.html) | NMT is off by default, requires `jcmd` output to use, and tracks JVM/HotSpot memory rather than all user-native allocations. Detecting its startup flag alone is not stronger sizing evidence. |
 | [Kubernetes probe configuration](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#use-a-named-port) | HTTP probes may refer to a named container port, avoiding a framework-specific hard-coded port number. |
 | [Spring Boot 4.1.1 health documentation](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/actuator/endpoints.adoc), [probe autoconfiguration](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-health/src/main/java/org/springframework/boot/health/autoconfigure/actuate/endpoint/AvailabilityProbesAutoConfiguration.java), and [Quarkus 3.33 SmallRye Health](https://quarkus.io/version/3.33/guides/smallrye-health) | Boot 4.1 defaults probe groups on when applicable; older Kubernetes-only enablement guidance is not the baseline. Dependency, exposure, group and routing configuration still matter. Quarkus management-interface exposure is build-time configurable. |
+| [Spring Boot endpoint access resolver](https://github.com/spring-projects/spring-boot/blob/v4.1.2/module/spring-boot-actuator-autoconfigure/src/main/java/org/springframework/boot/actuate/autoconfigure/endpoint/PropertiesEndpointAccessResolver.java) | Endpoint-specific access overrides the global default; the maximum-permitted cap applies last. Legacy enabled settings remain aliases and conflict with access settings at the same level. Health reads require at least read-only access. |
 
 ## Memory model
 
@@ -214,7 +216,7 @@ the target JVM; neither these flags nor model validity enforce a total process-m
 | NMT startup flag | **RETAIN** | No consumed NMT output or confidence boost; NMT excludes some process-native memory even when enabled. |
 | Named port, framework-default paths, explicit probe toggle | **RETAIN** | Review dependency, routing, management interface, declared port and custom paths. |
 | Probe timings | **RETAIN AS EXAMPLES** | User must establish startup/timeout/restart policy; not measured recommendations. |
-| Spring effective health capability | **UPDATE NEEDED; DEFERRED** | Boot 4.1 really defaults probes on, but configuration defaults alone do not prove Actuator presence, endpoint access/exposure, group state, or reachability. |
+| Spring effective health capability | **UPDATE ACCESS; RETAIN LIMITATIONS** | Require current Actuator health/access classes and honor native endpoint access, global defaults, legacy aliases, and the maximum-permitted cap before the probe-group switch. Development dependencies and configured access do not prove deployed dependencies, web exposure, custom groups, or reachability. |
 | Quarkus health capability | **RETAIN LIMITED SIGNAL; ENHANCEMENT DEFERRED** | Extension presence is not full effective endpoint/management routing evidence. |
 | Native image/alternative JVMs | **RETAIN LIMITATIONS** | Native-image tuning is unavailable; HotSpot options require manual review on alternative JVM implementations. |
 
@@ -226,7 +228,16 @@ observations.
 ## Platform behavior and limitations
 
 - **Spring MVC and WebFlux:** both use the same engine and DTOs. Spring's virtual-thread property is explanatory only.
-  Spring Actuator probe groups are included only when the adapter reports them enabled. WebFlux/Netty can use native
+  Spring Actuator probe groups default on only when Actuator health/access classes are present, health permits reads,
+  and `management.endpoint.health.probes.enabled` is not false. Native Spring access precedence applies:
+  `management.endpoint.health.access` (or legacy `management.endpoint.health.enabled`) overrides
+  `management.endpoints.access.default` (or legacy `management.endpoints.enabled-by-default`), and
+  `management.endpoints.access.max-permitted` caps either. Both `read-only` and `unrestricted` permit health reads;
+  `none` suppresses the default probes. Conflicting access/enabled settings at the same level remain errors, not an
+  enabled fallback. The explicit snippet toggle still overrides this default; it does not change application access.
+  BootUI supplies Actuator during development: verify that the deployed artifact declares Actuator independently
+  when BootUI is removed. Probe settings do not install dependencies or establish web exposure, custom groups, or
+  reachability. WebFlux/Netty can use native
   allocations that the standard direct-buffer MXBean does not fully describe, so direct memory must be load-tested.
 - **Quarkus 3.33 LTS:** the same calculation is used. Quarkus does not expose a single application-wide virtual-thread
   switch equivalent to Spring's property, so that bubble is absent. SmallRye Health contributes `/q/health/started`,

@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Spring health-probe defaults** honor native endpoint access settings and warn that development-time Actuator
+  does not prove deployment dependencies or endpoint reachability
+  ([JVM tuning](docs/JVM-TUNING-CHECKS.md#platform-behavior-and-limitations)).
 - **CRaC resource inventory** distinguishes datasource observations from proven pools and recognizes additional exact
   Spring-managed factories without invoking clients or certifying checkpoint safety
   ([CRaC checks](docs/CRAC-READINESS-CHECKS.md#crac-pool-001---non-hikari-resources-need-verified-checkpoint-lifecycle-support)).

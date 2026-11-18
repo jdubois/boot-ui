@@ -221,6 +221,9 @@ final class MemoryKubernetesSizer {
             warnings.add(
                     "Health probes use the framework's default paths and the named container port \"http\"; verify both against custom application or management-server settings.");
         }
+        if (healthProbeManifest.deploymentWarning() != null) {
+            warnings.add(healthProbeManifest.deploymentWarning());
+        }
         warnings.add(
                 "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. Verify container support and the generated limit; existing -Xmx, -Xms, or RAM-sizing overrides can change the result.");
         warnings.add(

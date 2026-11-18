@@ -335,7 +335,25 @@ class MemoryKubernetesSizerTests {
                 .doesNotContain(
                         "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED", "startupProbe", "readinessProbe", "livenessProbe");
         assertThat(recommendation.warnings())
-                .anySatisfy(warning -> assertThat(warning).contains("Actuator probes are omitted"));
+                .anySatisfy(warning -> assertThat(warning).contains("Actuator probes are omitted"))
+                .anySatisfy(warning -> assertThat(warning)
+                        .contains("deployed artifact declares Actuator independently", "when BootUI is removed"));
+    }
+
+    @Test
+    void springProbeDefaultsDoNotProveTheDeployedArtifactDeclaresActuator() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
+
+        KubernetesMemoryRecommendationDto recommendation = recommend(
+                calculation, 64 * MB, 64 * MB, 0, false, null, null, false, true, HealthProbeManifest.SPRING_ACTUATOR);
+
+        assertThat(recommendation.yaml()).contains("startupProbe:", "readinessProbe:", "livenessProbe:");
+        assertThat(recommendation.warnings())
+                .anySatisfy(warning -> assertThat(warning)
+                        .contains(
+                                "BootUI supplies Actuator during development",
+                                "deployed artifact declares Actuator independently",
+                                "do not add the dependency or prove endpoint reachability"));
     }
 
     @Test
@@ -365,7 +383,8 @@ class MemoryKubernetesSizerTests {
                 .doesNotContain("\n\nstartupProbe");
         assertThat(recommendation.warnings())
                 .anySatisfy(warning ->
-                        assertThat(warning).contains("default paths").contains("named container port \"http\""));
+                        assertThat(warning).contains("default paths").contains("named container port \"http\""))
+                .noneSatisfy(warning -> assertThat(warning).contains("Actuator"));
     }
 
     @Test

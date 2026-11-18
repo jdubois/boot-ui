@@ -78,6 +78,37 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
 class BootUiEngineConfigurationTests {
 
     @Test
+    void memoryFactoryUsesLiveHealthAccessAndTheApplicationClassLoader() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setConversionService(new org.springframework.boot.convert.ApplicationConversionService());
+        BootUiEngineConfiguration configuration = new BootUiEngineConfiguration();
+        BootUiExposure exposure = new BootUiExposure(new BootUiProperties());
+        try (GenericApplicationContext application = new GenericApplicationContext()) {
+            var provider = configuration.bootUiMemoryReportProvider(environment, exposure, application);
+            var enabled = provider.buildReport(2048L, 1, 0, false, null);
+            assertThat(enabled.calculation().valid()).isTrue();
+            assertThat(enabled.kubernetes().healthProbesEnabled()).isTrue();
+            assertThat(enabled.kubernetes().yaml()).contains("startupProbe:", "livenessProbe:", "readinessProbe:");
+
+            environment.withProperty("management.endpoints.access.default", "none");
+            var disabled = provider.buildReport(2048L, 1, 0, false, null).kubernetes();
+            assertThat(disabled.healthProbesEnabled()).isFalse();
+            assertThat(disabled.javaToolOptions()).isNotBlank();
+            assertThat(disabled.yaml()).doesNotContain("startupProbe:", "livenessProbe:", "readinessProbe:");
+
+            environment.withProperty("management.endpoints.access.default", "unrestricted");
+            application.setClassLoader(
+                    new FilteredClassLoader("org.springframework.boot.health.actuate.endpoint.HealthEndpoint"));
+            var withoutHealth = configuration
+                    .bootUiMemoryReportProvider(environment, exposure, application)
+                    .buildReport(2048L, 1, 0, false, null)
+                    .kubernetes();
+            assertThat(withoutHealth.healthProbesEnabled()).isFalse();
+            assertThat(withoutHealth.yaml()).doesNotContain("startupProbe:", "livenessProbe:", "readinessProbe:");
+        }
+    }
+
+    @Test
     void existingLogTailBufferIsIncludedWithoutCreatingOrInstallingOne() {
         var beanFactory = new DefaultListableBeanFactory();
         var previous = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find();
