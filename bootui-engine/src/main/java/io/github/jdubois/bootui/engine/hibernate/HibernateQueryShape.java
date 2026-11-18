@@ -15,6 +15,7 @@ final class HibernateQueryShape {
             Pattern.compile("(?i)(?<![:\\.])\\b(select|union|intersect|except)\\b");
     private static final Pattern JOIN = Pattern.compile(
             "(?i)\\bjoin\\s+(?:fetch\\s+)?([\\w.]+)(?:\\s+(?:as\\s+)?(?!left\\b|right\\b|inner\\b|outer\\b|join\\b|where\\b|order\\b|group\\b|having\\b|on\\b)([A-Za-z_]\\w*))?");
+    private static final Pattern FETCH_TOKEN = Pattern.compile("(?i)\\bfetch\\b");
 
     private HibernateQueryShape() {}
 
@@ -124,6 +125,48 @@ final class HibernateQueryShape {
     static boolean bulk(String query) {
         String text = lexical(query);
         return text != null && text.stripLeading().toLowerCase(Locale.ROOT).matches("(?s)^(update\\b|delete\\b).*");
+    }
+
+    /** A bounded single-root static SELECT can exclude explicit collection fetching without following its joins. */
+    static boolean verifiedFetchFreeSelect(HibernateContext context, HibernateRepositoryMethodModel method) {
+        HibernateQueryEvidence evidence = method.evidence();
+        if (!context.observed()
+                || !evidence.verifiedQueryMethod()
+                || !evidence.declaredQuery()
+                || evidence.namedQuery()
+                || evidence.queryRewriter()) return false;
+        String query = lexical(method.query());
+        if (query == null) return false;
+        if (method.query().contains("#{") || method.query().contains("${")) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE, method);
+            return false;
+        }
+        int depth = 0;
+        for (int i = 0; i < query.length(); i++) {
+            char character = query.charAt(i);
+            if (character == '(') depth++;
+            if (character == ')') depth--;
+            if (depth < 0 || character == ';' || character == '{' || character == '}') {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+                return false;
+            }
+        }
+        if (depth != 0) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            return false;
+        }
+        if (!query.stripLeading().matches("(?is)^(select\\b|from\\b).*")
+                || FETCH_TOKEN.matcher(query).find()) return false;
+        Matcher root = ROOT.matcher(query);
+        if (!root.find()) return false;
+        String entity = root.group(1);
+        String afterRoot = query.substring(root.end());
+        return !root.find()
+                && !SUBQUERY_OR_SET_OP
+                        .matcher(query.replaceFirst("(?is)^\\s*select\\b", ""))
+                        .find()
+                && fromClause(afterRoot).indexOf(',') < 0
+                && findEntity(context, entity) != null;
     }
 
     private static String fromClause(String afterFrom) {

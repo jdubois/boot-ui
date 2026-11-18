@@ -772,6 +772,146 @@ class HibernateAdvisorObservationTests {
     }
 
     @Test
+    void verifiedFetchFreeEntityJoinsDoNotMakeCollectionFetchCoverageUnknown() {
+        for (String query : List.of(
+                "select new app.PostDto(o.id, u.id) from Order o join Other u on o.id = u.id",
+                "select o.id, u.id from Order o join Other u on o.id = u.id",
+                "select o from Order o join Other u on o.id = u.id",
+                "select new app.PostDto(o.id, u.id) from Order o join Other u on o.id = u.id"
+                        + " where lower(o.name) like :query",
+                "select new app.PostDto(o.id, u.id) from Order o join Other u on o.id = u.id"
+                        + " /* join fetch o.items */ where o.name = 'join fetch o.tags'")) {
+            HibernateRepositoryMethodModel method = method(query, null, Projection.class, false);
+            HibernateContext context = context("7.2.19.Final", List.of(method));
+            for (HibernateRule rule :
+                    List.of(new CollectionJoinFetchPageableRule(), new MultipleCollectionJoinFetchRule())) {
+                assertThat(rule.evaluate(context).status()).as(query).isEqualTo("PASS");
+                assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
+            }
+            HibernateReport report = scanner(
+                            List.of(unit(
+                                    "orders",
+                                    settings(25),
+                                    List.of(new HibernateRepositoryModel("Repo", Order.class, List.of(method), true)))),
+                            List.of(),
+                            List.of(
+                                    new CollectionJoinFetchPageableRule(),
+                                    new MultipleCollectionJoinFetchRule(),
+                                    new HibernateBuiltinPoolRule()))
+                    .scan();
+            assertThat(report.scan().status()).as(query).isEqualTo("SCANNED");
+            assertThat(report.evidence().coverageComplete()).as(query).isTrue();
+            assertThat(report.evidence().usable()).as(query).isTrue();
+            assertThat(report.diagnostics()).as(query).isEmpty();
+        }
+    }
+
+    @Test
+    void fetchFreeExclusionPreservesUnknownAndGenuineFetchEvaluations() {
+        for (String query : List.of(
+                "select new app.PostDto(o.id) from Order o join Other u on o.id = u.id join\nFeTcH o.items",
+                "select o from Order o join fetch treat(o.items as SpecialItem)",
+                "select o from Order o /* unclosed",
+                "select o from Order o where o.name = 'unclosed",
+                "select o from Order o where o.id in (select u.id from Other u)",
+                "select o from Order o, Other u",
+                "select o from UnknownEntity o join Other u on o.id = u.id",
+                "select o from Order o where o.id = #{#id}",
+                "select o from Order o where (o.id = :id",
+                "select o from Order o;" + " ".repeat(16_384))) {
+            HibernateContext context = context("7.2.19.Final", List.of(method(query, null, Projection.class, false)));
+            for (HibernateRule rule :
+                    List.of(new CollectionJoinFetchPageableRule(), new MultipleCollectionJoinFetchRule())) {
+                rule.evaluate(context);
+                assertThat(context.evidence().requiredUnknown()).as(query).isTrue();
+            }
+        }
+        List<HibernateRepositoryMethodModel> methods = List.of(
+                method(
+                        "select new app.Dto(o.id) from Order o join Other u on o.id = u.id",
+                        null,
+                        Projection.class,
+                        false),
+                method("select o from Order o join fetch o.items join fetch o.tags", null, Order.class, false),
+                method("select o from Order o join o.items i join fetch i.tags", null, Order.class, false));
+        HibernateReport report = scanner(
+                        List.of(unit(
+                                "orders",
+                                settings(25),
+                                List.of(new HibernateRepositoryModel("Repo", Order.class, methods, true)))),
+                        List.of(),
+                        List.of(new CollectionJoinFetchPageableRule(), new MultipleCollectionJoinFetchRule()))
+                .scan();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results()).extracting(HibernateRuleResultDto::id).contains("HIB-FETCH-003", "HIB-QUERY-007");
+        assertThat(report.diagnostics())
+                .extracting(HibernateDiagnosticDto::source)
+                .contains("HIB-FETCH-003", "HIB-QUERY-007");
+    }
+
+    @Test
+    void fetchFreeExclusionDoesNotBypassQueryProvenance() {
+        String query = "select new app.Dto(o.id) from Order o join Other u on o.id = u.id";
+        for (HibernateQueryEvidence evidence : List.of(
+                HibernateQueryEvidence.unknown(),
+                new HibernateQueryEvidence(
+                        true, true, false, true, false, Projection.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(
+                        true, true, false, false, true, Projection.class, false, null, null, List.of()))) {
+            HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                    "Repo",
+                    "query",
+                    Order.class,
+                    List.class,
+                    query,
+                    false,
+                    null,
+                    true,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    evidence);
+            HibernateContext context = context("7.2.19.Final", List.of(method));
+            for (HibernateRule rule :
+                    List.of(new CollectionJoinFetchPageableRule(), new MultipleCollectionJoinFetchRule())) {
+                rule.evaluate(context);
+                assertThat(context.evidence().gaps()).containsKey(HibernateEvidenceGap.QUERY_PROVENANCE);
+            }
+        }
+    }
+
+    @Test
+    void fetchFreeExclusionLeavesOtherQueryRulesConservative() {
+        String query = "select new app.Dto(o.id) from Order o join Other u on o.id = u.id where o.id in :ids";
+        HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                "Repo",
+                "query",
+                Order.class,
+                List.class,
+                query,
+                false,
+                null,
+                false,
+                false,
+                false,
+                false,
+                List.of(List.class),
+                new HibernateQueryEvidence(
+                        true, true, false, false, false, Projection.class, false, null, null, List.of(":ids")));
+        HibernateContext context = context("7.2.19.Final", List.of(method));
+        new InClausePaddingRule().evaluate(context);
+        assertThat(context.evidence().gaps()).containsKey(HibernateEvidenceGap.QUERY_JOIN_PATH);
+
+        context = context(
+                "7.2.19.Final",
+                List.of(method("select o from Order o join Other u on o.id = u.id", null, Order.class, false)));
+        new EagerToOneFetchJoinRule().evaluate(context);
+        assertThat(context.evidence().gaps()).containsKey(HibernateEvidenceGap.QUERY_JOIN_PATH);
+    }
+
+    @Test
     void resolvedRootCanDifferFromRepositoryDomainAndGraphIsNotAssumedToFixFetches() {
         HibernateRepositoryMethodModel method = method("select o from Order o", null, Order.class, true);
         HibernateContext context = context("7.2.19.Final", List.of(method));

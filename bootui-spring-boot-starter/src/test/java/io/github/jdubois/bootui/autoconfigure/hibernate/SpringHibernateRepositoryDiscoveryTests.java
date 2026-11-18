@@ -38,6 +38,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.NativeQuery;
 import org.springframework.data.jpa.repository.Query;
@@ -221,6 +222,48 @@ class SpringHibernateRepositoryDiscoveryTests {
     }
 
     @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void inheritedJpaSaveAllBridgesDoNotLookLikeCustomNewnessButRealDefaultOverridesDo() throws Exception {
+        for (Class<?> repository : List.of(StandardJpaRepository.class, DefaultSaveAllRepository.class)) {
+            DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+            RepositoryFactoryInformation factory = factory(true);
+            RepositoryInformation information = factory.getRepositoryInformation();
+            when(information.getRepositoryInterface()).thenReturn((Class) repository);
+            when(information.isQueryMethod(org.mockito.ArgumentMatchers.any(Method.class)))
+                    .thenReturn(false);
+            when(information.isBaseClassMethod(org.mockito.ArgumentMatchers.any(Method.class)))
+                    .thenAnswer(invocation -> List.of("save", "saveAll")
+                            .contains(invocation.<Method>getArgument(0).getName()));
+            beans.registerSingleton("repository", factory);
+            List<String> errors = new ArrayList<>();
+            assertThat(SpringHibernateRepositoryDiscovery.discover(beans, errors))
+                    .singleElement()
+                    .satisfies(value -> assertThat(value.standardJpaNewness())
+                            .isEqualTo(repository == StandardJpaRepository.class));
+            assertThat(errors).isEmpty();
+            verify((FactoryBean<?>) factory, never()).getObject();
+        }
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void queryBackedSaveDoesNotProveStandardNewness() throws Exception {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        RepositoryFactoryInformation factory = factory(true);
+        RepositoryInformation information = factory.getRepositoryInformation();
+        when(information.isQueryMethod(org.mockito.ArgumentMatchers.any(Method.class)))
+                .thenAnswer(invocation ->
+                        invocation.<Method>getArgument(0).getName().equals("save"));
+        beans.registerSingleton("repository", factory);
+        List<String> errors = new ArrayList<>();
+        assertThat(SpringHibernateRepositoryDiscovery.discover(beans, errors))
+                .singleElement()
+                .satisfies(value -> assertThat(value.standardJpaNewness()).isFalse());
+        assertThat(errors).isEmpty();
+        verify((FactoryBean<?>) factory, never()).getObject();
+    }
+
+    @Test
     void unresolvedLazyFactoryRemainsUnknownWithoutInstantiation() {
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         AtomicInteger creations = new AtomicInteger();
@@ -323,6 +366,15 @@ class SpringHibernateRepositoryDiscoveryTests {
     }
 
     interface ReadOnlyRepository extends Repository<Order, Long> {}
+
+    interface StandardJpaRepository extends JpaRepository<Order, Long> {}
+
+    interface DefaultSaveAllRepository extends JpaRepository<Order, Long> {
+        @Override
+        default <S extends Order> List<S> saveAll(Iterable<S> entities) {
+            throw new AssertionError("Repository save must not be invoked during discovery.");
+        }
+    }
 
     interface InheritingRepository extends ParameterRepository {}
 
