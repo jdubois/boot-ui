@@ -141,6 +141,10 @@ Quarkus and Jakarta `create` is create-only, unlike Hibernate `hbm2ddl.auto=crea
 The results panel lists only checks that found something, ordered by severity, finding count, and rule id. Each rule
 includes a few sample mapped members plus a remediation link.
 
+After a single-finding dismissal, a fully retained rule uses the highest grade of its remaining persistence-unit
+evaluations. Missing retained details or active grade evidence preserve the original grade conservatively; dismissal
+never completes unknown coverage.
+
 The advisor score applies the shared severity penalty to every concrete finding, not once per violated rule.
 Dismissing a rule removes all of its findings from the score.
 

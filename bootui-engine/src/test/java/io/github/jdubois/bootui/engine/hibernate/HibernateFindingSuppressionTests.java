@@ -1,13 +1,17 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertAll;
 
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.AdvisorSuppressedFindingDto;
 import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.core.dto.HibernateSeverityCountDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorSuppression;
+import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings.SchemaAction;
+import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -20,10 +24,165 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HibernateFindingSuppressionTests {
 
     private static final String RULE = "HIB-QUERY-008";
+    private static final String DDL_RULE = "HIB-CONFIG-002";
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void ddlDismissalControlsPreserveWorstActiveGradeAndRawSnapshot(boolean criticalFirst) {
+        HibernateScanner scanner = ddlScanner(ddlUnits(criticalFirst), 100);
+        HibernateReport raw = scanner.scan();
+        String scanId = raw.violationDetails().scanId();
+        var page = scanner.ruleViolations(DDL_RULE, scanId, 0, 100);
+
+        assertThat(raw.scan().status()).isEqualTo("SCANNED");
+        assertThat(raw.evidence().usable()).isTrue();
+        assertThat(raw.evidence().coverageComplete()).isTrue();
+        assertDdlGrade(raw, "CRITICAL", 2);
+        assertThat(page.identities())
+                .containsExactlyElementsOf(ddlUnits(criticalFirst).stream()
+                        .map(unit -> ddlFinding(unit.label()).identity())
+                        .toList());
+        assertThat(page.violationCount()).isEqualTo(2);
+        assertThat(page.retainedCount()).isEqualTo(2);
+
+        HibernateReport highDismissed = scanner.dismissedReport(Set.of(), List.of(ddlFinding("archive")));
+        assertDdlGrade(highDismissed, "CRITICAL", 1);
+        assertThat(highDismissed.results().get(0).suppressedCount()).isEqualTo(1);
+        assertThat(highDismissed.results().get(0).sampleViolations())
+                .singleElement()
+                .asString()
+                .startsWith("[orders]");
+
+        HibernateReport allDismissed =
+                scanner.dismissedReport(Set.of(), List.of(ddlFinding("orders"), ddlFinding("archive")));
+        assertThat(allDismissed.violationsFound()).isZero();
+        assertThat(allDismissed.scan().violationsFound()).isZero();
+        assertThat(allDismissed.results().get(0).violationCount()).isZero();
+        assertThat(allDismissed.results().get(0).suppressedCount()).isEqualTo(2);
+        assertThat(allDismissed.results().get(0).severity()).isEqualTo("CRITICAL");
+        assertThat(allDismissed.severityCounts())
+                .allSatisfy(count -> assertThat(count.count()).isZero());
+        assertThat(allDismissed.violationDetails()).isEqualTo(raw.violationDetails());
+        assertThat(scanner.dismissedReport(Set.of(), List.of())).isEqualTo(raw);
+        assertThat(scanner.lastReport()).isEqualTo(raw);
+        assertThat(scanner.ruleViolations(DDL_RULE, scanId, 0, 100)).isEqualTo(page);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void dismissingDestructiveDdlMatchesTheIndependentlyScannedRemainingUnit(boolean criticalFirst) {
+        HibernateScanner scanner = ddlScanner(ddlUnits(criticalFirst), 100);
+        HibernateReport raw = scanner.scan();
+        String scanId = raw.violationDetails().scanId();
+        var pageBefore = scanner.ruleViolations(DDL_RULE, scanId, 0, 100);
+        HibernateReport archiveOnly = ddlScanner(List.of(ddlUnit("archive", SchemaAction.UPDATE)), 100)
+                .scan();
+        assertDdlGrade(archiveOnly, "HIGH", 1);
+
+        HibernateReport projected = scanner.dismissedReport(Set.of(), List.of(ddlFinding("orders")));
+
+        assertThat(projected.violationsFound()).isEqualTo(1);
+        assertThat(projected.scan().violationsFound()).isEqualTo(1);
+        assertThat(projected.results().get(0).violationCount()).isEqualTo(1);
+        assertThat(projected.results().get(0).suppressedCount()).isEqualTo(1);
+        assertThat(projected.results().get(0).sampleViolations())
+                .isEqualTo(archiveOnly.results().get(0).sampleViolations());
+        assertThat(projected.suppression().findings())
+                .containsExactly(new AdvisorSuppressedFindingDto(
+                        DDL_RULE, ddlFinding("orders").identity(), AdvisorSuppression.MATCHED));
+        assertThat(projected.suppression().incompleteRules()).isEmpty();
+        assertThat(projected.violationDetails()).isEqualTo(raw.violationDetails());
+        assertThat(projected.evidence()).isEqualTo(raw.evidence());
+        var page = scanner.ruleViolations(DDL_RULE, scanId, 0, 100, List.of(ddlFinding("orders")));
+        assertThat(page.violationCount()).isEqualTo(2);
+        assertThat(page.retainedCount()).isEqualTo(2);
+        assertThat(page.suppressedCount()).isEqualTo(1);
+        assertThat(page.identities()).isEqualTo(pageBefore.identities());
+        assertThat(page.violations()).isEqualTo(pageBefore.violations());
+        assertThat(page.suppressed())
+                .containsExactlyElementsOf(page.identities().stream()
+                        .map(identity -> identity.equals(ddlFinding("orders").identity()))
+                        .toList());
+        assertThat(scanner.ruleViolations(DDL_RULE, scanId, 0, 1).identities())
+                .containsExactly(pageBefore.identities().get(0));
+        assertThat(scanner.ruleViolations(DDL_RULE, scanId, 1, 1).identities())
+                .containsExactly(pageBefore.identities().get(1));
+        assertThat(scanner.dismissedReport(Set.of(), List.of())).isEqualTo(raw);
+        assertThat(scanner.lastReport()).isEqualTo(raw);
+
+        assertAll(
+                () -> assertThat(projected.results().get(0).severity())
+                        .isEqualTo(archiveOnly.results().get(0).severity()),
+                () -> assertThat(projected.severityCounts()).isEqualTo(archiveOnly.severityCounts()),
+                () -> assertThat(McpScanSummaries.hibernate(projected).get("severityCounts"))
+                        .isEqualTo(McpScanSummaries.hibernate(archiveOnly).get("severityCounts")),
+                () -> assertThat(McpScanSummaries.hibernate(projected).get("topFindings"))
+                        .isEqualTo(McpScanSummaries.hibernate(archiveOnly).get("topFindings")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void ddlDismissalsNeverRemoveAnIndependentUnknownUnit(boolean criticalFirst) {
+        List<HibernatePersistenceUnitObservation> units = new java.util.ArrayList<>(ddlUnits(criticalFirst));
+        units.add(ddlUnit("unread", SchemaAction.UNKNOWN));
+        HibernateScanner scanner = ddlScanner(units, 100);
+        HibernateReport raw = scanner.scan();
+
+        assertThat(raw.scan().status()).isEqualTo("PARTIAL");
+        assertThat(raw.evidence().usable()).isTrue();
+        assertThat(raw.evidence().coverageComplete()).isFalse();
+        assertThat(raw.diagnostics())
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.unit()).isEqualTo("unread"));
+        assertDdlGrade(raw, "CRITICAL", 2);
+        for (List<DismissedFindingDto> findings :
+                List.of(List.of(ddlFinding("orders")), List.of(ddlFinding("orders"), ddlFinding("archive")))) {
+            HibernateReport projected = scanner.dismissedReport(Set.of(), findings);
+            assertThat(projected.scan().status()).isEqualTo("PARTIAL");
+            assertThat(projected.evidence()).isEqualTo(raw.evidence());
+            assertThat(projected.diagnostics()).isEqualTo(raw.diagnostics());
+            assertThat(projected.violationDetails()).isEqualTo(raw.violationDetails());
+            assertThat(projected.results().get(0).coverageNote())
+                    .isEqualTo(raw.results().get(0).coverageNote())
+                    .contains("[unread]");
+            assertThat(projected.results().get(0).violationCount()).isEqualTo(2 - findings.size());
+            if (findings.size() == 1) assertDdlGrade(projected, "HIGH", 1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void incompleteDdlRetentionCannotJustifyLoweringTheGrade(boolean criticalFirst) {
+        HibernateScanner scanner = ddlScanner(ddlUnits(criticalFirst), 1);
+        HibernateReport raw = scanner.scan();
+        String scanId = raw.violationDetails().scanId();
+        var page = scanner.ruleViolations(DDL_RULE, scanId, 0, 100);
+        assertThat(page.identities()).hasSize(1);
+        String retainedUnit = criticalFirst ? "orders" : "archive";
+        assertThat(page.identities()).containsExactly(ddlFinding(retainedUnit).identity());
+
+        HibernateReport projected = scanner.dismissedReport(
+                Set.of(), List.of(ddlFinding(retainedUnit), ddlFinding(criticalFirst ? "archive" : "orders")));
+
+        assertDdlGrade(projected, "CRITICAL", 1);
+        assertThat(projected.results().get(0).suppressedCount()).isEqualTo(1);
+        assertThat(projected.suppression().incompleteRules()).containsExactly(DDL_RULE);
+        assertThat(projected.suppression().findings())
+                .extracting(AdvisorSuppressedFindingDto::state)
+                .containsExactly(AdvisorSuppression.MATCHED, AdvisorSuppression.UNVERIFIED);
+        assertThat(projected.violationDetails()).isEqualTo(raw.violationDetails());
+        assertThat(projected.violationDetails().total()).isEqualTo(2);
+        assertThat(projected.violationDetails().retained()).isEqualTo(1);
+        assertThat(projected.violationDetails().truncated()).isTrue();
+        assertThat(projected.evidence()).isEqualTo(raw.evidence());
+        assertThat(scanner.ruleViolations(DDL_RULE, scanId, 0, 100)).isEqualTo(page);
+    }
 
     @Test
     void eagerRuleDismissalsNeverMoveFromToOneToCollections() {
@@ -366,6 +525,51 @@ class HibernateFindingSuppressionTests {
 
     private static DismissedFindingDto finding(String identity) {
         return new DismissedFindingDto(RULE, identity, null);
+    }
+
+    private static DismissedFindingDto ddlFinding(String unit) {
+        return new DismissedFindingDto(DDL_RULE, "v1:unit=" + unit + "|setting=hibernate.hbm2ddl.auto", null);
+    }
+
+    private static void assertDdlGrade(HibernateReport report, String severity, int count) {
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo(DDL_RULE);
+            assertThat(result.severity()).isEqualTo(severity);
+            assertThat(result.violationCount()).isEqualTo(count);
+        });
+        assertThat(report.severityCounts())
+                .filteredOn(bucket -> bucket.count() > 0)
+                .containsExactly(new HibernateSeverityCountDto(severity, count));
+    }
+
+    private static List<HibernatePersistenceUnitObservation> ddlUnits(boolean criticalFirst) {
+        var critical = ddlUnit("orders", SchemaAction.DROP_AND_CREATE);
+        var high = ddlUnit("archive", SchemaAction.UPDATE);
+        return criticalFirst ? List.of(critical, high) : List.of(high, critical);
+    }
+
+    private static HibernateScanner ddlScanner(List<HibernatePersistenceUnitObservation> units, int retention) {
+        HibernateScanner scanner = new HibernateScanner(
+                () -> new HibernateAdvisorObservation(
+                        units, HibernateApplicationFacts.unknown(List.of("prod")), List.of()),
+                Clock.systemUTC(),
+                List.of(new RiskyDdlAutoRule()));
+        scanner.setViolationRetentionLimit(() -> retention);
+        return scanner;
+    }
+
+    private static HibernatePersistenceUnitObservation ddlUnit(String label, SchemaAction action) {
+        HibernateFactorySettings settings = new HibernateFactorySettings(
+                null, null, null, null, null, null, null, null, null, null, action, null, null, null, null, null, null,
+                null, null, null, null, null, null);
+        return new HibernatePersistenceUnitObservation(
+                label,
+                label,
+                List.of(HibernateEntityModel.fromClass(VersionedOrder.class)),
+                List.of(),
+                "7.4.5.Final",
+                settings,
+                false);
     }
 
     private static List<String> identities(HibernateScanner scanner, String scanId) {

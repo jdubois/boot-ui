@@ -74,20 +74,23 @@ final class HibernateRuleSupport {
             String severityOverride,
             int violationCount,
             List<String> sampleViolations) {
-        String severity = severityOverride != null && KNOWN_SEVERITIES.contains(severityOverride)
-                ? severityOverride
-                : definition.severity();
         return new HibernateRuleResultDto(
                 definition.id(),
                 definition.name(),
                 definition.category().label(),
-                severity,
+                severity(definition, severityOverride),
                 definition.description(),
                 status,
                 violationCount,
                 List.copyOf(sampleViolations),
                 definition.recommendation(),
                 definition.learnMoreUrl());
+    }
+
+    static String severity(HibernateRuleDefinition definition, String severityOverride) {
+        return severityOverride != null && KNOWN_SEVERITIES.contains(severityOverride)
+                ? severityOverride
+                : definition.severity();
     }
 
     static String detail(String value) {

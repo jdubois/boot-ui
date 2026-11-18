@@ -4,11 +4,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.jdubois.bootui.client.JsonValue;
+import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
+import io.github.jdubois.bootui.core.dto.HibernateReport;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernateApplicationFacts;
+import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
+import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings;
+import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings.SchemaAction;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePersistenceUnitObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -98,6 +109,61 @@ class FailOnTests {
 
         assertThat(result.exitCode).isZero();
         assertThat(result.err).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void dismissingDestructiveDdlDoesNotFailTheCriticalGateForAnUpdateOnlyRemainder(boolean criticalFirst) {
+        var critical = ddlUnit("orders", SchemaAction.DROP_AND_CREATE);
+        var high = ddlUnit("archive", SchemaAction.UPDATE);
+        HibernateScanner scanner = ddlScanner(criticalFirst ? List.of(critical, high) : List.of(high, critical));
+        HibernateReport raw = scanner.scan();
+        DismissedFindingDto orders =
+                new DismissedFindingDto("HIB-CONFIG-002", "v1:unit=orders|setting=hibernate.hbm2ddl.auto", null);
+        DismissedFindingDto archive =
+                new DismissedFindingDto("HIB-CONFIG-002", "v1:unit=archive|setting=hibernate.hbm2ddl.auto", null);
+        assertThat(scanner.ruleViolations(
+                                "HIB-CONFIG-002", raw.violationDetails().scanId(), 0, 100)
+                        .identities())
+                .containsExactlyElementsOf(
+                        criticalFirst
+                                ? List.of(orders.identity(), archive.identity())
+                                : List.of(archive.identity(), orders.identity()));
+
+        responseBody = summary(raw);
+        assertThat(run("hibernate", "report", "--fail-on", "critical", "--json").exitCode)
+                .isEqualTo(3);
+        responseBody = summary(scanner.dismissedReport(Set.of(), List.of(archive)));
+        assertThat(run("hibernate", "report", "--fail-on", "critical", "--json").exitCode)
+                .isEqualTo(3);
+        responseBody = summary(scanner.dismissedReport(Set.of(), List.of(orders, archive)));
+        assertThat(run("hibernate", "report", "--fail-on", "critical", "--json").exitCode)
+                .isZero();
+        responseBody = summary(scanner.dismissedReport(Set.of(), List.of()));
+        assertThat(run("hibernate", "report", "--fail-on", "critical", "--json").exitCode)
+                .isEqualTo(3);
+
+        HibernateReport archiveOnly = ddlScanner(List.of(high)).scan();
+        assertThat(archiveOnly.evidence().usable()).isTrue();
+        responseBody = summary(archiveOnly);
+        Result independentlyScanned = run("hibernate", "report", "--fail-on", "critical", "--json");
+        assertThat(independentlyScanned.exitCode).isZero();
+
+        HibernateReport projected = scanner.dismissedReport(Set.of(), List.of(orders));
+        assertThat(projected.evidence()).isEqualTo(raw.evidence());
+        assertThat(projected.results())
+                .filteredOn(result -> result.id().equals("HIB-CONFIG-002"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.suppressedCount()).isEqualTo(1);
+                });
+        responseBody = summary(projected);
+        Result dismissed = run("hibernate", "report", "--fail-on", "critical", "--json");
+
+        assertThat(dismissed.exitCode)
+                .as("same sole active schema action; projected stderr: %s", dismissed.err)
+                .isEqualTo(independentlyScanned.exitCode);
     }
 
     @Test
@@ -540,6 +606,52 @@ class FailOnTests {
             }
         }
         return others;
+    }
+
+    private static String summary(HibernateReport report) {
+        return JsonValue.object(Map.of(
+                        "reportTool", JsonValue.of("get_hibernate_report"),
+                        "scan",
+                                JsonValue.object(Map.of(
+                                        "status", JsonValue.of(report.scan().status()))),
+                        "findingsFound", JsonValue.of(report.violationsFound()),
+                        "evidence",
+                                JsonValue.object(Map.of(
+                                        "usable", JsonValue.of(report.evidence().usable()),
+                                        "coverageComplete",
+                                                JsonValue.of(report.evidence().coverageComplete()),
+                                        "limitations",
+                                                JsonValue.array(report.evidence().limitations().stream()
+                                                        .map(JsonValue::of)
+                                                        .toList()))),
+                        "severityCounts",
+                                JsonValue.array(report.severityCounts().stream()
+                                        .map(bucket -> JsonValue.object(Map.of(
+                                                "severity", JsonValue.of(bucket.severity()),
+                                                "count", JsonValue.of(bucket.count()))))
+                                        .toList())))
+                .toJson();
+    }
+
+    private static HibernateScanner ddlScanner(List<HibernatePersistenceUnitObservation> units) {
+        return HibernateScanner.observing(
+                () -> new HibernateAdvisorObservation(
+                        units, HibernateApplicationFacts.unknown(List.of("prod")), List.of()),
+                Clock.systemUTC());
+    }
+
+    private static HibernatePersistenceUnitObservation ddlUnit(String label, SchemaAction action) {
+        HibernateFactorySettings settings = new HibernateFactorySettings(
+                null, null, null, null, null, null, null, null, null, null, action, null, null, null, null, null, null,
+                null, null, null, null, null, null);
+        return new HibernatePersistenceUnitObservation(
+                label,
+                label,
+                List.of(new HibernateEntityModel("Order", null, List.of())),
+                List.of(),
+                "7.4.5.Final",
+                settings,
+                false);
     }
 
     private Result run(String... command) {

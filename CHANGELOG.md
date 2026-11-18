@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Active Hibernate grades** follow the remaining known findings after a per-finding dismissal when retention is
+  complete. Raw snapshots, all-active grading, identities and strict CI suppression guards are unchanged; incomplete
+  retention remains conservative ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
 - **Nested validation evidence** requires reachable constraints rather than bare cascade markers or constraint-free
   cycles. Missing metadata stays incomplete under the existing strict policy; finding identities and grouping are
   unchanged ([REST API checks](docs/REST-API-CHECKS.md)).

@@ -79,8 +79,20 @@ abstract class AbstractHibernateRule implements HibernateRule {
     private HibernateRuleResultDto record(
             HibernateContext context, String severityOverride, List<AdvisorViolation> details) {
         if (details.isEmpty()) return pass();
-        List<AdvisorViolation> samples = context.retainViolations(definition.id(), details);
-        return HibernateRuleSupport.violation(definition, severityOverride, details.size(), samples);
+        String severity = HibernateRuleSupport.severity(definition, severityOverride);
+        List<AdvisorViolation> graded = new java.util.AbstractList<>() {
+            @Override
+            public AdvisorViolation get(int index) {
+                return details.get(index).withEvaluationSeverity(severity);
+            }
+
+            @Override
+            public int size() {
+                return details.size();
+            }
+        };
+        List<AdvisorViolation> samples = context.retainViolations(definition.id(), graded);
+        return HibernateRuleSupport.violation(definition, severity, details.size(), samples);
     }
 }
 
