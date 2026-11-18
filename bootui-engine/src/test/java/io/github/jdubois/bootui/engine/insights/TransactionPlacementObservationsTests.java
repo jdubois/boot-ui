@@ -26,6 +26,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class TransactionPlacementObservationsTests {
 
@@ -129,6 +131,51 @@ class TransactionPlacementObservationsTests {
         assertThat(check(service(InsightsStack.QUARKUS).report(), SplitTransactionWrites.KIND)
                         .status())
                 .isEqualTo("NOT_APPLICABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "/* Hibernate insert */ insert into orders values (?)",
+                "-- Hibernate update\nupdate orders set shipped = ?",
+                "/* Hibernate delete */ delete from orders where id = ?",
+                "/* Hibernate merge */ merge into orders using incoming on orders.id = incoming.id when matched then"
+                        + " update set shipped = ?",
+                "replace into orders values (?)",
+                "/* Hibernate replace */ replace into orders values (?)"
+            })
+    void commentedWritesAndReplaceKeepTheirTransactionUnitsWhileCommentedReadsDoNotWrite(String statement) {
+        request(
+                "POST",
+                "/api/orders",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                sql(statement, RequestPhase.HANDLER, 150),
+                sql("insert into audit values (?)", RequestPhase.HANDLER, 250),
+                sql("/* delete from orders */ select * from orders", RequestPhase.HANDLER, 260),
+                sql("-- update orders set shipped = ?\nselect * from orders", RequestPhase.HANDLER, 270));
+        request(
+                "GET",
+                "/api/read-only",
+                sql("/* insert into orders values (?) */ select * from orders", RequestPhase.HANDLER, 150),
+                sql("select 'delete from orders' from orders", RequestPhase.HANDLER, 250));
+
+        for (InsightsStack stack : List.of(InsightsStack.SPRING_MVC, InsightsStack.SPRING_WEBFLUX)) {
+            RuntimeInsightsService insights = service(stack);
+            assertThat(byKind(insights.report(), SplitTransactionWrites.KIND))
+                    .singleElement()
+                    .satisfies(observation -> {
+                        assertThat(observation.subject()).isEqualTo("POST /api/orders");
+                        assertThat(observation.sentence()).contains("2 independent units in 1 of 1 request");
+                        assertThat(observation.exemplarRequestIds()).containsExactly("r1");
+                        assertThat(insights.insight(observation.id()).rows())
+                                .singleElement()
+                                .satisfies(row -> {
+                                    assertThat(row.cells().subList(0, 2)).containsExactly("r1", "2");
+                                    assertThat(row.cells().get(2))
+                                            .contains("OrderService.place: 1 write", "autocommit: 1 write");
+                                });
+                    });
+        }
     }
 
     @Test

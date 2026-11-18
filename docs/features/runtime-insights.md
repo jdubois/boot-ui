@@ -133,6 +133,12 @@ changed-method evidence. The table says what each counts; the drawers below hold
 
 ::: details Observation details: database, transactions, and ORM
 
+`safe-method-dml`, `split-transaction-writes`, `after-commit-writes`, and `unbatched-write-loop` share a lexical write
+classifier. It recognizes captured `INSERT`, `UPDATE`, `DELETE`, `MERGE`, and `REPLACE` statements with leading SQL
+comments, but not write verbs inside comments or SELECT literals. It is not a SQL parser: CTE-headed writes and
+procedure calls are not classified as writes, so no finding does not prove read-only behavior. Classification changes
+neither execution/preparation provenance nor transaction placement and does not establish affected-row counts.
+
 - `proxy-bypass`: Spring MVC and WebFlux only. Executed JDBC statements whose application frames name a
   `@Transactional`, `@Cacheable`, or `@Async` method are checked against the recorded transaction, preceding cache
   accesses, or request thread. A missing cache access counts only for a proven synchronous manager path under standard

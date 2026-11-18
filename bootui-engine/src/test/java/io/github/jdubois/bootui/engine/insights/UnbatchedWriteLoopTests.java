@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * {@code unbatched-write-loop}: a loop is a shape executed ten times with a batch size of one, and a statement whose
@@ -90,6 +92,27 @@ class UnbatchedWriteLoopTests {
         }
 
         assertThat(observations()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "/* Hibernate */ insert into audit (order_id) values (?)",
+                "-- Hibernate\nupdate audit set seen = ?",
+                "replace into audit (order_id) values (?)"
+            })
+    void commentedWritesAndReplaceShareTheWriteClassifierButCommentedReadsDoNot(String statement) {
+        for (int i = 0; i < 2; i++) {
+            request("POST", writes(statement, 10, 1));
+            request("GET", writes("/* insert into audit values (?) */ select * from audit", 10, 1));
+            request("GET", writes("-- update audit set seen = ?\nselect * from audit", 10, 1));
+        }
+
+        assertThat(observations()).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("POST /api/audit");
+            assertThat(observation.sentence()).contains("in 2 of 2 requests, up to 10 times in one");
+            assertThat(observation.status()).isEqualTo("OBSERVED");
+        });
     }
 
     @Test
