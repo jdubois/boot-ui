@@ -203,6 +203,50 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void memoryScanCanExplicitlyOmitHistogramAndRejectsMalformedSelections() {
+        assumeTrue(isPanelUsableInLiveManifest("memory"));
+        BootUiHttpProbe probe = probe();
+        Map<String, String> headers = stateChangingHeaders(probe);
+        Response response = probe.post(api("/memory/scan?includeHistogram=false"), headers);
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        assertThat(report.path("scan").path("includeHistogram").isBoolean()).isTrue();
+        assertThat(report.path("scan").path("includeHistogram").asBoolean()).isFalse();
+        assertThat(report.path("summary").path("histogramAvailable").asBoolean())
+                .isFalse();
+        assertThat(report.path("evidence").path("usable").asBoolean()).isTrue();
+        assertThat(report.path("evidence").path("coverageComplete").asBoolean()).isFalse();
+        assertThat(report.path("evidence").path("limitations").toString())
+                .contains("MEM-CONTENT-001", "MEM-CONTENT-002", "MEM-CONTENT-003", "MEM-CONTENT-005");
+        String scanId = report.path("violationDetails").path("scanId").asText();
+        for (String query : List.of(
+                "includeHistogram=invalid",
+                "includeHistogram=",
+                "includeHistogram",
+                "includeHistogram=false&includeHistogram=true",
+                "includeHistogram=true&includeHistogram=false",
+                "includeHistogram=false&includeHistogram=false",
+                "includeHistogram=false&includeHistogram=",
+                "includeHistogram=&includeHistogram=false",
+                "INCLUDEHISTOGRAM=false",
+                "INCLUDEHISTOGRAM=true&includeHistogram=false",
+                "includeHistogram=false&INCLUDEHISTOGRAM=true")) {
+            Response invalid = probe.post(api("/memory/scan?" + query), headers);
+            assertThat(invalid.status()).as(query).isEqualTo(400);
+            assertThat(invalid.json().path("message").asText())
+                    .as(query)
+                    .isEqualTo("includeHistogram must be true or false.");
+            JsonNode cached = probe.get(api("/memory")).json();
+            assertThat(cached.path("violationDetails").path("scanId").asText())
+                    .as(query)
+                    .isEqualTo(scanId);
+            assertThat(cached.path("scan").path("includeHistogram").asBoolean())
+                    .as(query)
+                    .isFalse();
+        }
+    }
+
+    @Test
     void panelsManifestMatchesExpectedContract() {
         List<ExpectedPanel> expected = loadExpectedPanels();
 

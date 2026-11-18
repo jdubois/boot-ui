@@ -3519,7 +3519,7 @@ Initial endpoints:
 | `/bootui/api/spring`                     | GET    | Latest Spring Advisor scan report                                                      |
 | `/bootui/api/spring/scan`                | POST   | Run explicit read-only Spring context and configuration checks                         |
 | `/bootui/api/memory`                     | GET    | Latest Memory Advisor scan report                                                      |
-| `/bootui/api/memory/scan`                | POST   | Run explicit read-only JVM memory, GC, and thread health checks                        |
+| `/bootui/api/memory/scan`                | POST   | Run explicit JVM checks; optional `includeHistogram` (`true` or `false`) overrides `bootui.memory.include-histogram` (default `true`); selection is returned as `scan.includeHistogram` |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |

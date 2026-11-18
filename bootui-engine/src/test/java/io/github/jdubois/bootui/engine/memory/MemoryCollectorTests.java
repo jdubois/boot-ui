@@ -15,6 +15,29 @@ class MemoryCollectorTests {
     Path tempDir;
 
     @Test
+    void omittedHistogramNeverInvokesDiagnosticAndHasNoOwnGcInterval() {
+        var invocations = new java.util.concurrent.atomic.AtomicInteger();
+        MemoryCollector collector = new MemoryCollector(
+                () -> null,
+                () -> {
+                    invocations.incrementAndGet();
+                    return "1: 100 8000 java.lang.String";
+                },
+                ContainerMemoryLimitDetector.disabled());
+
+        assertThat(collector.collect(true).heapContent().available()).isTrue();
+        MemoryContext omitted = collector.collect(false);
+        assertThat(omitted.heapContent().available()).isFalse();
+        assertThat(omitted.postGcHeap().heapAvailable()).isFalse();
+        assertThat(omitted.postHistogramGc()).isSameAs(omitted.preHistogramGc());
+        assertThat(omitted.postHistogramGcEvent().available()).isFalse();
+        assertThat(omitted.runtime().uptimeMillis())
+                .isEqualTo(omitted.preHistogramGc().uptimeMillis());
+        assertThat(collector.collect(true).heapContent().available()).isTrue();
+        assertThat(invocations).hasValue(2);
+    }
+
+    @Test
     void acquisitionOmissionsInvalidatePopulationRulesEvenWhenTheDetailPageIsNotFull() {
         var quality = new io.github.jdubois.bootui.core.dto.ThreadCaptureQuality(
                 "ThreadMXBean",

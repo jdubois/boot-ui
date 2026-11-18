@@ -785,7 +785,8 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     MemoryScanner bootUiMemoryScanner(ThreadDumpService threadDumpService, BootUiProperties properties) {
-        MemoryScanner scanner = MemoryScanner.create(threadDumpService, Clock.systemUTC());
+        MemoryScanner scanner = MemoryScanner.create(
+                threadDumpService, Clock.systemUTC(), properties.getMemory().isIncludeHistogram());
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return scanner;
     }

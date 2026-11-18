@@ -134,6 +134,23 @@ describe('Overview', () => {
       .findAll('button')
       .find((button) => /all scanners/.test(button.text()))
 
+  it('keeps the cached Memory mode visible while both Scorecard scan actions explicitly omit the histogram', async () => {
+    const report = severityReport([])
+    report.scan.includeHistogram = true
+    stubFetch({'api/memory': report})
+    const wrapper = mountOverview(onlyPanels('memory'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'Memory')
+    expect(card.text()).toContain('Last scan: histogram requested.')
+    expect(card.text()).toContain('No histogram or GC request; heap-content checks are skipped.')
+    expect(posts()).toEqual([])
+    card.vm.$emit('run')
+    await flushPromises()
+    await runAllButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(posts()).toEqual(['api/memory/scan?includeHistogram=false', 'api/memory/scan?includeHistogram=false'])
+  })
+
   it('guards duplicate events while a scan or GitHub refresh is pending', async () => {
     document.cookie = 'XSRF-TOKEN=test-token; path=/'
     const finish = []
@@ -187,10 +204,12 @@ describe('Overview', () => {
     expect(wrapper.findAllComponents(ScannerScoreCard)).toHaveLength(10)
     const runAll = runAllButton(wrapper)
     expect(runAll.element.disabled).toBe(true)
-    expect(wrapper.get(`[id="${runAll.attributes('aria-describedby')}"]`).text()).toContain('No scanners can run')
+    expect(wrapper.get(`[id="${runAll.attributes('aria-describedby').split(' ')[0]}"]`).text()).toContain(
+      'No scanners can run'
+    )
     for (const card of wrapper.findAllComponents(ScannerScoreCard)) {
       expect(card.get('button').element.disabled).toBe(true)
-      expect(card.get(`[id="${card.get('button').attributes('aria-describedby')}"]`).text()).toBe(reason)
+      expect(card.get(`[id="${card.get('button').attributes('aria-describedby').split(' ')[0]}"]`).text()).toBe(reason)
       expect(card.get('a').exists()).toBe(true)
       card.vm.$emit('run')
     }
@@ -211,7 +230,9 @@ describe('Overview', () => {
     await flushPromises()
     await runAllButton(wrapper).trigger('click')
     await flushPromises()
-    expect(posts().sort()).toEqual(['api/memory/scan', ...(githubReadOnly ? [] : ['api/github/refresh'])].sort())
+    expect(posts().sort()).toEqual(
+      ['api/memory/scan?includeHistogram=false', ...(githubReadOnly ? [] : ['api/github/refresh'])].sort()
+    )
     expect(scannerCard(wrapper, 'Architecture').get('button').element.disabled).toBe(true)
   })
 

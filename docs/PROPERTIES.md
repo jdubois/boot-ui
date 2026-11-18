@@ -471,6 +471,14 @@ See [MySQL](features/database.md#mysql) for permissions, evidence scopes, and sa
 | -------------------------------- | ------- | -------------------------------------------------------------- |
 | `bootui.panels.memory.enabled`   | `true`  | Show read-only JVM memory configuration best-practice checks. |
 | `bootui.panels.memory.read-only` | `false` | Disable the explicit Memory Advisor scan action.              |
+| `bootui.memory.include-histogram` | `true` | Default for explicit Memory scans, including argument-free MCP/CLI scans. The histogram requests full GC and may pause the JVM. `false` omits it and leaves heap-content checks unassessed. Read at scanner creation; restart to change the default. |
+
+`POST <api>/memory/scan?includeHistogram=false` overrides the default for one scan; `true` explicitly includes it.
+Only one literal `true` or `false` with the exact parameter spelling is accepted; empty, bare, repeated, or differently
+cased parameters return 400 without scanning.
+Omitting the parameter uses configuration. The Memory panel offers
+the same choice; Scorecard scans always omit the histogram. Reports and compact MCP/CLI answers carry
+`scan.includeHistogram`, independently of `summary.histogramAvailable` (requested does not mean available).
 
 ### Flyway
 

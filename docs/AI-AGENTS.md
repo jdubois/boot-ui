@@ -999,6 +999,12 @@ answers with the same summary:
 | `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
 | `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations); `changes` is what a Hibernate or Database rescan [changed](#checking-what-a-fix-changed) |
 
+`memory_scan` keeps its argument-free schema and uses `bootui.memory.include-histogram` (default `true`).
+The histogram requests full GC and may pause the JVM. Set the property to `false` and restart to omit that
+diagnostic without losing the other JVM checks. `scan.includeHistogram` records the selected mode in both
+the summary and cached report; omitted heap-content checks leave explicit coverage limitations. Scorecard
+actions explicitly omit the histogram regardless of this default.
+
 A vulnerability row is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and `count`
 its advisory count. So for `vulnerabilities_scan`, `findingsFound` counts vulnerable dependencies while
 `severityCounts` counts advisories, as the Vulnerabilities report does. The summary adds the inventory's

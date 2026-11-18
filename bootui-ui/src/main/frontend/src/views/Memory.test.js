@@ -189,4 +189,29 @@ describe('Memory', () => {
     expect(offload.props('followUp')).toContain('Run memory checks again')
     expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
+
+  it('initializes the histogram choice from the server and only scans the explicit selection on click', async () => {
+    const report = advisorReport([])
+    report.scan.includeHistogram = false
+    const wrapper = await mountWithReport(report)
+    const choice = wrapper.get('input[type="checkbox"]')
+    expect(choice.element.checked).toBe(false)
+    expect(wrapper.text()).toContain('No histogram or GC request.')
+    expect(wrapper.text()).toContain('Histogram omitted')
+    expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    const scan = () => wrapper.findAll('button').find((button) => button.text() === 'Run memory checks')
+    await scan().trigger('click')
+    await flushPromises()
+    expect(
+      fetch.mock.calls.some(([url, init]) => url === 'api/memory/scan?includeHistogram=false' && init.method === 'POST')
+    ).toBe(true)
+    await choice.setValue(true)
+    expect(wrapper.text()).toContain('Requests full GC and may pause the JVM.')
+    await scan().trigger('click')
+    await flushPromises()
+    expect(
+      fetch.mock.calls.some(([url, init]) => url === 'api/memory/scan?includeHistogram=true' && init.method === 'POST')
+    ).toBe(true)
+    expect(choice.element.checked).toBe(true)
+  })
 })

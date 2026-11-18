@@ -21,6 +21,7 @@ import SpinnerButton from './components/SpinnerButton.vue'
 const injectedPanels = inject('panels', null)
 const applicationPath = getBootUiApplicationPath()
 const runAllReasonId = `scorecard-run-all-reason-${useId()}`
+const memoryScanCostId = `scorecard-memory-cost-${useId()}`
 
 // Standalone mounts fetch availability; the application shell owns its injected manifest.
 const localPanels = ref(null)
@@ -65,7 +66,7 @@ const scannerDefs = [
     icon: 'bi-clipboard2-pulse',
     tone: 'warning',
     to: '/memory',
-    endpoint: 'api/memory/scan',
+    endpoint: 'api/memory/scan?includeHistogram=false',
     reportEndpoint: 'api/memory'
   },
   {
@@ -146,7 +147,8 @@ function newScannerState() {
     statusLabel: null,
     statusTone: 'secondary',
     error: null,
-    warning: null
+    warning: null,
+    scanMode: null
   }
 }
 
@@ -180,6 +182,14 @@ function applyReport(def, state, report) {
   state.state = status === 'ERROR' ? 'error' : status === 'NOT_SCANNED' ? 'idle' : 'done'
   state.error = status === 'ERROR' ? report.scan.message || 'Scan failed' : null
   state.warning = validSummary ? null : 'The report has an invalid severity summary. Its counts cannot be displayed.'
+  state.scanMode =
+    def.id === 'memory' && status !== 'NOT_SCANNED'
+      ? report.scan.includeHistogram === false
+        ? 'Last scan: histogram omitted.'
+        : report.scan.includeHistogram === true
+          ? 'Last scan: histogram requested.'
+          : null
+      : null
 }
 
 const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailable(def.id)))
@@ -478,7 +488,11 @@ watch(
               <SpinnerButton
                 :loading="anyRunning"
                 :disabled="anyRunning || !!runAllDisabledReason"
-                :aria-describedby="runAllDisabledReason ? runAllReasonId : undefined"
+                :aria-describedby="
+                  [runAllDisabledReason ? runAllReasonId : null, panelAvailable('memory') ? memoryScanCostId : null]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                "
                 class="btn btn-primary flex-shrink-0 align-self-start align-self-xl-center ms-xl-auto"
                 type="button"
                 :label="assessedCount > 0 ? 'Re-run all scanners' : 'Run all scanners'"
@@ -488,6 +502,10 @@ watch(
             </div>
             <p v-if="runAllDisabledReason" :id="runAllReasonId" class="small text-muted mt-2 mb-0">
               {{ runAllDisabledReason }}
+            </p>
+            <p v-if="panelAvailable('memory')" :id="memoryScanCostId" class="small text-muted mt-2 mb-0">
+              Memory runs without a heap histogram or GC request; heap-content checks are skipped. Include the histogram
+              from the Memory panel when needed.
             </p>
             <div class="overall-assessment d-flex flex-wrap align-items-center gap-2 mt-3 small">
               <span>
@@ -640,8 +658,13 @@ watch(
           :warning-message="scanners[def.id].warning"
           :run-disabled="!!actionReason(def.id)"
           :run-disabled-reason="actionReason(def.id)"
+          :run-hint="def.id === 'memory' ? 'No histogram or GC request; heap-content checks are skipped.' : null"
           @run="runScanner(def)"
-        />
+        >
+          <template v-if="def.id === 'memory'" #notes>
+            <p v-if="scanners[def.id].scanMode" class="small text-muted mt-2 mb-0">{{ scanners[def.id].scanMode }}</p>
+          </template>
+        </ScannerScoreCard>
       </div>
 
       <div v-if="!hasActions" class="col-12">

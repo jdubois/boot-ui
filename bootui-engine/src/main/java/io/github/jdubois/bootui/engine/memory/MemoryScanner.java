@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
@@ -52,7 +53,8 @@ public final class MemoryScanner {
                     Comparator.comparingInt(MemoryRuleResultDto::violationCount).reversed())
             .thenComparing(MemoryRuleResultDto::id);
 
-    private final Supplier<MemoryContext> contextSupplier;
+    private final Function<Boolean, MemoryContext> contextSupplier;
+    private final boolean defaultIncludeHistogram;
     private final Clock clock;
     private final BootUiDiagnosticGcTracker diagnosticGcTracker;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
@@ -97,7 +99,7 @@ public final class MemoryScanner {
     private BootUiDiagnosticGcTracker.ExplicitGcCursor previousExplicitGcCursor;
 
     MemoryScanner(MemoryCollector collector, Clock clock) {
-        this(collector::collect, clock, BootUiDiagnosticGcTracker.SHARED);
+        this(collector::collect, clock, BootUiDiagnosticGcTracker.SHARED, true);
     }
 
     MemoryScanner(Supplier<MemoryContext> contextSupplier, Clock clock) {
@@ -105,9 +107,18 @@ public final class MemoryScanner {
     }
 
     MemoryScanner(Supplier<MemoryContext> contextSupplier, Clock clock, BootUiDiagnosticGcTracker diagnosticGcTracker) {
+        this(ignored -> contextSupplier.get(), clock, diagnosticGcTracker, true);
+    }
+
+    MemoryScanner(
+            Function<Boolean, MemoryContext> contextSupplier,
+            Clock clock,
+            BootUiDiagnosticGcTracker diagnosticGcTracker,
+            boolean defaultIncludeHistogram) {
         this.contextSupplier = contextSupplier;
         this.clock = clock;
         this.diagnosticGcTracker = diagnosticGcTracker;
+        this.defaultIncludeHistogram = defaultIncludeHistogram;
     }
 
     BootUiDiagnosticGcTracker diagnosticGcTracker() {
@@ -130,11 +141,32 @@ public final class MemoryScanner {
      * accordingly.
      */
     public static MemoryScanner create(ThreadDumpService threadDumpService, Clock clock) {
-        return new MemoryScanner(
-                new MemoryCollector(
-                        () -> threadDumpService.report(null, null, 0, 1000),
-                        MemoryCollector::diagnosticCommandHistogram),
-                clock);
+        return create(threadDumpService, clock, true);
+    }
+
+    public static MemoryScanner create(ThreadDumpService threadDumpService, Clock clock, boolean includeHistogram) {
+        MemoryCollector collector = new MemoryCollector(
+                () -> threadDumpService.report(null, null, 0, 1000), MemoryCollector::diagnosticCommandHistogram);
+        return new MemoryScanner(collector::collect, clock, BootUiDiagnosticGcTracker.SHARED, includeHistogram);
+    }
+
+    /**
+     * Reads raw presence and all values: scalar query binding can otherwise turn a present-empty
+     * parameter into absence and accidentally select the configured diagnostic.
+     */
+    public static Boolean parseIncludeHistogram(Map<String, ? extends List<String>> queryParameters) {
+        for (String name : queryParameters.keySet()) {
+            if ("includeHistogram".equalsIgnoreCase(name) && !"includeHistogram".equals(name)) {
+                throw new IllegalArgumentException("includeHistogram must be true or false.");
+            }
+        }
+        if (!queryParameters.containsKey("includeHistogram")) return null;
+        List<String> values = queryParameters.get("includeHistogram");
+        if (values != null && values.size() == 1) {
+            if ("true".equals(values.get(0))) return true;
+            if ("false".equals(values.get(0))) return false;
+        }
+        throw new IllegalArgumentException("includeHistogram must be true or false.");
     }
 
     public MemoryReport initialReport() {
@@ -145,13 +177,21 @@ public final class MemoryScanner {
                 null,
                 null,
                 0,
-                List.of());
+                List.of(),
+                AdvisorEvidenceDto.unknown(),
+                defaultIncludeHistogram);
     }
 
     public MemoryReport scan() {
+        return scan(null);
+    }
+
+    /** A null override uses the configured default; switching modes preserves this scanner's GC history. */
+    public MemoryReport scan(Boolean includeHistogram) {
+        boolean selected = includeHistogram == null ? defaultIncludeHistogram : includeHistogram;
         return singleFlight.run(ActionOperations.MEMORY_SCAN, () -> {
             AdvisorViolationCollector collector = state.collector();
-            return state.publish(doScan(collector), collector);
+            return state.publish(doScan(collector, selected), collector);
         });
     }
 
@@ -167,11 +207,11 @@ public final class MemoryScanner {
         state.setRetentionLimit(limit);
     }
 
-    private MemoryReport doScan(AdvisorViolationCollector collector) {
+    private MemoryReport doScan(AdvisorViolationCollector collector, boolean includeHistogram) {
         BootUiDiagnosticGcTracker.Snapshot preDiagnostic = diagnosticGcTracker.snapshot();
         MemoryContext context;
         try {
-            context = contextSupplier.get();
+            context = contextSupplier.apply(includeHistogram);
         } catch (RuntimeException | LinkageError ex) {
             invalidateGcTrend();
             return report(
@@ -180,7 +220,9 @@ public final class MemoryScanner {
                     clock.millis(),
                     null,
                     0,
-                    List.of());
+                    List.of(),
+                    AdvisorEvidenceDto.unknown(),
+                    includeHistogram);
         }
         BootUiDiagnosticGcTracker.Snapshot postDiagnostic = diagnosticGcTracker.snapshot();
 
@@ -282,7 +324,7 @@ public final class MemoryScanner {
             cumulativeHistogramGcCount =
                     BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, histogramOnlyCount);
         }
-        if (!collectionEpochComparable) {
+        if (includeHistogram && !collectionEpochComparable) {
             recordResetHistogramGc(context, postDiagnostic, comparablePostEvent);
         }
 
@@ -305,11 +347,21 @@ public final class MemoryScanner {
         boolean hadErrors = results.stream().anyMatch(result -> MemoryRuleSupport.ERROR.equals(result.status()));
         String status = hadErrors ? "PARTIAL" : "SCANNED";
         String message = "Memory Advisor evaluated " + results.size() + " rules against the JVM runtime.";
+        message += includeHistogram
+                ? " Heap histogram requested (may request full GC and pause the JVM)."
+                : " Heap histogram omitted; histogram-dependent checks were skipped.";
         if (hadErrors) {
             message += " Some rules could not be evaluated.";
         }
         MemoryReport completed = report(
-                status, message, clock.millis(), summary(evaluated), results.size(), results, evidence(evaluations));
+                status,
+                message,
+                clock.millis(),
+                summary(evaluated),
+                results.size(),
+                results,
+                evidence(evaluations, includeHistogram),
+                includeHistogram);
         previousExplicitGcCursor = explicitObservation.cursor();
         return completed;
     }
@@ -526,25 +578,16 @@ public final class MemoryScanner {
             Long scannedAt,
             MemorySummaryDto summary,
             int rulesEvaluated,
-            List<MemoryRuleResultDto> results) {
-        return report(status, message, scannedAt, summary, rulesEvaluated, results, AdvisorEvidenceDto.unknown());
-    }
-
-    private MemoryReport report(
-            String status,
-            String message,
-            Long scannedAt,
-            MemorySummaryDto summary,
-            int rulesEvaluated,
             List<MemoryRuleResultDto> results,
-            AdvisorEvidenceDto evidence) {
+            AdvisorEvidenceDto evidence,
+            boolean includeHistogram) {
         List<MemoryRuleResultDto> violations = results.stream()
                 .filter(MemoryScanner::isViolation)
                 .sorted(IMPORTANCE_ORDER)
                 .toList();
         int violationsFound = violations.size();
-        MemoryScanStatusDto scan =
-                new MemoryScanStatusDto(ANALYZER, status, message, scannedAt, rulesEvaluated, violationsFound);
+        MemoryScanStatusDto scan = new MemoryScanStatusDto(
+                ANALYZER, status, message, scannedAt, rulesEvaluated, violationsFound, includeHistogram);
         return new MemoryReport(
                 true,
                 DISCLAIMER,
@@ -575,7 +618,8 @@ public final class MemoryScanner {
                 scan.message(),
                 scan.scannedAt(),
                 scan.rulesEvaluated(),
-                violationsFound);
+                violationsFound,
+                scan.includeHistogram());
         return new MemoryReport(
                 report.localOnly(),
                 report.disclaimer(),
@@ -591,11 +635,17 @@ public final class MemoryScanner {
     }
 
     static AdvisorEvidenceDto evidence(List<MemoryEvaluation> evaluations) {
+        return evidence(evaluations, true);
+    }
+
+    private static AdvisorEvidenceDto evidence(List<MemoryEvaluation> evaluations, boolean includeHistogram) {
         if (evaluations.isEmpty()) return AdvisorEvidenceDto.unknown();
         List<String> limitations = evaluations.stream()
                 .filter(MemoryEvaluation::requiredUnknown)
-                .map(evaluation ->
-                        evaluation.result().id() + ": required JVM evidence was unavailable or evaluation failed.")
+                .map(evaluation -> evaluation.result().id()
+                        + (!includeHistogram && evaluation.result().id().startsWith("MEM-CONTENT-")
+                                ? ": heap histogram omitted by scan selection; check was not assessed."
+                                : ": required JVM evidence was unavailable or evaluation failed."))
                 .limit(20)
                 .toList();
         return new AdvisorEvidenceDto(

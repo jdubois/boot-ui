@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Memory scan control** can omit the GC-triggering histogram while preserving honest unassessed content checks;
+  Scorecard scans use this cheaper mode and explicit Memory scans disclose their selection
+  ([Memory checks](docs/MEMORY-CHECKS.md)).
 - **GraalVM dependency hint sources** distinguish bundled JSON, Spring AOT contributor declarations and repository
   matches. Bundled sources avoid redundant lookups without claiming native-image compatibility
   ([GraalVM readiness](docs/GRAALVM-READINESS-CHECKS.md#dependency-survey)).

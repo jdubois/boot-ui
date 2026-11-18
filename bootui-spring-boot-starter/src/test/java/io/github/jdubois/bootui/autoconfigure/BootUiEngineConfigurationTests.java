@@ -78,6 +78,23 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
 class BootUiEngineConfigurationTests {
 
     @Test
+    void memoryHistogramDefaultBindsIntoTheSharedScannerWithoutCollecting() {
+        var properties = Binder.get(new MockEnvironment().withProperty("bootui.memory.include-histogram", "false"))
+                .bind("bootui", BootUiProperties.class)
+                .get();
+        var threads = mock(io.github.jdubois.bootui.engine.threads.ThreadDumpService.class);
+        var scanner = new BootUiEngineConfiguration().bootUiMemoryScanner(threads, properties);
+        assertThat(scanner.initialReport().scan().includeHistogram()).isFalse();
+        assertThat(new BootUiEngineConfiguration()
+                        .bootUiMemoryScanner(threads, new BootUiProperties())
+                        .initialReport()
+                        .scan()
+                        .includeHistogram())
+                .isTrue();
+        verifyNoInteractions(threads);
+    }
+
+    @Test
     void memoryFactoryUsesLiveHealthAccessAndTheApplicationClassLoader() {
         MockEnvironment environment = new MockEnvironment();
         environment.setConversionService(new org.springframework.boot.convert.ApplicationConversionService());

@@ -378,7 +378,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         const scans = []
         await showAdvisors(page, ...ids)
         for (const id of ids) {
-          await page.route(`**${apiPath}/${id}{,/scan}`, (route) => {
+          await page.route(`**${apiPath}/${id}{,/scan,/scan?*}`, (route) => {
             if (route.request().method() === 'POST') scans.push(id)
             return route.fulfill({json: scans.includes(id) ? report : unscannedReport()})
           })

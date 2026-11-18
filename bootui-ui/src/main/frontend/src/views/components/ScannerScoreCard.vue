@@ -24,11 +24,18 @@ const props = defineProps({
   rerunLabel: {type: String, default: 'Re-run scan'},
   runDisabled: {type: Boolean, default: false},
   runDisabledReason: {type: String, default: null},
+  runHint: {type: String, default: null},
   idleHint: {type: String, default: 'Run this scanner to inspect findings and assessment coverage.'}
 })
 
 const emit = defineEmits(['run'])
 const actionReasonId = `scanner-action-reason-${useId()}`
+const runHintId = `scanner-run-hint-${useId()}`
+const runDescription = computed(
+  () =>
+    [props.runDisabledReason ? actionReasonId : null, props.runHint ? runHintId : null].filter(Boolean).join(' ') ||
+    undefined
+)
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN', 'NONE']
 const SEVERITY_TONES = {
@@ -112,6 +119,7 @@ function onRun() {
           </template>
           <div v-else-if="state === 'idle'" class="text-muted small">{{ idleHint }}</div>
         </slot>
+        <slot name="notes" />
         <div v-if="warningMessage" class="text-warning-emphasis small mt-2" role="status" aria-live="polite">
           <i class="bi bi-exclamation-circle me-1"></i>{{ warningMessage }}
         </div>
@@ -120,6 +128,7 @@ function onRun() {
       <p v-if="runDisabledReason" :id="actionReasonId" class="small text-muted mt-2 mb-0 scanner-action-reason">
         {{ runDisabledReason }}
       </p>
+      <p v-if="runHint" :id="runHintId" class="small text-muted mt-2 mb-0">{{ runHint }}</p>
       <div class="d-flex gap-2 mt-3">
         <slot name="actions" :reason-id="runDisabledReason ? actionReasonId : undefined">
           <SpinnerButton
@@ -127,7 +136,7 @@ function onRun() {
             class="btn btn-sm btn-primary"
             type="button"
             :disabled="runDisabled || state === 'running'"
-            :aria-describedby="runDisabledReason ? actionReasonId : undefined"
+            :aria-describedby="runDescription"
             @click="onRun"
           >
             {{ state === 'idle' ? runLabel : rerunLabel }}

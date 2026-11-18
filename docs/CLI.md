@@ -315,6 +315,14 @@ Individual recorder resumes and new probes refuse with exit `1` while held; disa
 Older CLI binaries keep their existing commands, but cannot offer these new leaves without an updated manifest.
 See [the full agent contract](AI-AGENTS.md#low-footprint-mode) for partial failures and mixed native/agent evidence.
 
+### Memory scan cost
+
+`bootui memory scan` remains argument-free and uses the application's `bootui.memory.include-histogram`
+property (default `true`). The histogram requests full GC and may pause the JVM; configure `false` and restart
+the application to omit it. Other JVM checks still run, while heap-content coverage remains incomplete.
+`scan.includeHistogram` in the compact answer and `bootui memory report` identifies that scan's selection.
+The Memory panel also offers a per-request choice; Scorecard scans always omit the histogram.
+
 ### Retrieve more than the advisor preview
 
 Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and

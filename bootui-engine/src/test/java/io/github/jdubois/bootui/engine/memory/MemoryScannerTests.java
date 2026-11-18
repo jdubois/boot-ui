@@ -277,6 +277,150 @@ class MemoryScannerTests {
     }
 
     @Test
+    void histogramSelectionDistinguishesAbsenceFromPresentEmptyAndAmbiguousValues() {
+        assertThat(MemoryScanner.parseIncludeHistogram(java.util.Map.of())).isNull();
+        assertThat(MemoryScanner.parseIncludeHistogram(java.util.Map.of("includeHistogram", List.of("true"))))
+                .isTrue();
+        assertThat(MemoryScanner.parseIncludeHistogram(java.util.Map.of("includeHistogram", List.of("false"))))
+                .isFalse();
+        for (List<String> values : List.of(
+                List.<String>of(),
+                java.util.Collections.<String>singletonList(null),
+                List.of(""),
+                List.of("false", "true"),
+                List.of("true", "false"),
+                List.of("false", "false"),
+                List.of("false", ""),
+                List.of("", "false"))) {
+            assertThatThrownBy(() -> MemoryScanner.parseIncludeHistogram(java.util.Map.of("includeHistogram", values)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("includeHistogram must be true or false.");
+        }
+        for (var values : List.of(
+                java.util.Map.of("INCLUDEHISTOGRAM", List.of("false")),
+                java.util.Map.of("INCLUDEHISTOGRAM", List.of("true"), "includeHistogram", List.of("false")))) {
+            assertThatThrownBy(() -> MemoryScanner.parseIncludeHistogram(values))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("includeHistogram must be true or false.");
+        }
+    }
+
+    @Test
+    void histogramSelectionPreservesTrendAndOwnGcExclusionsOnOneScanner() {
+        AtomicInteger call = new AtomicInteger();
+        var tracker = new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable);
+        MemoryScanner scanner = new MemoryScanner(
+                includeHistogram -> {
+                    int step = call.incrementAndGet();
+                    assertThat(includeHistogram).isEqualTo(step != 2);
+                    MemoryContext.GcSample pre =
+                            switch (step) {
+                                case 1 ->
+                                    new MemoryContext.GcSample(
+                                            600_000L, 10_000L, 50L, java.util.Map.of("G1 Old Generation", 50L));
+                                case 2 ->
+                                    new MemoryContext.GcSample(
+                                            660_000L, 60_000L, 51L, java.util.Map.of("G1 Old Generation", 51L));
+                                default ->
+                                    new MemoryContext.GcSample(
+                                            680_000L, 68_000L, 52L, java.util.Map.of("G1 Old Generation", 52L));
+                            };
+                    MemoryContext.GcSample post = includeHistogram
+                            ? new MemoryContext.GcSample(
+                                    pre.uptimeMillis() + 50_000L,
+                                    pre.gcTimeMillis() + 50_000L,
+                                    pre.gcCount() + 1L,
+                                    java.util.Map.of("G1 Old Generation", pre.gcCount() + 1L))
+                            : pre;
+                    MemoryContext.GcEvent latest = step == 3
+                            ? new MemoryContext.GcEvent(52L, 680_000L, 8_000L, "G1 Old Generation")
+                            : MemoryContext.GcEvent.unavailable();
+                    MemoryContext.GcEvent own = includeHistogram
+                            ? new MemoryContext.GcEvent(
+                                    post.gcCount(),
+                                    post.uptimeMillis(),
+                                    50_000L,
+                                    "G1 Old Generation",
+                                    "Heap Inspection Initiated GC")
+                            : MemoryContext.GcEvent.unavailable();
+                    MemoryContext base = explicitGcContext(pre, post, latest, own);
+                    return new MemoryContext(
+                            base.memory(),
+                            base.threads(),
+                            includeHistogram
+                                    ? bloatedCollectionsContext().heapContent()
+                                    : HeapContentData.unavailable(),
+                            base.postGcHeap(),
+                            base.classLoading(),
+                            base.runtime(),
+                            pre,
+                            post,
+                            latest,
+                            own,
+                            MemoryContext.GcTrend.unavailable());
+                },
+                CLOCK,
+                tracker,
+                true);
+
+        MemoryReport first = scanner.scan();
+        assertThat(first.results()).extracting(MemoryRuleResultDto::id).contains("MEM-CONTENT-002");
+        assertThat(first.scan().includeHistogram()).isTrue();
+        MemoryReport omitted = scanner.scan(false);
+        assertThat(omitted.scan().includeHistogram()).isFalse();
+        assertThat(omitted.summary().histogramAvailable()).isFalse();
+        assertThat(omitted.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006", "MEM-CONTENT-002");
+        assertThat(omitted.evidence().coverageComplete()).isFalse();
+        assertThat(omitted.evidence().limitations()).noneMatch(note -> note.startsWith("MEM-GC-003:"));
+        for (String id : List.of("MEM-CONTENT-001", "MEM-CONTENT-002", "MEM-CONTENT-003", "MEM-CONTENT-005")) {
+            assertThat(omitted.evidence().limitations())
+                    .anyMatch(note -> note.startsWith(id + ": heap histogram omitted"));
+        }
+        assertThat(scanner.applyDismissals(omitted, java.util.Set.of("MEM-HEAP-001"))
+                        .scan()
+                        .includeHistogram())
+                .isFalse();
+        MemoryReport again = scanner.scan(true);
+        assertThat(again.scan().includeHistogram()).isTrue();
+        assertThat(again.results())
+                .extracting(MemoryRuleResultDto::id)
+                .contains("MEM-CONTENT-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006")
+                .doesNotContain("MEM-GC-002");
+        assertThat(io.github.jdubois.bootui.engine.mcp.McpScanSummaries.memory(omitted)
+                        .get("scan"))
+                .isSameAs(omitted.scan());
+        assertThat(scanner.lastReport()).isSameAs(again);
+    }
+
+    @Test
+    void configuredDefaultIsUsedByArgumentFreeScansAndErrorsRetainTheOverride() {
+        var collector = new MemoryCollector(
+                () -> null,
+                () -> {
+                    throw new AssertionError("Omitted diagnostic was executed");
+                },
+                ContainerMemoryLimitDetector.disabled());
+        MemoryScanner scanner = new MemoryScanner(
+                collector::collect,
+                CLOCK,
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable),
+                false);
+        assertThat(scanner.initialReport().scan().includeHistogram()).isFalse();
+        assertThat(scanner.scan().scan().includeHistogram()).isFalse();
+        MemoryScanner broken = new MemoryScanner(
+                selected -> {
+                    throw new IllegalStateException("failed");
+                },
+                CLOCK,
+                new BootUiDiagnosticGcTracker(() -> null, MemoryContext.GcEvent::unavailable),
+                true);
+        assertThat(broken.scan(false).scan().status()).isEqualTo("ERROR");
+        assertThat(broken.lastReport().scan().includeHistogram()).isFalse();
+    }
+
+    @Test
     void collectorFailureProducesErrorReport() {
         MemoryScanner scanner = new MemoryScanner(
                 () -> {

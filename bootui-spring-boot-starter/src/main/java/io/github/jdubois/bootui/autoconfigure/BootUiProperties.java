@@ -190,6 +190,8 @@ public class BootUiProperties {
      * Heap Dump panel settings.
      */
     private HeapDump heapDump = new HeapDump();
+
+    private Memory memory = new Memory();
     /** Bounded thread capture and finite-observation settings. */
     private Threads threads = new Threads();
     /**
@@ -580,6 +582,14 @@ public class BootUiProperties {
 
     public void setHeapDump(HeapDump heapDump) {
         this.heapDump = heapDump == null ? new HeapDump() : heapDump;
+    }
+
+    public Memory getMemory() {
+        return memory;
+    }
+
+    public void setMemory(Memory memory) {
+        this.memory = memory == null ? new Memory() : memory;
     }
 
     public Threads getThreads() {
@@ -2188,6 +2198,21 @@ public class BootUiProperties {
 
         public void setObservationIntervalMillis(long value) {
             observationIntervalMillis = value;
+        }
+    }
+
+    /** Memory Advisor settings. */
+    public static class Memory {
+
+        /** Default for explicit Memory scans; a REST request can override it for one scan. */
+        private boolean includeHistogram = true;
+
+        public boolean isIncludeHistogram() {
+            return includeHistogram;
+        }
+
+        public void setIncludeHistogram(boolean includeHistogram) {
+            this.includeHistogram = includeHistogram;
         }
     }
 

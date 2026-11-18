@@ -19,6 +19,18 @@ sequence, not additional unassessed JVM observations.
 
 ## Measurement quality, availability, and cost
 
+**Include heap histogram** in the Memory panel controls one explicit scan. The default remains enabled, matching
+`bootui.memory.include-histogram=true`; disabling it avoids the histogram command and its GC request, while the
+other JVM checks still run. Scorecard's **Run all scanners** and Memory card always omit the histogram. The REST
+override is `POST <api>/memory/scan?includeHistogram=true|false`. MCP `memory_scan` and `bootui memory scan` keep
+their argument-free contract and use the configured default. Every report, including compact tool answers,
+records the selection as `scan.includeHistogram`; `summary.histogramAvailable` separately reports acquisition.
+The panel initializes its choice from the latest report (the configured default before the first scan), then
+keeps the user's choice for subsequent clicks.
+
+An omitted histogram leaves `MEM-CONTENT-001`, `002`, `003`, and `005` unassessed, with explicit limitations and
+`coverageComplete=false`, not a clean heap-content assessment. No previous histogram rows are reused.
+
 Missing histogram, pool, maximum, or other required observations do not turn a no-finding result into a passing check.
 Usable known-findings scores retain these limitations under the shared
 [score eligibility policy](features/advisors.md#score-eligibility).
@@ -67,6 +79,10 @@ Recent-GC comparisons span the previous scan's **post-histogram counter sample**
 non-positive elapsed windows, decreased counters, or changed collector identities cannot become healthy zero
 activity. A valid zero timer delta is possible even when the collection count increases because timers are
 approximate milliseconds. Known counts remain usable when time is unknown, and vice versa.
+Without a histogram, the two samples are the **same boundary**: no diagnostic interval, GC delta, or post-histogram
+event is invented. Application GCs concurrent with the remaining collection work stay in the next observation
+window. Switching histogram → no histogram → histogram on the same scanner retains the previous GC sample,
+cumulative own-diagnostic exclusions, and explicit-GC window, including failure/reset safeguards.
 
 The time ratio is approximate **collection elapsed time**, not CPU utilization or an exact percentage of application
 pause time. ZGC/Shenandoah whole-cycle timers and legacy CMS concurrent timing are excluded to avoid adding

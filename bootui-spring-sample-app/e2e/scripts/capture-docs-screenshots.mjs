@@ -2453,6 +2453,7 @@ const memoryAdvisor = {
   ],
   scan: {
     analyzer: 'BootUI Memory Advisor',
+    includeHistogram: true,
     status: 'SCANNED',
     message: 'Memory Advisor evaluated 31 rules against the live management beans.',
     scannedAt: nowMillis - 24_000,

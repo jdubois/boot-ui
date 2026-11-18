@@ -100,9 +100,15 @@ export function registerActionPolicyTests(test, expect) {
         expect(new Set(ids).size).toBe(4)
         for (const control of await controls.all()) {
           await expect(control).toBeDisabled()
-          const description = page.locator(`[id="${await control.getAttribute('aria-describedby')}"]`)
-          await expect(description).toHaveCount(1)
-          await expect(description).toContainText(/read-only|No scanners can run/)
+          const descriptionIds = (await control.getAttribute('aria-describedby')).trim().split(/\s+/)
+          expect(new Set(descriptionIds).size).toBe(descriptionIds.length)
+          const descriptions = []
+          for (const id of descriptionIds) {
+            const description = page.locator(`[id="${id}"]`)
+            await expect(description).toHaveCount(1)
+            descriptions.push(await description.textContent())
+          }
+          expect(descriptions.join(' ')).toMatch(/read-only|No scanners can run/)
         }
         const card = cards.filter({hasText: 'Architecture'})
         await expect(card).toContainText('90')

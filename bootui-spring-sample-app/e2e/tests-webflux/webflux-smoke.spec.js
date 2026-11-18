@@ -6,12 +6,14 @@ import {registerActionPolicyTests} from '../scenarios/action-policy.js'
 import {registerButtonLinkTests} from '../scenarios/button-links.js'
 import {registerJvmSizingInputTests} from '../scenarios/jvm-sizing-inputs.js'
 import {registerGitHubRefreshTests} from '../scenarios/github-refresh.js'
+import {registerMemoryHistogramTests} from '../scenarios/memory-histogram.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
 registerActionPolicyTests(test, expect)
 registerButtonLinkTests(test, expect)
 registerJvmSizingInputTests(test, expect)
 registerGitHubRefreshTests(test, expect)
+registerMemoryHistogramTests(test, expect)
 
 async function expandAllSidebarGroups(page) {
   const toggles = page.locator('aside .bootui-nav-group__toggle')
