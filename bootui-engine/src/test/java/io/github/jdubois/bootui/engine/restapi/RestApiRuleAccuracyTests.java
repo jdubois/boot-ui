@@ -109,7 +109,7 @@ class RestApiRuleAccuracyTests {
         RestApiContext context = context(RestApiRuleAccuracyFixtures.Responses.class);
         violations(new NoEntitiesInResponsesRule(), context, "entityArray");
         violations(new NoMassAssignmentViaEntitiesRule(), context, "entityInput");
-        violations(new RequestBodyIsValidatedRule(), context, "entityInput");
+        violations(new RequestBodyIsValidatedRule(), context);
         violations(
                 new CollectionReadsArePaginatedRule(),
                 context,

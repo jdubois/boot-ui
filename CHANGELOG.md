@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Request validation relevance** reports missing validation at MEDIUM only for positively observed reachable
+  payload constraints, retaining unknown metadata as unassessed. Existing MEDIUM-or-higher CI gates can newly apply;
+  validation triggers and groups are not execution proof ([REST API checks](docs/REST-API-CHECKS.md)).
 - **JVM percentage context** shows the modeled heap and assumed memory limit beside the emitted percentages, with
   recalculation and image-launcher guidance rather than an effective-heap guarantee
   ([JVM tuning](docs/JVM-TUNING-CHECKS.md#memory-model)).

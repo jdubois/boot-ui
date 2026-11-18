@@ -261,20 +261,23 @@ final class RestApiHandlerModelBuilder {
     private final List<ThrownExceptionModel> thrownExceptions = new ArrayList<>();
     private final IdentityHashMap<Object, RestApiLocations.Element> locations = new IdentityHashMap<>();
     private final Map<String, Map<String, Set<String>>> typeAnnotationsCache = new java.util.HashMap<>();
+    private final RequestPayloadConstraints requestPayloadConstraints;
     private boolean hasExceptionHandling;
     private boolean springDataPageViaDtoConfigured;
     private int springControllerCount;
     private int jaxRsResourceCount;
     private boolean incomplete;
 
-    private RestApiHandlerModelBuilder() {}
+    private RestApiHandlerModelBuilder(List<JavaClass> classes) {
+        requestPayloadConstraints = new RequestPayloadConstraints(classes);
+    }
 
     static RestApiHandlerModelBuilder build(JavaClasses classes) {
-        RestApiHandlerModelBuilder builder = new RestApiHandlerModelBuilder();
         List<JavaClass> imported = new ArrayList<>();
         for (JavaClass type : classes) {
             imported.add(type);
         }
+        RestApiHandlerModelBuilder builder = new RestApiHandlerModelBuilder(imported);
         Set<String> implementedControllerInterfaces = new LinkedHashSet<>();
         for (JavaClass type : imported) {
             try {
@@ -592,6 +595,7 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyValidated = false;
         boolean requestBodyIsEntity = false;
         boolean requestBodyIsSimple = false;
+        var requestBodyConstraints = RestApiModel.ValidationConstraints.ABSENT;
         boolean hasConstrainedSimpleParam = false;
         boolean hasPageable = false;
         boolean hasExplicitPageParam = false;
@@ -619,6 +623,9 @@ final class RestApiHandlerModelBuilder {
                 JavaClass payload = requestPayload(parameter);
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
+                if (!cascadeValidated && !isSimpleBodyType(payload)) {
+                    requestBodyConstraints = requestBodyConstraints.combine(requestPayloadConstraints.inspect(payload));
+                }
                 if (cascadeValidated) {
                     safeCollectMissingNestedValidFields(payload, missingNestedValidFields);
                 }
@@ -745,7 +752,8 @@ final class RestApiHandlerModelBuilder {
                 missingNestedValidFields,
                 hasMultipartOrFormParam,
                 false,
-                springDataPageViaDtoConfigured);
+                springDataPageViaDtoConfigured,
+                requestBodyConstraints);
     }
 
     /**
@@ -1050,6 +1058,7 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyValidated = false;
         boolean requestBodyIsEntity = false;
         boolean requestBodyIsSimple = false;
+        var requestBodyConstraints = RestApiModel.ValidationConstraints.ABSENT;
         boolean hasConstrainedSimpleParam = false;
         boolean hasPageable = false;
         boolean hasUnboundedPrimitiveRequestParam = false;
@@ -1086,6 +1095,9 @@ final class RestApiHandlerModelBuilder {
                 JavaClass payload = requestPayload(parameter);
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
+                if (!cascadeValidated && !isSimpleBodyType(payload)) {
+                    requestBodyConstraints = requestBodyConstraints.combine(requestPayloadConstraints.inspect(payload));
+                }
                 if (cascadeValidated) {
                     safeCollectMissingNestedValidFields(payload, missingNestedValidFields);
                 }
@@ -1261,7 +1273,8 @@ final class RestApiHandlerModelBuilder {
                 missingNestedValidFields,
                 hasMultipartOrFormParam,
                 returnsSpringDataPage,
-                springDataPageViaDtoConfigured);
+                springDataPageViaDtoConfigured,
+                requestBodyConstraints);
     }
 
     private static List<JavaParameter> springParameters(SpringRequestMappings.Handler handler) {

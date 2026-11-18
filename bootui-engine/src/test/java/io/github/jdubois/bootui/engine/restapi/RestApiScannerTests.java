@@ -140,7 +140,8 @@ class RestApiScannerTests {
                 .allSatisfy(result -> assertThat(result.status()).isEqualTo("VIOLATION"));
         assertThat(report.results())
                 .extracting(RestApiRuleResultDto::id)
-                .contains("RAPI-DTO-001", "RAPI-VALID-001", "RAPI-MAP-001", "RAPI-NAME-001");
+                .contains("RAPI-DTO-001", "RAPI-MAP-001", "RAPI-NAME-001")
+                .doesNotContain("RAPI-VALID-001");
         assertThat(report.violationsFound()).isPositive();
         assertThat(report.severityCounts())
                 .extracting("severity")

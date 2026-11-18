@@ -1209,24 +1209,39 @@ final class RequestBodyIsValidatedRule extends AbstractRestApiRule {
     RequestBodyIsValidatedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VALID-001",
-                "Review request-payload cascade validation",
+                "Validate constrained request payloads at the web boundary",
                 RestApiCategory.VALIDATION,
-                "LOW",
-                "A complex request payload without a recognized cascade-validation annotation warrants review."
-                        + " Constraints, programmatic validation and actual validation execution are not established.",
-                "If payload fields need cascade bean-validation, use @Valid and declare constraints on the payload"
-                        + " DTO.",
+                "MEDIUM",
+                "A request payload declares Bean Validation constraints but has no recognized web-boundary"
+                        + " cascade-validation trigger. Programmatic validation and actual execution are not established.",
+                "Use @Valid for Default-group validation, or a supported group-selecting trigger such as Spring"
+                        + " @Validated(Group.class). Verify any programmatic validation path.",
                 RestApiRuleHelp.VALIDATION_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context,
-                HandlerMethodModel::hasRequestBody,
-                handler ->
-                        handler.hasRequestBody() && !handler.requestBodyValidated() && !handler.requestBodyIsSimple(),
-                "complex request payload has no recognized cascade-validation annotation");
+        AdvisorFindings violations = new AdvisorFindings();
+        for (HandlerMethodModel handler : context.targets(
+                context.handlers(), candidate -> candidate.hasRequestBody() && !candidate.requestBodyIsSimple())) {
+            if (handler.requestBodyValidated()) {
+                continue;
+            }
+            if (handler.requestBodyConstraints() == RestApiModel.ValidationConstraints.UNKNOWN) {
+                context.evidence().markRequiredUnknown();
+            } else if (handler.requestBodyConstraints() == RestApiModel.ValidationConstraints.PRESENT) {
+                violations.add(
+                        handler.describe()
+                                + " — request payload declares Bean Validation constraints but has no recognized"
+                                + " web-boundary cascade-validation trigger",
+                        context.location(handler));
+            }
+        }
+        if (violations.isEmpty() && context.evidence().requiredUnknown()) {
+            return RestApiRuleSupport.skipped(
+                    definition(), "Request-payload constraint metadata is incomplete or unavailable.");
+        }
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 

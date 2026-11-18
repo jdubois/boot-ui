@@ -452,14 +452,26 @@ dismissal ID remains reserved.
 
 ## Input validation & binding
 
-### RAPI-VALID-001 - Review request-payload cascade validation
+### RAPI-VALID-001 - Validate constrained request payloads at the web boundary
 
-- **Severity**: LOW
-- **Detects**: A complex request payload without a recognized cascade-validation declaration, including payloads
-  inside supported reactive wrappers. Spring annotation conventions are not imposed on JAX-RS.
-- **Recommendation**: If DTO field constraints should cascade, use the framework's supported validation trigger.
-  Missing `@Valid` does not prove unchecked input: direct constraints and programmatic validation may be intentional,
-  and a cascade annotation alone does not prove constraints exist or execute.
+- **Severity**: MEDIUM
+- **Detects**: A request payload with positively observed Bean Validation constraints but no recognized boundary
+  cascade-validation trigger, including supported MVC, WebFlux, and JAX-RS payload wrappers. Evidence includes
+  class, field, getter/record, and standard container-element constraints, plus constraints reachable through existing
+  `@Valid` cascades. A bare constraint on the handler parameter validates only the body reference; it does not
+  establish constraints on the payload. Transient fields still participate in Bean Validation; static fields do not.
+  Unconstrained payloads and empty cascades produce no finding.
+- **Coverage**: Unresolved payloads/parents, unavailable type-use or custom-annotation metadata, and exhausted
+  inspection bounds remain unknown, not a clean result. Held custom type-use constraint definitions are recognized;
+  ordinary JDK marker/root parents and JSpecify `@Nullable`/`@NonNull` do not imply missing validation evidence.
+  Other framework or annotation namespaces are not waived. A known finding is retained alongside incomplete evidence.
+  Missing nested cascades remain the separate `RAPI-VALID-007` concern; entity binding remains `RAPI-VALID-002`.
+- **Recommendation**: Use `@Valid` for Default-group validation, or the framework's supported group selection
+  (for example Spring `@Validated(Update.class)`). `@Valid` does not itself select arbitrary non-Default groups.
+  Verify any programmatic validation path. Spring's `@Validated` is not required on JAX-RS; static declarations
+  establish neither unchecked input nor actual constraint execution.
+- **CI impact**: Existing MEDIUM-or-higher finding gates include these constraint-bearing findings; the rule no longer
+  emits LOW findings for every complex payload. Generic CI eligibility, grouping, and counting policies are unchanged.
 - **Learn more**: [Spring validation annotation recognition][spring-validation]; [Jakarta REST entity validation][jaxrs-validation].
 
 ### RAPI-VALID-002 - Avoid binding requests directly to JPA entities
@@ -891,7 +903,7 @@ adoption are not HTTP mandates.
 | RAPI-RESP-007 | Review status overlap; MEDIUM retained | [Spring ResponseStatus][spring-status], [entity processor][spring-entity-processor]. Async ResponseEntity counts, HttpEntity does not; reason-aware native dispatch prevents blanket precedence/removal advice. |
 | RAPI-RESP-008 | Reword; MEDIUM → INFO | [RFC 9110 201][http-created]. Target URI can identify resource; no runtime header-absence proof. |
 | RAPI-RESP-009 | Narrow; LOW → INFO | [RFC 9110 HEAD][http-head], [Spring HEAD suppression][spring-head]. Dedicated-handler efficiency only; shared GET/HEAD, headers, Void/Unit excluded. |
-| RAPI-VALID-001 | Correct payload/trigger facts; HIGH → LOW | [Spring validation][spring-validation], [Jakarta entity validation][jaxrs-validation]. Cascade prompt, not proof of unchecked input or executed constraints. |
+| RAPI-VALID-001 | Constraint-bearing payload evidence; MEDIUM | [Spring validation][spring-validation], [Jakarta entity validation][jaxrs-validation]. No finding for unconstrained payloads; incomplete metadata remains unknown. |
 | RAPI-VALID-002 | Correct reactive request shape; HIGH retained | [Spring binding guidance][spring-binding]. Entity coupling/over-posting risk, not proven writability of every field. |
 | RAPI-VALID-003 | Correct boolean/default/Kotlin handling; MEDIUM retained | [MVC resolver][spring-named-values], [WebFlux resolver][spring-reactive-named-values]. Java numeric null or blank-default conversion failure; false boolean default; uncertain Kotlin defaults skipped. |
 | RAPI-VALID-004 | Restrict to aggregate bindings; LOW retained | [Spring RequestParam][spring-requestparam]. Unnamed maps only; schemas and allowlists may exist elsewhere. |
