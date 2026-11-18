@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Servlet firewall evidence** leaves unsupported or unreadable native policy unassessed instead of certifying it
+  safe. Known findings remain visible; incomplete assessments follow the existing strict CI policy
+  ([Security checks](docs/SECURITY-CHECKS.md)).
 - **GitHub fork context** keeps origin as the cached default and offers explicit upstream selection, with separate
   host-scoped data and read-only cache recovery. Invalid remote queries are rejected before cache or external work;
   MCP, CLI and Scorecard remain origin-only ([GitHub](docs/features/developer-tools.md#github)).

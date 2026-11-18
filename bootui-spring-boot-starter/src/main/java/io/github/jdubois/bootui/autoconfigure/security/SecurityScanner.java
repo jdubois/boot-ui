@@ -530,7 +530,7 @@ final class SecurityScanner {
                         "org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration")
                 .isEmpty();
         boolean methodSecurityAnnotations = false;
-        boolean strictHttpFirewallWeakened = firewallWeakened(readField(proxy, "firewall"));
+        Boolean strictHttpFirewallWeakened = firewallWeakened(readField(proxy, "firewall"));
         boolean hideUserNotFoundExceptionsDisabled = providers.stream()
                 .anyMatch(provider -> provider.getClass()
                                 .getName()
@@ -1545,11 +1545,11 @@ final class SecurityScanner {
             "org.springframework.security.crypto.password.Md4PasswordEncoder",
             "org.springframework.security.crypto.password.LdapShaPasswordEncoder");
 
-    private static boolean firewallWeakened(Object firewall) {
-        return firewall != null
-                && firewall.getClass() == StrictHttpFirewall.class
-                && readField(firewall, "encodedUrlBlocklist") instanceof Set<?> blocked
-                && FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token));
+    private static Boolean firewallWeakened(Object firewall) {
+        if (firewall == null || firewall.getClass() != StrictHttpFirewall.class) return null;
+        Object blocklist = readField(firewall, "encodedUrlBlocklist");
+        if (!(blocklist instanceof Set<?> blocked) || blocklist.getClass() != java.util.HashSet.class) return null;
+        return FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token));
     }
 
     private static boolean unconditionalHttpsRedirect(List<Filter> filters) {

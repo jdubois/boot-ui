@@ -595,7 +595,7 @@ separate management-context authorization remain unknown. No endpoint discoverer
 ### SEC-CONFIG-008 - StrictHttpFirewall should not relax its default URL protections
 
 - **Severity**: HIGH
-- **Detects**: The actual `FilterChainProxy` uses a supported `StrictHttpFirewall` whose blocklist has been relaxed for recognized default URL tokens. An unused firewall bean does not establish active policy. The finding requests compatibility review rather than proving a downstream matcher bypass.
+- **Detects**: The actual `FilterChainProxy` uses an exact native `StrictHttpFirewall` whose blocklist has been relaxed for recognized default URL tokens. An unused firewall bean does not establish active policy. Custom firewalls, subclasses, unreadable blocklists, and custom blocklist collections remain unknown: the check is skipped with incomplete coverage, not passed, without invoking their callbacks. Independent known findings remain available. The finding requests compatibility review rather than proving a downstream matcher bypass.
 - **Recommendation**: Keep the StrictHttpFirewall defaults; only relax a specific token (e.g. setAllowUrlEncodedSlash(true)) after verifying every downstream matcher and handler safely tolerates it.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/firewall.html>
 

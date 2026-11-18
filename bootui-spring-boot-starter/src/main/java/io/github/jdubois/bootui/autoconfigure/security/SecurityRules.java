@@ -1777,14 +1777,17 @@ final class StrictHttpFirewallWeakenedRule extends AbstractSecurityRule {
                 "StrictHttpFirewall should not relax its default URL protections",
                 SecurityCategory.CONFIGURATION,
                 "HIGH",
-                "Reviews the actual FilterChainProxy's supported StrictHttpFirewall when normally blocked URL tokens have been allowed. Unused firewall beans do not establish effective policy.",
+                "Reviews the actual FilterChainProxy's supported StrictHttpFirewall when normally blocked URL tokens have been allowed. Custom firewalls and unreadable blocklists remain unknown; unused firewall beans do not establish effective policy.",
                 "Keep the StrictHttpFirewall defaults; only relax a specific token (e.g. setAllowUrlEncodedSlash(true)) after verifying every downstream matcher and handler safely tolerates it.",
                 "https://docs.spring.io/spring-security/reference/servlet/exploits/firewall.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        context.applies(!context.chains().isEmpty());
+        if (!context.applies(!context.chains().isEmpty())) return pass();
+        if (!context.required(context.strictHttpFirewallWeakened() != null)) {
+            return skipped("The active firewall or its URL blocklist is unsupported or unreadable.");
+        }
         if (context.strictHttpFirewallWeakened()) {
             return violation(
                     context,

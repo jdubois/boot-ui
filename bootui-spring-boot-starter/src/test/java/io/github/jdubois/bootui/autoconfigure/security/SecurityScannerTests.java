@@ -22,6 +22,7 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -31,9 +32,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
@@ -85,10 +88,14 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.debug.DebugFilter;
+import org.springframework.security.web.firewall.FirewalledRequest;
+import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
@@ -1573,6 +1580,115 @@ class SecurityScannerTests {
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CONFIG-001");
+    }
+
+    @Test
+    void nativeDefaultFirewallIsNotWeakenedByAnUnusedFirewallBean() {
+        var proxy = filterChainProxy(SingleResultAuthorizationManager.permitAll());
+        var unused = new StrictHttpFirewall();
+        unused.setAllowUrlEncodedSlash(true);
+        var factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("unusedFirewall", unused);
+
+        SecurityReport report = scannerFor(proxy, factory).scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CONFIG-008");
+        assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-CONFIG-008:"));
+    }
+
+    @Test
+    void nativeRelaxedActiveFirewallProducesAHighFinding() {
+        var firewall = new StrictHttpFirewall();
+        firewall.setAllowUrlEncodedSlash(true);
+        var proxy = filterChainProxy(SingleResultAuthorizationManager.permitAll());
+        proxy.setFirewall(firewall);
+
+        SecurityReport report =
+                scannerFor(proxy, new DefaultListableBeanFactory()).scan();
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SEC-CONFIG-008"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.violationCount()).isOne();
+                });
+        assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-CONFIG-008:"));
+    }
+
+    @Test
+    void customAndSubclassFirewallsStayUnknownWithoutCallbacks() {
+        HttpFirewall custom = new HttpFirewall() {
+            @Override
+            public FirewalledRequest getFirewalledRequest(HttpServletRequest request) {
+                throw new AssertionError("Must not invoke custom firewall requests");
+            }
+
+            @Override
+            public HttpServletResponse getFirewalledResponse(HttpServletResponse response) {
+                throw new AssertionError("Must not invoke custom firewall responses");
+            }
+        };
+        var subclass = new StrictHttpFirewall() {
+            @Override
+            public Set<String> getEncodedUrlBlocklist() {
+                throw new AssertionError("Must not invoke a custom firewall getter");
+            }
+
+            @Override
+            public FirewalledRequest getFirewalledRequest(HttpServletRequest request) {
+                throw new AssertionError("Must not invoke subclass firewall requests");
+            }
+
+            @Override
+            public HttpServletResponse getFirewalledResponse(HttpServletResponse response) {
+                throw new AssertionError("Must not invoke subclass firewall responses");
+            }
+        };
+        for (HttpFirewall firewall : List.of(custom, subclass)) {
+            assertUnknownFirewallPreservesIndependentFindings(firewall);
+        }
+    }
+
+    @Test
+    void unreadableNativeFirewallBlocklistStaysUnknown() {
+        var firewall = new StrictHttpFirewall();
+        ReflectionTestUtils.setField(firewall, "encodedUrlBlocklist", null);
+
+        assertUnknownFirewallPreservesIndependentFindings(firewall);
+    }
+
+    @Test
+    void customNativeFirewallBlocklistStaysUnknownWithoutCollectionCallbacks() {
+        var firewall = new StrictHttpFirewall();
+        ReflectionTestUtils.setField(firewall, "encodedUrlBlocklist", new HashSet<String>() {
+            @Override
+            public boolean contains(Object token) {
+                throw new AssertionError("Must not invoke custom blocklist callbacks");
+            }
+        });
+
+        assertUnknownFirewallPreservesIndependentFindings(firewall);
+    }
+
+    private static void assertUnknownFirewallPreservesIndependentFindings(HttpFirewall firewall) {
+        var proxy = filterChainProxy(SingleResultAuthorizationManager.permitAll());
+        SecurityScanner scanner = scannerFor(proxy, new DefaultListableBeanFactory());
+        SecurityReport baseline = scanner.scan();
+        proxy.setFirewall(firewall);
+
+        SecurityReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations())
+                .anyMatch(value -> value.startsWith("SEC-CONFIG-008:") && value.contains("firewall"));
+        assertThat(report.results()).isEqualTo(baseline.results());
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-AUTHZ-002");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CONFIG-008");
     }
 
     @Test
