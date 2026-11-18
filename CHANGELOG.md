@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Heap-content reviews** use bounded absolute/share thresholds and avoid attributing the same reported collection
+  row to two checks. Missing histogram totals remain unassessed beside retained known observations
+  ([Memory checks](docs/MEMORY-CHECKS.md)).
 - **Shared JDK state** checks include cryptographic engines, regex matchers and positively identified subtypes under
   the existing MEDIUM rule. Unresolved ancestry stays unknown rather than proving safe concurrent use
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-019---classes-should-not-store-stateful-jdk-processors-in-static-or-shared-bean-fields)).

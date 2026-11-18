@@ -256,10 +256,17 @@ Evidence: [ThreadMXBean, including peak reset and deadlock support][threads], an
 | ID | Disposition | Current trigger, severity, and appropriate action |
 | --- | --- | --- |
 | MEM-CONTENT-001 | Retain | **INFO** for average shallow instance size at least 512 KiB and at least 10 MiB total. An average cannot prove an individual G1 humongous allocation; that also depends on region size. |
-| MEM-CONTENT-002 | Retain | Collection/node rows reaching 50 MiB or 10% shallow share receive **LOW**; a largest row of 100 MiB or combined selected share of 25% receives **MEDIUM**. This is not one identified collection, retained size, or proof of missing eviction. |
-| MEM-CONTENT-003 | Retain | **LOW** when the largest non-array class reaches 25% of total shallow histogram bytes. Arrays are excluded; unexpected retention requires reference-path evidence. |
+| MEM-CONTENT-002 | Update | Collection/node rows reaching 50 MiB, or both 16 MiB and 10% shallow share, receive **LOW**. The group receives **MEDIUM** when its largest row reaches 100 MiB, or selected rows combine to at least 64 MiB and 25% of histogram bytes. The byte floors avoid share-only warnings on tiny development heaps. This is not one identified collection, retained size, or proof of missing eviction. |
+| MEM-CONTENT-003 | Update | **LOW** when the largest remaining non-array class reaches both 16 MiB and 25% of total shallow histogram bytes. Excludes only collection rows actually reported by MEM-CONTENT-002, not every collection-like class name; another dominant class remains eligible. Unexpected retention requires reference-path evidence. |
 | MEM-CONTENT-005 | New | **LOW** when the full `GC.class_histogram` (aggregated before top-200 truncation) contains at least 50 live dynamic `ClassLoader` instances (excluding standard singleton JVM/framework loaders with `<= 5` instances) or at least 5,000 distinct generated proxy classes (`$$SpringCGLIB$$`, `$$EnhancerBy`, `$ByteBuddy$`, `$Proxy`); **MEDIUM** at 250 dynamic `ClassLoader` instances or 10,000 generated proxy classes. Catches classloader and proxy leaks that retain Metaspace/Compressed Class Space before loader rows reach the top 200 by shallow bytes. |
 | MEM-CLASS-001 | Update | **INFO** at 50,000 currently loaded classes, with framework-generation caveats. Historical unloads no longer exempt a large current population: unloading does not prove health or exclude a leak. |
+
+MEM-CONTENT-002 retains its single group severity and at most five counted/retrievable rows. All qualifying selected
+rows contribute to its combined-byte/share thresholds before that cap; each counted occurrence uses the group's
+severity, not an independently assigned row severity. MEM-CONTENT-003 does not take over a dismissed collection
+finding: existing rule IDs and dismissals are unchanged. Missing or omitted histograms remain unassessed.
+If rows are available but the total is unknown, the 50/100 MiB absolute collection branches retain known findings
+with an unavailable share and incomplete evidence; a missing share cannot produce a healthy assessment.
 
 Evidence: [histogram cost/shape][jcmd], [stable-workload leak investigation][leaks],
 [class-loading counters][classes], and [optional class unloading][unloading].

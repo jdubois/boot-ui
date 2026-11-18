@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
+import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
 import io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker.Accounting;
@@ -26,6 +27,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** Focused unit tests for the rules reworked or added in the Memory Advisor hardening phase. */
 class MemoryRulesTests {
@@ -460,6 +463,221 @@ class MemoryRulesTests {
 
         assertThat(result).isNotNull();
         assertThat(result.severity()).isEqualTo("LOW");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "16, -1, 64, NONE",
+        "16, 0, 64, LOW",
+        "16, 1, 64, LOW",
+        "32, -1, 320, NONE",
+        "32, 0, 320, LOW",
+        "32, 1, 320, LOW",
+        "50, -1, 1024, NONE",
+        "50, 0, 1024, LOW",
+        "50, 1, 1024, LOW",
+        "64, -1, 128, LOW",
+        "64, 0, 128, MEDIUM",
+        "64, 1, 128, MEDIUM",
+        "80, -1, 320, LOW",
+        "80, 0, 320, MEDIUM",
+        "80, 1, 320, MEDIUM",
+        "100, -1, 1024, LOW",
+        "100, 0, 1024, MEDIUM",
+        "100, 1, 1024, MEDIUM"
+    })
+    void collectionByteFloorsAndExistingShareAndAbsoluteBoundariesAreInclusive(
+            long mebibytes, long byteOffset, long totalMebibytes, String expectedSeverity) {
+        MemoryContext context = histogramContext(
+                totalMebibytes * MB,
+                new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 2_000_000, mebibytes * MB + byteOffset));
+
+        MemoryRuleResultDto result = new CollectionBloatRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(expectedSeverity.equals("NONE") ? "PASS" : "VIOLATION");
+        if (!expectedSeverity.equals("NONE")) {
+            assertThat(result.severity()).isEqualTo(expectedSeverity);
+            assertThat(result.violationCount()).isEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "16, -1, 32, PASS",
+        "16, 0, 32, VIOLATION",
+        "16, 1, 32, VIOLATION",
+        "32, -1, 128, PASS",
+        "32, 0, 128, VIOLATION",
+        "32, 1, 128, VIOLATION"
+    })
+    void dominantClassRequiresBothTheInclusiveByteFloorAndShare(
+            long mebibytes, long byteOffset, long totalMebibytes, String expectedStatus) {
+        MemoryContext context = histogramContext(
+                totalMebibytes * MB,
+                new HeapClassHistogramEntryDto(1, "com.example.Document", 2_000_000, mebibytes * MB + byteOffset));
+
+        MemoryRuleResultDto result = new DominantClassRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(expectedStatus);
+        assertThat(result.severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void tinyDevelopmentHistogramDoesNotTurnLargeRelativeSharesIntoContentFindings() {
+        MemoryContext context = histogramContext(
+                10 * MB,
+                new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 200_000, 8 * MB),
+                new HeapClassHistogramEntryDto(2, "com.example.Document", 50_000, 2 * MB));
+
+        assertThat(new CollectionBloatRule().evaluate(context).status()).isEqualTo("PASS");
+        assertThat(new DominantClassRule().evaluate(context).status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void dominantCollectionIsOwnedByContent002WithoutSuppressingOtherDominantClasses() {
+        MemoryContext context = histogramContext(
+                256 * MB,
+                new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 2_000_000, 120 * MB),
+                new HeapClassHistogramEntryDto(2, "com.example.Document", 2_000_000, 80 * MB),
+                new HeapClassHistogramEntryDto(3, "byte[]", 2_000_000, 56 * MB));
+
+        MemoryRuleResultDto collection = new CollectionBloatRule().evaluate(context);
+        MemoryRuleResultDto dominant = new DominantClassRule().evaluate(context);
+
+        assertThat(collection.severity()).isEqualTo("MEDIUM");
+        assertThat(collection.sampleViolations()).singleElement().asString().contains("java.util.HashMap$Node");
+        assertThat(dominant.status()).isEqualTo("VIOLATION");
+        assertThat(dominant.severity()).isEqualTo("LOW");
+        assertThat(dominant.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("com.example.Document")
+                .doesNotContain("java.util.HashMap$Node");
+
+        MemoryContext onlyCollection = histogramContext(
+                150 * MB, new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 2_000_000, 120 * MB));
+        assertThat(new CollectionBloatRule().evaluate(onlyCollection).status()).isEqualTo("VIOLATION");
+        assertThat(new DominantClassRule().evaluate(onlyCollection).status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void collectionLikeNameWithoutAnOwnedRowRemainsEligibleForDominantClass() {
+        MemoryContext context = histogramContext(
+                64 * MB,
+                new HeapClassHistogramEntryDto(1, "java.util.HashMapApplication", 2_000_000, 32 * MB),
+                new HeapClassHistogramEntryDto(2, "java.util.HashMap$Node", 200_000, 4 * MB));
+
+        assertThat(new CollectionBloatRule().evaluate(context).status()).isEqualTo("PASS");
+        MemoryRuleResultDto dominant = new DominantClassRule().evaluate(context);
+        assertThat(dominant.status()).isEqualTo("VIOLATION");
+        assertThat(dominant.sampleViolations()).singleElement().asString().contains("java.util.HashMapApplication");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-1, LOW", "0, MEDIUM", "1, MEDIUM"})
+    void combinedCollectionFloorAppliesToAllSelectedBytesNotEachRowsSeverity(long byteOffset, String expectedSeverity) {
+        MemoryContext context = histogramContext(
+                128 * MB,
+                new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 2_000_000, 32 * MB),
+                new HeapClassHistogramEntryDto(2, "java.util.LinkedHashMap$Entry", 2_000_000, 32 * MB + byteOffset));
+
+        MemoryRuleResultDto result = new CollectionBloatRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.severity()).isEqualTo(expectedSeverity);
+        assertThat(result.violationCount()).isEqualTo(2);
+    }
+
+    @Test
+    void calibratedContentGroupsKeepRawDetailsSeverityCountsAndDismissalsConsistent() {
+        MemoryContext context = histogramContext(
+                256 * MB,
+                new HeapClassHistogramEntryDto(1, "com.example.Document", 2_000_000, 100 * MB),
+                new HeapClassHistogramEntryDto(2, "java.util.HashMap$Node", 2_000_000, 80 * MB),
+                new HeapClassHistogramEntryDto(3, "byte[]", 2_000_000, 44 * MB),
+                new HeapClassHistogramEntryDto(4, "java.util.ArrayList", 2_000_000, 32 * MB));
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results())
+                .extracting(MemoryRuleResultDto::id)
+                .containsExactly("MEM-CONTENT-002", "MEM-CONTENT-003");
+        MemoryRuleResultDto collection = find(report, "MEM-CONTENT-002");
+        MemoryRuleResultDto dominant = find(report, "MEM-CONTENT-003");
+        assertThat(collection.severity()).isEqualTo("MEDIUM");
+        assertThat(collection.violationCount()).isEqualTo(2);
+        assertThat(collection.sampleViolations())
+                .containsExactly(
+                        "java.util.HashMap$Node occupies 80.0 MiB (31% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded.",
+                        "java.util.ArrayList occupies 32.0 MiB (12% of histogram bytes, shallow) across 2000000 instances; confirm this collection is bounded.");
+        assertThat(dominant.severity()).isEqualTo("LOW");
+        assertThat(dominant.violationCount()).isEqualTo(1);
+        assertThat(report.severityCounts())
+                .contains(new MemorySeverityCountDto("MEDIUM", 2), new MemorySeverityCountDto("LOW", 1));
+        assertThat(report.violationDetails().total()).isEqualTo(3);
+        var page = scanner.ruleViolations(
+                "MEM-CONTENT-002", report.violationDetails().scanId(), 0, 100);
+        assertThat(page.violationCount()).isEqualTo(2);
+        assertThat(page.violations()).containsExactlyElementsOf(collection.sampleViolations());
+
+        MemoryReport dismissed = scanner.applyDismissals(report, java.util.Set.of("MEM-CONTENT-002"));
+        assertThat(find(dismissed, "MEM-CONTENT-002").dismissed()).isTrue();
+        assertThat(find(dismissed, "MEM-CONTENT-003").dismissed()).isFalse();
+        assertThat(dismissed.violationsFound()).isEqualTo(1);
+        assertThat(dismissed.severityCounts().stream()
+                        .filter(count -> count.count() > 0)
+                        .toList())
+                .containsExactly(new MemorySeverityCountDto("LOW", 1));
+        assertThat(dismissed.violationDetails()).isEqualTo(report.violationDetails());
+        assertThat(find(dismissed, "MEM-CONTENT-002").sampleViolations())
+                .containsExactlyElementsOf(collection.sampleViolations());
+    }
+
+    @Test
+    void contentCalibrationNeverTurnsMissingFailedOrUnknownTotalHistogramIntoHealthyEvidence() {
+        List<HeapContentData> unavailable = List.of(
+                HeapContentData.unavailable(),
+                HeapContentData.failed(),
+                new HeapContentData(true, List.of(), 0, 0),
+                new HeapContentData(
+                        true,
+                        List.of(new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 100, 32 * MB)),
+                        100,
+                        -1));
+        for (HeapContentData heap : unavailable) {
+            MemoryContext context = context(
+                    memory(256 * MB, 2 * GB, List.of(), null, List.of()), ThreadData.empty(), heap, healthyRuntime());
+            for (MemoryRule rule : List.of(new CollectionBloatRule(), new DominantClassRule())) {
+                MemoryEvaluation evaluation = rule.evaluateWithEvidence(context);
+                assertThat(evaluation.result().status())
+                        .as("%s: %s", rule.definition().id(), heap)
+                        .isEqualTo(heap.collectionError() == null ? "SKIPPED" : "ERROR");
+                assertThat(evaluation.usable()).isFalse();
+                assertThat(evaluation.requiredUnknown()).isTrue();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"50, LOW", "100, MEDIUM"})
+    void knownAbsoluteCollectionFindingsSurviveAnUnknownShareWithIncompleteEvidence(
+            long mebibytes, String expectedSeverity) {
+        MemoryContext context = histogramContext(
+                -1, new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 2_000_000, mebibytes * MB));
+
+        MemoryEvaluation evaluation = new CollectionBloatRule().evaluateWithEvidence(context);
+
+        assertThat(evaluation.result().status()).isEqualTo("VIOLATION");
+        assertThat(evaluation.result().severity()).isEqualTo(expectedSeverity);
+        assertThat(evaluation.result().violationCount()).isEqualTo(1);
+        assertThat(evaluation.result().sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("histogram share unavailable")
+                .doesNotContain("0%");
+        assertThat(evaluation.usable()).isTrue();
+        assertThat(evaluation.requiredUnknown()).isTrue();
     }
 
     // --- MEM-GC-003: recent GC overhead (cross-scan trend) -----------------------------------
@@ -2058,6 +2276,14 @@ class MemoryRulesTests {
             MemoryData memory, ThreadData threads, HeapContentData heap, PostGcHeapData postGc, RuntimeData runtime) {
         return new MemoryContext(
                 memory, threads, heap, postGc, ClassLoadingData.empty(), runtime, null, GcTrend.unavailable());
+    }
+
+    private static MemoryContext histogramContext(long totalBytes, HeapClassHistogramEntryDto... entries) {
+        return context(
+                memory(256 * MB, 2 * GB, List.of(), null, List.of("-Xms2g", "-Xmx2g")),
+                ThreadData.empty(),
+                new HeapContentData(true, List.of(entries), 10_000_000, totalBytes),
+                healthyRuntime());
     }
 
     private static MemoryContext gcContext(long uptimeMillis, long gcTimeMillis, long gcCount) {
