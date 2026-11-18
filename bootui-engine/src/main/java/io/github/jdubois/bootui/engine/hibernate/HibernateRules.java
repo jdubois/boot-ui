@@ -3063,16 +3063,15 @@ final class BindParameterLoggingInProductionRule extends AbstractHibernateRule {
     BindParameterLoggingInProductionRule() {
         super(new HibernateRuleDefinition(
                 "HIB-CONFIG-018",
-                "Bind-parameter logging should be off in production",
+                "JDBC value logging should be off in production",
                 HibernateCategory.CONFIGURATION,
                 "HIGH",
-                "Detects TRACE logging for org.hibernate.orm.jdbc.bind (or the legacy"
-                        + " org.hibernate.type.descriptor.sql.BasicBinder binder logger, or the Quarkus-native"
-                        + " quarkus.hibernate-orm.log.bind-parameters convenience flag) while a production-like profile is"
-                        + " active. At TRACE, Hibernate logs every bound parameter value, which can leak PII, credentials,"
-                        + " or tokens passed as query parameters into application logs.",
-                "Keep bind-parameter logging off in production; only enable it temporarily, in a non-production"
-                        + " environment, while diagnosing a specific issue.",
+                "Detects effective TRACE logging for org.hibernate.orm.jdbc.bind or org.hibernate.orm.jdbc.extract"
+                        + " while a production-like profile is active. These categories can log bound parameter"
+                        + " values or extracted result values, exposing sensitive data in application logs."
+                        + " Logger state establishes the exposure risk, not whether a value was actually logged.",
+                "Keep bind-parameter and result-value logging off in production; only enable it temporarily,"
+                        + " in a non-production environment, while diagnosing a specific issue.",
                 "https://quarkus.io/guides/hibernate-orm"));
     }
 
@@ -3081,13 +3080,29 @@ final class BindParameterLoggingInProductionRule extends AbstractHibernateRule {
         if (!context.isProductionProfileActive()) {
             return pass();
         }
-        if (context.isBindParameterLoggingEnabled()) {
-            return settingViolation(
-                    context,
-                    "hibernate.type.descriptor.sql.BasicBinder",
-                    "Bind-parameter logging is enabled at TRACE while a production profile is active.");
+        context.evidence().markApplicableIf(!context.entities().isEmpty());
+        Boolean bind = context.observed()
+                ? context.applicationFacts().bindLoggerEnabled()
+                : Boolean.valueOf(context.isBindParameterLoggingEnabled());
+        Boolean extract = context.observed() ? context.applicationFacts().extractLoggerEnabled() : null;
+        AdvisorFindings findings = new AdvisorFindings();
+        if (bind == null) {
+            context.missingEvidence(HibernateEvidenceGap.APPLICATION_SETTING, "org.hibernate.orm.jdbc.bind");
+        } else if (bind) {
+            findings.add(
+                    "Bind-parameter logging is enabled at TRACE while a production profile is active.",
+                    null,
+                    HibernateIdentities.setting(context, "hibernate.type.descriptor.sql.BasicBinder"));
         }
-        return pass();
+        if (extract == null) {
+            context.missingEvidence(HibernateEvidenceGap.APPLICATION_SETTING, "org.hibernate.orm.jdbc.extract");
+        } else if (extract) {
+            findings.add(
+                    "Result-value logging is enabled at TRACE while a production profile is active.",
+                    null,
+                    HibernateIdentities.setting(context, "org.hibernate.orm.jdbc.extract"));
+        }
+        return violation(context, findings);
     }
 }
 

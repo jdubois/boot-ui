@@ -8,12 +8,29 @@ public record HibernateApplicationFacts(
         Boolean deferredDatasourceInitialization,
         Boolean sqlLoggerEnabled,
         Boolean bindLoggerEnabled,
+        Boolean extractLoggerEnabled,
         boolean panacheEnhancementVerified) {
     public HibernateApplicationFacts {
         activeProfiles = activeProfiles == null ? List.of() : List.copyOf(activeProfiles);
     }
 
+    /** Compatibility entrypoint: callers that did not observe result logging leave it unknown. */
+    public HibernateApplicationFacts(
+            List<String> activeProfiles,
+            Boolean deferredDatasourceInitialization,
+            Boolean sqlLoggerEnabled,
+            Boolean bindLoggerEnabled,
+            boolean panacheEnhancementVerified) {
+        this(
+                activeProfiles,
+                deferredDatasourceInitialization,
+                sqlLoggerEnabled,
+                bindLoggerEnabled,
+                null,
+                panacheEnhancementVerified);
+    }
+
     public static HibernateApplicationFacts unknown(List<String> profiles) {
-        return new HibernateApplicationFacts(profiles, null, null, null, false);
+        return new HibernateApplicationFacts(profiles, null, null, null, null, false);
     }
 }

@@ -8,6 +8,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
@@ -39,6 +41,7 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.service.spi.ServiceRegistryImplementor;
 import org.hibernate.stat.spi.StatisticsImplementor;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
@@ -52,6 +55,76 @@ import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.mock.env.MockEnvironment;
 
 class SpringHibernateAdvisorObservationSourceTests {
+    @Test
+    void observesEffectiveResultLoggingIncludingInheritanceWithoutTrustingConfiguredLevels() {
+        Logger parent = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc");
+        Logger bind = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc.bind");
+        Logger extract = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc.extract");
+        Level previousParent = parent.getLevel();
+        Level previousBind = bind.getLevel();
+        Level previousExtract = extract.getLevel();
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        SessionFactoryImplementor factory = factory("orders", 25);
+        beans.registerSingleton("orders", factory);
+        try {
+            parent.setLevel(Level.TRACE);
+            bind.setLevel(Level.OFF);
+            for (String profile : List.of("prod", "dev")) {
+                for (Level level : new Level[] {Level.OFF, Level.DEBUG, Level.TRACE, null}) {
+                    extract.setLevel(level);
+                    MockEnvironment environment = new MockEnvironment()
+                            .withProperty("logging.level.org.hibernate.orm.jdbc.bind", "TRACE")
+                            .withProperty(
+                                    "logging.level.org.hibernate.orm.jdbc.extract",
+                                    level == Level.TRACE || level == null ? "OFF" : "TRACE");
+                    environment.setActiveProfiles(profile);
+                    HibernateAdvisorObservation observation =
+                            source(beans, environment).observe();
+                    boolean enabled = level == Level.TRACE || level == null;
+                    assertThat(observation.application().bindLoggerEnabled()).isFalse();
+                    assertThat(observation.application().extractLoggerEnabled()).isEqualTo(enabled);
+                    var report = HibernateScanner.observing(() -> observation, Clock.systemUTC())
+                            .scan();
+                    assertThat(report.results())
+                            .filteredOn(result -> result.id().equals("HIB-CONFIG-018"))
+                            .hasSize(enabled && "prod".equals(profile) ? 1 : 0)
+                            .allSatisfy(result -> {
+                                assertThat(result.violationCount()).isEqualTo(1);
+                                assertThat(result.sampleViolations())
+                                        .singleElement()
+                                        .asString()
+                                        .contains("Result-value logging")
+                                        .doesNotContain("Bind-parameter");
+                            });
+                    assertThat(report.diagnostics())
+                            .noneMatch(diagnostic -> diagnostic.source().equals("HIB-CONFIG-018"));
+                }
+            }
+            bind.setLevel(Level.TRACE);
+            extract.setLevel(Level.OFF);
+            MockEnvironment production = new MockEnvironment();
+            production.setActiveProfiles("prod");
+            HibernateAdvisorObservation control = source(beans, production).observe();
+            assertThat(control.application().bindLoggerEnabled()).isTrue();
+            assertThat(control.application().extractLoggerEnabled()).isFalse();
+            assertThat(HibernateScanner.observing(() -> control, Clock.systemUTC())
+                            .scan()
+                            .results())
+                    .filteredOn(result -> result.id().equals("HIB-CONFIG-018"))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("Bind-parameter logging")
+                            .doesNotContain("Result-value"));
+            verify(factory, never()).createEntityManager();
+        } finally {
+            extract.setLevel(previousExtract);
+            bind.setLevel(previousBind);
+            parent.setLevel(previousParent);
+        }
+    }
+
     @Test
     void nativeRepositoryObservationDischargesOnlyVerifiedStaticBulkFetchObligations() throws Exception {
         for (boolean rewritten : List.of(false, true)) {

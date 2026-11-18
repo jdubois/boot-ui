@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.sql.DataSource;
 import org.hibernate.boot.spi.SessionFactoryOptions;
 import org.hibernate.cache.spi.CacheImplementor;
@@ -42,6 +44,78 @@ import org.hibernate.stat.spi.StatisticsImplementor;
 import org.junit.jupiter.api.Test;
 
 class QuarkusHibernateAdvisorObservationSourceTest {
+    @Test
+    void observesEffectiveResultLoggingIncludingInheritanceWithoutTrustingConfiguredLevels() {
+        Logger parent = Logger.getLogger("org.hibernate.orm.jdbc");
+        Logger bind = Logger.getLogger("org.hibernate.orm.jdbc.bind");
+        Logger extract = Logger.getLogger("org.hibernate.orm.jdbc.extract");
+        Level previousParent = parent.getLevel();
+        Level previousBind = bind.getLevel();
+        Level previousExtract = extract.getLevel();
+        SessionFactoryImplementor factory = factory("orders", 25, false);
+        try {
+            parent.setLevel(org.jboss.logmanager.Level.TRACE);
+            bind.setLevel(Level.OFF);
+            for (String profile : List.of("prod", "dev")) {
+                for (Level level :
+                        new Level[] {Level.OFF, org.jboss.logmanager.Level.DEBUG, org.jboss.logmanager.Level.TRACE, null
+                        }) {
+                    extract.setLevel(level);
+                    boolean enabled = level == org.jboss.logmanager.Level.TRACE || level == null;
+                    HibernateAdvisorObservation observation = new QuarkusHibernateAdvisorObservationSource(
+                                    instances(List.of(factory)),
+                                    new StubConfig(Map.of(
+                                            "quarkus.profile",
+                                            profile,
+                                            "quarkus.hibernate-orm.log.bind-parameters",
+                                            "true",
+                                            "quarkus.log.category.\"org.hibernate.orm.jdbc.extract\".level",
+                                            enabled ? "OFF" : "TRACE")))
+                            .observe();
+                    assertThat(observation.application().bindLoggerEnabled()).isFalse();
+                    assertThat(observation.application().extractLoggerEnabled()).isEqualTo(enabled);
+                    var report = HibernateScanner.observing(() -> observation, Clock.systemUTC())
+                            .scan();
+                    assertThat(report.results())
+                            .filteredOn(result -> result.id().equals("HIB-CONFIG-018"))
+                            .hasSize(enabled && "prod".equals(profile) ? 1 : 0)
+                            .allSatisfy(result -> {
+                                assertThat(result.violationCount()).isEqualTo(1);
+                                assertThat(result.sampleViolations())
+                                        .singleElement()
+                                        .asString()
+                                        .contains("Result-value logging")
+                                        .doesNotContain("Bind-parameter");
+                            });
+                    assertThat(report.diagnostics())
+                            .noneMatch(diagnostic -> diagnostic.source().equals("HIB-CONFIG-018"));
+                }
+            }
+            bind.setLevel(org.jboss.logmanager.Level.TRACE);
+            extract.setLevel(Level.OFF);
+            HibernateAdvisorObservation control = new QuarkusHibernateAdvisorObservationSource(
+                            instances(List.of(factory)), new StubConfig(Map.of("quarkus.profile", "prod")))
+                    .observe();
+            assertThat(control.application().bindLoggerEnabled()).isTrue();
+            assertThat(control.application().extractLoggerEnabled()).isFalse();
+            assertThat(HibernateScanner.observing(() -> control, Clock.systemUTC())
+                            .scan()
+                            .results())
+                    .filteredOn(result -> result.id().equals("HIB-CONFIG-018"))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("Bind-parameter logging")
+                            .doesNotContain("Result-value"));
+            verify(factory, never()).createEntityManager();
+        } finally {
+            extract.setLevel(previousExtract);
+            bind.setLevel(previousBind);
+            parent.setLevel(previousParent);
+        }
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void lazyCdiHandleFailureDoesNotHideLaterFactoriesInEitherOrder() {

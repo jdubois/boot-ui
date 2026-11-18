@@ -2464,6 +2464,8 @@ Data sources:
 - JPA `EntityManagerFactory` metamodel when Hibernate ORM is present.
 - Spring Data repository metadata for query and paging heuristics.
 - Selected Spring Boot and Hibernate configuration properties.
+- Effective runtime bind-parameter and result-value TRACE logger state (`HIB-CONFIG-018`); no logged values or
+  messages are read.
 - The auto-commit default of the HikariCP or Agroal pool behind a resource-local persistence unit, read without
   borrowing a connection (`HIB-CONFIG-008` and `HIB-CONFIG-021`).
 

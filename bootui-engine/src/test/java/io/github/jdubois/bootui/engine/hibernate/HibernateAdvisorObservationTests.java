@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import io.github.jdubois.bootui.core.dto.HibernateDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hibernate.annotations.Cache;
 import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.Immutable;
@@ -44,7 +46,131 @@ class HibernateAdvisorObservationTests {
         "HIB-CONFIG-011"
     };
     private static final HibernateApplicationFacts APP =
-            new HibernateApplicationFacts(List.of("prod"), false, false, false, false);
+            new HibernateApplicationFacts(List.of("prod"), false, false, false, false, false);
+
+    @Test
+    void jdbcValueLoggingKeepsIndependentFindingsAndCoverageForKnownAndUnknownLoggerStates() {
+        List<HibernatePersistenceUnitObservation> units =
+                List.of(unit("orders", settings(25), List.of()), unit("archive", settings(25), List.of()));
+        for (String profile : List.of("prod", "dev")) {
+            for (Boolean bind : new Boolean[] {false, true, null}) {
+                for (Boolean extract : new Boolean[] {false, true, null}) {
+                    HibernateApplicationFacts app =
+                            new HibernateApplicationFacts(List.of(profile), false, false, bind, extract, false);
+                    HibernateScanner scanner = new HibernateScanner(
+                            () -> new HibernateAdvisorObservation(units, app, List.of()),
+                            CLOCK,
+                            List.of(new BindParameterLoggingInProductionRule()));
+                    HibernateReport report = scanner.scan();
+                    boolean production = "prod".equals(profile);
+                    boolean incomplete = production && (bind == null || extract == null);
+                    List<String> expectedIdentities = new ArrayList<>();
+                    List<String> expectedText = new ArrayList<>();
+                    if (production && Boolean.TRUE.equals(bind)) {
+                        expectedIdentities.add("v1:unit=application|setting=hibernate.type.descriptor.sql.BasicBinder");
+                        expectedText.add(
+                                "[application] Bind-parameter logging is enabled at TRACE while a production profile is active.");
+                    }
+                    if (production && Boolean.TRUE.equals(extract)) {
+                        expectedIdentities.add("v1:unit=application|setting=org.hibernate.orm.jdbc.extract");
+                        expectedText.add(
+                                "[application] Result-value logging is enabled at TRACE while a production profile is active.");
+                    }
+                    assertThat(report.scan().status()).isEqualTo(incomplete ? "PARTIAL" : "SCANNED");
+                    assertThat(report.rulesEvaluated()).isEqualTo(1);
+                    assertThat(report.evidence().coverageComplete()).isEqualTo(!incomplete);
+                    assertThat(report.evidence().usable())
+                            .as("profile=%s, bind=%s, extract=%s", profile, bind, extract)
+                            .isEqualTo(!expectedIdentities.isEmpty() || production && !incomplete);
+                    assertThat(report.diagnostics()).hasSize(incomplete ? 1 : 0);
+                    assertThat(report.violationDetails().total()).isEqualTo(expectedIdentities.size());
+                    assertThat(report.severityCounts())
+                            .filteredOn(count -> "HIGH".equals(count.severity()))
+                            .singleElement()
+                            .satisfies(count -> assertThat(count.count()).isEqualTo(expectedIdentities.size()));
+                    if (expectedIdentities.isEmpty()) {
+                        assertThat(report.results()).isEmpty();
+                    } else {
+                        assertThat(report.results()).singleElement().satisfies(result -> {
+                            assertThat(result.id()).isEqualTo("HIB-CONFIG-018");
+                            assertThat(result.violationCount()).isEqualTo(expectedIdentities.size());
+                            assertThat(result.sampleViolations()).containsExactlyElementsOf(expectedText);
+                            assertThat(result.coverageNote() != null).isEqualTo(incomplete);
+                        });
+                        var page = scanner.ruleViolations(
+                                "HIB-CONFIG-018", report.violationDetails().scanId(), 0, 100);
+                        assertThat(page.identities()).containsExactlyElementsOf(expectedIdentities);
+                        assertThat(page.violations()).containsExactlyElementsOf(expectedText);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void oldApplicationFactsConstructorDoesNotClaimResultValueLoggingIsOff() {
+        HibernateApplicationFacts legacy = new HibernateApplicationFacts(List.of("prod"), false, false, true, false);
+        HibernateReport report = new HibernateScanner(
+                        () -> new HibernateAdvisorObservation(
+                                List.of(unit("orders", settings(25), List.of())), legacy, List.of()),
+                        CLOCK,
+                        List.of(new BindParameterLoggingInProductionRule()))
+                .scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.violationCount()).isEqualTo(1);
+            assertThat(result.sampleViolations())
+                    .containsExactly(
+                            "[application] Bind-parameter logging is enabled at TRACE while a production profile is active.");
+            assertThat(result.coverageNote()).contains("org.hibernate.orm.jdbc.extract");
+        });
+    }
+
+    @Test
+    void existingBindFindingDismissalNeverSuppressesResultValueLogging() {
+        AtomicReference<HibernateApplicationFacts> app =
+                new AtomicReference<>(new HibernateApplicationFacts(List.of("prod"), false, false, true, false, false));
+        HibernateScanner scanner = new HibernateScanner(
+                () -> new HibernateAdvisorObservation(
+                        List.of(unit("orders", settings(25), List.of())), app.get(), List.of()),
+                CLOCK,
+                List.of(new BindParameterLoggingInProductionRule()));
+        HibernateReport before = scanner.scan();
+        String bindIdentity = "v1:unit=application|setting=hibernate.type.descriptor.sql.BasicBinder";
+        assertThat(scanner.ruleViolations(
+                                "HIB-CONFIG-018", before.violationDetails().scanId(), 0, 100)
+                        .identities())
+                .containsExactly(bindIdentity);
+        List<DismissedFindingDto> dismissals = List.of(new DismissedFindingDto("HIB-CONFIG-018", bindIdentity, null));
+
+        app.set(new HibernateApplicationFacts(List.of("prod"), false, false, true, true, false));
+        HibernateReport raw = scanner.scan();
+        assertThat(raw.violationDetails().changes().newCount()).isEqualTo(1);
+        assertThat(raw.violationDetails().changes().unchangedCount()).isEqualTo(1);
+        assertThat(raw.violationDetails().changes().complete()).isTrue();
+        HibernateReport dismissed = scanner.dismissedReport(Set.of(), dismissals);
+        assertThat(dismissed.results()).singleElement().satisfies(result -> {
+            assertThat(result.violationCount()).isEqualTo(1);
+            assertThat(result.suppressedCount()).isEqualTo(1);
+            assertThat(result.sampleViolations())
+                    .containsExactly(
+                            "[application] Result-value logging is enabled at TRACE while a production profile is active.");
+        });
+        assertThat(dismissed.severityCounts())
+                .filteredOn(count -> "HIGH".equals(count.severity()))
+                .singleElement()
+                .satisfies(count -> assertThat(count.count()).isEqualTo(1));
+        assertThat(scanner.ruleViolations(
+                                "HIB-CONFIG-018", raw.violationDetails().scanId(), 0, 100, dismissals)
+                        .suppressed())
+                .containsExactly(true, false);
+        assertThat(scanner.dismissedReport(Set.of("HIB-CONFIG-018"), List.of()).results())
+                .singleElement()
+                .satisfies(result -> assertThat(result.dismissed()).isTrue());
+    }
 
     @Test
     void selectedCatalogTitlesAndSeveritiesStayScoped() {

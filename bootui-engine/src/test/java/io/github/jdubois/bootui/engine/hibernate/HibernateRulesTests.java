@@ -1806,24 +1806,24 @@ class HibernateRulesTests {
     }
 
     @Test
-    void bindParameterLoggingInProductionRulePassesWhenLoggingNotEnabledInProduction() {
+    void jdbcValueLoggingCannotConcludeFromMissingBindDeclarationsAlone() {
         TestEnvironment environment = new TestEnvironment();
         environment.setActiveProfiles("prod");
 
         HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
     }
 
     @Test
-    void bindParameterLoggingInProductionRulePassesForDebugLevelInProduction() {
+    void jdbcValueLoggingCannotConcludeFromDebugBindDeclarationAlone() {
         TestEnvironment environment =
                 new TestEnvironment().withProperty("logging.level.org.hibernate.orm.jdbc.bind", "DEBUG");
         environment.setActiveProfiles("prod");
 
         HibernateRuleResultDto result = new BindParameterLoggingInProductionRule().evaluate(context(environment));
 
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
     }
 
     // --- Hypersistence-inspired configuration and fetching checks ----------------

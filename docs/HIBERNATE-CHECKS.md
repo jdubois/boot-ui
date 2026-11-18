@@ -1125,8 +1125,9 @@ mode this rule could never emit a finding and only forced scans of applications 
   `org.hibernate.SQL` logger at DEBUG or finer.
 - **Fires when**: either is enabled while a profile named `prod`, `production`, `staging`, `prod-*`, or
   `*-prod` / `*-production` is active.
-- **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Parameter
-  values have a separate binding logger checked by HIB-CONFIG-018; no measured throughput loss is inferred.
+- **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Bound
+  parameter and extracted result values have separate loggers checked by HIB-CONFIG-018; no measured throughput loss is
+  inferred.
 - **Recommendation**: keep SQL logging off in production-like environments and rely on structured slow-query logging or
   the database's statement audit.
 
@@ -1198,18 +1199,33 @@ mode this rule could never emit a finding and only forced scans of applications 
 - **Quarkus**: `quarkus.hibernate-orm.log.format-sql` defaults to `true`, but it is inert unless
   `quarkus.hibernate-orm.log.sql` or an equivalent Hibernate SQL logger is enabled.
 
-### HIB-CONFIG-018 - Bind-parameter logging should be off in production
+<a id="hib-config-018-bind-parameter-logging-should-be-off-in-production"></a>
+<a id="hib-config-018---bind-parameter-logging-should-be-off-in-production"></a>
+
+### HIB-CONFIG-018 - JDBC value logging should be off in production
 
 - **Severity**: HIGH
-- **Inspects**: the live TRACE level of the `org.hibernate.orm.jdbc.bind` logger, plus the active Spring/Quarkus
-  profile. The legacy `org.hibernate.type.descriptor.sql.BasicBinder` logger is not inspected.
-- **Fires when**: a production-like profile is active and bind-parameter logging is enabled at TRACE.
-- **Why it matters**: at TRACE, Hibernate logs every bound parameter value - this can leak PII, credentials, or tokens
-  passed as query parameters into application logs.
-- **Recommendation**: keep bind-parameter logging off in production; only enable it temporarily, in a non-production
-  environment, while diagnosing a specific issue.
+- **Inspects**: the effective runtime TRACE state of `org.hibernate.orm.jdbc.bind` and
+  `org.hibernate.orm.jdbc.extract`, including inherited levels, plus the active Spring/Quarkus profile. Spring MVC and
+  WebFlux share the same observation source. The legacy `org.hibernate.type.descriptor.sql.BasicBinder` logger is not
+  inspected by the native adapters.
+- **Fires when**: a production-like profile is active and either category enables TRACE. One application-wide finding
+  is counted per enabled category, not per persistence unit. DEBUG and OFF do not enable value logging.
+- **Why it matters**: these categories can expose bound query parameters or extracted result values, including PII,
+  credentials, or tokens. Result logging can expose data even with bind logging off. Logger state establishes the risk,
+  not whether sensitive data was actually logged; BootUI reads no log messages, parameter values, or result values.
+- **Recommendation**: keep both categories off in production; only enable value logging temporarily in a
+  non-production environment while diagnosing a specific issue.
+- **Evidence limits**: only the current runtime logger state is observed, not inactive-profile configuration or
+  appender/filter behavior. An unavailable category leaves coverage incomplete without discarding a finding from the
+  other category. An absent finding is not proof of safe production configuration.
 - **Quarkus**: the Quarkus-native `quarkus.hibernate-orm.log.bind-parameters` convenience flag raises that same logger to
-  TRACE, so it is detected too - Quarkus's own guide explicitly warns against enabling this in production.
+  TRACE, so its effective runtime state is detected too - Quarkus's own guide explicitly warns against enabling this in
+  production.
+- **Compatibility**: the rule id and HIGH severity are unchanged; the catalog still has 77 rules. Existing bind findings
+  keep `unit=application|setting=hibernate.type.descriptor.sql.BasicBinder`. Result findings use the separate
+  `unit=application|setting=org.hibernate.orm.jdbc.extract` identity, so dismissing a bind finding cannot hide result
+  logging. A whole-rule dismissal continues to dismiss all HIB-CONFIG-018 findings, including result logging.
 
 ### HIB-CONFIG-019 - SQL comments should be enabled intentionally
 

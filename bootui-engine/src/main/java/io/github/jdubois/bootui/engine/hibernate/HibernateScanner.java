@@ -228,6 +228,7 @@ public final class HibernateScanner {
                 app.deferredDatasourceInitialization(),
                 logging,
                 app.bindLoggerEnabled(),
+                app.extractLoggerEnabled(),
                 app.panacheEnhancementVerified());
         HibernateContext global = HibernateContext.observed(
                 new HibernatePersistenceUnitObservation(

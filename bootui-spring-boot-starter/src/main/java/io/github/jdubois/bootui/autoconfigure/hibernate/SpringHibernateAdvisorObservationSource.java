@@ -156,6 +156,7 @@ public final class SpringHibernateAdvisorObservationSource implements HibernateA
                 deferred,
                 logger("org.hibernate.SQL", false),
                 logger("org.hibernate.orm.jdbc.bind", true),
+                logger("org.hibernate.orm.jdbc.extract", true),
                 false);
     }
 
