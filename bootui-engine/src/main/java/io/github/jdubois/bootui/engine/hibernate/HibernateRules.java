@@ -264,6 +264,7 @@ final class HibernateRuleModelSupport {
                 if (!method.hasPageableParameter() || method.nativeQuery() || method.query() == null) {
                     continue;
                 }
+                if (HibernateQueryShape.verifiedFetchFreeSelect(context, method)) continue;
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 Set<String> collectionNames = collectionAttributeNames(domainEntity);
@@ -3872,7 +3873,8 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
                 if (method.nativeQuery() || method.query() == null) {
                     continue;
                 }
-                if (HibernateQueryShape.irrelevantToMultipleCollectionFetch(context, method)) {
+                if (HibernateQueryShape.irrelevantToMultipleCollectionFetch(context, method)
+                        || HibernateQueryShape.verifiedFetchFreeSelect(context, method)) {
                     continue;
                 }
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);

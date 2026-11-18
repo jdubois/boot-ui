@@ -174,6 +174,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **External explicit-GC findings clear on rescans without new pauses**, with severity based only on the current
   observation interval and incomplete notification coverage kept explicit
   ([Memory checks](docs/MEMORY-CHECKS.md#time-and-collector-boundaries)).
+- **Hibernate CI coverage** no longer treats verified fetch-free SELECT entity joins as unknown collection-fetch
+  evidence, or inherited `JpaRepository.saveAll` compiler bridges as custom entity-newness strategies.
+- **CI failure explanations** include bounded diagnostic-level counts and syntax-checked Hibernate rule identifiers
+  without exposing diagnostic messages, persistence-unit names, or raw limitation text. Strict coverage gates and
+  saved JSON bundle contracts remain unchanged.
 
 ### Changed
 
@@ -186,7 +191,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Servlet authorization findings** use MEDIUM coverage review for observed method-annotation use with matching activation for every used family; HTTP gaps remain and endpoint protection is not proven
   ([Security checks](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
 
-## [2.5.0] - 2026-11-14
+## [2.5.0] - 2026-11-17
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.
 It also adds local CLI discovery and setup, expands advisor coverage, and removes noisy checks.

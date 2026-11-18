@@ -46,6 +46,11 @@ complete evidence was not established. These implementation paths can differ for
 
 The human summary explains these paths and reports bounded coverage diagnostics: evidence flags, reported check/subject
 counts, and the number of coverage limitations. Counts are explicitly unvalidated observations, not assessed findings.
+When a report includes diagnostics, the notes include entry counts and ERROR, WARNING, and INFO counts. Hibernate
+notes also list up to ten distinct, sorted identifiers matching the fixed `HIB-<category>-NNN` vocabulary, with an
+omitted-identifier count. These identifiers are reported metadata, not validated findings or proof that a rule ran.
+Other diagnostic entries are counted without copying their source text.
+Diagnostic messages and persistence-unit names are never copied; inspect the cached report locally for that detail.
 Raw limitation text, application configuration, and finding prose are excluded. The JSON schema and stable reason codes
 are unchanged, so offline checks retain their existing contract. Partial coverage is still not a passed assessment.
 

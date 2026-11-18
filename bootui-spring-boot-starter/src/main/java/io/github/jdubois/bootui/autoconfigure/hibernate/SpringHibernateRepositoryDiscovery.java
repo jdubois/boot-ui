@@ -59,9 +59,12 @@ final class SpringHibernateRepositoryDiscovery {
                     boolean standardSave = false;
                     List<HibernateRepositoryMethodModel> methods = new ArrayList<>();
                     for (Method method : repository.getMethods()) {
+                        // Covariant saveAll generates default bridges, not custom newness implementations.
+                        if (method.isBridge()) continue;
                         if (method.getName().equals("save") || method.getName().equals("saveAll")) {
-                            customSave |=
-                                    method.isDefault() || Boolean.TRUE.equals(isCustom.invoke(information, method));
+                            customSave |= method.isDefault()
+                                    || Boolean.TRUE.equals(isCustom.invoke(information, method))
+                                    || Boolean.TRUE.equals(isQuery.invoke(information, method));
                             standardSave |= Boolean.TRUE.equals(isBaseMethod.invoke(information, method));
                         }
                         if (method.isDefault() || !Boolean.TRUE.equals(isQuery.invoke(information, method))) continue;

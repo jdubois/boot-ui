@@ -1432,6 +1432,64 @@ class CiAssessmentRunnerTests {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void incompleteHibernateExplainsBoundedDiagnosticMetadataWithoutLeakingReportText(boolean required)
+            throws Exception {
+        List<JsonValue> diagnostics = new ArrayList<>();
+        for (int id = 12; id >= 1; id--) {
+            diagnostics.add(JsonValue.parseStrict("""
+                    {"source":"HIB-QUERY-%03d","level":"WARNING","unit":"private-unit",
+                     "message":"private-message-<secret>&"}
+                    """.formatted(id)));
+        }
+        diagnostics.add(JsonValue.parseStrict("""
+                {"source":"HIB-PRIVATESECRET-123","level":"ERROR","unit":"private-unit","message":"private-message"}
+                """));
+        diagnostics.add(JsonValue.parseStrict("""
+                {"source":"HIB-QUERY-007\\"<&","level":"private-level","message":"private-message"}
+                """));
+        responseTransforms.put("get_hibernate_report", body -> {
+            String report = replaceResponseField(body, "evidence", JsonValue.parseStrict("""
+                    {"usable":true,"coverageComplete":false,"limitations":["private-limitation"]}
+                    """));
+            return replaceResponseField(report, "diagnostics", JsonValue.array(diagnostics));
+        });
+        startServer();
+        Path policy = temp.resolve("hibernate-policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"high"},
+                  "hibernate":{"required":%s,"failOn":"high"}
+                }}
+                """.formatted(required));
+        Path output = temp.resolve("assessment");
+        var runner = runner(policy, temp.resolve("witness.json"), output);
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(required ? 1 : 0);
+        String summary = Files.readString(output.resolve("summary.md"));
+        assertThat(summary)
+                .contains(
+                        "EVIDENCE_UNEVALUABLE",
+                        "reported diagnostic entries=14",
+                        "reported diagnostic ERROR=1",
+                        "reported diagnostic WARNING=12",
+                        "reported diagnostic INFO=0",
+                        "reported other diagnostic entries=2",
+                        "reported Hibernate diagnostic rules=HIB-QUERY-001, HIB-QUERY-002",
+                        "reported diagnostic rule identifiers omitted=2")
+                .doesNotContain("HIB-QUERY-011", "HIB-QUERY-012");
+        DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(output.resolve("junit.xml").toFile());
+        for (String file : List.of("bundle.json", "summary.md", "junit.xml")) {
+            assertThat(Files.readString(output.resolve(file))).doesNotContain("private-", "PRIVATESECRET", "<secret>");
+        }
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(required ? 1 : 0);
+    }
+
     @Test
     void coverageCountsIncludePolicyAdvisorsNotVisitedAfterARequiredFailure() throws Exception {
         responseTransforms.put("cli", body -> {
@@ -2177,12 +2235,15 @@ class CiAssessmentRunnerTests {
                                     arguments.get("limit").asInt(100)))
                     .toJson();
         } else if (path.endsWith("/tools/architecture_scan")
+                || path.endsWith("/tools/hibernate_scan")
                 || path.endsWith("/tools/database_advisor_scan")
                 || path.endsWith("/tools/spring_scan") && !springFails) {
             boolean database = path.endsWith("/tools/database_advisor_scan");
             String subject = database
                     ? "tablesAnalyzed"
-                    : path.endsWith("/tools/spring_scan") ? "componentsAnalyzed" : "classesAnalyzed";
+                    : path.endsWith("/tools/spring_scan")
+                            ? "componentsAnalyzed"
+                            : path.endsWith("/tools/hibernate_scan") ? "entitiesAnalyzed" : "classesAnalyzed";
             int subjects = database ? 1 : 3;
             int violations = !database && finding ? findingRuleCount : 0;
             int occurrences = !database && finding ? findingCount : 0;
@@ -2205,6 +2266,8 @@ class CiAssessmentRunnerTests {
             body = report(architectureFindingsMedium);
         } else if (path.endsWith("/tools/get_spring_report")) {
             body = report(springFindingsMedium).replace("\"classesAnalyzed\":3", "\"componentsAnalyzed\":3");
+        } else if (path.endsWith("/tools/get_hibernate_report")) {
+            body = report(false).replace("\"classesAnalyzed\":3", "\"entitiesAnalyzed\":3");
         } else if (path.endsWith("/tools/get_database_advisor_report")) {
             body = """
                     {"tablesAnalyzed":1,"rulesEvaluated":5,"violationsFound":0,"rulesSkipped":%d,"rulesErrored":%d,
@@ -2264,6 +2327,10 @@ class CiAssessmentRunnerTests {
                 "RULE_VIOLATIONS",
                 List.of("id", "scanId", "offset", "limit")));
         tools.add(tool("spring_scan", true, "NONE", List.of()));
+        tools.add(tool("hibernate_scan", true, "NONE", List.of()));
+        tools.add(tool("get_hibernate_report", false, "NONE", List.of()));
+        tools.add(tool(
+                "get_hibernate_rule_violations", false, "RULE_VIOLATIONS", List.of("id", "scanId", "offset", "limit")));
         tools.add(tool("get_spring_report", false, "NONE", List.of()));
         tools.add(tool(
                 "get_spring_rule_violations", false, "RULE_VIOLATIONS", List.of("id", "scanId", "offset", "limit")));
@@ -2302,7 +2369,9 @@ class CiAssessmentRunnerTests {
     }
 
     private static String tool(String name, boolean action, String schema, List<String> arguments) {
-        String panel = name.startsWith("spring_") || name.startsWith("get_spring_") ? "spring" : "architecture";
+        String panel = name.startsWith("spring_") || name.startsWith("get_spring_")
+                ? "spring"
+                : name.startsWith("hibernate_") || name.startsWith("get_hibernate_") ? "hibernate" : "architecture";
         return tool(name, action, schema, arguments, panel, true, false);
     }
 
