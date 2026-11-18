@@ -7,6 +7,7 @@ import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitCallTarget;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMethod;
@@ -61,8 +62,8 @@ abstract class AbstractArchUnitCracCheck implements CracCheck {
  *
  * <p>Only acquisition from a restore/start callback is exempt. Acquiring a resource from
  * {@code beforeCheckpoint()} or {@code stop()} is still suspicious because those callbacks should
- * quiesce or release state. Field checks annotate compatible cleanup without inferring receiver
- * identity; neither interface implementation nor cleanup calls prove registration or ownership.</p>
+ * quiesce or release state. Field checks require separate receiver-specific cleanup evidence;
+ * neither interface implementation nor cleanup calls alone prove registration or ownership.</p>
  */
 final class ManagedLifecycleCallSites {
 
@@ -76,9 +77,6 @@ final class ManagedLifecycleCallSites {
 
     private static final Set<String> SPRING_LIFECYCLE_TYPES =
             Set.of("org.springframework.context.Lifecycle", "org.springframework.context.SmartLifecycle");
-
-    private static final Set<String> CLEANUP_METHODS =
-            Set.of("cancel", "close", "destroy", "disconnect", "shutdown", "shutdownGracefully", "shutdownNow", "stop");
 
     private ManagedLifecycleCallSites() {}
 
@@ -96,51 +94,81 @@ final class ManagedLifecycleCallSites {
         return isAssignableToAny(javaClass, RESOURCE_TYPES) || isAssignableToAny(javaClass, SPRING_LIFECYCLE_TYPES);
     }
 
-    static boolean hasCompatibleCleanupCall(JavaClass javaClass, JavaField field) {
+    static CleanupEvidence cleanupEvidence(
+            JavaClass javaClass, JavaField field, CracFieldCleanupEvidence receivers, JavaClasses importedClasses) {
         if (!isManagedClass(javaClass)) {
-            return false;
+            return CleanupEvidence.NONE;
         }
+        if (!receivers.available()) return CleanupEvidence.UNAVAILABLE;
+        CleanupEvidence result = CleanupEvidence.NONE;
         for (JavaMethod method : javaClass.getMethods()) {
-            boolean cleanupCallback = isResourceCallback(method, "beforeCheckpoint") || isSpringStopCallback(method);
-            if (cleanupCallback && delegatesCleanup(method, field, javaClass, new HashSet<>())) {
-                return true;
+            if (isResourceCallback(method, "beforeCheckpoint") && receivers.cleans(method, field)) {
+                if (!receivers.cleansWithoutControlFlow(method, field)) {
+                    result = CleanupEvidence.PATH_UNVERIFIED;
+                    continue;
+                }
+                if (receivers.selfRegistersInEveryConstructor(
+                        method.getRawParameterTypes().get(0).getName())) {
+                    if (hasKnownCallbackOverride(method, importedClasses)) {
+                        result = CleanupEvidence.OVERRIDDEN_CALLBACK;
+                        continue;
+                    }
+                    return CleanupEvidence.SELF_REGISTERED;
+                }
+                result = CleanupEvidence.FIELD_ONLY;
+            } else if (isSpringStopCallback(method) && receivers.cleans(method, field)) {
+                result = CleanupEvidence.SPRING_DECLARATION;
+            }
+        }
+        return result;
+    }
+
+    private static boolean hasKnownCallbackOverride(JavaMethod callback, JavaClasses importedClasses) {
+        JavaClass owner = callback.getOwner();
+        if (owner.getModifiers().contains(JavaModifier.FINAL)
+                || callback.getModifiers().contains(JavaModifier.FINAL)) return false;
+        for (JavaClass subtype : importedClasses) {
+            if (subtype.equals(owner) || !subtype.isAssignableTo(owner.getName())) continue;
+            if (declaresCallback(subtype, callback)) return true;
+            for (JavaClass ancestor : subtype.getAllRawSuperclasses()) {
+                if (!ancestor.equals(owner)
+                        && ancestor.isAssignableTo(owner.getName())
+                        && declaresCallback(ancestor, callback)) return true;
             }
         }
         return false;
     }
 
-    /**
-     * Recognizes a matching cleanup call made directly by {@code codeUnit}, or delegated to a
-     * private helper method declared on the same {@code owner} class (a common refactor of
-     * checkpoint callbacks). Traversal only follows calls resolving to a <b>private</b> method
-     * declared on {@code owner} itself, not arbitrary collaborators or broader-visibility methods
-     * that may be reused elsewhere for unrelated purposes, and {@code visited} guards against call
-     * cycles so this stays a bounded walk rather than an unbounded whole-program call graph search.
-     */
-    private static boolean delegatesCleanup(
-            JavaCodeUnit codeUnit, JavaField field, JavaClass owner, Set<JavaCodeUnit> visited) {
-        if (!visited.add(codeUnit)) {
-            return false;
-        }
-        for (JavaCall<?> call : codeUnit.getCallsFromSelf()) {
-            CodeUnitCallTarget target = call.getTarget();
-            if (CLEANUP_METHODS.contains(target.getName())
-                    && field.getRawType().isAssignableTo(target.getOwner().getName())) {
-                return true;
-            }
-            if (owner.equals(target.getOwner())
-                    && target.resolveMember()
-                            .filter(ManagedLifecycleCallSites::isPrivateHelper)
-                            .isPresent()
-                    && delegatesCleanup(target.resolveMember().get(), field, owner, visited)) {
-                return true;
-            }
-        }
-        return false;
+    private static boolean declaresCallback(JavaClass type, JavaMethod callback) {
+        return type.getMethods().stream()
+                .anyMatch(method -> method.getName().equals(callback.getName())
+                        && method.getDescriptor().equals(callback.getDescriptor()));
     }
 
-    private static boolean isPrivateHelper(JavaCodeUnit codeUnit) {
-        return codeUnit.getModifiers().contains(JavaModifier.PRIVATE);
+    enum CleanupEvidence {
+        NONE("no supported receiver-specific lifecycle cleanup observed"),
+        UNAVAILABLE(
+                "receiver-specific cleanup unavailable: import-time bytecode was not captured or could not be interpreted"),
+        FIELD_ONLY("receiver-specific cleanup observed; owner registration unverified"),
+        PATH_UNVERIFIED("receiver-specific cleanup observed; callback/helper control flow unsupported"),
+        OVERRIDDEN_CALLBACK("imported subtype overrides cleanup callback; field cleanup unverified"),
+        SPRING_DECLARATION(
+                "receiver-specific stop cleanup observed; Spring bean lifecycle ownership and running state unverified"),
+        SELF_REGISTERED("receiver-specific cleanup and constructor self-registration observed");
+
+        private final String detail;
+
+        CleanupEvidence(String detail) {
+            this.detail = detail;
+        }
+
+        String detail() {
+            return "UNVERIFIED; no runtime/checkpoint guarantee; " + detail;
+        }
+
+        boolean credited() {
+            return this == SELF_REGISTERED;
+        }
     }
 
     private static boolean isResourceCallback(JavaCodeUnit codeUnit, String methodName) {
@@ -536,8 +564,8 @@ final class CapturedTimeCheck extends AbstractArchUnitCracCheck {
 }
 
 /**
- * Reviews resource-typed application fields. Compatible callback cleanup is useful context but
- * does not establish which field is closed or that the owner is registered.
+ * Reviews resource-typed application fields, retaining each occurrence even with supported
+ * receiver-specific cleanup and constructor self-registration evidence.
  */
 final class OpenResourceFieldCheck implements CracCheck {
 
@@ -546,8 +574,8 @@ final class OpenResourceFieldCheck implements CracCheck {
             "Resource fields need observable checkpoint cleanup",
             CracCategory.RESOURCES,
             "HIGH",
-            "Detects fields whose type can hold an OS resource. A field is possible ownership, not proof of a reachable, non-null or open resource. Compatible cleanup in an exact lifecycle callback is noted, but cannot establish which instance is closed or whether the owner is registered; it never makes another same-type field clean.",
-            "Review actual field ownership and registration before changing resource handling. Where needed, release the resource before checkpoint and recreate it after restore. Preserve existing framework-managed cleanup; a compatible close call is evidence to investigate, not a guarantee of field-specific cleanup.",
+            "Detects fields whose type can hold an OS resource. A field is possible ownership, not proof of a reachable, non-null or open resource. MEDIUM requires receiver-specific callback cleanup and constructor self-registration for every matching field, without a known imported callback override; partial or unavailable evidence remains HIGH. Every field remains a review, not checkpoint-safe evidence.",
+            "Review actual field ownership and registration before changing resource handling. Where needed, release the resource before checkpoint and recreate it after restore. Preserve existing framework-managed cleanup; syntactic cleanup and registration do not establish callback execution, strong retention, ordering, successful shutdown or restore correctness.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     private static final Set<String> RESOURCE_TYPES = Set.of(
@@ -587,17 +615,19 @@ final class OpenResourceFieldCheck implements CracCheck {
             int count = 0;
             boolean withoutCleanup = false;
             for (JavaClass javaClass : context.classes()) {
-                for (JavaField field : javaClass.getFields()) {
-                    if (isResourceType(field.getRawType())) {
-                        count++;
-                        boolean cleanup = ManagedLifecycleCallSites.hasCompatibleCleanupCall(javaClass, field);
-                        withoutCleanup |= !cleanup;
-                        if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
-                            samples.add(CracCheckSupport.detail(javaClass.getName() + "." + field.getName()
-                                    + (cleanup
-                                            ? " - compatible cleanup observed; field target and registration unverified"
-                                            : " - no compatible lifecycle cleanup observed")));
-                        }
+                List<JavaField> fields = javaClass.getFields().stream()
+                        .filter(field -> isResourceType(field.getRawType()))
+                        .toList();
+                if (fields.isEmpty()) continue;
+                CracFieldCleanupEvidence receivers = CracFieldCleanupEvidence.read(javaClass, context.bytecode());
+                for (JavaField field : fields) {
+                    count++;
+                    var cleanup =
+                            ManagedLifecycleCallSites.cleanupEvidence(javaClass, field, receivers, context.classes());
+                    withoutCleanup |= !cleanup.credited();
+                    if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
+                        samples.add(CracCheckSupport.detail(
+                                cleanup.detail() + " - " + javaClass.getName() + "." + field.getName()));
                     }
                 }
             }
@@ -1395,8 +1425,8 @@ final class CracDependencyCheck implements CracCheck {
  * OpenResourceFieldCheck} already covers, but are easy to miss because the client is typically built
  * once via a builder rather than constructed directly.
  *
- * <p>Compatible cleanup in a CRaC or Spring stop callback is contextual evidence, matching
- * {@link OpenResourceFieldCheck}; it cannot establish the receiver's identity or registration.</p>
+ * <p>Receiver-specific cleanup and constructor self-registration are bounded syntactic evidence,
+ * matching {@link OpenResourceFieldCheck}, not proof of successful checkpoint handling.</p>
  */
 final class UnmanagedHttpClientFieldCheck implements CracCheck {
 
@@ -1405,7 +1435,7 @@ final class UnmanagedHttpClientFieldCheck implements CracCheck {
             "Transport-owning client fields need checkpoint lifecycle review",
             CracCategory.POOLS,
             "HIGH",
-            "Detects fields typed as known transport-owning clients: HTTP/RPC clients (JDK HttpClient, Apache CloseableHttpClient, OkHttpClient, Reactor Netty ConnectionProvider, gRPC ManagedChannel), Kafka KafkaProducer/KafkaConsumer, Lettuce Redis clients, Jedis pools and Netty EventLoopGroup. A field does not prove an active connection or that the application owns the instance; it may reference a Spring-managed or shared resource. Compatible lifecycle cleanup is contextual evidence, not proof of which instance is closed or of registration. Spring facades (RestClient, WebClient, Reactor HttpClient, KafkaTemplate, RedisTemplate) and generic Producer/Consumer interfaces are deliberately excluded.",
+            "Detects fields typed as known transport-owning clients: HTTP/RPC clients (JDK HttpClient, Apache CloseableHttpClient, OkHttpClient, Reactor Netty ConnectionProvider, gRPC ManagedChannel), Kafka KafkaProducer/KafkaConsumer, Lettuce Redis clients, Jedis pools and Netty EventLoopGroup. A field does not prove an active connection or that the application owns the instance; it may reference a Spring-managed or shared resource. MEDIUM requires receiver-specific callback cleanup and constructor self-registration for every matching field, without a known imported callback override; partial or unavailable evidence remains HIGH, never checkpoint-safe. Spring facades (RestClient, WebClient, Reactor HttpClient, KafkaTemplate, RedisTemplate) and generic Producer/Consumer interfaces are deliberately excluded.",
             "Verify actual transport ownership before adding lifecycle handling. Preserve existing Spring-managed transports and shared resources. Where explicit shutdown is needed, use the deployed client's lifecycle API (for example close(), shutdown(), or Netty's shutdownGracefully() followed by awaiting termination) and account for in-flight work; JDK HttpClient shutdown APIs require Java 21 or later. Never close a client during a readiness scan.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
@@ -1435,17 +1465,19 @@ final class UnmanagedHttpClientFieldCheck implements CracCheck {
             int count = 0;
             boolean withoutCleanup = false;
             for (JavaClass javaClass : context.classes()) {
-                for (JavaField field : javaClass.getFields()) {
-                    if (isHttpClientType(field.getRawType())) {
-                        count++;
-                        boolean cleanup = ManagedLifecycleCallSites.hasCompatibleCleanupCall(javaClass, field);
-                        withoutCleanup |= !cleanup;
-                        if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
-                            samples.add(CracCheckSupport.detail(javaClass.getName() + "." + field.getName()
-                                    + (cleanup
-                                            ? " - compatible cleanup observed; field target and registration unverified"
-                                            : " - no compatible lifecycle cleanup observed")));
-                        }
+                List<JavaField> fields = javaClass.getFields().stream()
+                        .filter(field -> isHttpClientType(field.getRawType()))
+                        .toList();
+                if (fields.isEmpty()) continue;
+                CracFieldCleanupEvidence receivers = CracFieldCleanupEvidence.read(javaClass, context.bytecode());
+                for (JavaField field : fields) {
+                    count++;
+                    var cleanup =
+                            ManagedLifecycleCallSites.cleanupEvidence(javaClass, field, receivers, context.classes());
+                    withoutCleanup |= !cleanup.credited();
+                    if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
+                        samples.add(CracCheckSupport.detail(
+                                cleanup.detail() + " - " + javaClass.getName() + "." + field.getName()));
                     }
                 }
             }

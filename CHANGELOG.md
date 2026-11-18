@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **CRaC field cleanup evidence** recognizes narrowly proven self-registration and field-bound cleanup only as an
+  unverified MEDIUM review, not checkpoint safety. Unknown or overridden callbacks retain HIGH; existing review
+  severity and scores can change ([CRaC checks](docs/CRAC-READINESS-CHECKS.md)).
 - **Request validation relevance** reports missing validation at MEDIUM only for positively observed reachable
   payload constraints, retaining unknown metadata as unassessed. Existing MEDIUM-or-higher CI gates can newly apply;
   validation triggers and groups are not execution proof ([REST API checks](docs/REST-API-CHECKS.md)).

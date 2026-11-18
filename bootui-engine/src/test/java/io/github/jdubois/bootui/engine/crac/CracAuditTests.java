@@ -3,14 +3,18 @@ package io.github.jdubois.bootui.engine.crac;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner.CracScanResult;
+import java.io.Closeable;
 import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.net.http.HttpClient;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.random.RandomGenerator;
 import org.crac.Context;
+import org.crac.Core;
 import org.crac.Resource;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.SmartLifecycle;
@@ -138,15 +143,139 @@ class CracAuditTests {
     }
 
     @Test
-    void sameTypeCleanupDoesNotCertifyOtherFieldOrEvenRegistration() {
-        CracFindingDto result = finding(scan(CracRuntimeInventory.empty(), TwoDirectories.class), "CRAC-RES-001");
+    void sameTypeCleanupDoesNotCreditTheOtherFieldEvenWhenTheOwnerSelfRegisters() {
+        CracFindingDto result = finding(scanCaptured(TwoDirectories.class), "CRAC-RES-001");
         assertThat(result.status()).isEqualTo("REVIEW");
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.severity()).isEqualTo("HIGH");
         assertThat(result.occurrenceCount()).isEqualTo(2);
         assertThat(result.sampleOccurrences())
-                .anyMatch(text -> text.contains("first"))
-                .anyMatch(text -> text.contains("second"))
-                .allMatch(text -> text.contains("registration unverified"));
+                .anyMatch(text -> text.contains(".first")
+                        && text.contains("receiver-specific cleanup and constructor self-registration"))
+                .anyMatch(text ->
+                        text.contains(".second") && text.contains("no supported receiver-specific lifecycle cleanup"));
+    }
+
+    @Test
+    void readingBothFieldsBesideAnUnrelatedCloseDoesNotProvideReceiverEvidence() {
+        CracFindingDto result = finding(scanCaptured(UnrelatedClose.class), "CRAC-RES-001");
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.occurrenceCount()).isEqualTo(2);
+        assertThat(result.sampleOccurrences())
+                .allMatch(text -> text.contains("no supported receiver-specific lifecycle cleanup"));
+    }
+
+    @Test
+    void onlySelfRegistrationAndSupportedCleanupOfEveryFieldReduceTheReview() {
+        for (Class<?> fixture : List.of(RegisteredDirectories.class, RegisteredTransportClients.class)) {
+            String id = fixture == RegisteredDirectories.class ? "CRAC-RES-001" : "CRAC-POOL-002";
+            CracFindingDto result = finding(scanCaptured(fixture), id);
+            assertThat(result.status()).isEqualTo("REVIEW");
+            assertThat(result.severity()).isEqualTo("MEDIUM");
+            assertThat(result.occurrenceCount()).isEqualTo(2);
+            assertThat(result.sampleOccurrences())
+                    .allMatch(text -> text.contains("receiver-specific cleanup and constructor self-registration"))
+                    .allSatisfy(text -> assertThat(text)
+                            .startsWith("UNVERIFIED; no runtime/checkpoint guarantee; ")
+                            .hasSizeLessThanOrEqualTo(240));
+        }
+    }
+
+    @Test
+    void transportCleanupDoesNotCreditAnotherSameTypedClient() {
+        CracFindingDto result = finding(scanCaptured(PartiallyClosedTransportClients.class), "CRAC-POOL-002");
+        assertThat(result.status()).isEqualTo("REVIEW");
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.occurrenceCount()).isEqualTo(2);
+        assertThat(result.sampleOccurrences())
+                .anyMatch(text -> text.contains(".first")
+                        && text.contains("receiver-specific cleanup and constructor self-registration"))
+                .anyMatch(text ->
+                        text.contains(".second") && text.contains("no supported receiver-specific lifecycle cleanup"));
+    }
+
+    @Test
+    void importedCallbackOverridesInvalidateDeclaringOwnerCreditIncludingInheritedOverrides() {
+        for (Class<?> subtype : List.of(
+                OverridesDirectoryCleanup.class,
+                InheritsOverriddenDirectoryCleanup.class,
+                OverridesTransportCleanup.class)) {
+            boolean transport = subtype == OverridesTransportCleanup.class;
+            CracFindingDto result = finding(
+                    scanCaptured(transport ? RegisteredTransportClients.class : RegisteredDirectories.class, subtype),
+                    transport ? "CRAC-POOL-002" : "CRAC-RES-001");
+            assertThat(result.status()).isEqualTo("REVIEW");
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.occurrenceCount()).isEqualTo(2);
+            assertThat(result.sampleOccurrences())
+                    .allMatch(text -> text.contains("imported subtype overrides cleanup callback"));
+        }
+    }
+
+    @Test
+    void finalOwnersAndUnchangedInheritedCallbacksRetainOnlyBoundedReviewCredit() {
+        for (CracScanResult scan : List.of(
+                scanCaptured(RegisteredDirectories.class, InheritsDirectoryCleanup.class),
+                scanCaptured(RegisteredDirectories.class, OverloadsDirectoryCleanup.class),
+                scanCaptured(FinalCallbackDirectoryOwner.class, InheritsFinalDirectoryCleanup.class),
+                scanCaptured(FinalDirectoryOwner.class))) {
+            CracFindingDto result = finding(scan, "CRAC-RES-001");
+            assertThat(result.status()).isEqualTo("REVIEW");
+            assertThat(result.severity()).isEqualTo("MEDIUM");
+            assertThat(result.sampleOccurrences())
+                    .isNotEmpty()
+                    .allSatisfy(text -> assertThat(text)
+                            .contains("constructor self-registration observed")
+                            .hasSizeLessThanOrEqualTo(240));
+        }
+    }
+
+    @Test
+    void absentOtherConditionalOrIncompleteConstructorRegistrationRemainHigh() {
+        for (Class<?> fixture : List.of(
+                UnregisteredDirectory.class,
+                OtherResourceRegistration.class,
+                AliasedSelfRegistration.class,
+                ConditionalRegistration.class,
+                OnlyOneConstructorRegisters.class)) {
+            CracFindingDto result = finding(scanCaptured(fixture), "CRAC-RES-001");
+            assertThat(result.status()).isEqualTo("REVIEW");
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.sampleOccurrences())
+                    .allMatch(
+                            text -> text.contains("receiver-specific cleanup observed; owner registration unverified"));
+        }
+    }
+
+    @Test
+    void unsupportedAliasesAndHelpersOnAnotherInstanceRemainHigh() {
+        for (Class<?> fixture : List.of(AliasedCleanup.class, OtherInstanceHelper.class)) {
+            CracFindingDto result = finding(scanCaptured(fixture), "CRAC-RES-001");
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.sampleOccurrences())
+                    .allMatch(text -> text.contains("no supported receiver-specific lifecycle cleanup"));
+        }
+    }
+
+    @Test
+    void conditionalCallbackOrPrivateHelperCleanupCannotLowerTheReview() {
+        for (Class<?> fixture : List.of(ConditionalCleanup.class, ConditionalHelperCleanup.class)) {
+            CracFindingDto result = finding(scanCaptured(fixture), "CRAC-RES-001");
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.sampleOccurrences())
+                    .allMatch(text -> text.contains("callback/helper control flow unsupported"));
+        }
+    }
+
+    @Test
+    void missingCapturedBytecodeCannotLowerAReviewDespiteCleanupAndRegistration() {
+        for (Class<?> fixture : List.of(RegisteredDirectories.class, RegisteredTransportClients.class)) {
+            String id = fixture == RegisteredDirectories.class ? "CRAC-RES-001" : "CRAC-POOL-002";
+            CracFindingDto result = finding(scan(CracRuntimeInventory.empty(), fixture), id);
+            assertThat(result.status()).isEqualTo("REVIEW");
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.sampleOccurrences())
+                    .allMatch(text -> text.contains("import-time bytecode was not captured"));
+        }
     }
 
     @Test
@@ -323,12 +452,16 @@ class CracAuditTests {
     }
 
     @Test
-    void gracefulEventLoopShutdownCountsAsCompatibleCleanup() {
-        JavaClass owner = new ClassFileImporter()
-                .importClasses(GracefulLoopOwner.class, GracefulLoop.class)
-                .get(GracefulLoopOwner.class);
-        assertThat(ManagedLifecycleCallSites.hasCompatibleCleanupCall(owner, owner.getField("loops")))
+    void springLifecycleCleanupIsFieldSpecificButNotProofOfSpringBeanOwnership() {
+        var imported = ArchUnitBytecodeImports.importClasses(GracefulLoopOwner.class, GracefulLoop.class);
+        JavaClass owner = imported.classes().get(GracefulLoopOwner.class);
+        assertThat(CracFieldCleanupEvidence.read(owner, imported.bytecode())
+                        .cleans(owner.getMethod("stop"), owner.getField("loops")))
                 .isTrue();
+        CracFindingDto result = finding(scanCaptured(SpringDirectoryOwner.class), "CRAC-RES-001");
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleOccurrences())
+                .allMatch(text -> text.contains("Spring bean lifecycle ownership and running state unverified"));
     }
 
     @Test
@@ -431,6 +564,24 @@ class CracAuditTests {
                         packages -> new ClassFileImporter().importClasses(classes),
                         Clock.systemUTC(),
                         () -> runtime)
+                .scan();
+    }
+
+    private static CracScanResult scanCaptured(Class<?>... classes) {
+        return new CracReadinessScanner(
+                        () -> List.of("example"),
+                        new CracClassImporter() {
+                            @Override
+                            public JavaClasses importPackages(List<String> packages) {
+                                throw new AssertionError("Scanner must request import-time bytecode");
+                            }
+
+                            @Override
+                            public ArchUnitBytecodeImports.Result importWithBytecode(List<String> packages) {
+                                return ArchUnitBytecodeImports.importClasses(classes);
+                            }
+                        },
+                        Clock.systemUTC())
                 .scan();
     }
 
@@ -574,15 +725,333 @@ class CracAuditTests {
         DirectoryStream<Path> first;
         DirectoryStream<Path> second;
 
+        TwoDirectories() {
+            Core.getGlobalContext().register(this);
+        }
+
         @Override
         public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
-            if (first != null) {
-                first.close();
-            }
+            first.close();
         }
 
         @Override
         public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class RegisteredDirectories implements Resource {
+        DirectoryStream<Path> first;
+        DirectoryStream<Path> second;
+
+        RegisteredDirectories() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            first.close();
+            releaseSecond();
+        }
+
+        private void releaseSecond() throws IOException {
+            nestedRelease();
+        }
+
+        private void nestedRelease() throws IOException {
+            second.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class OverridesDirectoryCleanup extends RegisteredDirectories {
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) {}
+    }
+
+    static class InheritsOverriddenDirectoryCleanup extends OverridesDirectoryCleanup {}
+
+    static final class InheritsDirectoryCleanup extends RegisteredDirectories {}
+
+    static final class OverloadsDirectoryCleanup extends RegisteredDirectories {
+        public void beforeCheckpoint(String unrelated) {}
+    }
+
+    static class FinalCallbackDirectoryOwner implements Resource {
+        DirectoryStream<Path> directory;
+
+        FinalCallbackDirectoryOwner() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public final void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static final class InheritsFinalDirectoryCleanup extends FinalCallbackDirectoryOwner {}
+
+    static final class FinalDirectoryOwner implements Resource {
+        DirectoryStream<Path> directory;
+
+        FinalDirectoryOwner() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    abstract static class CloseableTransport extends HttpClient implements Closeable {}
+
+    static class RegisteredTransportClients implements Resource {
+        CloseableTransport first;
+        CloseableTransport second;
+
+        RegisteredTransportClients() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            first.close();
+            releaseSecond();
+        }
+
+        private void releaseSecond() throws IOException {
+            second.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class OverridesTransportCleanup extends RegisteredTransportClients {
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) {}
+    }
+
+    static class PartiallyClosedTransportClients implements Resource {
+        CloseableTransport first;
+        CloseableTransport second;
+
+        PartiallyClosedTransportClients() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            first.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class UnrelatedClose implements Resource {
+        DirectoryStream<Path> first;
+        DirectoryStream<Path> second;
+
+        UnrelatedClose() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            System.out.println(first);
+            System.out.println(second);
+            Files.newDirectoryStream(Path.of(".")).close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class UnregisteredDirectory implements Resource {
+        DirectoryStream<Path> directory;
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class OtherResourceRegistration implements Resource {
+        DirectoryStream<Path> directory;
+
+        OtherResourceRegistration(Resource other) {
+            Core.getGlobalContext().register(other);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class ConditionalRegistration implements Resource {
+        DirectoryStream<Path> directory;
+
+        ConditionalRegistration(boolean register) {
+            if (register) Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class AliasedSelfRegistration implements Resource {
+        DirectoryStream<Path> directory;
+
+        AliasedSelfRegistration() {
+            Resource alias = this;
+            Core.getGlobalContext().register(alias);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class ConditionalCleanup implements Resource {
+        DirectoryStream<Path> directory;
+        boolean shouldClose;
+
+        ConditionalCleanup() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            if (shouldClose) directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class ConditionalHelperCleanup implements Resource {
+        DirectoryStream<Path> directory;
+        boolean shouldClose;
+
+        ConditionalHelperCleanup() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            release();
+        }
+
+        private void release() throws IOException {
+            if (shouldClose) directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class OnlyOneConstructorRegisters implements Resource {
+        DirectoryStream<Path> directory;
+
+        OnlyOneConstructorRegisters() {
+            Core.getGlobalContext().register(this);
+        }
+
+        OnlyOneConstructorRegisters(DirectoryStream<Path> directory) {
+            this.directory = directory;
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class AliasedCleanup implements Resource {
+        DirectoryStream<Path> directory;
+
+        AliasedCleanup() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            DirectoryStream<Path> alias = directory;
+            alias.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class OtherInstanceHelper implements Resource {
+        DirectoryStream<Path> directory;
+        OtherInstanceHelper peer;
+
+        OtherInstanceHelper() {
+            Core.getGlobalContext().register(this);
+        }
+
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            peer.release();
+        }
+
+        private void release() throws IOException {
+            directory.close();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) {}
+    }
+
+    static class SpringDirectoryOwner implements SmartLifecycle {
+        DirectoryStream<Path> directory;
+
+        @Override
+        public void start() {}
+
+        @Override
+        public void stop() {
+            try {
+                directory.close();
+            } catch (IOException ex) {
+                throw new IllegalStateException(ex);
+            }
+        }
+
+        @Override
+        public boolean isRunning() {
+            return true;
+        }
     }
 
     static class FileStreams {
