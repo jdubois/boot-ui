@@ -1608,8 +1608,20 @@ public abstract class AbstractBootUiApiConformanceTest {
                     assertThat(assessment.path("queryComplete").isBoolean()).isTrue();
                     assertThat(assessment.path("detailAssessmentComplete").isBoolean())
                             .isTrue();
+                    assertThat(assessment.path("unassessedAdvisoryCount").isIntegralNumber())
+                            .isTrue();
+                    assertThat(assessment.path("unassessedAdvisoryCount").asInt())
+                            .isGreaterThanOrEqualTo(0);
+                    assertThat(assessment.path("unassessedAdvisoryIds").isArray())
+                            .isTrue();
+                    assertThat(assessment.path("unassessedAdvisoryIds").size()).isLessThanOrEqualTo(100);
+                    assertThat(assessment.path("unassessedAdvisoryIds").size())
+                            .isLessThanOrEqualTo(
+                                    assessment.path("unassessedAdvisoryCount").asInt());
                     if (assessment.path("detailAssessmentComplete").asBoolean()) {
                         assertThat(assessment.path("queryComplete").asBoolean()).isTrue();
+                        assertThat(assessment.path("unassessedAdvisoryCount").asInt())
+                                .isZero();
                     }
                 }
             }

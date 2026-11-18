@@ -351,6 +351,15 @@ user; BootUI's own panel and read-only gates still apply.
   says whether each dependency's classes, or a class its advisory names, loaded in this JVM; it is read when answered,
   never changes a severity, and `NOT_LOADED` means not loaded yet, not unreachable
   ([Runtime reach](features/advisors.md#runtime-reach)).
+  Dependency `assessment.unassessedAdvisoryIds` is a bounded preview of query-only candidates whose details were not
+  fetched; `unassessedAdvisoryCount` includes preview omissions. These are not interpreted findings or severity/count
+  evidence. Report queries match retained candidate IDs and prioritize candidate dependencies after parsed findings;
+  compact scan summaries count their associations separately as `unassessedAdvisoryCandidates`.
+  Report pages keep at most three candidate IDs per dependency, query matches first, without changing its original
+  candidate count or the full REST report's up-to-100-ID preview. Exact dependency queries keep this ID bound; query
+  a retained candidate ID to bring it into the preview.
+  The existing `advisories` object adds whole-report `unassessedCandidates` (before filtering/paging) and page-row
+  `candidateIdsListed`/`candidateIdsOmitted`; the totals describe candidates, not interpreted findings.
 - **Cached per-rule violations (reads):** `get_architecture_rule_violations`, `get_hibernate_rule_violations`,
   `get_spring_rule_violations`, `get_rest_api_rule_violations`, `get_memory_rule_violations`,
   `get_security_rule_violations`, and `get_database_advisor_rule_violations` page the retained details from that

@@ -772,6 +772,10 @@ are rejected. CVSS v2 is not calculated.
 Withdrawn advisories are excluded. A failed advisory-detail fetch does not abort the scan: it is counted, the scan
 degrades to `PARTIAL`, and every advisory that did fetch is kept.
 
+Unfetched query IDs remain **unassessed candidates**, separately counted and never assigned a severity or included
+in vulnerability counts. **Findings or unassessed candidates** keeps their dependencies visible; a candidate-only
+row stays **Not assessed**, not clean. Candidate previews are bounded; the panel states omitted IDs.
+
 ::: details Pagination, batching, and result validation
 
 The scanner follows OSV's `next_page_token` on `/v1/querybatch`, bounded by 20 page rounds per chunk (degrading to

@@ -1241,6 +1241,13 @@ Features:
   UNKNOWN cannot establish usability and always limits coverage, even after dismissal;
   UNKNOWN-only evidence remains unscored unless independent usable evidence exists. Dismissed known
   findings remain observed evidence. An empty active summary is not a genuinely empty retained advisory list.
+- Keep query-returned IDs without fetched details as separate unassessed candidates in
+  `assessment.unassessedAdvisoryIds` (at most 100 distinct IDs per dependency, at most 240 characters each and no
+  control characters) with `assessment.unassessedAdvisoryCount` counting all distinct unassessed associations.
+  Show omitted preview IDs honestly. Candidates are not interpreted vulnerabilities: they add no severity, summary,
+  fix claim, EPSS lookup, dismissal, finding count, or usability. Preserve them on detail failure, timeout, deadline,
+  and max-advisories paths and through report copies. The shared UI's **Findings or unassessed candidates** filter
+  keeps affected incomplete dependencies discoverable, with separate counts and the neutral **Not assessed** badge.
 - Retain findings and diagnostics independently of eligibility. Usable numeric scores lead with findings and a neutral
   **Results available** status. Incomplete inventory, query/detail gaps, unknown severity, or incomplete applicable
   checks remain in an initially collapsed, keyboard-accessible **Scan notes** disclosure in the dedicated panel,

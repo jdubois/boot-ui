@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerVulnerabilityCandidateTests} from '../../../bootui-spring-sample-app/e2e/scenarios/vulnerability-candidates.js'
+
+registerVulnerabilityCandidateTests(test, expect)
 
 /**
  * The Vulnerabilities panel lists the local runtime JAR inventory (captured at Quarkus build time from

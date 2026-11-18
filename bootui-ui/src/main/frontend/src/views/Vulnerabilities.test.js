@@ -238,6 +238,75 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('None found')
   })
 
+  it('keeps query-only candidates discoverable without a severity, finding count, or score', async () => {
+    const candidate = {
+      ...dependency('org.example:candidate', '1', [], 'NONE'),
+      assessment: {
+        queryComplete: true,
+        detailAssessmentComplete: false,
+        unassessedAdvisoryIds: ['MAL-UNFETCHED', 'CVE-2026-1234'],
+        unassessedAdvisoryCount: 3
+      }
+    }
+    const {wrapper, fetchMock} = await mountWithReports([
+      report([dependency('org.example:assessed', '1', [], 'NONE'), candidate], 0, 'PARTIAL', {
+        evidence: {usable: false, coverageComplete: false, limitations: ['Details unavailable']}
+      })
+    ])
+    await wrapper.get('#vulnerableOnly').setValue(true)
+    const row = wrapper.get('tbody tr')
+    expect(row.text()).toContain('org.example:candidate')
+    expect(row.text()).toContain('Not assessed')
+    expect(row.find('.text-bg-success').exists()).toBe(false)
+    expect(row.text()).toContain('Unassessed candidates: 3')
+    expect(row.text()).toContain('2 of 3 candidate IDs shown')
+    expect(row.text()).not.toContain('None found')
+    expect(row.text()).not.toContain('No fixed version')
+    expect(row.text()).not.toContain('Malicious package')
+    expect(row.findAll('button')).toHaveLength(0)
+    expect(wrapper.find('.advisor-summary__score').exists()).toBe(false)
+    expect(
+      wrapper
+        .findAll('.advisor-summary__metric')
+        .find((metric) => metric.text().includes('Vulnerable'))
+        .text()
+    ).toContain('0')
+    await wrapper.get('input[aria-label="Filter runtime dependencies"]').setValue('CVE-2026-1234')
+    expect(wrapper.get('tbody tr').text()).toContain('org.example:candidate')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains known severity and candidate evidence after dismissing a parsed finding', async () => {
+    const known = dependency('org.example:mixed', '1', [vulnerability('GHSA-known', 'HIGH')], 'HIGH')
+    known.assessment = {
+      queryComplete: true,
+      detailAssessmentComplete: false,
+      unassessedAdvisoryIds: ['UNFETCHED'],
+      unassessedAdvisoryCount: 1
+    }
+    const dismissed = {
+      ...known,
+      vulnerabilities: [vulnerability('GHSA-known', 'HIGH', true)],
+      vulnerabilityCount: 0,
+      highestSeverity: 'NONE'
+    }
+    const evidence = {usable: true, coverageComplete: false, limitations: ['Details unavailable']}
+    const {wrapper} = await mountWithReports([
+      report([known], 1, 'PARTIAL', {evidence, severityCounts: [{severity: 'HIGH', count: 1}]}),
+      report([dismissed], 0, 'PARTIAL', {evidence, severityCounts: [{severity: 'HIGH', count: 0}]})
+    ])
+    expect(wrapper.get('tbody tr td:nth-child(3)').text()).toBe('HIGH')
+    await wrapper.get('#vulnerableOnly').setValue(true)
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Dismiss')
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.get('tbody tr').text()).toContain('UNFETCHED')
+    expect(wrapper.get('tbody tr td:nth-child(3)').text()).toBe('Not assessed')
+    expect(wrapper.find('.advisor-summary__score').exists()).toBe(true)
+  })
+
   it('scores known partial evidence while unknown severities and missing query details stay visible', async () => {
     const known = dependency(
       'org.example:known',

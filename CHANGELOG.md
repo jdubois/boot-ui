@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Unassessed advisory candidates** remain discoverable when OSV detail requests fail or hit scan bounds, without
+  inventing interpreted vulnerabilities, severities or confirmed-vulnerable counts
+  ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
 - **Memory scan control** can omit the GC-triggering histogram while preserving honest unassessed content checks;
   Scorecard scans use this cheaper mode and explicit Memory scans disclose their selection
   ([Memory checks](docs/MEMORY-CHECKS.md)).

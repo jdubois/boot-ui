@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.ConfigReport;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import io.github.jdubois.bootui.core.dto.CopilotSessionSummary;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
 import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
@@ -407,7 +408,8 @@ public final class McpAgentViews {
      * #ADVISORY_LIST_ITEMS} references and advisory symbols. A query that equals a dependency's {@code group:artifact}
      * (or {@code group:artifact:version}, or its package name) lists all its advisories, still without details, and a
      * query that equals an advisory's id or alias returns that advisory whole. The {@code advisories} object counts
-     * what was left out and says how to read it.
+     * what was left out and says how to read it. Candidate IDs always keep at most {@value #ADVISORY_LIST_ITEMS}
+     * entries, query matches first, with their original count; even full-length multi-byte IDs stay compact.
      */
     public static Map<String, Object> vulnerabilities(DependenciesReport report, String query, int limit) {
         String needle = PagedList.normalize(query);
@@ -417,13 +419,17 @@ public final class McpAgentViews {
                 matched.add(dependency);
             }
         }
-        // A stable sort: vulnerable dependencies first, each group in the report's own order.
-        matched.sort(Comparator.comparing((DependencyDto dependency) -> dependency.vulnerabilityCount() == 0));
+        // Parsed findings first, then query-only candidates, each group in the report's own order.
+        matched.sort(Comparator.comparingInt((DependencyDto dependency) -> dependency.vulnerabilityCount() > 0
+                ? 0
+                : dependency.assessment().unassessedAdvisoryCount() > 0 ? 1 : 2));
         String exact = query == null ? "" : query.strip();
         List<DependencyDto> listed = new ArrayList<>();
         int advisoriesListed = 0;
         int advisoriesOmitted = 0;
         int detailsOmitted = 0;
+        long candidateIdsListed = 0;
+        long candidateIdsOmitted = 0;
         for (DependencyDto dependency : matched.subList(0, Math.min(limit, matched.size()))) {
             boolean named = namesDependency(dependency, exact);
             List<DependencyVulnerabilityDto> ranked = new ArrayList<>(dependency.vulnerabilities());
@@ -443,23 +449,55 @@ public final class McpAgentViews {
             }
             advisoriesListed += kept.size();
             advisoriesOmitted += ranked.size() - kept.size();
-            listed.add(dependency.withRuntimeReach(dependency.runtimeReach(), kept));
+            DependencyAssessmentDto assessment = dependency.assessment();
+            List<String> candidates = assessment.unassessedAdvisoryIds().stream()
+                    .sorted(Comparator.comparing(
+                            id -> !needle.isEmpty() && PagedList.contains(id, needle), Comparator.reverseOrder()))
+                    .limit(ADVISORY_LIST_ITEMS)
+                    .toList();
+            candidateIdsListed += candidates.size();
+            candidateIdsOmitted += assessment.unassessedAdvisoryCount() - candidates.size();
+            listed.add(new DependencyDto(
+                    dependency.groupId(),
+                    dependency.artifactId(),
+                    dependency.version(),
+                    dependency.packageName(),
+                    dependency.source(),
+                    dependency.vulnerabilityCount(),
+                    dependency.highestSeverity(),
+                    kept,
+                    new DependencyAssessmentDto(
+                            assessment.queryComplete(),
+                            assessment.detailAssessmentComplete(),
+                            candidates,
+                            assessment.unassessedAdvisoryCount()),
+                    dependency.runtimeReach()));
         }
         Map<String, Object> advisories = new LinkedHashMap<>();
         advisories.put("listed", advisoriesListed);
         advisories.put("omitted", advisoriesOmitted);
         advisories.put("detailsOmitted", detailsOmitted);
         advisories.put("perDependency", ADVISORIES_PER_DEPENDENCY);
+        long unassessedCandidates = report.dependencies().stream()
+                .mapToLong(dependency -> dependency.assessment().unassessedAdvisoryCount())
+                .sum();
+        advisories.put("unassessedCandidates", unassessedCandidates);
+        advisories.put("candidateIdsListed", candidateIdsListed);
+        advisories.put("candidateIdsOmitted", candidateIdsOmitted);
         advisories.put(
                 "hint",
-                advisoriesOmitted == 0 && detailsOmitted == 0
+                advisoriesOmitted == 0 && detailsOmitted == 0 && unassessedCandidates == 0
                         ? null
                         : "Each dependency lists at most " + ADVISORIES_PER_DEPENDENCY + " advisories, active and most "
                                 + "severe first, without details and with at most " + ADVISORY_LIST_ITEMS
                                 + " references and symbols; listed and omitted include dismissed advisories, which "
                                 + "vulnerabilityCount leaves out. Query a dependency's "
                                 + "exact group:artifact to list all its advisories, or an exact advisory id or alias "
-                                + "to read it whole.");
+                                + "to read it whole. unassessedCandidates counts candidate associations across the full "
+                                + "report, before filtering or paging, not findings. candidateIdsListed and "
+                                + "candidateIdsOmitted describe the listed dependencies; each normally keeps at most "
+                                + ADVISORY_LIST_ITEMS + " candidate IDs, query matches first, even for an exact "
+                                + "dependency query. Query a candidate ID to bring it into the preview.");
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("scanningEnabled", report.scanningEnabled());
         view.put("total", report.total());
@@ -599,6 +637,9 @@ public final class McpAgentViews {
                     || vulnerability.aliases().stream().anyMatch(alias -> PagedList.contains(alias, needle))) {
                 return true;
             }
+        }
+        if (dependency.assessment().unassessedAdvisoryIds().stream().anyMatch(id -> PagedList.contains(id, needle))) {
+            return true;
         }
         return false;
     }

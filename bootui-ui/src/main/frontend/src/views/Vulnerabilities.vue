@@ -111,6 +111,14 @@ function emptyAdvisoryText(dependency) {
     : 'Unknown (assessment incomplete)'
 }
 
+function unassessedIds(dependency) {
+  return dependency.assessment?.unassessedAdvisoryIds ?? []
+}
+
+function unassessedCount(dependency) {
+  return dependency.assessment?.unassessedAdvisoryCount ?? 0
+}
+
 function dependencyRisk(dependency) {
   const assessed = ['SCANNED', 'PARTIAL'].includes(data.value?.scan?.status) && hasCompletedDependency(dependency)
   return dependency.highestSeverity === 'NONE' && !assessed ? 'Not assessed' : dependency.highestSeverity
@@ -209,8 +217,12 @@ const filteredDependencies = computed(() => {
   return data.value.dependencies
     .filter((dependency) => {
       const matchesSearch =
-        !q || dependency.packageName.toLowerCase().includes(q) || dependency.version.toLowerCase().includes(q)
-      const matchesVulnerable = !vulnerableOnly.value || dependency.vulnerabilityCount > 0
+        !q ||
+        dependency.packageName.toLowerCase().includes(q) ||
+        dependency.version.toLowerCase().includes(q) ||
+        unassessedIds(dependency).some((id) => id.toLowerCase().includes(q))
+      const matchesVulnerable =
+        !vulnerableOnly.value || dependency.vulnerabilityCount > 0 || unassessedCount(dependency) > 0
       return matchesSearch && matchesVulnerable && matchesReach(dependency)
     })
     .sort(compareDependencies)
@@ -276,10 +288,21 @@ const summaryMetrics = computed(() => {
     {label: 'Dependencies', value: data.value.total},
     {label: 'Vulnerable', value: data.value.vulnerable}
   ]
+  if (unassessedCandidateCount.value > 0) {
+    metrics.push({
+      label: 'Unassessed candidates',
+      value: unassessedCandidateCount.value,
+      hint: 'Query-returned advisory associations without assessed details. Not included in vulnerability counts.'
+    })
+  }
   if (coverageMetric.value) metrics.push(coverageMetric.value)
   metrics.push({label: 'Scanner', value: data.value.scan.scanner, hint: data.value.scan.message})
   return metrics
 })
+
+const unassessedCandidateCount = computed(() =>
+  (data.value?.dependencies ?? []).reduce((count, dependency) => count + unassessedCount(dependency), 0)
+)
 
 const showUnidentifiedArchives = ref(false)
 
@@ -382,7 +405,7 @@ async function scanDependencies() {
   actionMessage.value = null
   try {
     data.value = await getJson('api/vulnerabilities/scan', {method: 'POST'})
-    if (data.value.vulnerable > 0) {
+    if (data.value.vulnerable > 0 || unassessedCandidateCount.value > 0) {
       vulnerableOnly.value = true
     }
     error.value = null
@@ -570,7 +593,7 @@ onMounted(loadDependencies)
               </select>
               <div class="form-check form-switch">
                 <input id="vulnerableOnly" v-model="vulnerableOnly" class="form-check-input" type="checkbox" />
-                <label class="form-check-label small" for="vulnerableOnly">Vulnerable only</label>
+                <label class="form-check-label small" for="vulnerableOnly">Findings or unassessed candidates</label>
               </div>
             </div>
           </div>
@@ -634,10 +657,13 @@ onMounted(loadDependencies)
                   </div>
                 </td>
                 <td>
-                  <span v-if="dependency.vulnerabilities.length === 0" class="text-muted">
+                  <span
+                    v-if="dependency.vulnerabilities.length === 0 && !unassessedCount(dependency)"
+                    class="text-muted"
+                  >
                     {{ emptyAdvisoryText(dependency) }}
                   </span>
-                  <div v-else class="vulnerability-list">
+                  <div v-else-if="dependency.vulnerabilities.length" class="vulnerability-list">
                     <div
                       v-for="vulnerability in sortedVulnerabilities(dependency.vulnerabilities)"
                       :key="vulnerability.id"
@@ -727,6 +753,22 @@ onMounted(loadDependencies)
                       </div>
                     </div>
                   </div>
+                  <div v-if="unassessedCount(dependency)" class="unassessed-candidates small">
+                    <span class="badge text-bg-light border"
+                      >Unassessed candidates: {{ unassessedCount(dependency) }}</span
+                    >
+                    <div class="text-muted">
+                      OSV returned these IDs, but their details were not assessed. Not counted as vulnerabilities.
+                    </div>
+                    <ul v-if="unassessedIds(dependency).length" class="mb-1">
+                      <li v-for="id in unassessedIds(dependency)" :key="id">
+                        <code>{{ id }}</code>
+                      </li>
+                    </ul>
+                    <div v-if="unassessedIds(dependency).length < unassessedCount(dependency)" class="text-muted">
+                      {{ unassessedIds(dependency).length }} of {{ unassessedCount(dependency) }} candidate IDs shown.
+                    </div>
+                  </div>
                 </td>
               </tr>
               <tr v-if="filteredDependencies.length === 0">
@@ -749,6 +791,11 @@ onMounted(loadDependencies)
 
 .vulnerability-list {
   max-width: 48rem;
+}
+
+.unassessed-candidates {
+  max-width: 48rem;
+  overflow-wrap: anywhere;
 }
 
 .unidentified-archives {

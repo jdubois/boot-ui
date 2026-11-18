@@ -186,9 +186,47 @@ class QuarkusMcpEnvelopeTest {
 
         JsonNode defaultPage = compact.handle(
                 objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")));
+        int defaultPageBytes = objectMapper.writeValueAsBytes(defaultPage).length;
+        System.out.printf(
+                "Jackson2 vulnerability default page: %d bytes; budget: %d%n",
+                defaultPageBytes, McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
         assertThat(defaultPage.has("error")).isFalse();
-        assertThat(objectMapper.writeValueAsString(defaultPage).length())
-                .isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        assertThat(defaultPageBytes).isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        JsonNode pageContent = defaultPage.path("result").path("structuredContent");
+        assertThat(pageContent.path("advisories").path("unassessedCandidates").asLong())
+                .isEqualTo(3000);
+        assertThat(pageContent.path("advisories").path("candidateIdsListed").asInt())
+                .isEqualTo(30);
+        assertThat(pageContent.path("advisories").path("candidateIdsOmitted").asInt())
+                .isEqualTo(970);
+        assertThat(pageContent
+                        .path("dependencies")
+                        .get(0)
+                        .path("assessment")
+                        .path("unassessedAdvisoryCount")
+                        .asInt())
+                .isEqualTo(100);
+        for (boolean namedDependency : List.of(false, true)) {
+            String query = namedDependency ? "org.example:library-3" : McpCompactAnswerContract.candidateId(3, 99);
+            JsonNode candidatePage = compact.handle(objectMapper.readTree(
+                    McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"query\":\"" + query + "\"}")));
+            assertThat(candidatePage.has("error")).isFalse();
+            int bytes = objectMapper.writeValueAsBytes(candidatePage).length;
+            System.out.printf(
+                    "Jackson2 vulnerability %s page: %d bytes; budget: %d%n",
+                    namedDependency ? "named" : "candidate", bytes, McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+            assertThat(bytes).isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+            JsonNode content = candidatePage.path("result").path("structuredContent");
+            assertThat(content.path("advisories").path("unassessedCandidates").asInt())
+                    .isEqualTo(3000);
+            assertThat(content.path("page").path("matched").asInt()).isEqualTo(1);
+            JsonNode ids =
+                    content.path("dependencies").get(0).path("assessment").path("unassessedAdvisoryIds");
+            assertThat(ids.size()).isEqualTo(3);
+            if (!namedDependency) {
+                assertThat(ids.get(0).asText()).isEqualTo(query);
+            }
+        }
         assertThat(defaultPage
                         .path("result")
                         .path("structuredContent")
@@ -218,6 +256,19 @@ class QuarkusMcpEnvelopeTest {
                         .path("hasMore")
                         .asBoolean())
                 .isTrue();
+        assertThat(page.path("result")
+                        .path("structuredContent")
+                        .path("advisories")
+                        .path("unassessedCandidates")
+                        .asInt())
+                .isEqualTo(3000);
+        assertThat(McpCompactAnswerContract.vulnerabilities()
+                        .dependencies()
+                        .get(0)
+                        .assessment()
+                        .unassessedAdvisoryIds())
+                .hasSize(100)
+                .allMatch(id -> id.length() == 240);
     }
 
     @Test

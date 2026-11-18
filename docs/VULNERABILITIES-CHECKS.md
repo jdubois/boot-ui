@@ -28,6 +28,17 @@ details.
 A genuine no-match has both flags true and an empty retained advisory list. Copies made for dismissal and EPSS
 preserve the flags.
 
+When a query returns an ID but its detail fetch fails, times out, is malformed or mismatched, or is omitted by the
+deadline/advisory cap, `assessment.unassessedAdvisoryIds` retains it as an **unassessed candidate**, not an interpreted
+finding. The preview keeps at most 100 distinct IDs per dependency; IDs over 240 characters or containing control
+characters are omitted, not rewritten. `assessment.unassessedAdvisoryCount` counts every distinct unassessed
+association, including omitted IDs. The UI shows the preview's omissions, provides a separate candidate count, and
+keeps these dependencies in **Findings or unassessed candidates**, even with zero parsed findings. Candidates supply
+no severity, summary, fixed version, EPSS lookup, dismissal control, vulnerability count, or score eligibility.
+Known parsed severities and the neutral **Not assessed** badge on otherwise unassessed rows stay unchanged.
+Successful withdrawal excludes an ID from both findings and candidates; parsed unresolved findings retain their
+existing interpretation and `PARTIAL` behavior.
+
 Known-severity findings, including NONE, or a fully assessed package establish `evidence.usable`. UNKNOWN stays
 visible and carries no penalty, but it cannot establish usability and it limits coverage even after dismissal.
 Inventory, query, and detail gaps qualify an otherwise usable known-findings score. See the shared
@@ -49,7 +60,7 @@ Keep three kinds of evidence separate:
 finding was retained in that partial result. Even a completed lookup does not prove the application safe, reachable code
 free of vulnerabilities, or the upstream database exhaustive.
 
-The immutable DTO fields, routes, MCP tools, CLI commands, configuration defaults, and
+Existing immutable DTO fields, routes, MCP tools, CLI commands, configuration defaults, and
 `advisoryId::packageName` dismissal identities do not change; [advisory symbols and runtime
 reach](#advisory-symbols-and-runtime-reach) only add fields. Findings count **advisory occurrences per dependency**,
 not unique CVEs: different advisory IDs can describe the same CVE.
@@ -189,6 +200,7 @@ Distinct advisory IDs are sorted and capped by max-advisories before detail fetc
 active. This limits details, not the number of query matches. Repeated IDs are de-duplicated per dependency; missing or
 mismatched detail IDs count as failed fetches. Successful details survive other failures as `PARTIAL`. Withdrawn
 records are excluded at the detail stage because a detail GET can still return a withdrawn advisory.
+Unfetched IDs survive separately as the bounded candidate evidence described above, never as fabricated findings.
 
 Existing streaming response caps remain **5 MiB** for querybatch and **1 MiB** for details/EPSS, with configured
 per-request timeouts (`bootui.vulnerabilities.request-timeout`, default `10s`), a configurable whole-scan deadline
