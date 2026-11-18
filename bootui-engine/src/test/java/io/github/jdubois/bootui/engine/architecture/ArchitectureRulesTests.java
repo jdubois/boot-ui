@@ -31,6 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
@@ -506,6 +508,33 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void asyncConfigurationRuleRecognizesComposedConfigurationRoles() {
+        ArchitectureRuleResultDto result = evaluate(
+                new AsyncShouldNotBeUsedInConfigurationClassesRule(),
+                BootAsyncConfiguration.class,
+                ClassLevelBootAsyncConfiguration.class,
+                ComposedAsyncConfiguration.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("BootAsyncConfiguration.configureAsync"))
+                .anySatisfy(sample -> assertThat(sample).contains("ClassLevelBootAsyncConfiguration"))
+                .anySatisfy(sample -> assertThat(sample).contains("ComposedAsyncConfiguration.configureAsync"));
+    }
+
+    @Test
+    void asyncConfigurationRuleAllowsSynchronousConfigurationAndOrdinaryAsyncBeans() {
+        ArchitectureRuleResultDto result = evaluate(
+                new AsyncShouldNotBeUsedInConfigurationClassesRule(),
+                SynchronousConfiguration.class,
+                RegularAsyncComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(result.violationCount()).isZero();
+    }
+
+    @Test
     void noAopContextCurrentProxyFlagsDirectProxyLookup() {
         ArchitectureRuleResultDto result =
                 evaluate(new NoAopContextCurrentProxyRule(), AopContextCurrentProxyUser.class);
@@ -849,6 +878,43 @@ class ArchitectureRulesTests {
                 evaluate(new AsyncEventListenersShouldReturnVoidRule(), ValidEventListenerBean.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void asyncEventListenerRuleRecognizesComposedListenerRoles() {
+        ArchitectureRuleResultDto result = evaluate(
+                new AsyncEventListenersShouldReturnVoidRule(),
+                ReturningTransactionalEventListenerBean.class,
+                ReturningComposedEventListenerBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("transactional"))
+                .anySatisfy(sample -> assertThat(sample).contains("composedTransactional"))
+                .anySatisfy(sample -> assertThat(sample).contains("composedEvent"));
+    }
+
+    @Test
+    void asyncEventListenerRuleAllowsComposedVoidAndSynchronousListeners() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AsyncEventListenersShouldReturnVoidRule(), ValidComposedEventListenerBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(result.violationCount()).isZero();
+    }
+
+    @Test
+    void asyncEventListenerRulePreservesSignatureRuleOwnershipForComposedListeners() {
+        ArchitectureRuleResultDto asyncResult = evaluate(
+                new AsyncMethodsShouldHaveSupportedSignaturesRule(), NonFutureComposedAsyncEventListenerBean.class);
+        ArchitectureRuleResultDto listenerResult =
+                evaluate(new AsyncEventListenersShouldReturnVoidRule(), NonFutureComposedAsyncEventListenerBean.class);
+
+        assertThat(asyncResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(asyncResult.violationCount()).isEqualTo(1);
+        assertThat(listenerResult.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(listenerResult.violationCount()).isZero();
     }
 
     @Test
@@ -1709,6 +1775,39 @@ class ArchitectureRulesTests {
         void configureAsync() {}
     }
 
+    @SpringBootApplication
+    private static class BootAsyncConfiguration {
+
+        @Async
+        void configureAsync() {}
+    }
+
+    @SpringBootConfiguration
+    @Async
+    private static class ClassLevelBootAsyncConfiguration {}
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    @Configuration
+    private @interface ComposedConfiguration {}
+
+    @ComposedConfiguration
+    private static class ComposedAsyncConfiguration {
+
+        @Async
+        void configureAsync() {}
+    }
+
+    @Configuration
+    private static class SynchronousConfiguration {}
+
+    @Component
+    private static class RegularAsyncComponent {
+
+        @Async
+        void doWork() {}
+    }
+
     private static class AopContextCurrentProxyUser {
 
         Object currentProxy() {
@@ -2048,6 +2147,60 @@ class ArchitectureRulesTests {
 
         @EventListener
         String synchronous(String event) {
+            return event;
+        }
+    }
+
+    private static class ReturningTransactionalEventListenerBean {
+
+        @Async
+        @TransactionalEventListener
+        Future<String> transactional(String event) {
+            return CompletableFuture.completedFuture(event);
+        }
+
+        @Async
+        @AfterCommitListener
+        Future<String> composedTransactional(String event) {
+            return CompletableFuture.completedFuture(event);
+        }
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @EventListener
+    private @interface ComposedEventListener {}
+
+    @Async
+    private static class ReturningComposedEventListenerBean {
+
+        @ComposedEventListener
+        CompletableFuture<String> composedEvent(String event) {
+            return CompletableFuture.completedFuture(event);
+        }
+    }
+
+    private static class ValidComposedEventListenerBean {
+
+        @Async
+        @AfterCommitListener
+        void asynchronous(String event) {}
+
+        @Async
+        @TransactionalEventListener
+        void transactional(String event) {}
+
+        @AfterCommitListener
+        String synchronous(String event) {
+            return event;
+        }
+    }
+
+    private static class NonFutureComposedAsyncEventListenerBean {
+
+        @Async
+        @AfterCommitListener
+        String unsupportedReturn(String event) {
             return event;
         }
     }

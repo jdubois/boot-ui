@@ -820,7 +820,8 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
 ### ARCH-SPRING-013 - Async should not be used in configuration classes
 
 - **Severity**: MEDIUM
-- **Inspects**: `@Async` on `@Configuration` classes or methods declared inside `@Configuration` classes.
+- **Inspects**: direct `@Async` on configuration classes or their methods, including composed configuration roles such
+  as `@SpringBootApplication` and `@SpringBootConfiguration`.
 - **Fires when**: configuration code is annotated for asynchronous execution.
 - **Why it matters**: Spring's `@Async` Javadoc explicitly states that it is not supported on methods declared within
   `@Configuration` classes.
@@ -906,7 +907,8 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
 ### ARCH-SPRING-020 - Async event listeners should return void
 
 - **Severity**: MEDIUM
-- **Inspects**: `@EventListener` methods that run asynchronously because `@Async` is declared on the method or its class.
+- **Inspects**: `@EventListener` methods, including composed annotations such as `@TransactionalEventListener`, that run
+  asynchronously because `@Async` is declared directly on the method or its class.
 - **Fires when**: an asynchronous event listener declares a `Future` / `CompletableFuture` return type (or a non-`void`
   return on a method not already flagged by ARCH-SPRING-011). Interceptable `@Async` methods returning a non-`Future`,
   non-`void` type are reported by ARCH-SPRING-011 (`HIGH`) instead so the same method is not penalized twice.

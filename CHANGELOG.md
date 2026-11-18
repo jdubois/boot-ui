@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Composed Spring roles** are recognized by the async-configuration and async-event-listener Architecture checks,
+  including `@SpringBootApplication` and `@TransactionalEventListener`. Newly detected MEDIUM findings use the existing
+  severity, dismissal and CI policies ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-013---async-should-not-be-used-in-configuration-classes)).
 - **Architecture application scope** excludes known local test output without losing genuine production findings or
   borrowing test-only callers and subclasses. Archives, unknown layouts and production dependencies stay eligible
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#static-analysis-limits)).

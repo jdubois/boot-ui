@@ -2121,7 +2121,8 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                         "Async should not be used in configuration classes",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Async on @Configuration classes or methods declared within them.",
+                        "Detects @Async on @Configuration classes (including composed configuration annotations) or"
+                                + " methods declared within them.",
                         "Move asynchronous work to a regular Spring bean; @Async is not supported on methods declared"
                                 + " in @Configuration classes.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/annotation/Async.html"));
@@ -2133,7 +2134,8 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                 .should(new ArchCondition<JavaClass>("not use @Async in @Configuration classes") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        if (!SpringStereotypes.CONFIGURATION_ANNOTATED.test(javaClass)) {
+                        if (!SpringStereotypes.CONFIGURATION_ANNOTATED.test(javaClass)
+                                && !javaClass.isMetaAnnotatedWith(SpringStereotypes.CONFIGURATION)) {
                             return;
                         }
                         context.evidence().observed();
@@ -2667,7 +2669,8 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                         "Async event listeners should return void",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @EventListener methods that run through @Async (on the method or declaring class) and"
+                        "Detects @EventListener methods (including composed listener annotations) that run through"
+                                + " @Async (on the method or declaring class) and"
                                 + " return a Future (or a non-void value not already reported by ARCH-SPRING-011)."
                                 + " Spring cannot publish that value as a follow-up event for an asynchronous"
                                 + " listener.",
@@ -2684,8 +2687,9 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         boolean classLevelAsync = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                            if (method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
-                                    && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))) {
+                            boolean eventListener = method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
+                                    || method.isMetaAnnotatedWith(SpringStereotypes.EVENT_LISTENER);
+                            if (eventListener && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))) {
                                 if (AsyncMethodsShouldHaveSupportedSignaturesRule.isReportedByArchSpring011(method)) {
                                     continue;
                                 }
