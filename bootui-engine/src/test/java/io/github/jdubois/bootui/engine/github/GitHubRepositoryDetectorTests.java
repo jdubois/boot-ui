@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GitHubRepositoryDetectorTests {
 
@@ -43,6 +44,34 @@ class GitHubRepositoryDetectorTests {
 
         assertThat(repository.fullName()).isEqualTo("jdubois/boot-ui");
         assertThat(repository.htmlUrl()).isEqualTo("https://github.com/jdubois/boot-ui");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "https://github.com/team/service/",
+                "https://github.com/team/service.git/",
+                "git@github.com:team/service/",
+                "git@github.com:team/service.git/"
+            })
+    void trailingSlashRemotesRemainValidForBothOriginAndUpstream(String remote) throws Exception {
+        Path project = project(remote);
+        Files.writeString(
+                project.resolve(".git/config"),
+                """
+                [remote "upstream"]
+                    url = %s
+                """.formatted(remote),
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.APPEND);
+
+        var remotes = GitHubRepositoryDetector.detectRemotes(project, List.of("api.github.com"));
+
+        assertThat(remotes.origin().fullName()).isEqualTo("team/service");
+        assertThat(remotes.origin().htmlUrl()).isEqualTo("https://github.com/team/service");
+        assertThat(remotes.upstream()).isEqualTo(remotes.origin());
+        assertThat(GitHubRepositoryDetector.detect(project, List.of("api.github.com")))
+                .contains(remotes.origin());
     }
 
     @Test
@@ -88,6 +117,77 @@ class GitHubRepositoryDetectorTests {
                 .isEmpty();
         assertThat(GitHubRepositoryDetector.unavailableReason(project, List.of("api.github.com")))
                 .contains("not github.com");
+    }
+
+    @Test
+    void discoversOnlyTheConfiguredUpstreamWithoutChangingOriginOrExposingUserInfo() throws Exception {
+        Path project = project("https://origin-token@github.com/fork/service.git");
+        Files.writeString(
+                project.resolve(".git/config"), """
+                [remote "upstream"]
+                    url = https://user:upstream-token@ghe.example.com/team/service.git
+                [remote "another"]
+                    url = https://ignored.example.com/team/service.git
+                """, StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
+
+        var remotes = GitHubRepositoryDetector.detectRemotes(project, List.of("ghe.example.com"));
+
+        assertThat(remotes.origin().fullName()).isEqualTo("fork/service");
+        assertThat(remotes.upstream().host()).isEqualTo("ghe.example.com");
+        assertThat(remotes.upstream().htmlUrl()).isEqualTo("https://ghe.example.com/team/service");
+        assertThat(remotes.toString()).doesNotContain("token", "user:", "ignored.example.com");
+        assertThat(GitHubRepositoryDetector.detect(project, List.of("ghe.example.com")))
+                .contains(remotes.origin());
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "file:///tmp/owner/repository",
+                "/tmp/owner/repository",
+                "https://gitlab.com/team/service.git",
+                "https://github.com/team/service/extra",
+                "https://github.com/team/service/extra/",
+                "https://github.com/team//service/",
+                "https://github.com/team/./",
+                "https://github.com/team/../service",
+                "https://github.com/team/../service/",
+                "https://github.com/team/service?token=hidden",
+                "https://github.com/team/service/?token=hidden",
+                "https://github.com/team/service#hidden",
+                "https://github.com/team/service/#hidden",
+                "https://github.com/team/secret@repository",
+                "not a remote",
+                ""
+            })
+    void invalidUpstreamRemainsUnknownWithoutLosingOrigin(String remote) throws Exception {
+        Path project = project("git@github.com:fork/service.git");
+        Files.writeString(
+                project.resolve(".git/config"),
+                """
+                [remote "upstream"]
+                    url = %s
+                """.formatted(remote),
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.APPEND);
+
+        var remotes = GitHubRepositoryDetector.detectRemotes(project, List.of("api.github.com"));
+
+        assertThat(remotes.origin().fullName()).isEqualTo("fork/service");
+        assertThat(remotes.upstream()).isNull();
+        assertThat(remotes.upstreamUnavailableReason()).contains("unknown").doesNotContain("hidden", "token");
+    }
+
+    @Test
+    void missingUpstreamAndOversizedMetadataRemainUnknown() throws Exception {
+        Path project = project("git@github.com:fork/service.git");
+        assertThat(GitHubRepositoryDetector.detectRemotes(project, List.of()).upstreamUnavailableReason())
+                .contains("unknown");
+
+        Files.writeString(project.resolve(".git/config"), "x".repeat(256 * 1024 + 1));
+        var remotes = GitHubRepositoryDetector.detectRemotes(project, List.of());
+        assertThat(remotes.origin()).isNull();
+        assertThat(remotes.upstream()).isNull();
     }
 
     private Path project(String remoteUrl) throws Exception {

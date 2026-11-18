@@ -9,10 +9,14 @@ import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
 import java.nio.file.Path;
 import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 @RestController
@@ -41,13 +45,29 @@ public class GitHubController {
         this.service = service;
     }
 
-    @GetMapping
     public GitHubDashboardReport dashboard() {
         return service.dashboard();
     }
 
-    @PostMapping("/refresh")
     public GitHubDashboardReport refresh() {
         return service.refresh();
+    }
+
+    @GetMapping
+    public GitHubDashboardReport dashboard(@RequestParam MultiValueMap<String, String> queryParameters) {
+        return service.dashboard(selectedRemote(queryParameters));
+    }
+
+    @PostMapping("/refresh")
+    public GitHubDashboardReport refresh(@RequestParam MultiValueMap<String, String> queryParameters) {
+        return service.refresh(selectedRemote(queryParameters));
+    }
+
+    private String selectedRemote(MultiValueMap<String, String> queryParameters) {
+        try {
+            return GitHubDashboardService.parseRemoteSelection(queryParameters);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
+        }
     }
 }

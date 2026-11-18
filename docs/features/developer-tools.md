@@ -314,6 +314,20 @@ responses marked `ERROR`, retain the last good report and its timestamp alongsid
 does not create fresh data. **Retry cached data** recovers a failed read in read-only mode using only the cached
 `GET`, never a live refresh.
 
+Origin remains the default. When GitHub reports `fork: true`, security cards are labelled **Fork data**, not upstream
+evidence. A validated, allowed local remote named `upstream` is offered as **Connect to configured upstream**, showing
+its host and repository before any request. This is a local configuration choice, not proof of the fork's parent.
+Clicking explicitly refreshes that target and turns polling off; **Connect to origin** returns to origin. Missing or
+malformed upstream metadata and unknown fork status remain unknown. Read-only mode blocks live connections.
+If upstream becomes unavailable, returning to origin stays available; **Read cached origin** uses only GET in read-only
+mode and never enables polling.
+
+The existing GET and refresh POST accept optional `remote=origin|upstream`; old callers still use origin. GET stays
+network-free for either selection. Additive `repositoryContext` metadata contains only sanitized identities, never
+raw remote URLs or user-info. Each target retains its own last successful cache, matched by API host and repository;
+an upstream refresh cannot replace origin's cached data, and an error retains the prior report. Credentials are
+resolved afresh for the selected host, never forwarded from origin to another host.
+
 The panel shows repository metadata and an eight-card summary grid, each card opening a detail drawer:
 
 - **Open pull requests** and **open issues**, with labels, staleness buckets, author, comment count, and last update.

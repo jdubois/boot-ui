@@ -26,6 +26,7 @@ const data = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
 const activeDrawer = ref(null)
+const selectedRemote = ref('origin')
 
 const metrics = computed(() => data.value?.metrics ?? [])
 const quotas = computed(() => data.value?.quotas ?? [])
@@ -41,20 +42,30 @@ const credential = computed(() => data.value?.credential)
 const copilotUsage = computed(() => data.value?.copilotUsage ?? null)
 const connected = computed(() => data.value?.connected === true)
 const unavailable = computed(() => data.value?.available === false)
+const repositoryContext = computed(() => data.value?.repositoryContext)
+const forkData = computed(() => repository.value?.fork === true)
 
-async function fetchDashboard(requestRefresh = null) {
+async function fetchDashboard(requestRefresh = null, remote = selectedRemote.value) {
   const liveRefresh = !readOnly.value && (requestRefresh ?? autoRefresh.value)
   try {
-    const report = await getJson(liveRefresh ? 'api/github/refresh' : 'api/github', liveRefresh ? {method: 'POST'} : {})
+    const path = liveRefresh ? 'api/github/refresh' : 'api/github'
+    const query = remote === 'origin' ? '' : `?remote=${encodeURIComponent(remote)}`
+    const report = await getJson(`${path}${query}`, liveRefresh ? {method: 'POST'} : {})
     if (report?.status === 'ERROR') {
       throw new Error(report.message || 'GitHub refresh failed')
     }
     data.value = report
+    selectedRemote.value = report?.repositoryContext?.selectedRemote ?? remote
     lastFetched.value = report?.refreshedAt ?? null
     error.value = null
   } catch (e) {
     error.value = describeLoadError(e, liveRefresh ? 'Unable to refresh GitHub' : 'Unable to load cached GitHub data')
   }
+}
+
+function connectRemote(remote) {
+  autoRefresh.value = false
+  load(true, remote)
 }
 
 const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchDashboard, {
@@ -447,7 +458,7 @@ function securitySignalUrl(signal) {
     <PanelHeader
       icon="bi-github"
       title="GitHub"
-      subtitle="Live repository metrics, CI state, security signals, and quota usage for the local GitHub origin."
+      subtitle="Live repository metrics, CI state, security signals, and quota usage. Origin is the default."
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
@@ -509,6 +520,14 @@ function securitySignalUrl(signal) {
                   </h3>
                   <div class="text-muted small">
                     {{ repository?.visibility || 'visibility unknown' }}
+                    · {{ repository?.host }} ·
+                    {{
+                      repository?.fork === true
+                        ? 'Fork'
+                        : repository?.fork === false
+                          ? 'Not a fork'
+                          : 'Fork status unknown'
+                    }}
                     <span v-if="repository?.defaultBranch">· default {{ repository.defaultBranch }}</span>
                     <span v-if="repository?.localBranch">· local {{ repository.localBranch }}</span>
                   </div>
@@ -552,6 +571,48 @@ function securitySignalUrl(signal) {
         </div>
       </div>
 
+      <div v-if="selectedRemote === 'upstream' || (!unavailable && forkData)" class="alert alert-info">
+        <p v-if="unavailable" class="mb-2">The selected configured upstream is unavailable.</p>
+        <p v-else-if="forkData" class="mb-2">
+          Security cards show fork data for <strong>{{ repository?.fullName }}</strong
+          >, not its upstream.
+        </p>
+        <p v-else class="mb-2">Showing the explicitly selected configured upstream remote.</p>
+        <template v-if="selectedRemote === 'origin'">
+          <template v-if="repositoryContext?.upstream">
+            <p class="mb-2">
+              Configured upstream:
+              <code>{{ repositoryContext.upstream.host }}/{{ repositoryContext.upstream.fullName }}</code
+              >. Its relationship to this fork has not been verified. Connecting requests live data from that host.
+            </p>
+            <button
+              type="button"
+              class="btn btn-outline-primary btn-sm"
+              :disabled="loading || readOnly"
+              @click="connectRemote('upstream')"
+            >
+              Connect to configured upstream
+            </button>
+          </template>
+          <p v-else class="mb-0">
+            {{
+              repositoryContext?.upstreamUnavailableReason ||
+              'Upstream context is unknown; no validated upstream remote is available.'
+            }}
+          </p>
+        </template>
+        <button
+          v-else
+          type="button"
+          class="btn btn-outline-primary btn-sm"
+          :disabled="loading"
+          @click="connectRemote('origin')"
+        >
+          {{ readOnly ? 'Read cached origin' : 'Connect to origin' }}
+        </button>
+        <div v-if="readOnly" class="small mt-2">{{ readOnlyReason }}</div>
+      </div>
+
       <div v-if="!unavailable && !connected" class="card border-dashed mb-3">
         <div class="card-body text-center text-muted py-4">
           <i class="bi bi-cloud-arrow-down fs-1 d-block mb-2"></i>
@@ -587,6 +648,9 @@ function securitySignalUrl(signal) {
             <span class="metric-card__icon"><i :class="['bi', metricIcon(metric)]"></i></span>
             <span class="card-body">
               <span class="text-muted small d-block">{{ metric.label }}</span>
+              <span v-if="drawerForMetric(metric)?.startsWith('security:') && forkData" class="badge text-bg-secondary"
+                >Fork data</span
+              >
               <span class="display-6 d-block">{{ metric.value }}</span>
               <span v-if="metric.detail" class="small text-muted d-block">{{ metric.detail }}</span>
               <span class="small fw-semibold d-block mt-2">

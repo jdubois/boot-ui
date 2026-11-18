@@ -332,6 +332,20 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
+function forkReport() {
+  const report = connectedReport()
+  return {
+    ...report,
+    repository: {...report.repository, fork: true},
+    repositoryContext: {
+      selectedRemote: 'origin',
+      origin: {name: 'origin', host: 'github.com', fullName: 'jdubois/boot-ui'},
+      upstream: {name: 'upstream', host: 'ghe.example.com', fullName: 'team/service'},
+      upstreamUnavailableReason: null
+    }
+  }
+}
+
 describe('GitHub', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -344,6 +358,188 @@ describe('GitHub', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     document.cookie = 'XSRF-TOKEN=; Max-Age=0'
+  })
+
+  it('labels fork security cards and contacts a configured upstream only after explicit selection', async () => {
+    const origin = forkReport()
+    const upstream = {
+      ...origin,
+      repository: {
+        ...origin.repository,
+        host: 'ghe.example.com',
+        fullName: 'team/service',
+        htmlUrl: 'https://ghe.example.com/team/service',
+        fork: false
+      },
+      repositoryContext: {...origin.repositoryContext, selectedRemote: 'upstream'}
+    }
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(origin)).mockResolvedValue(jsonResponse(upstream))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
+    expect(wrapper.text()).toContain('not its upstream')
+    expect(wrapper.text()).toContain('ghe.example.com/team/service')
+    expect(wrapper.text()).toContain('has not been verified')
+    await vi.advanceTimersByTimeAsync(120_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Connect to configured upstream')
+      .trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?remote=upstream',
+      expect.objectContaining({method: 'POST'})
+    )
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).not.toContain('Fork data')
+    expect(wrapper.text()).toContain('explicitly selected configured upstream')
+    expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock.mock.calls.at(-1)[0]).toBe('api/github/refresh?remote=upstream')
+
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(true)
+    await wrapper.setProps({panel: {readOnly: true, readOnlyReason: 'Locked by configuration'}})
+    const originButton = wrapper.findAll('button').find((button) => button.text() === 'Read cached origin')
+    expect(originButton.attributes('disabled')).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(120_000)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(wrapper.text()).toContain('team/service')
+    await wrapper.setProps({panel: {readOnly: false}})
+    expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    fetchMock.mockResolvedValue(jsonResponse(origin))
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Connect to origin')
+      .trigger('click')
+    await flushPromises()
+    expect(fetchMock.mock.calls.at(-1)[0]).toBe('api/github/refresh')
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
+  })
+
+  it('retains the fork report, timestamp and selected origin after an upstream failure', async () => {
+    const report = forkReport()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(report))
+      .mockResolvedValueOnce(jsonResponse({...report, status: 'ERROR', message: 'Upstream refresh failed'}))
+      .mockResolvedValue(jsonResponse(report))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await wrapper.get('input[aria-label="Toggle auto-refresh"]').setValue(true)
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Connect to configured upstream')
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Upstream refresh failed')
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
+    expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(report.refreshedAt)
+    expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock.mock.calls.at(-1)[0]).toBe('api/github/refresh')
+  })
+
+  it.each(['removed', 'invalid'])(
+    'recovers cached origin in read-only mode after upstream becomes %s',
+    async (reason) => {
+      const origin = forkReport()
+      const upstream = {
+        ...origin,
+        repository: {...origin.repository, host: 'ghe.example.com', fullName: 'team/service', fork: false},
+        repositoryContext: {...origin.repositoryContext, selectedRemote: 'upstream'}
+      }
+      const missing = githubReport({
+        available: false,
+        connected: false,
+        status: 'UNAVAILABLE',
+        unavailableReason: `Configured upstream is ${reason}`,
+        repository: null,
+        repositoryContext: {...upstream.repositoryContext, upstream: null}
+      })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(origin))
+        .mockResolvedValueOnce(jsonResponse(upstream))
+        .mockResolvedValueOnce(jsonResponse(missing))
+        .mockResolvedValue(jsonResponse(origin))
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(GitHub)
+      await flushPromises()
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Connect to configured upstream')
+        .trigger('click')
+      await flushPromises()
+      await wrapper.get('button[title="Refresh"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain(`Configured upstream is ${reason}`)
+      expect(wrapper.findAll('button').some((button) => button.text() === 'Connect to origin')).toBe(true)
+
+      await wrapper.setProps({panel: {readOnly: true, readOnlyReason: 'Locked by configuration'}})
+      const recover = wrapper.findAll('button').find((button) => button.text() === 'Read cached origin')
+      expect(recover.attributes('disabled')).toBeUndefined()
+      await recover.trigger('click')
+      await flushPromises()
+      expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+      expect(wrapper.text()).toContain('jdubois/boot-ui')
+      expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
+      expect(wrapper.findComponent(PanelHeader).props('lastFetched')).toBe(origin.refreshedAt)
+      await wrapper.setProps({panel: {readOnly: false}})
+      expect(wrapper.get('input[aria-label="Toggle auto-refresh"]').element.checked).toBe(false)
+      await vi.advanceTimersByTimeAsync(120_000)
+      document.dispatchEvent(new Event('visibilitychange'))
+      await flushPromises()
+      expect(fetchMock).toHaveBeenCalledTimes(4)
+    }
+  )
+
+  it.each([null, false])('does not infer a fork or offer upstream when fork=%s', async (fork) => {
+    const report = forkReport()
+    report.repository.fork = fork
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Connect to configured upstream')
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).not.toContain('Fork data')
+    expect(wrapper.text()).toContain(fork === null ? 'Fork status unknown' : 'Not a fork')
+  })
+
+  it('explains unknown upstream context and disables explicit selection in read-only mode', async () => {
+    const report = forkReport()
+    report.repositoryContext.upstream = null
+    report.repositoryContext.upstreamUnavailableReason = 'No valid upstream; upstream context is unknown.'
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(report))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    expect(wrapper.text()).toContain('upstream context is unknown')
+    expect(wrapper.text()).not.toContain('Connect to configured upstream')
+    wrapper.unmount()
+
+    fetchMock.mockResolvedValue(jsonResponse(forkReport()))
+    const locked = mount(GitHub, {props: {panel: {readOnly: true, readOnlyReason: 'Locked by configuration'}}})
+    await flushPromises()
+    const button = locked.findAll('button').find((button) => button.text() === 'Connect to configured upstream')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(locked.text()).toContain('Locked by configuration')
+    await button.trigger('click')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['api/github', 'api/github'])
   })
 
   it('opens and reopens cached data without refreshing on timers or visibility return', async () => {

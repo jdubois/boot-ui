@@ -273,6 +273,7 @@ public final class BootUiApiContractCatalog {
                             "unavailableReason", JsonType.NULLABLE_STRING,
                             "connected", JsonType.BOOLEAN,
                             "status", JsonType.STRING,
+                            "repositoryContext", JsonType.OBJECT,
                             "metrics", JsonType.ARRAY,
                             "warnings", JsonType.ARRAY)),
             advisor("spring", "/spring", "results"),

@@ -148,6 +148,84 @@ function connectedDashboard() {
  * @param {{uiPath?: string, apiPath?: string}} [options]
  */
 export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', apiPath = '/bootui/api'} = {}) {
+  test('GitHub fork context requires an explicit upstream connection and retains data on failure', async ({page}) => {
+    await page.clock.install()
+    const origin = connectedDashboard()
+    origin.repository.fork = true
+    const context = {
+      selectedRemote: 'origin',
+      origin: {name: 'origin', host: 'github.com', fullName: 'jdubois/boot-ui'},
+      upstream: {name: 'upstream', host: 'ghe.example.com', fullName: 'team/service'},
+      upstreamUnavailableReason: null
+    }
+    let fail = true
+    let upstreamAvailable = true
+    /** @type {string[]} */
+    const requests = []
+    await page.route(
+      (url) => url.pathname === `${apiPath}/github`,
+      async (route) => {
+        requests.push('GET origin')
+        await route.fulfill({json: {...origin, repositoryContext: context}})
+      }
+    )
+    await page.route(
+      (url) => url.pathname === `${apiPath}/github/refresh`,
+      async (route) => {
+        const remote = new URL(route.request().url()).searchParams.get('remote') || 'origin'
+        requests.push(`${route.request().method()} ${remote}`)
+        await route.fulfill({
+          json: fail
+            ? {...origin, status: 'ERROR', message: 'Upstream refresh failed'}
+            : remote === 'origin'
+              ? {...origin, repositoryContext: context}
+              : !upstreamAvailable
+                ? {
+                    available: false,
+                    connected: false,
+                    status: 'UNAVAILABLE',
+                    unavailableReason: 'Configured upstream was removed',
+                    repository: null,
+                    refreshedAt: null,
+                    securitySignals: [],
+                    repositoryContext: {...context, selectedRemote: 'upstream', upstream: null}
+                  }
+                : {
+                    ...origin,
+                    repository: {...origin.repository, host: 'ghe.example.com', fullName: 'team/service', fork: false},
+                    repositoryContext: {...context, selectedRemote: 'upstream'}
+                  }
+        })
+      }
+    )
+    await page.goto(`${uiPath}/#/github`)
+    const upstream = page.getByRole('button', {name: 'Connect to configured upstream', exact: true})
+    await expect(upstream).toBeVisible()
+    await expect(page.getByRole('button', {name: /Dependabot alerts/})).toContainText('Fork data')
+    await expect(page.getByText('ghe.example.com/team/service', {exact: true})).toBeVisible()
+    await page.clock.runFor(120_000)
+    expect(requests).toEqual(['GET origin'])
+    await upstream.click()
+    await expect(page.getByText('Upstream refresh failed', {exact: false})).toBeVisible()
+    await expect(page.getByRole('button', {name: /Dependabot alerts/})).toContainText('Fork data')
+    expect(requests).toEqual(['GET origin', 'POST upstream'])
+    fail = false
+    await upstream.click()
+    await expect(page.getByRole('button', {name: 'Connect to origin', exact: true})).toBeVisible()
+    await expect(page.getByRole('button', {name: /Dependabot alerts/})).not.toContainText('Fork data')
+    await expect(page.getByRole('checkbox', {name: 'Toggle auto-refresh'})).not.toBeChecked()
+    await page.clock.runFor(120_000)
+    expect(requests).toEqual(['GET origin', 'POST upstream', 'POST upstream'])
+    upstreamAvailable = false
+    await page.getByRole('button', {name: 'Refresh panel', exact: true}).click()
+    await expect(page.getByText('Configured upstream was removed', {exact: false})).toBeVisible()
+    await page.getByRole('button', {name: 'Connect to origin', exact: true}).click()
+    await expect(page.getByRole('button', {name: /Dependabot alerts/})).toContainText('Fork data')
+    await expect(page.getByRole('checkbox', {name: 'Toggle auto-refresh'})).not.toBeChecked()
+    await page.clock.runFor(120_000)
+    expect(requests).toEqual(['GET origin', 'POST upstream', 'POST upstream', 'POST upstream', 'POST origin'])
+  })
+
   test('GitHub explicit refresh opens cached data and polls only after opt-in', async ({page}) => {
     await page.clock.install()
     const report = connectedDashboard()

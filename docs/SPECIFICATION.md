@@ -338,6 +338,9 @@ Data sources:
 Features:
 
 - Show repository identity, visibility, default branch, local branch, stars, forks, watchers, and recent push time.
+- Keep origin as the default. Label security cards as fork data only when GitHub returns `fork: true`; null fork status
+  stays unknown. Offer a validated, allow-listed local `upstream` remote as an explicit connection choice, with its host
+  and repository shown, without inferring that it is the fork's parent or contacting it on render.
 - Show bounded open pull requests, issue buckets and the bounded open issue list, latest GitHub Actions executions,
   configured workflow links, and permission-aware security signals.
 - Render every resource returned by `/rate_limit` dynamically, plus best-effort repository/owner quota cards when
@@ -354,6 +357,16 @@ Acceptance criteria:
 - Cached reads retain the report's actual `refreshedAt`, including null before the first live refresh. Failed
   refreshes, including HTTP-200 reports with status `ERROR`, retain the last good data and timestamp with a visible
   error; an initial error does not create fresh data. Other report statuses remain authoritative.
+- GET and refresh POST accept optional `remote=origin|upstream`, defaulting to origin for existing callers. Additive
+  `repositoryContext` metadata exposes safe origin/upstream identities and the selected remote, not raw remote URLs,
+  embedded credentials or filesystem paths. Local git reads are bounded. Missing/invalid upstream metadata stays
+  unknown; arbitrary remote names/URLs are rejected. Selection never bypasses read-only or host-aware credential
+  policy. A present `remote` must occur exactly once with the exact value `origin` or `upstream`; empty, bare,
+  duplicated and case-alias parameters are rejected before repository/cache work. Each selection caches independently
+  by API host and repository; errors cannot overwrite either good cache.
+  Switching targets is explicit and disables polling; reopening starts on origin with polling off.
+- Returning to origin remains available when the selected upstream becomes unavailable. Read-only recovery uses only
+  the cached origin GET and does not enable polling.
 - Read-only errors expose an explicit **Retry cached data** action using only the cache GET, disabled while loading.
   Recovery never enables live refresh or polling.
 - Outbound GitHub calls happen only through `POST /bootui/api/github/refresh` and are blocked by read-only settings.

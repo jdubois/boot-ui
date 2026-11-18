@@ -292,6 +292,7 @@ class GitHubApiClientTest {
             exchange.close();
         });
         server.start();
+        AtomicReference<String> requestedHost = new AtomicReference<>();
         GitHubTokenProvider provider = new GitHubTokenProvider() {
             @Override
             public Token token(Duration timeout) {
@@ -300,18 +301,22 @@ class GitHubApiClientTest {
 
             @Override
             public Token token(String repositoryHost, Duration timeout) {
-                assertThat(repositoryHost).isEqualTo(host);
+                requestedHost.set(repositoryHost);
                 assertThat(timeout).isEqualTo(Duration.ofSeconds(2));
                 return new Token("fixture-token-for-" + repositoryHost, "host-specific fixture");
             }
         };
 
-        GitHubDashboardReport report = clientWithProvider(provider).refresh(repository(host));
+        GitHubApiClient client = clientWithProvider(provider);
+        for (String selectedHost : List.of("github.com", host, "github.com")) {
+            GitHubDashboardReport report = client.refresh(repository(selectedHost));
 
-        assertThat(authorization.get()).isEqualTo("Bearer fixture-token-for-" + host);
-        assertThat(report.credential().authenticated()).isTrue();
-        assertThat(report.credential().source()).isEqualTo("host-specific fixture");
-        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("fixture-token-for-");
+            assertThat(requestedHost.get()).isEqualTo(selectedHost);
+            assertThat(authorization.get()).isEqualTo("Bearer fixture-token-for-" + selectedHost);
+            assertThat(report.credential().authenticated()).isTrue();
+            assertThat(report.credential().source()).isEqualTo("host-specific fixture");
+            assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("fixture-token-for-");
+        }
     }
 
     @ParameterizedTest
