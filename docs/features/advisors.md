@@ -665,9 +665,11 @@ verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 The servlet missing-HTTP-authorization and blanket-`permitAll` findings remain visible at **MEDIUM** when metadata marked
 known for inspected beans shows at least one observed used method-annotation family and matching activation for every
 used family; otherwise they stay **HIGH**. MEDIUM calls for annotation, proxy and invocation coverage review, not a claim
-that endpoints are protected: HTTP authorization is still absent or broad. Unknown chains remain incomplete; unresolved
-bean types can remain outside this method-family observation. This calibration does not change the separate WebFlux or
-Quarkus rules.
+that endpoints are protected: HTTP authorization is still absent or broad. Unresolved types, opaque products and
+implementation-only annotations behind JDK proxies keep method-family evidence incomplete and prevent MEDIUM
+qualification. Passive factory support is narrow; even the shipped BootUI sample retains gaps from its own lazy
+factories, rather than proving a complete method inventory. See the [metadata limits and verdict impact](../SECURITY-CHECKS.md#authorization).
+This calibration does not change the separate WebFlux or Quarkus rules.
 
 Proven filterless/ignored request scopes produce one `SEC-AUTHZ-006` review instead of per-chain missing-authorization
 advice: LOW normally, HIGH for a passively proven unconditional ignored matcher. Prefer public `permitAll` mappings

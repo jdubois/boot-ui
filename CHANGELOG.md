@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Servlet method-inventory evidence** uses the application class loader and distinguishes observed singletons,
+  bound final factory declarations and unresolved proxy/inherited creation paths without executing callbacks or
+  creating early singleton references. A failed application type lookup preserves other observations. Existing
+  `SEC-AUTHZ-001`/`SEC-AUTHZ-002` findings stay HIGH when metadata is incomplete; assessment eligibility and strict CI
+  verdicts can change ([scope and verdict impact](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
 - **Ignored security paths** use new SEC-AUTHZ-006 instead of filterless-chain SEC-AUTHZ-001 findings;
   existing SEC-AUTHZ-001 dismissals are not copied ([Security checks](docs/SECURITY-CHECKS.md)).
 - **Hibernate query coverage** excludes narrowly proven static bulk DML from HIB-QUERY-007; discharging the last gap can expose existing findings to unchanged strict CI gates

@@ -27,6 +27,8 @@ import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -36,13 +38,21 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
+import org.springframework.beans.factory.annotation.AnnotatedGenericBeanDefinition;
 import org.springframework.beans.factory.aot.BeanInstanceSupplier;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.context.annotation.ScannedGenericBeanDefinition;
 import org.springframework.core.env.Environment;
+import org.springframework.core.type.StandardMethodMetadata;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.SingleResultAuthorizationManager;
@@ -423,7 +433,7 @@ final class SecurityScanner {
         FilterChainProxy proxy = null;
         boolean securityDebugFilterPresent = false;
         if (beanFactory instanceof SingletonBeanRegistry singletons) {
-            Object securityFilter = singletons.getSingleton(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
+            Object securityFilter = registeredSingleton(singletons, SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
             if (securityFilter instanceof FilterChainProxy filterChainProxy) {
                 proxy = nativeFilterChainProxy(filterChainProxy);
             } else if (securityFilter instanceof DebugFilter debugFilter) {
@@ -997,8 +1007,8 @@ final class SecurityScanner {
                     || !configurable.containsBeanDefinition("inMemoryUserDetailsManager")) return false;
             var definition = configurable.getBeanDefinition("inMemoryUserDetailsManager");
             String factory = definition.getFactoryBeanName();
-            Object userService = configurable.getSingleton("inMemoryUserDetailsManager");
-            Object factoryBean = factory == null ? null : configurable.getSingleton(factory);
+            Object userService = registeredSingleton(configurable, "inMemoryUserDetailsManager");
+            Object factoryBean = registeredSingleton(configurable, factory);
             return factoryBean != null
                     && factoryBean
                             .getClass()
@@ -1129,7 +1139,7 @@ final class SecurityScanner {
         String name = "bootUiSecurityFilterChain";
         if (!(beanFactory instanceof ConfigurableListableBeanFactory configurable)
                 || !configurable.containsBeanDefinition(name)
-                || configurable.getSingleton(name) != chain) return false;
+                || registeredSingleton(configurable, name) != chain) return false;
         var definition = configurable.getBeanDefinition(name);
         String configuration = "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration";
         if (!configuration.equals(definition.getFactoryBeanName())) return false;
@@ -1424,10 +1434,14 @@ final class SecurityScanner {
         List<Object> result = new ArrayList<>();
         String[] names = registry.getSingletonNames();
         for (int i = 0; i < Math.min(names.length, MAX_BEAN_SCAN); i++) {
-            Object bean = registry.getSingleton(names[i]);
+            Object bean = registeredSingleton(registry, names[i]);
             if (type.isInstance(bean)) result.add(bean);
         }
         return result;
+    }
+
+    private static Object registeredSingleton(SingletonBeanRegistry registry, String name) {
+        return name != null && registry.containsSingleton(name) ? registry.getSingleton(name) : null;
     }
 
     private static List<Object> activeProviders(List<Filter> filters) {
@@ -1598,9 +1612,19 @@ final class SecurityScanner {
                 methodKnown = false;
                 errors.add("Bean metadata inventory limit reached.");
             }
+            if (configurable.getSingletonCount() > MAX_BEAN_SCAN) methodKnown = false;
             for (int index = 0; index < Math.min(definitions.length, MAX_BEAN_SCAN); index++) {
                 String name = definitions[index];
                 var definition = configurable.getBeanDefinition(name);
+                if (!(definition instanceof AbstractBeanDefinition nativeDefinition)
+                        || !nativeMethodDefinition(definition)) {
+                    methodKnown = false;
+                    Object singleton = registeredSingleton(configurable, name);
+                    if (singleton != null && !(singleton instanceof FactoryBean<?>)) {
+                        collectMethodFamilies(singleton.getClass(), used, new java.util.HashSet<>(), 0);
+                    }
+                    continue;
+                }
                 String factory = definition.getFactoryBeanName();
                 String className = definition.getBeanClassName();
                 String configuration = factory != null ? factory : className;
@@ -1611,8 +1635,8 @@ final class SecurityScanner {
                     if (configuration.equals(prefix + "Jsr250MethodSecurityConfiguration")) enabled.add("jsr250");
                 }
                 if (configurable.containsSingleton(name)) {
-                    Object singleton = configurable.getSingleton(name);
-                    Object factoryBean = factory == null ? null : configurable.getSingleton(factory);
+                    Object singleton = registeredSingleton(configurable, name);
+                    Object factoryBean = registeredSingleton(configurable, factory);
                     String factoryMethod = definition.getFactoryMethodName();
                     if (singleton != null
                             && (singleton
@@ -1635,12 +1659,19 @@ final class SecurityScanner {
                             && providers.stream().anyMatch(provider -> readField(provider, "jwtDecoder") == singleton))
                         bootJwt = true;
                 }
-                Class<?> type = className == null ? null : classForName(className);
-                if (type == null && configurable.containsSingleton(name)) {
-                    Object singleton = configurable.getSingleton(name);
-                    if (singleton != null) type = singleton.getClass();
+                if (definition.isAbstract() && !configurable.containsSingleton(name)) continue;
+                Class<?> type = methodBeanType(configurable, name, nativeDefinition);
+                if (type == null) {
+                    methodKnown = false;
+                    Object singleton = registeredSingleton(configurable, name);
+                    if (singleton != null
+                            && !(singleton instanceof FactoryBean<?>)
+                            && Proxy.isProxyClass(singleton.getClass())) {
+                        collectMethodFamilies(singleton.getClass(), used, new java.util.HashSet<>(), 0);
+                    }
+                    continue;
                 }
-                if (type == null || type.getName().startsWith("org.springframework.")) continue;
+                if (type.getName().startsWith("org.springframework.")) continue;
                 methodKnown &= collectMethodFamilies(type, used, new java.util.HashSet<>(), 0);
             }
         } else methodKnown = false;
@@ -1767,6 +1798,103 @@ final class SecurityScanner {
             errors.add("Actuator operation inventory includes unsupported or parameterized operations.");
         }
         return new SecurityContext.Evidence(operations, operationsKnown, bootJwt, enabled, used, methodKnown);
+    }
+
+    private static boolean nativeMethodDefinition(BeanDefinition definition) {
+        Class<?> type = definition.getClass();
+        return type == RootBeanDefinition.class
+                || type == GenericBeanDefinition.class
+                || type == AnnotatedGenericBeanDefinition.class
+                || type == ScannedGenericBeanDefinition.class
+                || (type.getClassLoader() == AnnotatedGenericBeanDefinition.class.getClassLoader()
+                        && type.getName()
+                                .equals(
+                                        "org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader$ConfigurationClassBeanDefinition"));
+    }
+
+    private static Class<?> methodBeanType(
+            ConfigurableListableBeanFactory factory, String name, AbstractBeanDefinition definition) {
+        Object singleton = registeredSingleton(factory, name);
+        if (singleton != null) {
+            Class<?> type = singleton.getClass();
+            return singleton instanceof FactoryBean<?> || Proxy.isProxyClass(type) ? null : type;
+        }
+        if (definition.getParentName() != null || definition.getInstanceSupplier() != null) return null;
+        if (definition.getFactoryMethodName() != null || definition.getFactoryBeanName() != null) {
+            return declaredMethodProduct(factory, definition);
+        }
+        Class<?> type = declaredBeanClass(factory, definition);
+        return type != null
+                        && !type.isInterface()
+                        && !Modifier.isAbstract(type.getModifiers())
+                        && !type.isArray()
+                        && !type.isPrimitive()
+                        && !FactoryBean.class.isAssignableFrom(type)
+                ? type
+                : null;
+    }
+
+    private static Class<?> declaredBeanClass(
+            ConfigurableListableBeanFactory factory, AbstractBeanDefinition definition) {
+        if (definition.hasBeanClass()) return definition.getBeanClass();
+        String name = definition.getBeanClassName();
+        if (name == null) return null;
+        try {
+            return Class.forName(name, false, factory.getBeanClassLoader());
+        } catch (ClassNotFoundException | RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static Class<?> declaredMethodProduct(
+            ConfigurableListableBeanFactory factory, AbstractBeanDefinition definition) {
+        if (!(definition instanceof AnnotatedBeanDefinition annotated)
+                || !(annotated.getFactoryMethodMetadata() instanceof StandardMethodMetadata metadata)
+                || metadata.getClass() != StandardMethodMetadata.class) return null;
+        Method method = metadata.getIntrospectedMethod();
+        if (!method.getName().equals(definition.getFactoryMethodName()) || method.isBridge() || method.isSynthetic())
+            return null;
+        String factoryName = definition.getFactoryBeanName();
+        Class<?> owner;
+        if (Modifier.isStatic(method.getModifiers())) {
+            if (factoryName != null) return null;
+            owner = declaredBeanClass(factory, definition);
+        } else {
+            if (factoryName == null) return null;
+            Object instance = registeredSingleton(factory, factoryName);
+            if (instance == null || instance instanceof FactoryBean<?>) return null;
+            owner = instance.getClass();
+        }
+        if (owner != method.getDeclaringClass()) return null;
+        try {
+            if (!unambiguousFactoryMethod(owner, method, new java.util.HashSet<>(), 0)) return null;
+            Class<?> product = method.getReturnType();
+            return Modifier.isFinal(product.getModifiers())
+                            && !Modifier.isAbstract(product.getModifiers())
+                            && !product.isArray()
+                            && !product.isPrimitive()
+                            && !product.isInterface()
+                            && product != Object.class
+                            && !FactoryBean.class.isAssignableFrom(product)
+                    ? product
+                    : null;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static boolean unambiguousFactoryMethod(Class<?> type, Method expected, Set<Class<?>> visited, int depth) {
+        if (type == null || !visited.add(type)) return true;
+        if (depth > 8 || visited.size() > 128) return false;
+        Method[] methods = type.getDeclaredMethods();
+        if (methods.length > 2000) return false;
+        for (Method method : methods) {
+            if (method.getName().equals(expected.getName()) && !method.equals(expected)) return false;
+        }
+        for (Class<?> contract : type.getInterfaces()) {
+            if (!unambiguousFactoryMethod(contract, expected, visited, depth + 1)) return false;
+        }
+        return unambiguousFactoryMethod(type.getSuperclass(), expected, visited, depth + 1);
     }
 
     private static boolean hasUnsupportedOperationPath(String base, String operationPath) {

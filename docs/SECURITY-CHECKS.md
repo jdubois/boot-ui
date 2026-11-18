@@ -87,7 +87,10 @@ recognized as non-anonymous restrictions without conflating them with `denyAll()
 parameterized Actuator sub-operations are evaluated against prefix matchers. The real Spring sample regression uses
 embedded Tomcat and the application's actual three filter chains. It retains completed evidence while remaining
 honestly partial because the sample's custom CSRF-cookie filter and ignored CSRF request matchers are not universal
-framework defaults. Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
+framework defaults, and its method-family inventory includes unsupported lazy factory products, many owned by BootUI
+itself. Supporting the standard `HttpSecurity` declaration alone does not establish a complete method inventory or
+MEDIUM qualification in this shipped sample. Missing OAuth2 or remember-me features are not reasons for that partial
+assessment. The unused demo
 `NoOpPasswordEncoder` bean is not an active-provider finding.
 
 The catalogs were audited against Spring Boot **4.1.1**, which manages Spring Security **7.1.1**.
@@ -202,9 +205,35 @@ or unknown method-family metadata keeps **HIGH**. The qualification is global, n
 claim. Findings, occurrence counts and detail identities remain; unknown chains still limit coverage, and
 `SEC-METHOD-001` still reports unactivated families at HIGH.
 
-"Known" describes bounded, inspectable bean metadata, not proof of a complete application-type inventory. The current
-collector can skip bean definitions with unresolved types without clearing this flag; their annotation families are
-not established by this qualification.
+"Known" describes bounded, inspectable bean metadata. An unresolved potentially applicable bean-definition type
+clears this flag, retains already observed annotation families, and leaves dependent method checks incomplete.
+Resolved Spring framework types and abstract bean-definition templates without an existing singleton do not create
+this missing-type gap. An already-created ordinary singleton still supplies passive type metadata for an abstract
+definition with no declared type.
+Application definitions use their bean factory's class loader without initializing the class. Already-created
+ordinary singleton types take precedence over declared owners; a raw `FactoryBean` singleton is not its product.
+JDK interface proxies remain unknown because their implementation-only annotations are not exposed by the proxy
+class. Observable interface annotation families are retained without implying complete target metadata. The collector
+does not invoke target sources, invocation handlers or application getters to resolve them.
+For uncreated factory products, support is limited to already-held Java-reflection `StandardMethodMetadata` bound
+to the actual direct, non-enhanced declaring owner and an unambiguous method across its bounded class/interface
+hierarchy. ASM factory metadata and enhanced configuration owners (`proxyBeanMethods=true`) remain unknown.
+Primitive, array, interface, `Object`, nonfinal and `FactoryBean` returns also remain unknown, as do uncreated
+parent-definition paths and contradictory or arbitrary instance suppliers, including native suppliers with
+unverified generators. Only fully registered singleton references are read; metadata lookup does not create an early
+reference. An application class-loader failure leaves that type unknown without discarding independent chain findings.
+No factory, supplier, type-discovery callback or application method is run.
+This observes declarations, not proxying or endpoint enforcement, and does not prove a complete product inventory.
+
+An opaque product can also hide method-security activation. Retained annotation-family facts alone therefore do not
+prove that a family is unactivated: `SEC-METHOD-001` remains incomplete while aggregate metadata is unknown.
+
+Assessment eligibility can change. Positively bound native products, such as the standard prototype `HttpSecurity`,
+can remove a false missing-type gap. Conversely, unsupported factory products and suppliers now remain incomplete
+rather than borrowing a factory/configuration class as product evidence. A previously assessed optional Security
+report can become skipped, and a required one can be refused; removing the last genuine gap can make existing findings
+eligible for the configured severity gates. The strict CI mechanism is unchanged and never assesses a partial finding
+subset. Other independently valid findings remain usable in the report while coverage is incomplete.
 
 MEDIUM means **annotation-coverage review, not proof of safety**: authorization then depends on annotation placement,
 proxying and invocation paths, while HTTP protection remains absent or broad. BootUI never calls authorization
