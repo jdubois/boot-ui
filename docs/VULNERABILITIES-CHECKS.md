@@ -405,7 +405,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | RPT-03 | KEEP | Version-independent advisoryId::packageName dismissals; active counts/order; raw cached report unchanged. |
 | RPT-04 | KEEP | Restoring final dismissal returns original cached flags/counts. |
 | RPT-05 | KEEP | ERROR may replace cache; DISABLED and busy conflict do not; EPSS failure must not lose OSV report. |
-| UI-01 | KEEP | Initial/disabled means not scanned, error unknown, partial means no finding in partial result—not clean. |
+| UI-01 | KEEP | Initial/disabled means not scanned, error unknown, partial alone is not clean evidence. Green Risk `NONE` requires completed package query/details in a SCANNED/PARTIAL report; otherwise it is neutral `Not assessed`. Known severities, including UNKNOWN, stay as reported. |
 | UI-02 | KEEP | Surface reported incomplete/unavailable inventory and max-packages omissions; provider limitations still apply. |
 | UI-03 | HANDOFF | Resolved by #989: shared evidence-based eligibility and visible partial/non-score reasons in panel and Overview. |
 | UI-04 | HANDOFF | Resolved by #988: Overview cached-report dismissal refresh using GET only; preserved by #989. |

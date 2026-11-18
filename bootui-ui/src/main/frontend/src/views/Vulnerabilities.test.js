@@ -270,6 +270,29 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('GHSA-unknown')
     expect(wrapper.text()).toContain('Unknown (assessment incomplete)')
     expect(wrapper.text()).not.toContain('None found')
+    const knownRow = wrapper.findAll('tbody tr').find((row) => row.text().includes('org.example:known'))
+    expect(knownRow.get('td:nth-child(3)').text()).toBe('HIGH')
+    expect(knownRow.get('td:nth-child(3) .badge').classes()).toContain('text-bg-warning')
+  })
+
+  it('keeps UNKNOWN risk distinct from unassessed NONE during incomplete assessment', async () => {
+    const unknown = dependency(
+      'org.example:unknown-risk',
+      '1',
+      [vulnerability('GHSA-row-unknown', 'UNKNOWN')],
+      'UNKNOWN'
+    )
+    unknown.assessment = {queryComplete: true, detailAssessmentComplete: false}
+    const {wrapper} = await mountWithReports([
+      report([unknown], 1, 'PARTIAL', {
+        severityCounts: [{severity: 'UNKNOWN', count: 1}],
+        evidence: {usable: true, coverageComplete: false, limitations: ['Details unavailable.']}
+      })
+    ])
+    const risk = wrapper.get('tbody tr td:nth-child(3)')
+    expect(risk.text()).toBe('UNKNOWN')
+    expect(risk.text()).not.toBe('Not assessed')
+    expect(risk.get('.badge').classes()).not.toContain('text-bg-success')
   })
 
   it('distinguishes proven empty dependency evidence from an unavailable assessment in the same report', async () => {
@@ -288,6 +311,48 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('None found in the assessed evidence')
     expect(wrapper.text()).toContain('Unknown (assessment incomplete)')
     expect(wrapper.get('details.advisor-summary__notes').text()).toContain('Query unavailable.')
+    const rows = wrapper.findAll('tbody tr')
+    const provenRisk = rows.find((row) => row.text().includes('org.example:proven')).get('td:nth-child(3)')
+    const missingRisk = rows.find((row) => row.text().includes('org.example:missing')).get('td:nth-child(3)')
+    expect(provenRisk.text()).toBe('NONE')
+    expect(provenRisk.get('.badge').classes()).toContain('text-bg-success')
+    expect(missingRisk.text()).toBe('Not assessed')
+    expect(missingRisk.get('.badge').classes()).not.toContain('text-bg-success')
+  })
+
+  it.each([
+    {label: 'not scanned', status: 'NOT_SCANNED', assessment: {queryComplete: false, detailAssessmentComplete: false}},
+    {label: 'disabled', status: 'DISABLED', assessment: {queryComplete: false, detailAssessmentComplete: false}},
+    {
+      label: 'failed even with stale completed flags',
+      status: 'ERROR',
+      assessment: {queryComplete: true, detailAssessmentComplete: true}
+    },
+    {label: 'missing details', status: 'PARTIAL', assessment: {queryComplete: true, detailAssessmentComplete: false}},
+    {label: 'missing assessment flags', status: 'PARTIAL', assessment: undefined}
+  ])('does not render a green NONE risk for $label evidence', async ({status, assessment}) => {
+    const unassessed = {...dependency('org.example:unassessed', '1', [], 'NONE'), assessment}
+    const {wrapper} = await mountWithReports([
+      report([unassessed], 0, status, {
+        evidence: {usable: false, coverageComplete: false, limitations: ['Assessment unavailable.']}
+      })
+    ])
+    const risk = wrapper.get('tbody tr td:nth-child(3)')
+    expect(risk.text()).toBe('Not assessed')
+    expect(risk.get('.badge').classes()).toContain('text-bg-light')
+    expect(risk.get('.badge').classes()).not.toContain('text-bg-success')
+  })
+
+  it('retains a completed NONE risk for a nonempty valid zero-score advisory', async () => {
+    const zero = dependency('org.example:zero', '1', [vulnerability('GHSA-zero', 'NONE', false, {score: 0})], 'NONE')
+    const {wrapper} = await mountWithReports([
+      report([zero], 1, 'SCANNED', {severityCounts: [{severity: 'NONE', count: 1}]})
+    ])
+    const risk = wrapper.get('tbody tr td:nth-child(3)')
+    expect(risk.text()).toBe('NONE')
+    expect(risk.get('.badge').classes()).toContain('text-bg-success')
+    expect(wrapper.text()).toContain('GHSA-zero')
+    expect(wrapper.find('.advisor-summary__value').text()).toBe('100')
   })
 
   it('does not claim a dependency is clean before or during an incomplete scan', async () => {

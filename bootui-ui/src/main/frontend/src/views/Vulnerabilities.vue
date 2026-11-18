@@ -5,7 +5,7 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
-import {advisorAssessment, hasCompletedEmptyDependency} from '../utils/scannerScore.js'
+import {advisorAssessment, hasCompletedDependency, hasCompletedEmptyDependency} from '../utils/scannerScore.js'
 import {useDismissedRules} from '../utils/useDismissedRules.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -109,6 +109,11 @@ function emptyAdvisoryText(dependency) {
   return hasCompletedEmptyDependency(dependency)
     ? 'None found in the assessed evidence'
     : 'Unknown (assessment incomplete)'
+}
+
+function dependencyRisk(dependency) {
+  const assessed = ['SCANNED', 'PARTIAL'].includes(data.value?.scan?.status) && hasCompletedDependency(dependency)
+  return dependency.highestSeverity === 'NONE' && !assessed ? 'Not assessed' : dependency.highestSeverity
 }
 
 // Runtime reach (the BootUI agent's evidence of which jars' classes loaded) is a prioritization hint: it never changes
@@ -602,8 +607,8 @@ onMounted(loadDependencies)
                 </td>
                 <td>{{ dependency.version }}</td>
                 <td>
-                  <span :class="severityClass(dependency.highestSeverity)" class="badge">
-                    {{ dependency.highestSeverity }}
+                  <span :class="severityClass(dependencyRisk(dependency))" class="badge">
+                    {{ dependencyRisk(dependency) }}
                   </span>
                 </td>
                 <td v-if="reachAvailable" class="runtime-reach">
