@@ -50,6 +50,13 @@ Repository checks need JPA provenance and unambiguous unit and domain attributio
 annotations, projections, and entity graphs all affect applicability. Unsupported and ambiguous query shapes are not
 guessed, and Panache query methods stay outside the repository analysis.
 
+The collection `JOIN FETCH` checks (HIB-FETCH-003 and HIB-QUERY-007) exclude verified static, single-root SELECTs
+that contain no fetch operation, including constructor DTO queries with entity joins. This is rule-specific:
+other query checks still require their own readable shape. Unverified, named, rewritten, dynamic, malformed,
+multi-root, and unsupported fetch queries retain their coverage limits. Standard inherited `JpaRepository`
+save methods remain standard newness evidence even when Java generates a covariant `saveAll` bridge;
+actual default overrides, custom save implementations, and unverified entity information remain unknown.
+
 Rule failures and unavailable required evidence produce an incomplete `PARTIAL` scan while retaining valid findings.
 The report's `results` list still contains findings only; the scan message summarizes coverage counts, and the report's
 `diagnostics` array lists every affected evaluation as `{source, unit, level, message}`: `source` is the rule id (or
