@@ -357,6 +357,183 @@ class VendorCatalogReaderTests {
     }
 
     @Test
+    void postgresForeignKeyReadRequiresCompleteNativeTriggerRolesBeforePromotingEnforcement() throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        rows.add(postgresForeignKeyRow("ordinary"));
+        Map<String, Object> disabled = postgresForeignKeyRow("disabled");
+        disabled.put("triggers_enabled", false);
+        rows.add(disabled);
+        Map<String, Object> notValid = postgresForeignKeyRow("not_valid");
+        notValid.put("is_validated", false);
+        rows.add(notValid);
+        for (String column : List.of(
+                "declared_enforced",
+                "ordinary_relations",
+                "native_trigger_shape",
+                "trigger_modes_known",
+                "triggers_enabled",
+                "is_validated")) {
+            Map<String, Object> unknown = postgresForeignKeyRow(column);
+            unknown.put(column, null);
+            rows.add(unknown);
+        }
+        for (String column : List.of("ordinary_relations", "native_trigger_shape", "trigger_modes_known")) {
+            Map<String, Object> unsupported = postgresForeignKeyRow(column + "_false");
+            unsupported.put(column, false);
+            rows.add(unsupported);
+        }
+        for (String column : List.of(
+                "trigger_count",
+                "child_insert_count",
+                "child_update_count",
+                "parent_delete_count",
+                "parent_update_count")) {
+            for (int count : List.of(0, 2, 5)) {
+                Map<String, Object> wrongShape = postgresForeignKeyRow(column + "_" + count);
+                wrongShape.put(column, count);
+                rows.add(wrongShape);
+            }
+        }
+        Map<String, Object> notEnforced = new HashMap<>();
+        notEnforced.put("constraint_name", "not_enforced");
+        notEnforced.put("declared_enforced", false);
+        notEnforced.put("is_validated", false);
+        rows.add(notEnforced);
+        List<String> queries = new ArrayList<>();
+        List<PreparedStatement> statements = new ArrayList<>();
+        VendorFindings findings =
+                postgres(18, queries, statements, sql -> sql.contains("as trigger_count") ? rows : List.of());
+        List<PostgresForeignKeyDetail> details = findings.findings(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS);
+        assertThat(details).hasSize(rows.size());
+        assertThat(details.get(0).enforced()).isTrue();
+        assertThat(details.get(0).deleteActionEnabled()).isTrue();
+        assertThat(details.get(0).updateActionEnabled()).isTrue();
+        assertThat(details.get(1).enforced()).isFalse();
+        assertThat(details.get(1).deleteActionEnabled()).isTrue();
+        assertThat(details.get(1).updateActionEnabled()).isTrue();
+        assertThat(details.get(1).validated()).isTrue();
+        assertThat(details.get(2).enforced()).isTrue();
+        assertThat(details.get(2).validated()).isFalse();
+        assertThat(details.get(8).enforced()).isTrue();
+        assertThat(details.get(8).validated()).isNull();
+        assertThat(details.subList(3, details.size() - 1).stream()
+                        .filter(detail -> !"is_validated".equals(detail.constraint())))
+                .allSatisfy(detail -> assertThat(detail.enforced()).isNull());
+        assertThat(details.get(details.size() - 1).enforced()).isFalse();
+        assertThat(details.get(details.size() - 1).deleteActionEnabled()).isFalse();
+        assertThat(details.get(details.size() - 1).updateActionEnabled()).isFalse();
+        String sql = PostgresCatalogReader.foreignKeyDetailsSql(new DatabaseVersion(18, 0, 0, "18"));
+        assertThat(sql)
+                .contains(
+                        "c.conenforced",
+                        "g.tgconstraint = c.oid",
+                        "g.tgtype = 5",
+                        "g.tgtype = 9",
+                        "g.tgtype = 17",
+                        "RI_FKey_check_ins",
+                        "RI_FKey_check_upd",
+                        "RI_FKey_noaction_del",
+                        "RI_FKey_noaction_upd",
+                        "current_setting('session_replication_role')",
+                        "('O', 'D', 'R', 'A')");
+        PreparedStatement statement = statements.get(queries.indexOf(sql));
+        verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1);
+        verify(statement).setInt(1, DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1);
+        verify(statement).setQueryTimeout(5);
+        verify(statement).close();
+    }
+
+    @Test
+    void postgresParentActionsKeepTheirOwnActivationWithoutPromotingIncompleteTriggerShapes() throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Boolean delete : new Boolean[] {true, false, null}) {
+            for (Boolean update : new Boolean[] {true, false, null}) {
+                Map<String, Object> row = postgresForeignKeyRow("fk_" + delete + "_" + update);
+                row.put("triggers_enabled", false);
+                row.put("parent_delete_enabled", delete);
+                row.put("parent_update_enabled", update);
+                rows.add(row);
+            }
+        }
+        for (String column : List.of(
+                "declared_enforced",
+                "ordinary_relations",
+                "native_trigger_shape",
+                "trigger_modes_known",
+                "child_insert_count",
+                "child_update_count",
+                "parent_delete_count",
+                "parent_update_count")) {
+            Map<String, Object> row = postgresForeignKeyRow(column);
+            row.put(column, null);
+            rows.add(row);
+        }
+        VendorFindings findings =
+                postgres(18, new ArrayList<>(), sql -> sql.contains("as trigger_count") ? rows : List.of());
+        List<PostgresForeignKeyDetail> details = findings.findings(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS);
+        assertThat(details).hasSize(rows.size());
+        for (int i = 0; i < 9; i++) {
+            assertThat(details.get(i).enforced()).isFalse();
+            assertThat(details.get(i).deleteActionEnabled())
+                    .isEqualTo(rows.get(i).get("parent_delete_enabled"));
+            assertThat(details.get(i).updateActionEnabled())
+                    .isEqualTo(rows.get(i).get("parent_update_enabled"));
+        }
+        assertThat(details.subList(9, details.size())).allSatisfy(detail -> {
+            assertThat(detail.enforced()).isNull();
+            assertThat(detail.deleteActionEnabled()).isNull();
+            assertThat(detail.updateActionEnabled()).isNull();
+        });
+    }
+
+    @Test
+    void postgresForeignKeyReadKeepsAnUnknownVersionUnknownAndReportsCatalogFailure() throws Exception {
+        assertThat(PostgresCatalogReader.foreignKeyDetailsSql(DatabaseVersion.UNKNOWN))
+                .contains("null::boolean as declared_enforced")
+                .doesNotContain("c.conenforced");
+        assertThat(PostgresCatalogReader.foreignKeyDetailsSql(new DatabaseVersion(13, 0, 0, "13")))
+                .contains("true as declared_enforced")
+                .doesNotContain("c.conenforced");
+        Connection connection = mock(Connection.class);
+        when(connection.prepareStatement(anyString())).thenThrow(new java.sql.SQLException("permission denied"));
+        VendorFindings.Builder findings = VendorFindings.builder();
+        DatabaseVersion version = new DatabaseVersion(18, 0, 0, "18");
+        PostgresCatalogReader.read(
+                connection,
+                version,
+                DialectCapabilities.of(Dialect.POSTGRESQL, version),
+                budget(),
+                DatabaseAdvisorLimits.DEFAULTS,
+                findings);
+        VendorAugmentation<PostgresForeignKeyDetail> failed =
+                findings.build().augmentation(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS);
+        assertThat(failed.failed()).isTrue();
+        assertThat(failed.reason()).contains("permission denied");
+        assertThat(failed.findings()).isEmpty();
+    }
+
+    private static Map<String, Object> postgresForeignKeyRow(String name) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("schema_name", "public");
+        row.put("table_name", "child");
+        row.put("constraint_name", name);
+        row.put("is_validated", true);
+        row.put("declared_enforced", true);
+        row.put("ordinary_relations", true);
+        row.put("trigger_count", 4);
+        row.put("child_insert_count", 1);
+        row.put("child_update_count", 1);
+        row.put("parent_delete_count", 1);
+        row.put("parent_update_count", 1);
+        row.put("native_trigger_shape", true);
+        row.put("trigger_modes_known", true);
+        row.put("triggers_enabled", true);
+        row.put("parent_delete_enabled", true);
+        row.put("parent_update_enabled", true);
+        return row;
+    }
+
+    @Test
     void mysqlAndMariaDbKeepDistinctVisibilityAndExpressionGates() throws Exception {
         List<String> mysql = mysql(Dialect.MYSQL, new DatabaseVersion(8, 0, 13, "8.0.13"));
         assertThat(String.join("\n", mysql))

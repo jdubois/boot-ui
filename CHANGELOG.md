@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **PostgreSQL foreign-key evidence** checks native trigger activation instead of inferring enforcement from
+  validation declarations. Unsupported layouts remain unknown, and active SET NULL actions retain their findings
+  even when other constraint triggers are disabled ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md)).
 - **Hibernate JDBC value logging** also detects effective result-extraction TRACE logging without reading log
   messages or JDBC values. Separate finding identities preserve existing bind-only dismissals; whole-rule dismissals
   still cover both channels, and unknown observations remain incomplete

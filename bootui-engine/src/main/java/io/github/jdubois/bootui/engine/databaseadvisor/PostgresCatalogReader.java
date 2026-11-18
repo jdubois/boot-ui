@@ -11,7 +11,8 @@ import java.util.Locale;
 /**
  * The PostgreSQL-only, read-only {@code pg_catalog} augmentation the generic JDBC metadata API cannot answer:
  * broken indexes, index semantics (partial/expression/method/validity), declarative partitioning, extension
- * ownership, {@code NOT VALID} constraints, and sequence consumption against the owning column's capacity.
+ * ownership, {@code NOT VALID} constraints, native foreign-key trigger enforcement, and sequence consumption
+ * against the owning column's capacity.
  *
  * <p>Every statement is a bounded {@code SELECT} against system catalogs — never application data, never
  * DDL — and every one of them is allowed to fail: a locked-down role that cannot read {@code pg_index} yields
@@ -125,6 +126,83 @@ final class PostgresCatalogReader {
                     select 1 from pg_depend d
                     where d.classid = 'pg_constraint'::regclass and d.objid = c.oid
                       and d.refclassid = 'pg_extension'::regclass and d.deptype = 'e')
+            order by n.nspname, t.relname, c.conname
+            limit ?
+            """;
+
+    private static final String FOREIGN_KEY_DETAILS_SQL = """
+            select n.nspname as schema_name, t.relname as table_name, c.conname as constraint_name,
+                   c.convalidated as is_validated, %s as declared_enforced,
+                   (t.relkind = 'r' and referenced.relkind = 'r'
+                       and not exists (select 1 from pg_inherits inh
+                           where inh.inhrelid in (c.conrelid, c.confrelid)
+                              or inh.inhparent in (c.conrelid, c.confrelid))) as ordinary_relations,
+                   count(g.oid) as trigger_count,
+                   count(g.oid) filter (where g.tgrelid = c.conrelid and g.tgconstrrelid = c.confrelid
+                       and g.tgtype = 5
+                       and g.tgfoid = 'pg_catalog."RI_FKey_check_ins"()'::regprocedure) as child_insert_count,
+                   count(g.oid) filter (where g.tgrelid = c.conrelid and g.tgconstrrelid = c.confrelid
+                       and g.tgtype = 17
+                       and g.tgfoid = 'pg_catalog."RI_FKey_check_upd"()'::regprocedure) as child_update_count,
+                   count(g.oid) filter (where g.tgrelid = c.confrelid and g.tgconstrrelid = c.conrelid
+                       and g.tgtype = 9 and g.tgfoid = case c.confdeltype
+                           when 'a' then 'pg_catalog."RI_FKey_noaction_del"()'::regprocedure
+                           when 'r' then 'pg_catalog."RI_FKey_restrict_del"()'::regprocedure
+                           when 'c' then 'pg_catalog."RI_FKey_cascade_del"()'::regprocedure
+                           when 'n' then 'pg_catalog."RI_FKey_setnull_del"()'::regprocedure
+                           when 'd' then 'pg_catalog."RI_FKey_setdefault_del"()'::regprocedure
+                       end) as parent_delete_count,
+                   count(g.oid) filter (where g.tgrelid = c.confrelid and g.tgconstrrelid = c.conrelid
+                       and g.tgtype = 17 and g.tgfoid = case c.confupdtype
+                           when 'a' then 'pg_catalog."RI_FKey_noaction_upd"()'::regprocedure
+                           when 'r' then 'pg_catalog."RI_FKey_restrict_upd"()'::regprocedure
+                           when 'c' then 'pg_catalog."RI_FKey_cascade_upd"()'::regprocedure
+                           when 'n' then 'pg_catalog."RI_FKey_setnull_upd"()'::regprocedure
+                           when 'd' then 'pg_catalog."RI_FKey_setdefault_upd"()'::regprocedure
+                       end) as parent_update_count,
+                   bool_and(g.tgisinternal and g.tgqual is null and g.tgnargs = 0
+                       and g.tgattr::text = '') as native_trigger_shape,
+                   bool_and(g.tgenabled in ('O', 'D', 'R', 'A')) as trigger_modes_known,
+                   bool_and(case current_setting('session_replication_role')
+                       when 'origin' then g.tgenabled in ('O', 'A')
+                       when 'local' then g.tgenabled in ('O', 'A')
+                       when 'replica' then g.tgenabled in ('R', 'A')
+                       else null::boolean end) as triggers_enabled,
+                   bool_and(case current_setting('session_replication_role')
+                       when 'origin' then g.tgenabled in ('O', 'A')
+                       when 'local' then g.tgenabled in ('O', 'A')
+                       when 'replica' then g.tgenabled in ('R', 'A')
+                       else null::boolean end)
+                       filter (where g.tgrelid = c.confrelid and g.tgconstrrelid = c.conrelid
+                           and g.tgtype = 9 and g.tgfoid = case c.confdeltype
+                               when 'a' then 'pg_catalog."RI_FKey_noaction_del"()'::regprocedure
+                               when 'r' then 'pg_catalog."RI_FKey_restrict_del"()'::regprocedure
+                               when 'c' then 'pg_catalog."RI_FKey_cascade_del"()'::regprocedure
+                               when 'n' then 'pg_catalog."RI_FKey_setnull_del"()'::regprocedure
+                               when 'd' then 'pg_catalog."RI_FKey_setdefault_del"()'::regprocedure
+                           end) as parent_delete_enabled,
+                   bool_and(case current_setting('session_replication_role')
+                       when 'origin' then g.tgenabled in ('O', 'A')
+                       when 'local' then g.tgenabled in ('O', 'A')
+                       when 'replica' then g.tgenabled in ('R', 'A')
+                       else null::boolean end)
+                       filter (where g.tgrelid = c.confrelid and g.tgconstrrelid = c.conrelid
+                           and g.tgtype = 17 and g.tgfoid = case c.confupdtype
+                               when 'a' then 'pg_catalog."RI_FKey_noaction_upd"()'::regprocedure
+                               when 'r' then 'pg_catalog."RI_FKey_restrict_upd"()'::regprocedure
+                               when 'c' then 'pg_catalog."RI_FKey_cascade_upd"()'::regprocedure
+                               when 'n' then 'pg_catalog."RI_FKey_setnull_upd"()'::regprocedure
+                               when 'd' then 'pg_catalog."RI_FKey_setdefault_upd"()'::regprocedure
+                           end) as parent_update_enabled
+            from pg_constraint c
+            join pg_class t on t.oid = c.conrelid
+            join pg_namespace n on n.oid = t.relnamespace
+            join pg_class referenced on referenced.oid = c.confrelid
+            left join pg_trigger g on g.tgconstraint = c.oid
+            where c.contype = 'f'
+            """ + SYSTEM_SCHEMA_FILTER + """
+            group by n.nspname, t.relname, c.oid, c.conname, c.convalidated,
+                     c.conrelid, c.confrelid, t.relkind, referenced.relkind
             order by n.nspname, t.relname, c.conname
             limit ?
             """;
@@ -257,6 +335,13 @@ final class PostgresCatalogReader {
                 PostgresCatalogReader::readUnvalidatedConstraint));
         findings.add(CatalogQuery.read(
                 connection,
+                VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS,
+                foreignKeyDetailsSql(version),
+                budget,
+                limits,
+                PostgresCatalogReader::readForeignKeyDetail));
+        findings.add(CatalogQuery.read(
+                connection,
                 VendorFindingKinds.POSTGRES_UNLOGGED_TABLES,
                 unloggedTablesSql(capabilities),
                 budget,
@@ -334,6 +419,11 @@ final class PostgresCatalogReader {
     static String unvalidatedConstraintsSql(DatabaseVersion version) {
         return UNVALIDATED_CONSTRAINTS_SQL.replace(
                 "%s", version.atLeast(18, 0) ? "c.conenforced" : version.known() ? "true" : "null::boolean");
+    }
+
+    static String foreignKeyDetailsSql(DatabaseVersion version) {
+        return FOREIGN_KEY_DETAILS_SQL.replace(
+                "%s", version.atLeast(18, 0) ? "bool_and(c.conenforced)" : version.known() ? "true" : "null::boolean");
     }
 
     private static String invalidIndexesSql(DialectCapabilities capabilities) {
@@ -543,6 +633,34 @@ final class PostgresCatalogReader {
                 rs.getString("constraint_type"),
                 rs.getString("definition"),
                 nullableBoolean(rs, "is_enforced"));
+    }
+
+    private static PostgresForeignKeyDetail readForeignKeyDetail(ResultSet rs) throws SQLException {
+        Boolean enforced = nullableBoolean(rs, "declared_enforced");
+        Boolean deleteActionEnabled = enforced;
+        Boolean updateActionEnabled = enforced;
+        if (!Boolean.FALSE.equals(enforced)) {
+            boolean supported = Boolean.TRUE.equals(enforced)
+                    && Boolean.TRUE.equals(nullableBoolean(rs, "ordinary_relations"))
+                    && rs.getInt("trigger_count") == 4
+                    && rs.getInt("child_insert_count") == 1
+                    && rs.getInt("child_update_count") == 1
+                    && rs.getInt("parent_delete_count") == 1
+                    && rs.getInt("parent_update_count") == 1
+                    && Boolean.TRUE.equals(nullableBoolean(rs, "native_trigger_shape"))
+                    && Boolean.TRUE.equals(nullableBoolean(rs, "trigger_modes_known"));
+            enforced = supported ? nullableBoolean(rs, "triggers_enabled") : null;
+            deleteActionEnabled = supported ? nullableBoolean(rs, "parent_delete_enabled") : null;
+            updateActionEnabled = supported ? nullableBoolean(rs, "parent_update_enabled") : null;
+        }
+        return new PostgresForeignKeyDetail(
+                rs.getString("schema_name"),
+                rs.getString("table_name"),
+                rs.getString("constraint_name"),
+                enforced,
+                nullableBoolean(rs, "is_validated"),
+                deleteActionEnabled,
+                updateActionEnabled);
     }
 
     private static PostgresSequenceUsage readSequence(ResultSet rs) throws SQLException {

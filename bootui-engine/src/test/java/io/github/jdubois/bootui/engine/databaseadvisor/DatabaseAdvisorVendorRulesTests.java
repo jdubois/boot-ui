@@ -885,19 +885,27 @@ class DatabaseAdvisorVendorRulesTests {
     }
 
     @Test
-    void postgresNotEnforcedConstraintDoesNotClaimNewWritesAreChecked() {
-        SchemaSnapshot postgres = vendorSchema(
-                "ds",
-                Dialect.POSTGRESQL,
-                VendorAugmentation.available(
-                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS,
-                        List.of(new PostgresUnvalidatedConstraint("public", "t", "check_it", "c", "CHECK", false)),
-                        false));
-        DatabaseAdvisorRuleResultDto result = new PostgresUnvalidatedConstraintRule().evaluate(context(postgres));
-        assertThat(result.severity()).isEqualTo(DatabaseAdvisorRuleSupport.MEDIUM);
-        assertThat(result.sampleViolations().get(0))
-                .contains("NOT ENFORCED")
-                .doesNotContain("never been", "New writes are checked");
+    void postgresValidationDescriptionDoesNotTurnADeclarationIntoProofThatNewWritesAreChecked() {
+        for (Boolean enforced : new Boolean[] {true, false, null}) {
+            SchemaSnapshot postgres = vendorSchema(
+                    "ds",
+                    Dialect.POSTGRESQL,
+                    VendorAugmentation.available(
+                            VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS,
+                            List.of(new PostgresUnvalidatedConstraint(
+                                    "public", "t", "fk_parent", "f", "FOREIGN KEY", enforced)),
+                            false));
+            DatabaseAdvisorRuleResultDto result = new PostgresUnvalidatedConstraintRule().evaluate(context(postgres));
+            assertThat(result.severity()).isEqualTo(DatabaseAdvisorRuleSupport.MEDIUM);
+            String declaration = Boolean.TRUE.equals(enforced)
+                    ? "Declaration is ENFORCED."
+                    : Boolean.FALSE.equals(enforced)
+                            ? "Declaration is NOT ENFORCED."
+                            : "Declaration enforcement state is unknown.";
+            assertThat(result.sampleViolations().get(0))
+                    .contains(declaration)
+                    .doesNotContain("never been", "New writes are checked", "new writes are not checked");
+        }
         assertThat(PostgresCatalogReader.unvalidatedConstraintsSql(new DatabaseVersion(17, 0, 0, "17")))
                 .contains("true as is_enforced")
                 .doesNotContain("c.conenforced");

@@ -253,8 +253,11 @@ and [Oracle invisible indexes](https://docs.oracle.com/en/database/oracle/oracle
 is then guaranteed to fail the child table's `NOT NULL` constraint. Requiring all referencing columns of a composite
 foreign key to be `NOT NULL` avoids false positives on PostgreSQL 15+ column-subset `ON DELETE SET NULL (col)`
 constraints, where `DatabaseMetaData.getImportedKeys()` reports `importedKeySetNull` for all constraint columns even
-when only a nullable subset is nulled. Disabled or unenforced foreign keys are excluded. Either make the referencing
-column(s) nullable or change the referential action to `RESTRICT`, `NO ACTION` or `CASCADE`.
+when only a nullable subset is nulled. On PostgreSQL, each parent action is checked separately using its observed
+native trigger activation: disabled child checks do not suppress an active parent action, while an inactive action
+does not contribute to the finding. Missing or unsupported action evidence remains unknown. Other dialects exclude
+foreign keys known to be disabled or unenforced. Either make the referencing column(s) nullable or change the
+referential action to `RESTRICT`, `NO ACTION` or `CASCADE`.
 See [PostgreSQL foreign key constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK).
 
 ## Dialect detection and catalog augmentation
@@ -310,7 +313,8 @@ See [CREATE SEQUENCE](https://www.postgresql.org/docs/17/sql-createsequence.html
 
 **MEDIUM.** The retained ID reports a foreign-key, check or PostgreSQL 18+ `NOT NULL` constraint (`pg_constraint.contype in ('f', 'c', 'n')`) **currently not validated**; the historical heading is
 retained for existing links, not as a claim that it was never validated or that a migration was forgotten.
-NOT VALID normally checks new/updated rows while leaving existing rows unverified. PostgreSQL 18 also
+NOT VALID normally checks new/updated rows while leaving existing rows unverified; declaration flags alone
+do not establish that native enforcement triggers are enabled. PostgreSQL 18 also
 distinguishes enforcement state and represents `NOT NULL` constraints in `pg_constraint`. Review the intended migration stage and version-supported validation;
 the snapshot does not prove bad rows or how long the state has existed.
 See [ALTER TABLE](https://www.postgresql.org/docs/17/sql-altertable.html) and
@@ -521,9 +525,13 @@ is corroborated as the target table's observed single-column primary key. The `@
 `@Column(name)`, or from a plain lowercase attribute name such as `id`. Composite joins with an omitted referenced
 column, an unestablished or non-primary-key identifier, and constraints that pair the join column with a
 non-primary-key target column remain unknown.
-A matching constraint passes only when it is known to be enforced. On PostgreSQL, a foreign key absent from the
-complete `NOT VALID` catalog read (DB-PG-003's source) is validated and enforced, because PostgreSQL 18 marks every
-`NOT ENFORCED` constraint `NOT VALID`; a failed or truncated read leaves enforcement unknown.
+A matching constraint passes only when it is known to be enforced. On PostgreSQL, a separate bounded catalog read
+checks the declaration and all four native referential-integrity triggers on ordinary, non-inherited relations,
+including the child insert/update and parent delete/update roles. Disabled triggers prevent a healthy match even
+when the declaration remains validated. Trigger modes are interpreted for the scan connection's
+`session_replication_role`, not every application session or future write. Missing, ambiguous, unsupported or
+unreadable evidence stays unknown; an absent row never proves enforcement. `NOT VALID` is independent of trigger
+enforcement and does not establish historical row integrity; DB-PG-003 retains that declaration-validation scope.
 JPA cascade does **not** imply database ON DELETE CASCADE; FK-generation annotations are not a proof of
 the live database's intended cascade policy. Review whether a database constraint is intended before adding one.
 See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).

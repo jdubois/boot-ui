@@ -1218,7 +1218,11 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of(),
                 List.of(onDeleteSetNull),
                 List.of());
-        DatabaseAdvisorRuleResultDto single = evaluate(new ForeignKeySetNullOnNotNullColumnRule(), orders);
+        DatabaseAdvisorRuleResultDto single = new ForeignKeySetNullOnNotNullColumnRule()
+                .evaluate(postgresSetNullContext(
+                        orders,
+                        List.of(new PostgresForeignKeyDetail(
+                                "public", "orders", "fk_orders_customer", true, true, true, true))));
         assertThat(single.status()).isEqualTo("VIOLATION");
         assertThat(single.severity()).isEqualTo(DatabaseAdvisorRuleSupport.HIGH);
         assertThat(single.sampleViolations().get(0))
@@ -1242,7 +1246,11 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of(),
                 List.of(compositeBothNotNull),
                 List.of());
-        DatabaseAdvisorRuleResultDto composite = evaluate(new ForeignKeySetNullOnNotNullColumnRule(), allNotNull);
+        DatabaseAdvisorRuleResultDto composite = new ForeignKeySetNullOnNotNullColumnRule()
+                .evaluate(postgresSetNullContext(
+                        allNotNull,
+                        List.of(new PostgresForeignKeyDetail(
+                                "public", "order_lines", "fk_lines_parent", true, true, true, true))));
         assertThat(composite.status()).isEqualTo("VIOLATION");
         assertThat(composite.sampleViolations().get(0))
                 .contains("ON DELETE SET NULL and ON UPDATE SET NULL")
@@ -1328,12 +1336,14 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of(),
                 List.of(disabled),
                 List.of());
-        DatabaseAdvisorContext disabledContext = context(schema("ds", Dialect.POSTGRESQL, List.of(disabledTable)));
-        assertThat(new ForeignKeySetNullOnNotNullColumnRule()
-                        .evaluate(disabledContext)
-                        .status())
-                .isEqualTo("SKIPPED");
-        assertThat(disabledContext.evaluationDiagnostics()).isEmpty();
+        for (Dialect dialect : List.of(Dialect.GENERIC, Dialect.MYSQL, Dialect.MARIADB, Dialect.ORACLE)) {
+            DatabaseAdvisorContext disabledContext = context(schema("ds", dialect, List.of(disabledTable)));
+            assertThat(new ForeignKeySetNullOnNotNullColumnRule()
+                            .evaluate(disabledContext)
+                            .status())
+                    .isEqualTo("SKIPPED");
+            assertThat(disabledContext.evaluationDiagnostics()).isEmpty();
+        }
 
         ForeignKeyModel unknownNullabilityFk = new ForeignKeyModel(
                 "fk_unknown",
@@ -1358,6 +1368,76 @@ class DatabaseAdvisorSchemaRulesTests {
                         .status())
                 .isEqualTo("SKIPPED");
         assertThat(unknownContext.evaluationDiagnostics()).isNotEmpty();
+    }
+
+    @Test
+    void postgresSetNullUsesEachParentActionRatherThanAggregateForeignKeyEnforcement() {
+        TableModel child = table(
+                "child",
+                List.of(DatabaseAdvisorFixtures.notNullColumn("parent_id", "int4", Types.INTEGER)),
+                List.of(),
+                List.of(fk("fk", List.of("parent_id"), List.of("id"), DatabaseMetaData.importedKeySetNull)
+                        .withEnforcement(false, true, null)),
+                List.of());
+        for (Boolean delete : new Boolean[] {true, false, null}) {
+            for (Boolean update : new Boolean[] {true, false, null}) {
+                DatabaseAdvisorContext context = postgresSetNullContext(
+                        child,
+                        List.of(new PostgresForeignKeyDetail("public", "child", "fk", false, true, delete, update)));
+                DatabaseAdvisorRuleResultDto result = new ForeignKeySetNullOnNotNullColumnRule().evaluate(context);
+                boolean active = Boolean.TRUE.equals(delete) || Boolean.TRUE.equals(update);
+                assertThat(result.status()).isEqualTo(active ? "VIOLATION" : "SKIPPED");
+                assertThat(context.evaluationDiagnostics())
+                        .hasSize((delete == null ? 1 : 0) + (update == null ? 1 : 0));
+                if (active) {
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    String text = result.sampleViolations().get(0);
+                    assertThat(text.contains("ON DELETE SET NULL")).isEqualTo(Boolean.TRUE.equals(delete));
+                    assertThat(text.contains("ON UPDATE SET NULL")).isEqualTo(Boolean.TRUE.equals(update));
+                    if (Boolean.FALSE.equals(delete)) {
+                        assertThat(text).doesNotContain("parent delete");
+                    }
+                    if (Boolean.FALSE.equals(update)) {
+                        assertThat(text).doesNotContain("parent update");
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void postgresSetNullMissingOrAmbiguousActionEvidenceCannotBecomeHealthyCoverageOrAnActiveFinding() {
+        TableModel child = table(
+                "child",
+                List.of(DatabaseAdvisorFixtures.notNullColumn("parent_id", "int4", Types.INTEGER)),
+                List.of(),
+                List.of(fk("FK", List.of("parent_id"), List.of("id"), DatabaseMetaData.importedKeySetNull)
+                        .withEnforcement(true, true, null)),
+                List.of());
+        PostgresForeignKeyDetail match = new PostgresForeignKeyDetail("public", "child", "FK", true, true, true, true);
+        for (List<PostgresForeignKeyDetail> rows : List.of(
+                List.<PostgresForeignKeyDetail>of(),
+                List.of(new PostgresForeignKeyDetail("other", "child", "FK", true, true, true, true)),
+                List.of(new PostgresForeignKeyDetail("public", "child", "fk", true, true, true, true)),
+                List.of(match, match))) {
+            DatabaseAdvisorContext context = postgresSetNullContext(child, rows);
+            DatabaseAdvisorRuleResultDto result = new ForeignKeySetNullOnNotNullColumnRule().evaluate(context);
+            assertThat(result.status()).isEqualTo("SKIPPED");
+            assertThat(result.violationCount()).isZero();
+            assertThat(context.evaluationDiagnostics())
+                    .hasSize(2)
+                    .allSatisfy(
+                            diagnostic -> assertThat(diagnostic.message()).contains("trigger activation is unknown"));
+        }
+    }
+
+    private static DatabaseAdvisorContext postgresSetNullContext(
+            TableModel table, List<PostgresForeignKeyDetail> details) {
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, details, false))
+                .build();
+        return context(schema("ds", Dialect.POSTGRESQL, List.of(table), findings));
     }
 
     private static ColumnModel declared(String typeName, int jdbcType, Integer size, Integer decimalDigits) {

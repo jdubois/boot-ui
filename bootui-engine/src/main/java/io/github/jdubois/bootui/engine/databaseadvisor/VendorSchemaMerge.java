@@ -265,31 +265,14 @@ final class VendorSchemaMerge {
     }
 
     private static TableModel enrichForeignKeys(TableModel table, Dialect dialect, VendorFindings findings) {
-        boolean unvalidatedReadComplete = findings.available(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)
-                && !findings.augmentation(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)
-                        .truncated();
         List<ForeignKeyModel> foreignKeys = new ArrayList<>();
         for (ForeignKeyModel foreignKey : table.foreignKeys()) {
             ForeignKeyModel enriched = foreignKey;
             if (dialect == Dialect.POSTGRESQL) {
-                List<PostgresUnvalidatedConstraint> matches =
-                        findings.findings(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS).stream()
-                                .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
-                                        && java.util.Objects.equals(table.name(), constraint.table())
-                                        && java.util.Objects.equals(foreignKey.name(), constraint.constraint())
-                                        && "f".equals(constraint.type()))
-                                .toList();
-                if (matches.size() == 1) {
-                    enriched = foreignKey.withEnforcement(matches.get(0).enforced(), false, foreignKey.matchType());
-                } else if (matches.isEmpty()
-                        && unvalidatedReadComplete
-                        && !blank(table.schema())
-                        && !blank(table.name())
-                        && !blank(foreignKey.name())) {
-                    // Absent from a complete convalidated = false read, so validated. Every foreign key is enforced
-                    // before PostgreSQL 18, and from 18 on a NOT ENFORCED constraint is always NOT VALID, so it
-                    // would have been listed.
-                    enriched = foreignKey.withEnforcement(true, true, foreignKey.matchType());
+                PostgresForeignKeyDetail detail = postgresForeignKeyDetail(table, foreignKey, findings);
+                if (detail != null) {
+                    enriched =
+                            foreignKey.withEnforcement(detail.enforced(), detail.validated(), foreignKey.matchType());
                 }
             } else if (dialect == Dialect.ORACLE) {
                 List<OracleConstraintDetail> matches = findings.findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
@@ -312,6 +295,20 @@ final class VendorSchemaMerge {
             foreignKeys.add(enriched);
         }
         return table.withForeignKeys(foreignKeys);
+    }
+
+    static PostgresForeignKeyDetail postgresForeignKeyDetail(
+            TableModel table, ForeignKeyModel foreignKey, VendorFindings findings) {
+        if (blank(table.schema()) || blank(table.name()) || blank(foreignKey.name())) {
+            return null;
+        }
+        List<PostgresForeignKeyDetail> matches =
+                findings.findings(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS).stream()
+                        .filter(detail -> java.util.Objects.equals(table.schema(), detail.schema())
+                                && java.util.Objects.equals(table.name(), detail.table())
+                                && java.util.Objects.equals(foreignKey.name(), detail.constraint()))
+                        .toList();
+        return matches.size() == 1 ? matches.get(0) : null;
     }
 
     private static List<TableModel> mergeMySql(List<TableModel> tables, Dialect dialect, VendorFindings findings) {
