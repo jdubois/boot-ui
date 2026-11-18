@@ -553,6 +553,10 @@ class VendorSchemaMergeTests {
                 new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", true, true, null, false, true))) {
             VendorFindings findings = VendorFindings.builder()
                     .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, List.of(detail), false))
+                    .add(VendorAugmentation.available(
+                            VendorFindingKinds.MYSQL_TABLES,
+                            List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                            false))
                     .build();
             IndexModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
                     .get(0)
@@ -560,6 +564,106 @@ class VendorSchemaMergeTests {
                     .get(0);
             assertThat(merged.uniquenessKnown()).isFalse();
             assertThat(merged.uniquenessCoverage(List.of("a"))).isEqualTo(IndexModel.UniquenessCoverage.UNKNOWN);
+        }
+    }
+
+    @Test
+    void mysqlComparisonRequiresEveryOrdinaryKeyFactRatherThanJdbcTypeOrAbsentFilter() {
+        IndexModel index = IndexModel.of("ix", List.of("a"), false);
+        TableModel table = TableModel.of("app", null, "t", List.of(), List.of(), List.of(), List.of(index));
+        MySqlIndexDetail positive =
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, true);
+        List<MySqlIndexDetail> definitions = List.of(
+                positive,
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, null, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, null, "BTREE", false, true, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", null, false, true, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, null, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, false),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", 10, "A", "BTREE", false, true, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, null, null, "A", "BTREE", false, true, null, null, true),
+                new MySqlIndexDetail(
+                        "app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, "lower(a)", false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, true, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "HASH", false, true, null, false, true),
+                new MySqlIndexDetail(
+                        "app", "t", "ix", 1, "different", null, "A", "BTREE", false, true, null, false, true));
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            for (MySqlIndexDetail detail : definitions) {
+                VendorFindings findings = VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_INDEX_DETAILS, List.of(detail), false))
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_TABLES,
+                                List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                                false))
+                        .build();
+                IndexModel merged = VendorSchemaMerge.merge(List.of(table), dialect, findings)
+                        .get(0)
+                        .indexes()
+                        .get(0);
+                assertThat(merged.comparisonComplete())
+                        .as("%s: %s", dialect, detail)
+                        .isEqualTo(detail == positive);
+                assertThat(merged.comparable()).as("%s: %s", dialect, detail).isEqualTo(detail == positive);
+                if (detail.column() != null && detail.column().equals("a") && detail.collation() == null) {
+                    assertThat(merged.supportsLeadingEquality(List.of("a"))).isTrue();
+                    assertThat(merged.uniquenessKnown()).isTrue();
+                }
+            }
+        }
+    }
+
+    @Test
+    void mysqlContradictoryJdbcDirectionCannotProveAnExactDuplicate() {
+        IndexModel index = new IndexModel(
+                "ix",
+                List.of(IndexKeyPart.column("a", false)),
+                false,
+                "btree",
+                null,
+                IndexModel.Visibility.UNKNOWN,
+                IndexModel.Validity.UNKNOWN);
+        TableModel table = TableModel.of("app", null, "t", List.of(), List.of(), List.of(), List.of(index));
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_INDEX_DETAILS,
+                        List.of(new MySqlIndexDetail(
+                                "app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, true)),
+                        false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                        false))
+                .build();
+        assertThat(VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
+                        .get(0)
+                        .indexes()
+                        .get(0)
+                        .comparable())
+                .isFalse();
+    }
+
+    @Test
+    void unknownOrUnmodelledStorageDoesNotPromoteComparisonOrEraseKnownAccessPaths() {
+        TableModel table = TableModel.of(
+                "app", null, "t", List.of(), List.of(), List.of(), List.of(IndexModel.of("ix", List.of("a"), false)));
+        for (List<MySqlTableInfo> definitions :
+                List.of(List.<MySqlTableInfo>of(), List.of(new MySqlTableInfo("app", "t", "MyISAM", null, null)))) {
+            VendorFindings findings = VendorFindings.builder()
+                    .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_TABLES, definitions, false))
+                    .add(VendorAugmentation.available(
+                            VendorFindingKinds.MYSQL_INDEX_DETAILS,
+                            List.of(new MySqlIndexDetail(
+                                    "app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, true)),
+                            false))
+                    .build();
+            IndexModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
+                    .get(0)
+                    .indexes()
+                    .get(0);
+            assertThat(merged.comparable()).isFalse();
+            assertThat(merged.supportsLeadingEquality(List.of("a"))).isTrue();
         }
     }
 
@@ -653,6 +757,10 @@ class VendorSchemaMergeTests {
                         true));
         VendorFindings findings = VendorFindings.builder()
                 .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, details, false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "users", "InnoDB", null, null)),
+                        false))
                 .build();
 
         TableModel merged =
@@ -661,7 +769,9 @@ class VendorSchemaMergeTests {
         assertThat(merged.metadata().primaryKeyEnforced()).isTrue();
         assertThat(merged.primaryKeyBackingIndex()).isNotNull();
         assertThat(merged.primaryKeyBackingIndex().name()).isEqualTo("PRIMARY");
-        assertThat(merged.indexes())
-                .allSatisfy(index -> assertThat(index.validity()).isEqualTo(IndexModel.Validity.VALID));
+        assertThat(merged.indexes()).allSatisfy(index -> {
+            assertThat(index.validity()).isEqualTo(IndexModel.Validity.VALID);
+            assertThat(index.comparable()).isTrue();
+        });
     }
 }

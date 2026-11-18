@@ -161,10 +161,25 @@ key order/direction, expressions, predicates, access method, collation/operator 
 ownership can make superficially similar indexes different. Unknown definitions do not prove equality.
 Review dependencies, hints and measured usage; BootUI does not assert that dropping an index is safe.
 Generic JDBC and vendor catalogs lacking the complete comparison evidence can therefore leave this check
-unevaluated. An index whose comparison semantics are not modelled — a PostgreSQL `hash` or GIN index, for
+unevaluated. PostgreSQL and fully observed ordinary InnoDB indexes on MySQL/MariaDB can establish
+comparison evidence; Oracle and generic JDBC do not yet support full comparison semantics.
+For MySQL/MariaDB, complete, consecutive
+`information_schema.statistics` key parts must agree with JDBC identity/keys and report uniqueness,
+full-value keys (`SUB_PART IS NULL`), direction (`A`/`D`), `BTREE` type and known visibility on a
+positively identified InnoDB table. Other storage engines' full comparison semantics are not modelled.
+Joined column metadata must positively identify non-generated columns. Functional/generated keys,
+prefix keys, unreadable ordering or visibility, and incomplete or contradictory groups are not promoted.
+An expression default (`DEFAULT_GENERATED`, such as a timestamp defaulting to `CURRENT_TIMESTAMP`)
+does not make the column a computed/generated key.
+The same physical columns supply their collation; key order and direction remain significant.
+MariaDB unique keys with two trailing temporal or unreadable column types stay unknown: older
+`STATISTICS` metadata cannot distinguish an ordinary unique key from `WITHOUT OVERLAPS`.
+An index whose comparison semantics are not modelled — a PostgreSQL `hash` or GIN index, for
 instance — is reported as unknown only when it could pair with another index on the same table: same key columns,
 and an access method that is equal, B-tree-like on both sides, or not reported. The unknown names that index rather
 than its table. A readable datasource can still produce a `PARTIAL` report when an applicable comparison is unknown.
+If some comparisons are known but others remain unknown, the rule stays `SKIPPED` unless it has a confirmed
+finding; confirmed findings remain `VIOLATION` with the missing coverage diagnosed separately.
 
 ### DB-SCHEMA-004 - Foreign key column type mismatch with the referenced column
 
@@ -190,6 +205,14 @@ Oracle reverse-key index) is excluded from the comparison rather than reported a
 exact duplicate of a proven backing index. A unique index whose semantics really are unreadable is reported once
 per index, naming the datasource, table and index. Oracle may use a **nonunique** index to enforce a PK/unique
 constraint.
+MySQL/MariaDB use the same complete ordinary-key evidence as DB-SCHEMA-003 and the catalog's unique
+`PRIMARY` identity linked to the JDBC-reported primary-key constraint; matching columns alone do not establish it.
+Full Oracle/generic-JDBC definition comparison remains unsupported.
+Complete known key columns that cannot match the primary-key backing index do not create an unknown-overlap warning;
+known ordinal divergence rules out exact overlap even for a shorter observed key. A short matching prefix,
+empty/blank key parts, unread inventories or incomplete backing columns remain unknown.
+Known non-overlaps do not turn other unread
+comparisons into a passing rule.
 Review full definitions and dependencies, never drop a guessed constraint backing index.
 
 ### DB-SCHEMA-006 - Potential duplicate foreign-key definitions

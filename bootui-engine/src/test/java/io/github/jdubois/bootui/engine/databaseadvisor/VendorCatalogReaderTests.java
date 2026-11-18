@@ -413,6 +413,58 @@ class VendorCatalogReaderTests {
     }
 
     @Test
+    void mysqlExpressionDefaultsAreOrdinaryColumnsRatherThanGeneratedKeyExpressions() throws Exception {
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        IndexModel.of("first", List.of("created"), false),
+                        IndexModel.of("second", List.of("created"), false)));
+        for (String extra : List.of(
+                "DEFAULT_GENERATED", "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                "STORED GENERATED", "VIRTUAL GENERATED")) {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (String name : List.of("first", "second")) {
+                rows.add(Map.of(
+                        "table_schema",
+                        "app",
+                        "table_name",
+                        "t",
+                        "index_name",
+                        name,
+                        "seq_in_index",
+                        1,
+                        "column_name",
+                        "created",
+                        "column_extra",
+                        extra,
+                        "collation",
+                        "A",
+                        "index_type",
+                        "BTREE",
+                        "non_unique",
+                        1,
+                        "is_visible",
+                        "YES"));
+            }
+            VendorFindings findings = mysqlIndexFindings(Dialect.MYSQL, rows, DatabaseAdvisorLimits.DEFAULTS);
+            boolean expressionDefault = extra.startsWith("DEFAULT_GENERATED");
+            assertThat(findings.findings(VendorFindingKinds.MYSQL_INDEX_DETAILS))
+                    .allSatisfy(detail ->
+                            assertThat(detail.generatedColumn()).as(extra).isEqualTo(!expressionDefault));
+            DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(DatabaseAdvisorFixtures.schema(
+                    "ds", Dialect.MYSQL, VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings), findings));
+            assertThat(new DuplicateIndexRule().evaluate(context).status())
+                    .as(extra)
+                    .isEqualTo(expressionDefault ? "VIOLATION" : "SKIPPED");
+        }
+    }
+
+    @Test
     void mysqlContradictoryUniquenessWithinAnIndexMakesTheWholeDefinitionUnknown() throws Exception {
         List<Map<String, Object>> rows = List.of(
                 Map.of(
@@ -465,6 +517,136 @@ class VendorCatalogReaderTests {
         assertThat(findings.build().findings(VendorFindingKinds.MYSQL_INDEX_DETAILS))
                 .hasSize(2)
                 .allSatisfy(row -> assertThat(row.definitionComplete()).isFalse());
+    }
+
+    @Test
+    void mysqlAndMariaDbCollectedRowsProveOnlyFullyReportedOrdinaryDuplicates() throws Exception {
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(IndexModel.of("first", List.of("a"), false), IndexModel.of("second", List.of("a"), false)));
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            for (String missing : List.of("", "column_extra", "collation", "index_type", "visibility", "non_unique")) {
+                List<Map<String, Object>> rows = new ArrayList<>();
+                String visibilityColumn = dialect == Dialect.MARIADB ? "index_ignored" : "is_visible";
+                for (String name : List.of("first", "second")) {
+                    Map<String, Object> row = new HashMap<>(Map.of(
+                            "table_schema",
+                            "app",
+                            "table_name",
+                            "t",
+                            "index_name",
+                            name,
+                            "seq_in_index",
+                            1,
+                            "column_name",
+                            "a",
+                            "column_extra",
+                            "",
+                            "collation",
+                            "A",
+                            "index_type",
+                            "BTREE",
+                            "non_unique",
+                            1,
+                            visibilityColumn,
+                            dialect == Dialect.MARIADB ? "NO" : "YES"));
+                    row.remove(missing.equals("visibility") ? visibilityColumn : missing);
+                    rows.add(row);
+                }
+                VendorFindings findings = mysqlIndexFindings(dialect, rows, DatabaseAdvisorLimits.DEFAULTS);
+                List<TableModel> merged = VendorSchemaMerge.merge(List.of(table), dialect, findings);
+                DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(
+                        DatabaseAdvisorFixtures.schema("ds", dialect, merged, findings));
+                DatabaseAdvisorRuleResultDto result = new DuplicateIndexRule().evaluate(context);
+                assertThat(result.status())
+                        .as("%s missing %s", dialect, missing)
+                        .isEqualTo(missing.isEmpty() ? "VIOLATION" : "SKIPPED");
+                if (!missing.isEmpty()) {
+                    assertThat(context.evaluationDiagnostics()).hasSize(2);
+                }
+                if (missing.equals("collation")) {
+                    TableModel child = merged.get(0)
+                            .withForeignKeys(List.of(
+                                    new ForeignKeyModel("fk", List.of("a"), "app", null, "parent", List.of("id"))));
+                    DatabaseAdvisorContext accessPaths = DatabaseAdvisorFixtures.context(
+                            DatabaseAdvisorFixtures.schema("ds", dialect, List.of(child)));
+                    assertThat(new MissingForeignKeyIndexRule()
+                                    .evaluate(accessPaths)
+                                    .status())
+                            .isEqualTo("PASS");
+                }
+            }
+        }
+    }
+
+    @Test
+    void mysqlTruncatedCatalogTailCannotTurnAnObservedKeyPrefixIntoACompleteIndex() throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String name : List.of("first", "second", "third")) {
+            rows.add(Map.of(
+                    "table_schema",
+                    "app",
+                    "table_name",
+                    "t",
+                    "index_name",
+                    name,
+                    "seq_in_index",
+                    1,
+                    "column_name",
+                    "a",
+                    "column_extra",
+                    "",
+                    "collation",
+                    "A",
+                    "index_type",
+                    "BTREE",
+                    "non_unique",
+                    1,
+                    "is_visible",
+                    "YES"));
+        }
+        DatabaseAdvisorLimits limits =
+                new DatabaseAdvisorLimits(300, 300, 100, 500, 2, Duration.ofSeconds(30), Duration.ofSeconds(5));
+        VendorFindings findings = mysqlIndexFindings(Dialect.MYSQL, rows, limits);
+        assertThat(findings.augmentation(VendorFindingKinds.MYSQL_INDEX_DETAILS).truncated())
+                .isTrue();
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(IndexModel.of("first", List.of("a"), false), IndexModel.of("second", List.of("a"), false)));
+        List<IndexModel> indexes = VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
+                .get(0)
+                .indexes();
+        assertThat(indexes.get(0).comparable()).isTrue();
+        assertThat(indexes.get(1).comparable()).isFalse();
+    }
+
+    private static VendorFindings mysqlIndexFindings(
+            Dialect dialect, List<Map<String, Object>> rows, DatabaseAdvisorLimits limits) throws Exception {
+        Connection connection = connection(
+                new ArrayList<>(),
+                new ArrayList<>(),
+                sql -> sql.contains("from information_schema.statistics")
+                        ? rows
+                        : sql.contains("from information_schema.tables t")
+                                ? List.of(Map.of("table_schema", "app", "table_name", "t", "engine", "InnoDB"))
+                                : List.of());
+        DatabaseVersion version = dialect == Dialect.MARIADB
+                ? new DatabaseVersion(11, 4, 0, "11.4.0")
+                : new DatabaseVersion(8, 4, 0, "8.4.0");
+        VendorFindings.Builder findings = VendorFindings.builder();
+        MySqlCatalogReader.read(
+                connection, dialect, DialectCapabilities.of(dialect, version), budget(), limits, findings);
+        return findings.build();
     }
 
     @Test

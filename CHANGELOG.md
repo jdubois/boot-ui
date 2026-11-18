@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Database index comparisons** use complete ordinary InnoDB catalog evidence on MySQL and MariaDB, retaining
+  unknown definitions and avoiding unrelated primary-key-overlap warnings. Newly assessed LOW findings use unchanged
+  severity and strict CI policies ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md)).
 - **Spring REST handler discovery** retains inherited and composed MVC/WebFlux mappings, concrete dispatch and
   independent inherited binding/status evidence without counting implemented interface blueprints twice. Newly
   observable findings use existing IDs, severities, dismissals and strict CI gates; unresolved mappings remain partial

@@ -75,6 +75,13 @@ class MariaDbDatabaseAdvisorLiveTests {
             statement.execute("create index ix_tickets_label on tickets (label)");
             statement.execute("alter table tickets alter index ix_tickets_label ignored");
             statement.execute("create table customer_seq (next_val bigint) engine = InnoDB");
+            statement.execute("create table index_comparison (id bigint not null primary key, "
+                    + "a varchar(64) not null, b varchar(64) not null, "
+                    + "generated_a varchar(64) as (upper(a)) stored, unique index uq_id (id), "
+                    + "index ix_ab (a, b), index ix_same (a, b), index ix_reordered (b, a), "
+                    + "index ix_desc (a, b desc), index ix_prefix (a(10), b), "
+                    + "index ix_generated (generated_a, b), index ix_ignored (a, b)) engine = InnoDB");
+            statement.execute("alter table index_comparison alter index ix_ignored ignored");
         }
     }
 
@@ -192,8 +199,128 @@ class MariaDbDatabaseAdvisorLiveTests {
     void reportsIgnoredIndexesFromTheLiveCatalog() {
         assertThat(finding(scan(), "DB-SCHEMA-010")).hasValueSatisfying(result -> {
             assertThat(result.status()).isEqualTo("VIOLATION");
-            assertThat(result.sampleViolations()).singleElement().asString().contains("ix_tickets_label", "is IGNORED");
+            assertThat(result.sampleViolations())
+                    .hasSize(2)
+                    .anySatisfy(detail -> assertThat(detail).contains("ix_tickets_label", "is IGNORED"));
         });
+    }
+
+    @Test
+    void comparesOnlyExactOrdinaryDefinitionsAndTheProvenPrimaryKeyBackingIndex() {
+        DatabaseAdvisorReport report = scan();
+        assertThat(finding(report, "DB-SCHEMA-003")).hasValueSatisfying(result -> {
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations())
+                    .singleElement()
+                    .asString()
+                    .contains("index_comparison", "ix_ab and ix_same")
+                    .doesNotContain("ix_reordered", "ix_desc", "ix_prefix", "ix_generated", "ix_ignored");
+        });
+        assertThat(finding(report, "DB-SCHEMA-005")).hasValueSatisfying(result -> {
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations())
+                    .singleElement()
+                    .asString()
+                    .contains("index_comparison", "uq_id", "PRIMARY");
+        });
+        assertThat(report.diagnostics())
+                .noneMatch(
+                        diagnostic -> List.of("DB-SCHEMA-003", "DB-SCHEMA-005").contains(diagnostic.source()));
+    }
+
+    @Test
+    void temporalUniqueAndUnsupportedStorageDefinitionsRemainUnknownOnTheRealCatalog() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            try {
+                statement.execute(
+                        "create table temporal_comparison (id bigint not null primary key, room int not null, "
+                                + "checkin date not null, checkout date not null, period for p (checkin, checkout), "
+                                + "unique index uq_no_overlap (room, p without overlaps), "
+                                + "unique index uq_plain (room, checkout, checkin)) engine = InnoDB");
+                statement.execute(
+                        "create table unsupported_comparison (id bigint not null primary key, a int not null, "
+                                + "index ix_first (a), index ix_same (a)) engine = MyISAM");
+                java.util.Map<String, List<String>> columns = new java.util.LinkedHashMap<>();
+                try (var rows = connection
+                        .getMetaData()
+                        .getIndexInfo(connection.getCatalog(), null, "temporal_comparison", false, true)) {
+                    while (rows.next()) {
+                        String name = rows.getString("INDEX_NAME");
+                        if ("uq_no_overlap".equals(name) || "uq_plain".equals(name)) {
+                            columns.computeIfAbsent(name, ignored -> new java.util.ArrayList<>())
+                                    .add(rows.getString("COLUMN_NAME"));
+                        }
+                    }
+                }
+                assertThat(columns).hasSize(2);
+                assertThat(columns.get("uq_no_overlap")).containsExactly("room", "checkout", "checkin");
+                assertThat(columns.get("uq_plain")).isEqualTo(columns.get("uq_no_overlap"));
+
+                DatabaseAdvisorReport report = scan();
+                assertThat(finding(report, "DB-SCHEMA-003"))
+                        .hasValueSatisfying(result -> assertThat(result.sampleViolations())
+                                .noneMatch(detail -> detail.contains("temporal_comparison")
+                                        || detail.contains("unsupported_comparison")));
+                assertThat(report.diagnostics())
+                        .anySatisfy(diagnostic -> assertThat(diagnostic.message())
+                                .contains("temporal_comparison", "uq_no_overlap", "incomplete or unsupported"))
+                        .anySatisfy(diagnostic -> assertThat(diagnostic.message())
+                                .contains("temporal_comparison", "uq_plain", "incomplete or unsupported"))
+                        .anySatisfy(diagnostic -> assertThat(diagnostic.message())
+                                .contains("unsupported_comparison", "ix_first", "incomplete or unsupported"));
+                assertThat(report.diagnostics())
+                        .noneMatch(diagnostic -> diagnostic.source().equals("DB-SCHEMA-005")
+                                && diagnostic.message().contains("temporal_comparison"));
+            } finally {
+                statement.execute("drop table if exists temporal_comparison");
+                statement.execute("drop table if exists unsupported_comparison");
+            }
+        }
+    }
+
+    @Test
+    void shortTemporalUniqueKeysDivergingFromCompositePrimaryKeyDoNotWarnAboutPrimaryKeyOverlap() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            try {
+                statement.execute("create table composite_temporal_comparison (tenant int not null, room int not null, "
+                        + "id bigint not null, checkin date not null, checkout date not null, "
+                        + "primary key (tenant, room, id), unique index uq_dates (checkin, checkout), "
+                        + "unique index uq_same_dates (checkin, checkout)) engine = InnoDB");
+                java.util.Map<String, List<String>> columns = new java.util.LinkedHashMap<>();
+                try (var rows = connection
+                        .getMetaData()
+                        .getIndexInfo(connection.getCatalog(), null, "composite_temporal_comparison", false, true)) {
+                    while (rows.next()) {
+                        columns.computeIfAbsent(rows.getString("INDEX_NAME"), ignored -> new java.util.ArrayList<>())
+                                .add(rows.getString("COLUMN_NAME"));
+                    }
+                }
+                assertThat(columns.get("PRIMARY")).containsExactly("tenant", "room", "id");
+                assertThat(columns.get("uq_dates")).containsExactly("checkin", "checkout");
+                assertThat(columns.get("uq_same_dates")).isEqualTo(columns.get("uq_dates"));
+
+                DatabaseAdvisorReport report = scan();
+                assertThat(report.dataSources())
+                        .singleElement()
+                        .satisfies(status -> assertThat(status.status())
+                                .as("%s", report.diagnostics())
+                                .isEqualTo("AVAILABLE"));
+                assertThat(report.diagnostics())
+                        .anySatisfy(diagnostic -> {
+                            assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-003");
+                            assertThat(diagnostic.message()).contains("composite_temporal_comparison", "uq_dates");
+                        })
+                        .noneMatch(diagnostic -> diagnostic.source().equals("DB-SCHEMA-005")
+                                && diagnostic.message().contains("composite_temporal_comparison"));
+                assertThat(finding(report, "DB-SCHEMA-005"))
+                        .hasValueSatisfying(result -> assertThat(result.sampleViolations())
+                                .noneMatch(detail -> detail.contains("composite_temporal_comparison")));
+            } finally {
+                statement.execute("drop table if exists composite_temporal_comparison");
+            }
+        }
     }
 
     @Test

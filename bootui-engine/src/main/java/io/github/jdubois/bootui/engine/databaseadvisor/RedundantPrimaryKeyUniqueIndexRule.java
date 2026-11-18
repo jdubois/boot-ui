@@ -11,7 +11,10 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                 "Unique index duplicating a proven primary-key backing index",
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.LOW,
-                "Requires actual constraint/index linkage and completely known equivalent ordinary-index definitions.",
+                "Requires actual constraint/index linkage and completely known equivalent ordinary-index definitions. "
+                        + "Uses PostgreSQL or fully observed ordinary InnoDB indexes on MySQL/MariaDB. "
+                        + "MariaDB unique keys with unresolved temporal semantics, other storage engines, "
+                        + "Oracle and generic JDBC remain unsupported for full comparison.",
                 "Review definitions, payload, constraint ownership and dependencies before considering removal. "
                         + "Matching primary-key columns alone is not evidence that an index is redundant.",
                 "https://use-the-index-luke.com/sql/dml"));
@@ -49,17 +52,14 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                                 && index.backingConstraint() == null
                                 && !index.automatic()
                                 && index.ordinaryComparisonCandidate()
-                                && !index.methodKnownUnsupported())
+                                && !index.methodKnownUnsupported()
+                                && couldDuplicatePrimaryKey(table, backing, index))
                         .toList();
                 if (candidates.isEmpty()) {
                     continue;
                 }
                 if (backing == null || !backing.comparable()) {
-                    long pkColumnCandidates = candidates.stream()
-                            .filter(index -> index.keyParts().isEmpty()
-                                    || index.columnNames().equals(table.primaryKeyColumns()))
-                            .count();
-                    if (pkColumnCandidates >= (backing == null ? 2 : 1)) {
+                    if (candidates.size() >= (backing == null ? 2 : 1)) {
                         unknown(
                                 context,
                                 schema.dataSourceName() + ": " + table.qualifiedName()
@@ -87,6 +87,22 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                 }
             }
         }
-        return assessed(context, eligible, details);
+        return VendorRuleSupport.assessed(this, context, eligible, details);
+    }
+
+    private static boolean couldDuplicatePrimaryKey(TableModel table, IndexModel backing, IndexModel index) {
+        List<String> backingColumns = backing == null ? table.primaryKeyColumns() : backing.columnNames();
+        if (!table.metadata().indexesRead()
+                || backingColumns.size() < table.primaryKeyColumns().size()
+                || backingColumns.stream().anyMatch(column -> column == null || column.isBlank())
+                || index.keyParts().isEmpty()
+                || index.keyParts().stream()
+                        .anyMatch(part ->
+                                part.columnName() == null || part.columnName().isBlank())) {
+            return true;
+        }
+        return index.keyParts().size() <= backingColumns.size()
+                && index.columnNames()
+                        .equals(backingColumns.subList(0, index.keyParts().size()));
     }
 }

@@ -29,7 +29,7 @@ final class VendorSchemaMerge {
             return mergePostgres(tables, findings);
         }
         if (dialect.isMySqlFamily()) {
-            return mergeMySql(tables, findings);
+            return mergeMySql(tables, dialect, findings);
         }
         if (dialect == Dialect.ORACLE) {
             return mergeOracle(tables, findings);
@@ -314,7 +314,7 @@ final class VendorSchemaMerge {
         return table.withForeignKeys(foreignKeys);
     }
 
-    private static List<TableModel> mergeMySql(List<TableModel> tables, VendorFindings findings) {
+    private static List<TableModel> mergeMySql(List<TableModel> tables, Dialect dialect, VendorFindings findings) {
         if (!findings.available(VendorFindingKinds.MYSQL_INDEX_DETAILS)) {
             return tables;
         }
@@ -326,6 +326,12 @@ final class VendorSchemaMerge {
         }
         List<TableModel> merged = new ArrayList<>();
         for (TableModel table : tables) {
+            String schema = table.schema() == null || table.schema().isBlank() ? table.catalog() : table.schema();
+            List<MySqlTableInfo> definitions = findings.findings(VendorFindingKinds.MYSQL_TABLES).stream()
+                    .filter(detail -> key(detail.schema(), detail.table()).equals(key(schema, table.name())))
+                    .toList();
+            boolean ordinaryStorage = definitions.size() == 1
+                    && "InnoDB".equalsIgnoreCase(definitions.get(0).engine());
             List<IndexModel> indexes = new ArrayList<>();
             for (IndexModel index : table.indexes()) {
                 List<MySqlIndexDetail> details = detailsByIndex.get(indexKey(table, index));
@@ -334,7 +340,7 @@ final class VendorSchemaMerge {
                                         || details.isEmpty()
                                         || details.size() != index.keyParts().size()
                                 ? index
-                                : enrich(table, index, details));
+                                : enrich(table, index, details, dialect, ordinaryStorage));
             }
             TableModel enriched = table.withIndexes(indexes);
             IndexModel backing = enriched.primaryKeyBackingIndex();
@@ -352,13 +358,19 @@ final class VendorSchemaMerge {
         return key(schema, table.name(), index.name());
     }
 
-    private static IndexModel enrich(TableModel table, IndexModel index, List<MySqlIndexDetail> details) {
+    private static IndexModel enrich(
+            TableModel table,
+            IndexModel index,
+            List<MySqlIndexDetail> details,
+            Dialect dialect,
+            boolean ordinaryStorage) {
         List<MySqlIndexDetail> ordered = new ArrayList<>(details);
         ordered.sort((left, right) -> Integer.compare(left.position(), right.position()));
         List<IndexKeyPart> keyParts = new ArrayList<>();
         Boolean visible = null;
         String indexType = null;
         int expected = 1;
+        boolean jdbcKeysAgree = true;
         for (MySqlIndexDetail detail : ordered) {
             if (detail.position() != expected++) {
                 return index;
@@ -369,14 +381,21 @@ final class VendorSchemaMerge {
             if (indexType == null) {
                 indexType = detail.indexType();
             }
-            if (detail.column() == null) {
+            if (blank(detail.column()) || !blank(detail.expression())) {
                 keyParts.add(IndexKeyPart.expression(detail.expression()));
+                jdbcKeysAgree = false;
                 continue;
             }
             Boolean ascending = "A".equalsIgnoreCase(detail.collation())
                     ? Boolean.TRUE
                     : "D".equalsIgnoreCase(detail.collation()) ? Boolean.FALSE : null;
             keyParts.add(new IndexKeyPart(detail.column(), null, ascending, detail.subPart(), null));
+            IndexKeyPart jdbcPart = index.keyParts().get(detail.position() - 1);
+            jdbcKeysAgree &= java.util.Objects.equals(jdbcPart.columnName(), detail.column())
+                    && !jdbcPart.isExpression()
+                    && !jdbcPart.isPrefix()
+                    && jdbcPart.collation() == null
+                    && (jdbcPart.ascending() == null || jdbcPart.ascending().equals(ascending));
         }
         if (keyParts.isEmpty()) {
             keyParts = index.keyParts();
@@ -390,6 +409,20 @@ final class VendorSchemaMerge {
         }
         boolean consistentMethod =
                 ordered.stream().allMatch(detail -> java.util.Objects.equals(detail.indexType(), first.indexType()));
+        boolean comparisonComplete = uniquenessKnown
+                && ordinaryStorage
+                && jdbcKeysAgree
+                && consistentMethod
+                && "BTREE".equalsIgnoreCase(indexType)
+                && visible != null
+                && (dialect != Dialect.MARIADB || !first.unique() || mariaDbOverlapRuledOut(table, keyParts))
+                && ordered.stream()
+                        .allMatch(detail -> !blank(detail.column())
+                                && blank(detail.expression())
+                                && Boolean.FALSE.equals(detail.generatedColumn())
+                                && detail.subPart() == null
+                                && ("A".equalsIgnoreCase(detail.collation())
+                                        || "D".equalsIgnoreCase(detail.collation())));
         IndexModel.Visibility visibility = visible == null
                 ? IndexModel.Visibility.UNKNOWN
                 : (visible ? IndexModel.Visibility.VISIBLE : IndexModel.Visibility.INVISIBLE);
@@ -417,11 +450,44 @@ final class VendorSchemaMerge {
                 index.nullsNotDistinct(),
                 index.automatic(),
                 index.partitioned(),
-                index.specialized() || ordered.stream().anyMatch(MySqlIndexDetail::generatedColumn),
+                index.specialized()
+                        || ordered.stream().anyMatch(detail -> Boolean.TRUE.equals(detail.generatedColumn())),
                 index.includedColumns(),
-                false,
+                comparisonComplete,
                 uniquenessKnown,
                 backingConstraint);
+    }
+
+    private static boolean mariaDbOverlapRuledOut(TableModel table, List<IndexKeyPart> parts) {
+        if (parts.size() < 2) {
+            return true;
+        }
+        // WITHOUT OVERLAPS expands to two trailing temporal columns, indistinguishable from an ordinary
+        // unique key in STATISTICS before MariaDB 13. A known non-temporal column rules that shape out.
+        return parts.subList(parts.size() - 2, parts.size()).stream().anyMatch(part -> {
+            ColumnModel column = table.column(part.columnName());
+            return column != null
+                    && switch (column.jdbcType()) {
+                        case java.sql.Types.BIT,
+                                java.sql.Types.BOOLEAN,
+                                java.sql.Types.TINYINT,
+                                java.sql.Types.SMALLINT,
+                                java.sql.Types.INTEGER,
+                                java.sql.Types.BIGINT,
+                                java.sql.Types.REAL,
+                                java.sql.Types.FLOAT,
+                                java.sql.Types.DOUBLE,
+                                java.sql.Types.NUMERIC,
+                                java.sql.Types.DECIMAL,
+                                java.sql.Types.CHAR,
+                                java.sql.Types.VARCHAR,
+                                java.sql.Types.LONGVARCHAR,
+                                java.sql.Types.BINARY,
+                                java.sql.Types.VARBINARY,
+                                java.sql.Types.LONGVARBINARY -> true;
+                        default -> false;
+                    };
+        });
     }
 
     private record ObjectKey(String schema, String table, String index) {}
