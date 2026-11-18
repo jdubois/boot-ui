@@ -225,7 +225,9 @@ final class MemoryKubernetesSizer {
             warnings.add(healthProbeManifest.deploymentWarning());
         }
         warnings.add(
-                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. Verify container support and the generated limit; existing -Xmx, -Xms, or RAM-sizing overrides can change the result.");
+                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. The percentages assume the selected memory limit: recalculate and replace the snippet whenever that limit changes. Verify container support; existing -Xmx, -Xms, or RAM-sizing overrides can change the result.");
+        warnings.add(
+                "Image launchers such as Paketo Java buildpacks' memory calculator and Red Hat UBI OpenJDK run-java.sh can add heap flags. Review the final merged JVM command and environment; using Spring Boot or Quarkus alone does not imply either launcher.");
         warnings.add(
                 "Generated heap values are requests: collector and platform alignment can raise the effective heap. Model validity checks generic flag constraints, not JVM startup or workload sufficiency; verify effective settings on the target JVM.");
         warnings.add(

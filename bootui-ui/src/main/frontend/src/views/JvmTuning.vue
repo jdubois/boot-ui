@@ -83,6 +83,10 @@ function formatPercentage(value) {
     .toFixed(3)
     .replace(/\.?0+$/, '')}%`
 }
+
+function formatMiB(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(3).replace(/\.?0+$/, '')} MiB`
+}
 </script>
 
 <template>
@@ -292,10 +296,9 @@ function formatPercentage(value) {
             Uses the calculator total as the hard Kubernetes memory limit. By default, the generated manifest sets
             <code>requests.memory == limits.memory</code>; Kubernetes only assigns Guaranteed QoS when every container
             also has equal, non-zero CPU request and limit. The Burstable toggle changes only the memory request and can
-            refuse an infeasible floor. HotSpot uses <code>MaxRAMPercentage</code>/<code>MinRAMPercentage</code>/<code
-              >InitialRAMPercentage</code
-            >
-            instead of fixed <code>-Xmx</code>/<code>-Xms</code>.
+            refuse an infeasible floor. The snippet requests heap sizing through
+            <code>MaxRAMPercentage</code>/<code>MinRAMPercentage</code>/<code>InitialRAMPercentage</code> instead of
+            fixed <code>-Xmx</code>/<code>-Xms</code>.
           </p>
 
           <div class="row g-3 mb-3">
@@ -383,7 +386,16 @@ function formatPercentage(value) {
                 <div class="fs-5 fw-semibold">
                   {{ kubernetesRecommendationAvailable ? formatPercentage(data.kubernetes.maxRamPercentage) : '—' }}
                 </div>
-                <div v-if="kubernetesRecommendationAvailable" class="text-muted small">Max/Min RAM percentage</div>
+                <template v-if="kubernetesRecommendationAvailable">
+                  <div class="text-muted small">Max/Min RAM percentage</div>
+                  <div class="text-muted small">
+                    Initial RAM percentage: {{ formatPercentage(data.kubernetes.initialRamPercentage) }}
+                  </div>
+                  <div v-if="data.calculation?.valid" class="small mt-2 kubernetes-heap-model">
+                    <strong>MODEL: {{ formatMiB(data.calculation.heapBytes) }} heap</strong>
+                    <div>Assumes {{ formatMiB(data.kubernetes.limitMemoryBytes) }} memory limit</div>
+                  </div>
+                </template>
                 <div v-else class="text-muted small">No heap percentage generated</div>
               </div>
             </div>
@@ -407,6 +419,12 @@ function formatPercentage(value) {
               </div>
             </div>
           </div>
+
+          <p v-if="kubernetesRecommendationAvailable" class="small text-muted kubernetes-heap-guidance">
+            Recalculate and replace the snippet whenever the memory limit changes. This MODEL is not actual JVM
+            <code>-Xmx</code> or a peak-workload guarantee: JVM alignment/rounding and merged launcher flags can change
+            the effective heap. Verify the final JVM settings in your target image.
+          </p>
 
           <div class="d-flex justify-content-between align-items-center mb-2">
             <div class="small fw-semibold">Deployment snippet</div>

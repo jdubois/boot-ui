@@ -474,6 +474,31 @@ class MemoryKubernetesSizerTests {
     }
 
     @Test
+    void percentagesFollowTheSelectedLimitRatherThanDetectedLimitOrBurstableRequest() {
+        for (HealthProbeManifest manifest :
+                new HealthProbeManifest[] {HealthProbeManifest.SPRING_ACTUATOR, HealthProbeManifest.QUARKUS_SMALLRYE}) {
+            for (int limitMiB : new int[] {400, 800}) {
+                MemoryCalculationDto calculation = calculator.calculate(limitMiB * MB, 5, 0, 0, 5, 0);
+                KubernetesMemoryRecommendationDto recommendation =
+                        recommend(calculation, 64 * MB, 64 * MB, 0, false, 1024 * MB, 64 * MB, true, false, manifest);
+                String percentage = limitMiB == 400 ? "32" : "66";
+
+                assertThat(calculation.valid()).isTrue();
+                assertThat(calculation.heapBytes()).isEqualTo((limitMiB - 272) * MB);
+                assertThat(recommendation.limitMemoryBytes()).isEqualTo(limitMiB * MB);
+                assertThat(recommendation.detectedContainerLimitBytes()).isEqualTo(1024 * MB);
+                assertThat(recommendation.requestMemoryBytes()).isEqualTo((limitMiB == 400 ? 192 : 640) * MB);
+                assertThat(recommendation.javaToolOptions())
+                        .isEqualTo("-XX:MaxRAMPercentage=" + percentage
+                                + " -XX:MinRAMPercentage=" + percentage
+                                + " -XX:InitialRAMPercentage=" + percentage
+                                + " -XX:MaxMetaspaceSize=17m -XX:ReservedCodeCacheSize=240m -Xss1024k");
+                assertThat(recommendation.yaml()).contains("memory: \"" + limitMiB + "Mi\"");
+            }
+        }
+    }
+
+    @Test
     void mebibyteFormattingPreservesBoundariesWithoutOverflow() {
         assertThat(MemoryKubernetesSizer.formatMi(-1)).isEqualTo("0Mi");
         assertThat(MemoryKubernetesSizer.formatMi(0)).isEqualTo("0Mi");
@@ -485,13 +510,29 @@ class MemoryKubernetesSizerTests {
     @Test
     void notesDistinguishRequestedSettingsFromEffectiveHeapAndDeploymentLimits() {
         MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
-        KubernetesMemoryRecommendationDto recommendation = recommend(
-                calculation, 64 * MB, 64 * MB, 0, false, null, null, false, false, HealthProbeManifest.SPRING_ACTUATOR);
+        for (HealthProbeManifest manifest :
+                new HealthProbeManifest[] {HealthProbeManifest.SPRING_ACTUATOR, HealthProbeManifest.QUARKUS_SMALLRYE}) {
+            KubernetesMemoryRecommendationDto recommendation =
+                    recommend(calculation, 64 * MB, 64 * MB, 0, false, null, null, false, false, manifest);
 
-        assertThat(recommendation.warnings())
-                .anySatisfy(warning -> assertThat(warning).contains("alignment", "startup"))
-                .anySatisfy(warning -> assertThat(warning).contains("JVM-visible", "-Xmx", "-Xms"))
-                .anySatisfy(warning -> assertThat(warning).contains("total process"));
+            assertThat(recommendation.warnings())
+                    .contains(manifest.probesOmittedWarning())
+                    .anySatisfy(warning -> assertThat(warning).contains("alignment", "startup"))
+                    .anySatisfy(warning -> assertThat(warning)
+                            .contains(
+                                    "JVM-visible",
+                                    "-Xmx",
+                                    "-Xms",
+                                    "assume the selected memory limit",
+                                    "recalculate and replace the snippet"))
+                    .anySatisfy(warning -> assertThat(warning)
+                            .contains(
+                                    "such as Paketo Java buildpacks' memory calculator",
+                                    "Red Hat UBI OpenJDK run-java.sh",
+                                    "final merged JVM command and environment",
+                                    "using Spring Boot or Quarkus alone does not imply either launcher"))
+                    .anySatisfy(warning -> assertThat(warning).contains("total process"));
+        }
     }
 
     @Test

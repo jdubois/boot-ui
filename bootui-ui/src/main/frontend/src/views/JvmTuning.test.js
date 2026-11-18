@@ -15,7 +15,7 @@ function memoryReport({
 } = {}) {
   const requestMemory = kubernetesBurstableEnabled ? '768Mi' : '1024Mi'
   const qosClass = kubernetesBurstableEnabled ? 'Burstable' : 'Depends on CPU'
-  const javaToolOptions = '-XX:MaxRAMPercentage=62.5 -XX:MinRAMPercentage=62.5 -XX:InitialRAMPercentage=62.5'
+  const javaToolOptions = '-XX:MaxRAMPercentage=50 -XX:MinRAMPercentage=50 -XX:InitialRAMPercentage=50'
   const probeYaml = kubernetesActuatorEnabled
     ? '\n' +
       '  - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED\n' +
@@ -82,8 +82,8 @@ function memoryReport({
         '    value: >-\n' +
         `      ${javaToolOptions}` +
         probeYaml,
-      maxRamPercentage: 62.5,
-      initialRamPercentage: 62.5,
+      maxRamPercentage: 50,
+      initialRamPercentage: 50,
       javaToolOptions,
       burstableEnabled: kubernetesBurstableEnabled,
       healthProbesEnabled: kubernetesActuatorEnabled
@@ -153,10 +153,17 @@ describe('JvmTuning', () => {
       .map((node) => node.text())
       .join('\n')
     expect(optionsText).toContain('JAVA_TOOL_OPTIONS')
-    expect(optionsText).toContain('MaxRAMPercentage=62.5')
-    expect(optionsText).toContain('MinRAMPercentage=62.5')
+    expect(optionsText).toContain('MaxRAMPercentage=50')
+    expect(optionsText).toContain('MinRAMPercentage=50')
     expect(optionsText).not.toContain('spring.threads.virtual.enabled=true')
-    expect(renderedText).toContain('62.5%')
+    expect(renderedText).toContain('50%')
+    expect(wrapper.get('.kubernetes-heap-model').text()).toContain('MODEL: 512 MiB heap')
+    expect(wrapper.get('.kubernetes-heap-model').text()).toContain('Assumes 1024 MiB memory limit')
+    expect(renderedText).toContain('Initial RAM percentage: 50%')
+    const heapGuidance = wrapper.get('.kubernetes-heap-guidance').text()
+    expect(heapGuidance).toContain('Recalculate and replace the snippet whenever the memory limit changes')
+    expect(heapGuidance).toContain('not actual JVM -Xmx or a peak-workload guarantee')
+    expect(heapGuidance).toContain('JVM alignment/rounding and merged launcher flags')
     expect(optionsText).toContain('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
     expect(wrapper.html()).not.toContain('value: &quot;-Xms512m')
     expect(wrapper.find('#virtualThreadsEnabled').exists()).toBe(false)
@@ -193,13 +200,85 @@ describe('JvmTuning', () => {
 
   it('preserves sub-percent heap precision', async () => {
     const report = memoryReport()
+    report.calculation.heapBytes = 8 * MB
     report.kubernetes.maxRamPercentage = 0.781
+    report.kubernetes.initialRamPercentage = 0.5
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
 
     wrapper = mount(JvmTuning)
     await flushPromises()
 
     expect(wrapper.text()).toContain('0.781%')
+    expect(wrapper.text()).toContain('Initial RAM percentage: 0.5%')
+    expect(wrapper.get('.kubernetes-heap-model').text()).toContain('MODEL: 8 MiB heap')
+  })
+
+  it.each(['spring.threads.virtual.enabled', null])(
+    'updates MODEL context from the returned calculation and limit, not the detected limit or pending edit (%s)',
+    async (virtualThreadsProperty) => {
+      const report = memoryReport({virtualThreadsProperty})
+      report.jvmInputArguments = ['-Xms256m', '-Xmx256m']
+      const changed = memoryReport({virtualThreadsProperty})
+      changed.jvmInputArguments = report.jvmInputArguments
+      changed.calculation = {...changed.calculation, totalMemoryBytes: 2048 * MB, heapBytes: 1536.5 * MB}
+      const javaToolOptions = '-XX:MaxRAMPercentage=75.024 -XX:MinRAMPercentage=75.024 -XX:InitialRAMPercentage=75.024'
+      changed.kubernetes = {
+        ...changed.kubernetes,
+        requestMemoryBytes: 2048 * MB,
+        requestMemory: '2048Mi',
+        limitMemoryBytes: 2048 * MB,
+        limitMemory: '2048Mi',
+        maxRamPercentage: 75.024,
+        initialRamPercentage: 75.024,
+        javaToolOptions,
+        yaml: `resources:\n  requests:\n    memory: "2048Mi"\n  limits:\n    memory: "2048Mi"\nenv:\n  - name: JAVA_TOOL_OPTIONS\n    value: >-\n      ${javaToolOptions}`
+      }
+      const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(report)).mockResolvedValue(jsonResponse(changed))
+      vi.stubGlobal('fetch', fetchMock)
+
+      wrapper = mount(JvmTuning)
+      await flushPromises()
+      await wrapper.get('#jvm-target-memory').setValue('2048')
+      expect(wrapper.get('.kubernetes-heap-model').text()).toContain('Assumes 1024 MiB memory limit')
+
+      vi.advanceTimersByTime(300)
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        'api/jvm-tuning?kubernetesBurstableEnabled=false&kubernetesActuatorEnabled=true&totalMemoryMb=2048'
+      )
+      expect(wrapper.get('.kubernetes-heap-model').text()).toContain('MODEL: 1536.5 MiB heap')
+      expect(wrapper.get('.kubernetes-heap-model').text()).toContain('Assumes 2048 MiB memory limit')
+      expect(wrapper.get('.kubernetes-heap-model').text()).not.toContain('1024')
+      expect(wrapper.text()).toContain('75.024%')
+      expect(wrapper.text()).toContain('Initial RAM percentage: 75.024%')
+      expect(wrapper.text()).toContain('Detected cgroup memory limit: 1024Mi')
+      expect(wrapper.text()).toContain('-Xmx256m')
+      expect(wrapper.get('.kubernetes-heap-guidance').text()).toContain('merged launcher flags')
+      const kubernetesCard = wrapper.findAll('.card').find((card) => card.text().includes('Kubernetes calculator'))
+      expect(kubernetesCard.get('.options-box code').text()).toBe(changed.kubernetes.yaml)
+    }
+  )
+
+  it('shows the modeled minimum heap without promoting it to an effective JVM guarantee', async () => {
+    const report = memoryReport()
+    report.calculation = {...report.calculation, totalMemoryBytes: 400 * MB, heapBytes: 2 * MB}
+    report.kubernetes = {
+      ...report.kubernetes,
+      limitMemoryBytes: 400 * MB,
+      limitMemory: '400Mi',
+      maxRamPercentage: 0.5,
+      initialRamPercentage: 0.5
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+
+    expect(wrapper.get('.kubernetes-heap-model').text()).toContain('MODEL: 2 MiB heap')
+    expect(wrapper.get('.kubernetes-heap-model').text()).toContain('Assumes 400 MiB memory limit')
+    expect(wrapper.text()).toContain('0.5%')
+    expect(wrapper.get('.kubernetes-heap-guidance').text()).toContain('not actual JVM -Xmx')
   })
 
   it('hides the virtual-threads advisory when no app-wide switch exists (Quarkus)', async () => {
@@ -286,6 +365,8 @@ describe('JvmTuning', () => {
     expect(kubernetesCard.text()).toContain('No memory request generated')
     expect(kubernetesCard.text()).toContain('No heap percentage generated')
     expect(kubernetesCard.text()).toContain('No QoS recommendation')
+    expect(kubernetesCard.find('.kubernetes-heap-model').exists()).toBe(false)
+    expect(kubernetesCard.find('.kubernetes-heap-guidance').exists()).toBe(false)
     for (const claim of [
       'Burstable scheduling request',
       'Memory request equals limit',
@@ -366,6 +447,8 @@ describe('JvmTuning', () => {
       expect(kubernetesCard.text()).toContain('No memory request generated')
       expect(kubernetesCard.text()).toContain('No heap percentage generated')
       expect(kubernetesCard.text()).toContain('No QoS recommendation')
+      expect(kubernetesCard.find('.kubernetes-heap-model').exists()).toBe(false)
+      expect(kubernetesCard.find('.kubernetes-heap-guidance').exists()).toBe(false)
       for (const claim of [
         'Burstable scheduling request',
         'Memory request equals limit',

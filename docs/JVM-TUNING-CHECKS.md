@@ -24,6 +24,7 @@ and Quarkus 3.33; this is not an execution matrix for every JVM vendor, update, 
 | [JDK 26 G1 alignment](https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/gc/g1/g1Arguments.cpp#L43-L61) and [card-table constraint](https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/gc/shared/cardTable.cpp#L221-L224) | Effective heap can exceed a floored option literal. Alignment depends on collector, region size, OS/card/page settings; 8 MiB is not a universal alignment. |
 | [JDK 26 argument ergonomics](https://github.com/openjdk/jdk/blob/jdk-26-ga/src/hotspot/share/runtime/arguments.cpp) | Percentage sizing depends on JVM-visible RAM and existing flags. `MaxRAM` is deprecated in JDK 26 and is a sizing input, not a process-memory cap. JDK 26 changes the default `InitialRAMPercentage` to 0.0; this calculator supplies an explicit value. |
 | [Paketo Java memory calculator reference](https://paketo.io/docs/reference/java-reference/#memory-calculator), [pinned `libjvm` calculator](https://github.com/paketo-buildpacks/libjvm/blob/83e37180564a488c514ce039217dde75b8fcfa39/calc/calculator.go), and [launch helper](https://github.com/paketo-buildpacks/libjvm/blob/83e37180564a488c514ce039217dde75b8fcfa39/helper/memory_calculator.go) | Supplies the partition formula and the 10 MiB direct-memory, 240 MiB code-cache, 1 MiB stack, and 250-thread modeling defaults. Paketo's headroom default is 0%, not BootUI's 10%; upstream calculation does not establish portable minimum heaps or comprehensive overflow validation. |
+| [Paketo launch-time memory flags](https://paketo.io/docs/reference/java-reference/#memory-calculator), [Quarkus quickstart Dockerfile](https://github.com/quarkusio/quarkus-quickstarts/blob/main/getting-started/src/main/docker/Dockerfile.jvm), and [Red Hat UBI OpenJDK image configuration](https://rh-openjdk.github.io/redhat-openjdk-containers/ubi9-openjdk-containers-1.24/ubi9-openjdk-21.html) | Paketo appends calculated flags including `-Xmx` to `JAVA_TOOL_OPTIONS`. The Quarkus quickstart uses UBI OpenJDK's `run-java.sh`, which can generate heap flags; exact flags and controls depend on the image version. Neither launcher is implied by the application framework. |
 | [`ClassLoadingMXBean`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/ClassLoadingMXBean.html) and [`BufferPoolMXBean`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/BufferPoolMXBean.html) | Provide observable current loaded-class count and estimated direct-buffer memory usage. Both are snapshots, not peak forecasts. |
 | [`MemoryMXBean.getHeapMemoryUsage()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryMXBean.html#getHeapMemoryUsage()) and [`MemoryUsage.getUsed()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryUsage.html#getUsed()) | Supply the observed heap-used lower bound. Reading usage does not request GC; this is not a live-after-GC measurement and can include reclaimable objects. |
 | [`MemoryMXBean.getNonHeapMemoryUsage()`](https://docs.oracle.com/en/java/javase/17/docs/api/java.management/java/lang/management/MemoryMXBean.html#getNonHeapMemoryUsage()) | Used and committed aggregate all non-heap pools. Raw pool accounting can overlap; BootUI retains this conservative aggregate rather than deduplicating it. |
@@ -135,12 +136,28 @@ The heap percentage is the modeled heap divided by the selected whole-MiB memory
 places using bounded integer arithmetic. There is no universal 75% cap: fixed regions and selected headroom have
 already been subtracted.
 
+The panel shows Max/Min and Initial percentages alongside **MODEL** heap MiB and the selected limit MiB, reusing
+`calculation.heapBytes` and `kubernetes.limitMemoryBytes` rather than recalculating a heap from the rounded percentage.
+MiB display rounds to three decimal places; the exact modeled bytes and floored option percentages are unchanged.
+This is the partition model, not actual JVM `-Xmx` or a peak-workload guarantee. **Recalculate and replace the snippet
+whenever the memory limit changes**: the non-heap reservations mean reusing a percentage at a different limit does
+not preserve the model.
+
 These are **requested settings**, not measured effective JVM settings. HotSpot can round heap sizes upward for
 collector/platform alignment even when the option literal rounds down. Percentage flags use JVM-visible RAM or an
 existing sizing override, which can differ from the chosen budget if container support or deployment settings differ.
 Explicit `-Xmx`/`-Xms` settings and other startup configuration can supersede generated environment options.
 `InitialRAMPercentage` also does not establish the same minimum-heap contract as `-Xms`. Check effective settings on
 the target JVM; neither these flags nor model validity enforce a total process-memory limit.
+
+Review the final merged JVM command and environment in the target image. For example, Paketo Java buildpacks'
+memory calculator can append `-Xmx` to `JAVA_TOOL_OPTIONS`; Red Hat UBI OpenJDK's `run-java.sh`, used by the Quarkus
+quickstart Dockerfile, can generate heap flags too. The quickstart's comments and current image documentation differ
+on the precise flags/defaults, so check the chosen image version rather than assuming a universal launcher policy.
+Spring Boot or Quarkus alone does not imply either launcher. This repository's root `Dockerfile` and
+`Dockerfile-webflux` instead invoke Java directly with explicit `-Xms`/`-Xmx` in `JAVA_TOOL_OPTIONS`;
+`Dockerfile-quarkus` runs Maven dev mode with an explicit `-Xmx` in that environment variable. Those sample settings
+also need reconciliation with copied percentages; BootUI does not merge or remove them automatically.
 
 ## Kubernetes behavior
 

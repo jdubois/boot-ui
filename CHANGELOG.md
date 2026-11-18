@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **JVM percentage context** shows the modeled heap and assumed memory limit beside the emitted percentages, with
+  recalculation and image-launcher guidance rather than an effective-heap guarantee
+  ([JVM tuning](docs/JVM-TUNING-CHECKS.md#memory-model)).
 - **Heap-content reviews** use bounded absolute/share thresholds and avoid attributing the same reported collection
   row to two checks. Missing histogram totals remain unassessed beside retained known observations
   ([Memory checks](docs/MEMORY-CHECKS.md)).
