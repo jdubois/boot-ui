@@ -1600,8 +1600,9 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                         "Application classes should not depend on test frameworks",
                         ArchitectureCategory.CODING_PRACTICES,
                         "MEDIUM",
-                        "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito,"
-                                + " AssertJ, Hamcrest, Testcontainers, Spring Test, Quarkus's @QuarkusTest, or RestAssured."
+                        "Detects dependencies from application classes to common test-only APIs such as JUnit, TestNG,"
+                                + " Mockito, MockK, AssertJ, Hamcrest, Spring Test and Mock, Spring Security Test,"
+                                + " Spring Boot Test, Reactor Test, Testcontainers, Quarkus's @QuarkusTest, or RestAssured."
                                 + " Classes compiled into a local test output directory (target/test-classes,"
                                 + " build/classes/*/test), which are on the classpath when the application runs from its tests,"
                                 + " are not judged.",
@@ -1629,6 +1630,11 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                         "org.hamcrest..",
                         "org.springframework.boot.test..",
                         "org.springframework.test..",
+                        "org.springframework.mock..",
+                        "org.springframework.security.test..",
+                        "reactor.test..",
+                        "org.testng..",
+                        "io.mockk..",
                         "org.testcontainers..",
                         "io.quarkus.test..",
                         "io.restassured..");

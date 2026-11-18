@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **ARCH-CODE-013 test-library detection** also flags production references to Spring Mock, Spring Security Test,
+  Reactor Test, TestNG and MockK. New MEDIUM findings use unchanged scoring and CI severity policies
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-013---application-classes-should-not-depend-on-test-frameworks)).
 - **Dependency risk labels** keep unassessed evidence neutral instead of showing green `NONE`; completed packages
   and known finding severities retain their meaning ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
 - **Servlet method-inventory evidence** uses the application class loader and distinguishes observed singletons,

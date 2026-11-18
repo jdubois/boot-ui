@@ -450,8 +450,9 @@ ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
 ### ARCH-CODE-013 - Application classes should not depend on test frameworks
 
 - **Severity**: MEDIUM
-- **Inspects**: dependencies on common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Spring Test, Spring Boot
-  Test, Testcontainers, Quarkus's `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
+- **Inspects**: dependencies on common test-only APIs such as JUnit, TestNG, Mockito, MockK, AssertJ, Hamcrest,
+  Spring Test and Mock, Spring Security Test, Spring Boot Test, Reactor Test, Testcontainers, Quarkus's
+  `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
 - **Fires when**: an application class references a test framework type. Classes whose class file sits in a local test
   output directory (`target/test-classes`, `build/classes/java/test`, or `build/classes/kotlin/test`) are not judged:
   they are on the classpath when the application runs from its tests, as with `spring-boot:test-run` or Gradle's
