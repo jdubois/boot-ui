@@ -1252,9 +1252,9 @@ class HibernateAdvisorObservationTests {
 
         for (HibernateRule rule :
                 List.of(new CollectionJoinFetchPageableRule(), new MultipleCollectionJoinFetchRule())) {
-            rule.evaluate(context);
+            assertThat(rule.evaluate(context).violationCount()).isZero();
         }
-        assertThat(context.evidence().requiredUnknown()).as(query).isTrue();
+        assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
     }
 
     @Test

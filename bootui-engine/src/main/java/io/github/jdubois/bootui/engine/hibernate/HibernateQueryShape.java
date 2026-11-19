@@ -49,11 +49,15 @@ final class HibernateQueryShape {
                 if (!closed) return null;
             } else if (c == '-' && i + 1 < query.length() && query.charAt(i + 1) == '-') {
                 if (!lineComments) return null;
-                if (i == 0
-                        || !isHqlOperandEnd(query.charAt(i - 1))
-                        || i + 2 >= query.length()
-                        || !isHqlUnaryStart(query.charAt(i + 2))) return null;
-                result.append(c);
+                if (i > 0
+                        && isHqlOperandEnd(query.charAt(i - 1))
+                        && i + 2 < query.length()
+                        && isHqlUnaryStart(query.charAt(i + 2))) {
+                    result.append(c);
+                } else {
+                    while (i + 1 < query.length() && query.charAt(i + 1) != '\n') i++;
+                    result.append(' ');
+                }
             } else if (c == '/' && i + 1 < query.length() && query.charAt(i + 1) == '*') {
                 int end = query.indexOf("*/", i + 2);
                 if (end < 0) return null;

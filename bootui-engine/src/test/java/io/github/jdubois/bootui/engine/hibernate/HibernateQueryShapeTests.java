@@ -109,7 +109,7 @@ class HibernateQueryShapeTests {
     @Test
     void commentLikeDoubleMinusTextIsNotParsedAsAnOperatorSequence() {
         assertThat(HibernateQueryShape.lexical("select o from QueryOrder o -- join fetch o.items"))
-                .isNull();
+                .doesNotContain("join fetch");
         assertThat(HibernateQueryShape.lexical("select o from QueryOrder o where o.id = 1--1"))
                 .contains("1--1");
     }
