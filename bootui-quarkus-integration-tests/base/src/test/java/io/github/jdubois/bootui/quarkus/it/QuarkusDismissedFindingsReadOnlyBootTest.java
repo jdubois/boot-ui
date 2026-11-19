@@ -34,7 +34,7 @@ class QuarkusDismissedFindingsReadOnlyBootTest {
     @Test
     void everySpellingOfTheWritePathIsRefusedWhileTheListStaysReadable() {
         BootUiHttpProbe probe = probe();
-        Map<String, String> headers = Map.of("Content-Type", "application/json", "Origin", baseUrl.toExternalForm());
+        Map<String, String> headers = Map.of("Content-Type", "application/json", "Origin", probe.origin());
         for (String path : List.of(
                 "/bootui/api/dismissed-findings",
                 "/bootui/api/dismissed-findings/",
