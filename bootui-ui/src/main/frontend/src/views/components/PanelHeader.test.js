@@ -63,6 +63,26 @@ describe('PanelHeader', () => {
     wrapper.unmount()
   })
 
+  it('disables the error retry action while a refresh is pending', async () => {
+    const onRefresh = vi.fn()
+    const wrapper = mount(PanelHeader, {
+      props: {
+        title: 'GitHub',
+        error: {title: 'Load failed', message: 'Refresh failed', serverUnreachable: false},
+        loading: true,
+        onRefresh
+      }
+    })
+
+    const retry = wrapper.get('[role="alert"] button')
+    expect(retry.attributes('disabled')).toBeDefined()
+    expect(retry.attributes('aria-busy')).toBe('true')
+    await retry.trigger('click')
+    expect(onRefresh).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('renders shared auto-refresh controls and emits auto-refresh updates', async () => {
     const onUpdateAutoRefresh = vi.fn()
     const wrapper = mount(PanelHeader, {

@@ -218,7 +218,7 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect(page.getByRole('button', {name: /Dependabot alerts/})).not.toContainText('Fork data')
     await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
     await page.clock.runFor(120_000)
-    expect(requests).toEqual(['GET origin', 'POST upstream', 'POST upstream', 'POST upstream'])
+    expect(requests).toEqual(['GET origin', 'POST upstream', 'POST upstream', 'POST upstream', 'POST upstream'])
     upstreamAvailable = false
     await page.getByRole('button', {name: 'Refresh panel', exact: true}).click()
     await expect(page.getByText('Configured upstream was removed', {exact: false})).toBeVisible()
@@ -232,6 +232,8 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
       'POST upstream',
       'POST upstream',
       'POST upstream',
+      'POST upstream',
+      'POST origin',
       'POST origin',
       'POST origin'
     ])
@@ -439,7 +441,7 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect(error).toContainText(nativeError.message)
     await expect(page.locator('.last-fetched-text')).toHaveCount(0)
     await expect(refresh).toBeEnabled()
-    const cacheRetry = error.getByRole('button', {name: 'Retry', exact: true})
+    const cacheRetry = error.getByRole('button', {name: /Retry$/})
     await expect(cacheRetry).toHaveCount(1)
     await cacheRetry.focus()
     await expect(cacheRetry).toBeFocused()

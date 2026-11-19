@@ -141,7 +141,14 @@ onBeforeUnmount(stopRelativeTimer)
       <strong class="d-block">{{ loadError.title }}</strong>
       <span class="small">{{ loadError.message }}</span>
     </span>
-    <button v-if="hasRefresh" :class="retryButtonClass" class="btn btn-sm flex-shrink-0" @click="emit('refresh')">
+    <button
+      v-if="hasRefresh"
+      :class="retryButtonClass"
+      :disabled="loading"
+      :aria-busy="loading || undefined"
+      class="btn btn-sm flex-shrink-0"
+      @click="emit('refresh')"
+    >
       <i class="bi bi-arrow-clockwise me-1"></i>Retry
     </button>
   </div>

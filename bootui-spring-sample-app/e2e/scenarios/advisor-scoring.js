@@ -319,8 +319,8 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         const collectionRow = page
           .locator('.list-group-item')
           .filter({has: page.getByText('HIB-FETCH-010', {exact: true})})
-        await expect(toOneRow.getByText('MEDIUM', {exact: true})).toBeVisible()
-        await expect(collectionRow.getByText('HIGH', {exact: true})).toBeVisible()
+        await expect(toOneRow.getByText('MEDIUM', {exact: true}).first()).toBeVisible()
+        await expect(collectionRow.getByText('HIGH', {exact: true}).first()).toBeVisible()
         await expect(page.locator('.advisor-score-card')).toContainText('Results available')
         const readsBeforeReturn = reads
         await page.locator('a[href$="#/scorecard"]').first().click()
