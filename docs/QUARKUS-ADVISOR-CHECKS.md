@@ -215,7 +215,9 @@ and [Quarkus REST scope handling](https://github.com/quarkusio/quarkus/blob/3.33
 
 Observed production configuration (`%prod.` declarations or unqualified declarations in a base
 `application.properties`/`application.yaml` file) enables Hibernate SQL logging on a
-default or named persistence unit. Review production log volume and the sensitivity of
+default or named persistence unit, or directly declares both `quarkus.log.category."org.hibernate.SQL".level`
+and `.min-level` permitting `DEBUG`. The category produces one global observation, not one per persistence unit;
+independent per-unit `log.sql` observations are retained. Review production log volume and the sensitivity of
 SQL text. SQL logging does **not** automatically enable bind-parameter logging, which
 has separate settings; SQL literals may nevertheless contain application data. When `prod` is the sole active profile,
 the rule defers to the Hibernate advisor's HIB-CONFIG-012 so one setting is not charged twice.
@@ -249,17 +251,27 @@ the new property. Remove or migrate the old declaration rather than assuming a n
 - **Severity**: HIGH
 
 Hibernate ORM is present and the production view of `quarkus.hibernate-orm.log.bind-parameters` or its
-deprecated alias `quarkus.hibernate-orm.log.bind-param` is true. Quarkus ORs both global flags and forces the
-`org.hibernate.orm.jdbc.bind` logger to TRACE, so every bound value — personal data, credentials or tokens — can be
+deprecated alias `quarkus.hibernate-orm.log.bind-param` is true, or direct declarations of both
+`quarkus.log.category."org.hibernate.orm.jdbc.bind".level` and `.min-level` permit `TRACE`.
+These causes produce one global observation; false ORM flags do not suppress a positive category declaration.
+Quarkus ORs both global flags and forces the `org.hibernate.orm.jdbc.bind` logger to TRACE, so every bound value —
+personal data, credentials or tokens — can be
 written to the logs. There is no per-persistence-unit key; a quoted unit variant is ignored.
 
-The setting is fixed at **build time**, so the production view is built from declarations a production build packages:
+The ORM flags and category minimum are fixed at **build time**; the category level is runtime-overridable.
+The production view is built from declarations a production build packages:
 a visible `%prod.` declaration, or an unqualified declaration in a base `application.properties`/`application.yaml`
 file, resolved with Quarkus' own profile and source-ordinal precedence. Profile-aware files such as
 `application-dev.properties`, system properties and environment variables of the development run are not production
 evidence. When `prod` is the sole active profile, the rule defers to the Hibernate advisor's HIB-CONFIG-018, which reads
 the effective logger, so one setting is not charged twice. Build-time overrides of a future packaging step are not
 observed, so the rule always reports incomplete coverage in development mode.
+
+For both logging rules, category declarations are classified only when the exact category has literal, known
+levels for both `level` and `min-level`. A minimum above the relevant threshold suppresses that category observation.
+Missing, inherited, unresolved, or unrecognized levels do not establish logging eligibility; BootUI does not resolve a
+parent/root hierarchy or infer an undeclared minimum. This is visible production intent, not proof of future deployed
+logging, handler delivery, or emitted data; inactive production coverage remains incomplete.
 
 Remove the production declaration and enable bind logging only temporarily outside production.
 

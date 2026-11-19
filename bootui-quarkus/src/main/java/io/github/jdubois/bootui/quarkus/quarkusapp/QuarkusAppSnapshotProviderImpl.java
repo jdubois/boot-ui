@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.spi.QuarkusAppSnapshot.Setting;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshotProvider;
 import io.quarkus.runtime.configuration.MemorySize;
 import io.quarkus.runtime.configuration.MemorySizeConverter;
+import io.quarkus.runtime.logging.InheritableLevel;
 import io.smallrye.config.Expressions;
 import io.smallrye.config.NameIterator;
 import io.smallrye.config.PropertiesConfigSource;
@@ -58,6 +59,14 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     + "external overrides and unloaded profile-aware files are unavailable.";
     private static final String BIND_PARAMETERS = "quarkus.hibernate-orm.log.bind-parameters";
     private static final String LEGACY_BIND_PARAMETERS = "quarkus.hibernate-orm.log.bind-param";
+    private static final Set<String> PRODUCTION_LOGGER_KEYS = Set.of(
+            "quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".level",
+            "quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".min-level",
+            "quarkus.log.category.\"org.hibernate.SQL\".level",
+            "quarkus.log.category.\"org.hibernate.SQL\".min-level");
+    private static final Set<String> LOG_LEVELS = Set.of(
+            "ALL", "FINEST", "FINER", "TRACE", "DEBUG", "FINE", "CONFIG", "INFO", "WARN", "WARNING", "ERROR", "SEVERE",
+            "FATAL", "OFF");
     private static final String ACTIVE = "active configuration";
     private static final String DECLARED_PROD = "visible production declaration";
     private static final String ORM = "quarkus.hibernate-orm.";
@@ -164,6 +173,10 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             if (applicable.contains("QA-CFG-005") && !activeProd) {
                 // An active production profile is HIB-CONFIG-018's effective-logger evidence; do not charge it twice.
                 inspect(Set.of("QA-CFG-005"), () -> {
+                    if (declaredCategoryEnables(source, "org.hibernate.orm.jdbc.bind", "TRACE", "QA-CFG-005")) {
+                        add("QA-CFG-005", "Hibernate ORM bind-parameter logging", "true", DECLARED_PROD);
+                        return;
+                    }
                     Config build = buildTimeBindDeclarations();
                     String current = raw(build, BIND_PARAMETERS, true);
                     String legacy = raw(build, LEGACY_BIND_PARAMETERS, true);
@@ -226,15 +239,19 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                         });
                     }
                 }
+                if (applicable.contains("QA-CFG-002")) {
+                    inspect(Set.of("QA-CFG-002"), () -> {
+                        if (declaredCategoryEnables(source, "org.hibernate.SQL", "DEBUG", "QA-CFG-002")) {
+                            add("QA-CFG-002", "org.hibernate.SQL", "true", DECLARED_PROD);
+                        }
+                    });
+                }
             }
             inspect(Set.of("QA-CFG-003"), () -> {
                 String level = raw(source, "quarkus.log.level", !activeProd);
                 if (level != null) {
                     String normalized = level.trim().toUpperCase(Locale.ROOT);
-                    if (!Set.of(
-                                    "ALL", "FINEST", "FINER", "TRACE", "DEBUG", "FINE", "CONFIG", "INFO", "WARN",
-                                    "WARNING", "ERROR", "SEVERE", "FATAL", "OFF")
-                            .contains(normalized)) {
+                    if (!LOG_LEVELS.contains(normalized)) {
                         unavailable(Set.of("QA-CFG-003"), "The logging level could not be classified safely.");
                     } else {
                         add(
@@ -262,6 +279,30 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                                 provenance);
                     }
                 });
+            }
+        }
+
+        private boolean declaredCategoryEnables(Config source, String category, String threshold, String rule) {
+            try {
+                String key = "quarkus.log.category.\"" + category + "\".";
+                String level = raw(source, key + "level", true);
+                String minimum = raw(source, key + "min-level", true);
+                if (level == null || minimum == null) {
+                    return false;
+                }
+                String normalizedLevel = level.trim().toUpperCase(Locale.ROOT);
+                String normalizedMinimum = minimum.trim().toUpperCase(Locale.ROOT);
+                if (!LOG_LEVELS.contains(normalizedLevel) || !LOG_LEVELS.contains(normalizedMinimum)) {
+                    unavailable(Set.of(rule), "A production logger level or minimum could not be classified safely.");
+                    return false;
+                }
+                // Only direct literal pairs establish eligibility; inherited/root levels remain unobserved.
+                int target = InheritableLevel.of(threshold).getLevel().intValue();
+                return InheritableLevel.of(normalizedLevel).getLevel().intValue() <= target
+                        && InheritableLevel.of(normalizedMinimum).getLevel().intValue() <= target;
+            } catch (IllegalArgumentException ex) {
+                unavailable(Set.of(rule), "A production logger level or minimum could not be classified safely.");
+                return false;
             }
         }
 
@@ -1177,7 +1218,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     }
 
     private static boolean isProductionSetting(String name) {
-        if (name.equals("quarkus.log.level")
+        if (PRODUCTION_LOGGER_KEYS.contains(name)
+                || name.equals("quarkus.log.level")
                 || name.equals("quarkus.http.enable-compression")
                 || name.equals("quarkus.shutdown.timeout")
                 || name.equals("quarkus.arc.fail-on-intercepted-private-method")

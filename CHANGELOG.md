@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Production logger declarations** include explicit Hibernate bind and SQL category levels only when their
+  captured category minimum permits them. Unobserved production configuration stays incomplete; global logger
+  evidence is not assigned to a persistence unit ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md)).
 - **Actuator endpoint identity** survives root and remapped MVC paths through bounded, passive native metadata.
   Additional health paths retain their proven health identity and actual evidence URLs; endpoint presence alone
   does not establish exposure ([Pentesting checks](docs/PENTEST-CHECKS.md)).

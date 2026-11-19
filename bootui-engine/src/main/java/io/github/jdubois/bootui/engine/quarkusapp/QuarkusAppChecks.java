@@ -170,11 +170,13 @@ final class QuarkusAppChecks {
                     "Configuration",
                     "HIGH",
                     "A visible production declaration enables Hibernate ORM bind-parameter logging, which can write"
-                            + " every bound value, including personal data, credentials or tokens, to the logs. This"
-                            + " build-time setting is fixed when the production application is packaged; it does not"
-                            + " prove that a future build uses this declaration or that log handling exposes it.",
+                            + " every bound value, including personal data, credentials or tokens, to the logs. ORM flags"
+                            + " and category minimum levels are build-time settings; the category level is"
+                            + " runtime-overridable. These declarations do not prove a future deployment's effective logging"
+                            + " or that any data was emitted or exposed.",
                     "Remove the production declaration of quarkus.hibernate-orm.log.bind-parameters (and the deprecated"
-                            + " log.bind-param); enable it only temporarily outside production.",
+                            + " log.bind-param); for explicit category logging, restrict the org.hibernate.orm.jdbc.bind"
+                            + " level or minimum. Enable bind logging only temporarily outside production.",
                     "hibernate-orm#quarkus-hibernate-orm_quarkus-hibernate-orm-log-bind-parameters",
                     Set.of("true", "false"),
                     Set.of("true")),
