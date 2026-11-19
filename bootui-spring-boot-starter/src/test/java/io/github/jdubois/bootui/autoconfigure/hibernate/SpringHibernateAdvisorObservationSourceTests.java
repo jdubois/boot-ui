@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
 import java.lang.reflect.Proxy;
@@ -55,6 +56,79 @@ import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.mock.env.MockEnvironment;
 
 class SpringHibernateAdvisorObservationSourceTests {
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void nativeRepositoryMetadataFeedsFilteredFetchReviewWithoutExecutingApplicationCode() throws Exception {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        SessionFactoryImplementor factory = factory("orders", 25);
+        EntityType entity = mock(EntityType.class);
+        when(entity.getJavaType()).thenReturn(SpringHibernateRepositoryDiscoveryTests.Order.class);
+        when(entity.getName()).thenReturn("Order");
+        Set<Attribute> attributes = new java.util.LinkedHashSet<>();
+        for (String name : List.of("id", "status", "items")) {
+            Attribute attribute = mock(Attribute.class);
+            when(attribute.getName()).thenReturn(name);
+            when(attribute.getJavaMember())
+                    .thenReturn(SpringHibernateRepositoryDiscoveryTests.Order.class.getDeclaredField(name));
+            when(attribute.getPersistentAttributeType())
+                    .thenReturn(
+                            name.equals("items")
+                                    ? Attribute.PersistentAttributeType.ONE_TO_MANY
+                                    : Attribute.PersistentAttributeType.BASIC);
+            attributes.add(attribute);
+        }
+        when(entity.getAttributes()).thenReturn(attributes);
+        when(factory.getMetamodel().getEntities()).thenReturn(Set.of(entity));
+        beans.registerSingleton("orders", factory);
+        var repository = SpringHibernateRepositoryDiscoveryTests.factory(true);
+        var information = repository.getRepositoryInformation();
+        doReturn(FilteredFetchRepository.class).when(information).getRepositoryInterface();
+        doReturn(FilteredFetchRepository.class)
+                .when((FactoryBean<?>) repository)
+                .getObjectType();
+        beans.registerSingleton("repository", repository);
+
+        HibernateAdvisorObservation observation =
+                source(beans, new MockEnvironment()).observe();
+        assertThat(observation.diagnostics()).isEmpty();
+        var report =
+                HibernateScanner.observing(() -> observation, Clock.systemUTC()).scan();
+
+        assertThat(report.rulesEvaluated()).isEqualTo(78);
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-QUERY-010"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.coverageNote()).isNotBlank();
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("#filtered", "may initialize an incomplete managed collection")
+                            .doesNotContain("private-filter-value", "select ", "#present", "#correlated");
+                });
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().equals("HIB-QUERY-010"))
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message())
+                        .contains("#correlated")
+                        .doesNotContain("private-filter-value", "select "));
+        verify((FactoryBean<?>) repository, never()).getObject();
+        verify(factory, never()).createEntityManager();
+    }
+
+    interface FilteredFetchRepository extends Repository<SpringHibernateRepositoryDiscoveryTests.Order, Long> {
+        @Query("select o from Order o join fetch o.items i where i.status = 'private-filter-value'")
+        List<SpringHibernateRepositoryDiscoveryTests.Order> filtered();
+
+        @Query("select o from Order o join fetch o.items i where i.id is not null")
+        List<SpringHibernateRepositoryDiscoveryTests.Order> present();
+
+        @Query("select o from Order o join fetch o.items i where i.id = o.id")
+        List<SpringHibernateRepositoryDiscoveryTests.Order> correlated();
+    }
+
     @Test
     void observesEffectiveResultLoggingIncludingInheritanceWithoutTrustingConfiguredLevels() {
         Logger parent = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc");

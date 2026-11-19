@@ -269,6 +269,11 @@ class SpringHibernateRepositoryDiscoveryTests {
     static class Order {
         @Id
         Long id;
+
+        String status;
+
+        @jakarta.persistence.OneToMany
+        List<Order> items;
     }
 
     interface View {

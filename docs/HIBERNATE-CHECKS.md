@@ -30,7 +30,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 77 rules. Twelve retired identifiers stay documented below so old links and persisted
+The active catalog contains 78 rules. Twelve retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -944,7 +944,7 @@ legitimate domain reads that need managed entity state.
   or suitably bounded batch fetching. An entity graph requesting the same parallel collections is not a universal fix,
   and Set does not eliminate row multiplication.
 
-This scope proof applies only to HIB-QUERY-007; bulk statements can still matter to other rules. It does not erase
+This scope proof is also used by HIB-QUERY-010; bulk statements can still matter to other rules. It does not erase
 findings or gaps in other methods or persistence units, nor the advisor's by-design pool limitations. If it discharges
 the last required gap, the unchanged strict [CI assessment](CI.md) can assess a previously skipped optional Hibernate
 advisor and gate an existing HIGH finding (exit 0 to 3). Remaining gaps still prevent strict assessment; this is not
@@ -984,6 +984,29 @@ whole-catalogue completeness or relaxed CI policy.
   SpEL expression in memory.
 - **Recommendation**: replace `@Value` SpEL getters with closed projection property accessors and compute derived values
   in Java `default` interface methods.
+
+### HIB-QUERY-010 - Review filtered collection fetch joins
+
+- **Severity**: MEDIUM
+- **Inspects**: verified, declared static Spring Data JPA queries returning the whole mapped root entity, with one
+  direct-root `@OneToMany` or `@ManyToMany` fetch join.
+- **Fires when**: the supported `WHERE` conjunction includes a fetched-alias scalar attribute equality to a named or
+  numbered parameter, string literal, integer, or boolean. Every term must be a mapped scalar equality or an identifier
+  `IS NOT NULL` check; identifier presence alone does not fire. Root-only filters, ordinary non-fetching joins, singular
+  associations, projections, native queries and verified derived methods do not fire.
+- **Why it matters**: the query may initialize an incomplete managed collection. Later code can mistake those contents
+  for the complete association. The outcome depends on matching data and persistence-context state: an already
+  initialized full collection may remain full. This is not a prediction of deletion or corruption of unseen rows.
+- **Recommendation**: use a DTO or separate child query for a filtered view. If the intent is to filter roots, separate
+  that predicate from fetching the complete collection. Review assumptions before modifying the managed association.
+- **Bounds**: this pilot accepts one direct fetch join and flat conjunctions only. It does not infer restriction from
+  alias words in literals or comments, self-comparisons, tautologies, `OR`, subqueries (including shadowed aliases),
+  nested joins, functions, parenthesized predicates, or other unsupported shapes. Applicable unsupported shapes,
+  unreadable text, unknown entity/return metadata, named queries and query rewriters retain evidence gaps, not findings
+  or complete passes. The narrow static bulk-DML proof described for HIB-QUERY-007 also excludes those statements here.
+  Query text and literal or parameter values are never included in findings or diagnostics.
+- **Platforms**: shared engine logic, using existing verified Spring Data JPA metadata on MVC or WebFlux when present;
+  no new Panache or Quarkus repository-query capability is implied.
 
 ## Configuration
 
@@ -1226,7 +1249,7 @@ mode this rule could never emit a finding and only forced scans of applications 
 - **Quarkus**: the Quarkus-native `quarkus.hibernate-orm.log.bind-parameters` convenience flag raises that same logger to
   TRACE, so its effective runtime state is detected too - Quarkus's own guide explicitly warns against enabling this in
   production.
-- **Compatibility**: the rule id and HIGH severity are unchanged; the catalog still has 77 rules. Existing bind findings
+- **Compatibility**: the rule id and HIGH severity are unchanged. Existing bind findings
   keep `unit=application|setting=hibernate.type.descriptor.sql.BasicBinder`. Result findings use the separate
   `unit=application|setting=org.hibernate.orm.jdbc.extract` identity, so dismissing a bind finding cannot hide result
   logging. A whole-rule dismissal continues to dismiss all HIB-CONFIG-018 findings, including result logging.

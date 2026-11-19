@@ -8,6 +8,256 @@ import org.junit.jupiter.api.Test;
 class HibernateQueryShapeTests {
 
     @Test
+    void entitySelectionsOutsideThePilotStayUnknownWhenTheyFetchACollection() {
+        for (String selection : List.of("o as ord", "(o)")) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(
+                            context,
+                            filteredMethod("select " + selection
+                                    + " from QueryOrder o join fetch o.items i where i.status = :status")))
+                    .isFalse();
+            assertThat(context.evidence().requiredUnknown()).as(selection).isTrue();
+        }
+    }
+
+    @Test
+    void implicitEmbeddablePredicatesAreUnknownNotScalarRestrictions() {
+        HibernateContext context = filteredFetchContext();
+        assertThat(HibernateQueryShape.filtersFetchedCollection(
+                        context,
+                        filteredMethod(
+                                "select o from QueryOrder o join fetch o.items i where i.implicitAddress = :address")))
+                .isFalse();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
+    }
+
+    @Test
+    void propertyAccessCollectionAndIdentifierMetadataAreNotHiddenByBackingFields() {
+        HibernateContext context = filteredFetchContext();
+        assertThat(HibernateQueryShape.filtersFetchedCollection(
+                        context,
+                        filteredMethod(
+                                "select o from PropertyOrder o join fetch o.items i where i.status = :status",
+                                PropertyOrder.class)))
+                .isTrue();
+        assertThat(context.evidence().requiredUnknown()).isFalse();
+        context = filteredFetchContext();
+        assertThat(HibernateQueryShape.filtersFetchedCollection(
+                        context,
+                        filteredMethod(
+                                "select o from QueryOrder o join fetch o.propertyItems i where i.id is not null")))
+                .isFalse();
+        assertThat(context.evidence().requiredUnknown()).isFalse();
+    }
+
+    @Test
+    void propertyAccessTransientAndAssociationPredicatesStayUnknown() {
+        for (String attribute : List.of("hidden", "owner")) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(
+                            context,
+                            filteredMethod("select o from QueryOrder o join fetch o.propertyItems i where i."
+                                    + attribute + " = :value")))
+                    .as(attribute)
+                    .isFalse();
+            assertThat(context.evidence().requiredUnknown()).as(attribute).isTrue();
+        }
+    }
+
+    @Test
+    void conflictingFieldAndGetterMappingsStayUnknown() {
+        HibernateContext context = filteredFetchContext();
+        assertThat(HibernateQueryShape.filtersFetchedCollection(
+                        context,
+                        filteredMethod(
+                                "select o from ConflictingOrder o join fetch o.items i where i.status = :status",
+                                ConflictingOrder.class)))
+                .isFalse();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
+    }
+
+    @Test
+    void provenNonFetchingParameterExpressionsAndCommentOrLiteralWordsStayComplete() {
+        for (String query : List.of(
+                "select o from QueryOrder o where o.name = :#{#p.name}",
+                "select o from QueryOrder o /* #{#fragment} ${fragment} -- join fetch o.items */",
+                "select o from QueryOrder o where o.name = '#{#fragment} ${fragment} -- join fetch o.items'")) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(context, filteredMethod(query)))
+                    .as(query)
+                    .isFalse();
+            assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void opaqueDynamicNonFetchingTextIsNotBlanketWaived() {
+        for (String query : List.of(
+                "select o from QueryOrder o #{#fragment}",
+                "select o from #{#entityName} o",
+                "select o from QueryOrder o where o.name = ${value}",
+                "select o from QueryOrder o where o.name = :#{#p.name} and 1 = 1",
+                "select o from QueryOrder o -- join fetch o.items")) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(context, filteredMethod(query)))
+                    .as(query)
+                    .isFalse();
+            assertThat(context.evidence().requiredUnknown()).as(query).isTrue();
+        }
+    }
+
+    @Test
+    void filteredFetchRequiresMappedFetchedAliasEqualityRatherThanAnAliasMention() {
+        for (String query : List.of(
+                "select o from QueryOrder o join fetch o.items i where i.status = :status",
+                "select distinct o from QueryOrder o left join fetch o.items as i where i.name = 'included'",
+                "from QueryOrder o inner join fetch o.items i where i.id = ?1",
+                "select o from QueryOrder o join fetch o.items i where o.id = :id and i.status = 'a''b'",
+                "select o from QueryOrder o join fetch o.items i where i.id is not null and i.status = :status",
+                "select o from QueryOrder o join fetch o.items i where i.id = 42 /* review only */",
+                "SeLeCt O FrOm QueryOrder O JoIn FeTcH O.items I WhErE I.status = :status")) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(context, filteredMethod(query)))
+                    .as(query)
+                    .isTrue();
+            assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void filteredFetchKeepsUnrecognizedQuotedFetchPathsUnknown() {
+        HibernateContext context = filteredFetchContext();
+        String query = "select o from QueryOrder o join fetch o.`items` i where i.status = :status";
+
+        assertThat(HibernateQueryShape.filtersFetchedCollection(context, filteredMethod(query)))
+                .isFalse();
+        assertThat(context.evidence().requiredUnknown()).isTrue();
+        assertThat(context.evidence().gaps()).containsOnlyKeys(HibernateEvidenceGap.QUERY_JOIN_PATH);
+    }
+
+    @Test
+    void filteredFetchLeavesPositivelyIrrelevantQueriesComplete() {
+        for (String query : List.of(
+                "select o from QueryOrder o join fetch o.items i",
+                "select o from QueryOrder o join fetch o.items",
+                "select o from QueryOrder o join fetch o.items where o.status = :status",
+                "select o from QueryOrder o join fetch o.items i where o.name = 'i.status = included'",
+                "select o from QueryOrder o join fetch o.items i /* where i.status = :status */",
+                "select o from QueryOrder o join fetch o.items i where i.id is not null",
+                "select o from QueryOrder o join o.items i where i.status = :status",
+                "select o from QueryOrder o join fetch o.owner i where i.status = :status",
+                "select o from QueryOrder o where o.status = :status",
+                "select o from QueryOrder o where o.status = 'join fetch o.`items` i'",
+                "select o from QueryOrder o /* join fetch o.`items` i */",
+                "update QueryOrder o set o.status = :status",
+                "delete from QueryOrder o where o.id = :id")) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(context, filteredMethod(query)))
+                    .as(query)
+                    .isFalse();
+            assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void unsupportedPredicatesAndScopesNeverBecomeProvenRestrictionsOrCompletePasses() {
+        for (String query : List.of(
+                "select o from QueryOrder o join fetch o.items i where i.status = i.status",
+                "select o from QueryOrder o join fetch o.items i where i.id = i.id",
+                "select o from QueryOrder o join fetch o.items i where i.owner = o",
+                "select o from QueryOrder o join fetch o.items i where i.owner.id = o.id",
+                "select o from QueryOrder o join fetch o.items i where i.id = o.id",
+                "select o from QueryOrder o join fetch o.items i where i = o",
+                "select o from QueryOrder o join fetch o.items i where i is not null",
+                "select o from QueryOrder o join fetch o.items i where 1 = 1",
+                "select o from QueryOrder o join fetch o.items i where i.id = :id or 1 = 1",
+                "select o from QueryOrder o join fetch o.items i where i.id = :id and 1 = 1",
+                "select o from QueryOrder o join fetch o.items i where i.id = :id and i.status = i.status",
+                "select o from QueryOrder o join fetch o.items i where i.status is not null",
+                "select o from QueryOrder o join fetch o.items i where i.scratch = :value",
+                "select o from QueryOrder o join fetch o.items i where i.address = :address",
+                "select o from QueryOrder o join fetch o.items i where i.missing = :value",
+                "select o from QueryOrder o join fetch o.missing i where i.status = :status",
+                "select o from QueryOrder o join fetch o.status i where i.status = :status",
+                "select o from QueryOrder o join fetch o.items i where I.status = :value",
+                "select o from QueryOrder o join fetch o.items i where i.status = :#{#status}",
+                "select o from QueryOrder o join fetch o.items i where (i.status = :status)",
+                "select o from QueryOrder o join fetch o.items i where i.id > 0",
+                "select o from QueryOrder o join fetch o.items i where i.id = 1--1",
+                "select o from QueryOrder o join fetch o.items i where o.id in "
+                        + "(select i.id from QueryOrder i where i.status = :status)",
+                "select o from QueryOrder o join fetch o.items i where i.status = 'unclosed",
+                "select o from QueryOrder o join fetch o.items i /* unclosed",
+                "select o from QueryOrder o join o.items i join fetch i.items c where c.status = :status",
+                "select o from QueryOrder o join fetch o.items i, QueryOrder other where i.status = :status",
+                "select o from QueryOrder o join fetch o.items i where i.status = :status union "
+                        + "select o from QueryOrder o",
+                "select o from QueryOrder o join fetch o.items i where i.status = :status" + " ".repeat(16_384))) {
+            HibernateContext context = filteredFetchContext();
+            assertThat(HibernateQueryShape.filtersFetchedCollection(context, filteredMethod(query)))
+                    .as(query)
+                    .isFalse();
+            assertThat(context.evidence().requiredUnknown()).as(query).isTrue();
+        }
+    }
+
+    @Test
+    void filteredFetchDoesNotGuessMissingTargetMetadata() {
+        HibernateContext context = new HibernateContext(
+                List.of(new HibernateEntityModel(
+                        QueryOrder.class.getName(),
+                        QueryOrder.class,
+                        List.of(new HibernateAttributeModel(
+                                QueryOrder.class.getName(),
+                                "items",
+                                List.class,
+                                List.class,
+                                "ONE_TO_MANY",
+                                false,
+                                true,
+                                List.of())))),
+                List.of(),
+                key -> null,
+                List.of());
+        assertThat(HibernateQueryShape.filtersFetchedCollection(
+                        context, filteredMethod("select o from QueryOrder o join fetch o.items i where i.id = :id")))
+                .isFalse();
+        assertThat(context.evidence().gaps()).containsOnlyKeys(HibernateEvidenceGap.QUERY_ENTITY);
+    }
+
+    private static HibernateContext filteredFetchContext() {
+        return new HibernateContext(
+                List.of(
+                        HibernateEntityModel.fromClass(QueryOrder.class),
+                        HibernateEntityModel.fromClass(PropertyOrder.class),
+                        HibernateEntityModel.fromClass(ConflictingOrder.class)),
+                List.of(),
+                key -> null,
+                List.of());
+    }
+
+    private static HibernateRepositoryMethodModel filteredMethod(String query) {
+        return filteredMethod(query, QueryOrder.class);
+    }
+
+    private static HibernateRepositoryMethodModel filteredMethod(String query, Class<?> entity) {
+        return new HibernateRepositoryMethodModel(
+                "QueryOrderRepository",
+                "filtered",
+                entity,
+                List.class,
+                query,
+                false,
+                null,
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                new HibernateQueryEvidence(true, true, false, false, false, entity, false, null, null, List.of()));
+    }
+
+    @Test
     void provesOnlyTheNarrowStaticBulkSubsetIrrelevantToMultipleCollectionFetching() {
         for (String query : List.of(
                 "update QueryOrder o set o.status = :status",
@@ -359,5 +609,71 @@ class HibernateQueryShapeTests {
 
         @jakarta.persistence.OneToMany
         List<QueryOrder> items;
+
+        @jakarta.persistence.ManyToOne
+        QueryOrder owner;
+
+        @jakarta.persistence.Embedded
+        Address address;
+
+        Address implicitAddress;
+
+        @jakarta.persistence.OneToMany
+        List<PropertyOrder> propertyItems;
+    }
+
+    @jakarta.persistence.Entity
+    static class PropertyOrder {
+        private Long id;
+        private List<PropertyOrder> items;
+        private String status;
+        private String hidden;
+        private PropertyOrder owner;
+
+        @jakarta.persistence.Id
+        Long getId() {
+            return id;
+        }
+
+        @jakarta.persistence.OneToMany
+        List<PropertyOrder> getItems() {
+            return items;
+        }
+
+        @jakarta.persistence.Basic
+        String getStatus() {
+            return status;
+        }
+
+        @jakarta.persistence.Transient
+        String getHidden() {
+            return hidden;
+        }
+
+        @jakarta.persistence.ManyToOne
+        PropertyOrder getOwner() {
+            return owner;
+        }
+    }
+
+    @jakarta.persistence.Entity
+    static class ConflictingOrder {
+        @jakarta.persistence.Id
+        Long id;
+
+        @jakarta.persistence.ManyToMany
+        List<ConflictingOrder> items;
+
+        String status;
+
+        @jakarta.persistence.OneToMany
+        List<ConflictingOrder> getItems() {
+            return items;
+        }
+    }
+
+    @jakarta.persistence.Embeddable
+    static class Address {
+        String street;
     }
 }

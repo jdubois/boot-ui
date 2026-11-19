@@ -3930,6 +3930,42 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
     }
 }
 
+final class FilteredCollectionJoinFetchRule extends AbstractHibernateRule {
+
+    FilteredCollectionJoinFetchRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-QUERY-010",
+                        "Review filtered collection fetch joins",
+                        HibernateCategory.QUERY,
+                        "MEDIUM",
+                        "A restricting fetched-alias predicate may initialize an incomplete managed collection."
+                                + " This depends on the data and existing persistence-context state, not just the query.",
+                        "For a filtered view, prefer a DTO or separate child query. When filtering roots, use a separate"
+                                + " non-fetching predicate and fetch the complete collection. Do not treat filtered contents"
+                                + " as the full association when making subsequent changes.",
+                        "https://docs.jboss.org/hibernate/orm/7.4/querylanguage/html_single/Hibernate_Query_Language.html#association-fetching"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (context.repositories().isEmpty()) return skipped("No repository metadata was detected.");
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (HibernateQueryShape.filtersFetchedCollection(context, method)) {
+                    details.add(
+                            method.description() + " restricts a fetched collection alias and may initialize an"
+                                    + " incomplete managed collection; review assumptions before subsequent changes.",
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+}
+
 final class TemporalVersionRule extends AbstractHibernateRule {
 
     TemporalVersionRule() {

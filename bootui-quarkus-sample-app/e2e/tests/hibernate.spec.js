@@ -22,7 +22,7 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
     await testInfo.attach('hibernate-report', {body: JSON.stringify(report), contentType: 'application/json'})
-    expect(report.rulesEvaluated).toBe(77)
+    expect(report.rulesEvaluated).toBe(78)
     expect(report.results.find((result) => result.id === 'HIB-FETCH-001')?.severity).toBe('MEDIUM')
     expect(report.results.find((result) => result.id === 'HIB-FETCH-010')?.severity).toBe('HIGH')
     // Quarkus persistence units coordinate transactions through JTA, so HIB-CONFIG-008 and HIB-CONFIG-021 are

@@ -84,6 +84,7 @@ final class HibernateRuleRegistry {
             new DerivedDeleteByQueryRule(),
             new EagerToOneFetchJoinRule(),
             new MultipleCollectionJoinFetchRule(),
+            new FilteredCollectionJoinFetchRule(),
             new BulkUpdateVersionRule(),
             new OpenProjectionValueRule(),
             // Configuration

@@ -44,7 +44,7 @@ class HibernateRuleCatalogueTests {
 
     @Test
     void retiredRuleIdsAreNeverRegisteredAgain() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(77);
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(78);
         assertThat(HibernateRuleRegistry.RETIRED_RULE_IDS)
                 .containsExactlyInAnyOrder(
                         "HIB-FETCH-004",

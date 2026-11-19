@@ -1981,7 +1981,7 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 77,
+  rulesEvaluated: 78,
   violationsFound: 5,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1993,11 +1993,11 @@ const hibernate = {
     analyzer: 'BootUI Hibernate Advisor',
     status: 'PARTIAL',
     message:
-      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 77 distinct rules ' +
-      '(77 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
+      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 78 distinct rules ' +
+      '(78 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
       'See diagnostics for 3 entries naming each affected rule and unit.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 77,
+    rulesEvaluated: 78,
     entitiesAnalyzed: 6,
     violationsFound: 5
   },

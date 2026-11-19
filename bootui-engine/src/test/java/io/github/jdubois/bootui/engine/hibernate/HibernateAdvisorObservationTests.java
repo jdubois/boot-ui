@@ -49,6 +49,160 @@ class HibernateAdvisorObservationTests {
             new HibernateApplicationFacts(List.of("prod"), false, false, false, false, false);
 
     @Test
+    void filteredFetchRetainsMediumFindingsWithoutCompletingUnknownQueryCoverage() {
+        HibernateRepositoryMethodModel known =
+                method("select o from Order o join fetch o.items i where i.id = :childId", null, Order.class, false);
+        HibernateRepositoryMethodModel unknown = method(
+                "select o from Order o join fetch o.items i where i.id = :childId or 1 = 1", null, Order.class, false);
+        HibernateScanner scanner = scanner(
+                List.of(filteredFetchUnit("known", List.of(known)), filteredFetchUnit("unknown", List.of(unknown))),
+                List.of(),
+                List.of(new FilteredCollectionJoinFetchRule()));
+
+        HibernateReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("HIB-QUERY-010");
+            assertThat(result.severity()).isEqualTo("MEDIUM");
+            assertThat(result.violationCount()).isEqualTo(1);
+            assertThat(result.coverageNote()).contains("[unknown]");
+            assertThat(result.sampleViolations())
+                    .singleElement()
+                    .satisfies(text -> assertThat(text)
+                            .contains("may initialize an incomplete managed collection")
+                            .doesNotContain("childId", "select ", "delet", "corrupt"));
+        });
+        var page = scanner.ruleViolations(
+                "HIB-QUERY-010", report.violationDetails().scanId(), 0, 10);
+        assertThat(page.identities()).containsExactly("v1:unit=known|repository=Repo|method=query%28%29");
+        assertThat(page.violations()).hasSize(1);
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("HIB-QUERY-010");
+            assertThat(diagnostic.unit()).isEqualTo("unknown");
+            assertThat(diagnostic.message()).doesNotContain("childId", "select ", "1 = 1");
+        });
+        HibernateReport dismissed = scanner.applyDismissals(report, Set.of("HIB-QUERY-010"));
+        assertThat(dismissed.results())
+                .singleElement()
+                .satisfies(result -> assertThat(result.dismissed()).isTrue());
+        assertThat(dismissed.violationsFound()).isZero();
+        assertThat(dismissed.evidence().coverageComplete()).isFalse();
+    }
+
+    @Test
+    void filteredFetchRequiresVerifiedStaticQueryAndEntityReturnEvidence() {
+        for (HibernateQueryEvidence evidence : List.of(
+                HibernateQueryEvidence.unknown(),
+                new HibernateQueryEvidence(true, false, false, false, false, Order.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, true, false, true, false, Order.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, true, false, false, true, Order.class, false, null, null, List.of()),
+                new HibernateQueryEvidence(true, true, false, false, false, null, false, null, null, List.of()))) {
+            HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                    "Repo",
+                    "filtered",
+                    Order.class,
+                    List.class,
+                    "select o from Order o join fetch o.items i where i.id = :id",
+                    false,
+                    null,
+                    false,
+                    false,
+                    false,
+                    false,
+                    List.of(),
+                    evidence);
+            HibernateContext context = context("7.4.13.Final", List.of(method));
+
+            assertThat(new FilteredCollectionJoinFetchRule().evaluate(context).status())
+                    .as(evidence.toString())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evidence().requiredUnknown()).isTrue();
+        }
+        for (String query : new String[] {null, "", "select o from Order o join fetch o.items i where i.id = 'bad"}) {
+            HibernateContext context = context("7.4.13.Final", List.of(method(query, null, Order.class, false)));
+            assertThat(new FilteredCollectionJoinFetchRule().evaluate(context).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evidence().requiredUnknown()).isTrue();
+        }
+        HibernateContext projection = context(
+                "7.4.13.Final",
+                List.of(method(
+                        "select o from Order o join fetch o.items i where i.id = :id", null, Projection.class, false)));
+        assertThat(new FilteredCollectionJoinFetchRule().evaluate(projection).violationCount())
+                .isZero();
+        assertThat(projection.evidence().requiredUnknown()).isFalse();
+    }
+
+    @Test
+    void filteredFetchDoesNotCreateCoverageGapsForProvenIrrelevantOrAbsentRepositoryMetadata() {
+        List<HibernateRepositoryMethodModel> irrelevant = List.of(
+                new HibernateRepositoryMethodModel(
+                        "Repo",
+                        "findByName",
+                        Order.class,
+                        List.class,
+                        null,
+                        false,
+                        null,
+                        false,
+                        false,
+                        false,
+                        false,
+                        List.of(),
+                        new HibernateQueryEvidence(
+                                true, false, true, false, false, Order.class, false, null, null, List.of())),
+                new HibernateRepositoryMethodModel(
+                        "Repo",
+                        "nativeRead",
+                        Order.class,
+                        List.class,
+                        "select * from orders",
+                        true,
+                        null,
+                        false,
+                        false,
+                        false,
+                        false,
+                        List.of()),
+                method("select o from Order o where o.name = :#{#p.name}", null, Order.class, false),
+                method(
+                        "select o from Order o /* #{#fragment} ${fragment} -- join fetch o.items */",
+                        null,
+                        Order.class,
+                        false),
+                method("select o from Order o join fetch o.items i where i.id = :id", null, Projection.class, false),
+                method("select o.id from Order o join fetch o.items i where i.id = :id", null, Long.class, false));
+        for (List<HibernateRepositoryModel> repositories : List.of(
+                List.<HibernateRepositoryModel>of(),
+                List.of(new HibernateRepositoryModel("Repo", Order.class, irrelevant)))) {
+            HibernateReport report = scanner(
+                            List.of(unit("orders", settings(0), repositories)),
+                            List.of(),
+                            List.of(new FilteredCollectionJoinFetchRule()))
+                    .scan();
+            assertThat(report.scan().status()).isEqualTo("SCANNED");
+            assertThat(report.results()).isEmpty();
+            assertThat(report.diagnostics()).isEmpty();
+            assertThat(report.evidence().coverageComplete()).isTrue();
+        }
+    }
+
+    private static HibernatePersistenceUnitObservation filteredFetchUnit(
+            String label, List<HibernateRepositoryMethodModel> methods) {
+        return new HibernatePersistenceUnitObservation(
+                label,
+                label,
+                List.of(HibernateEntityModel.fromClass(Order.class), HibernateEntityModel.fromClass(Other.class)),
+                List.of(new HibernateRepositoryModel("Repo", Order.class, methods, true)),
+                "7.4.13.Final",
+                settings(0),
+                false);
+    }
+
+    @Test
     void jdbcValueLoggingKeepsIndependentFindingsAndCoverageForKnownAndUnknownLoggerStates() {
         List<HibernatePersistenceUnitObservation> units =
                 List.of(unit("orders", settings(25), List.of()), unit("archive", settings(25), List.of()));
@@ -939,7 +1093,7 @@ class HibernateAdvisorObservationTests {
 
     @Test
     void retiredIdsAreNotRegisteredOrReported() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(77);
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(78);
         assertThat(HibernateRuleRegistry.RETIRED_RULE_IDS).containsExactlyInAnyOrder(RETIRED_IDS);
         assertThat(HibernateRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
