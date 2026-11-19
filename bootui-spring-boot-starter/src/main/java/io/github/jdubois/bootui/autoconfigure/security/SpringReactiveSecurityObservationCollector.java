@@ -944,6 +944,7 @@ public final class SpringReactiveSecurityObservationCollector {
         if (advisorType != null) {
             BeanInventory advisors = beanInventory(factory, advisorType);
             complete &= advisors.complete();
+            complete &= advisors.candidates().size() <= MAX_ITEMS;
             for (int index = 0; index < advisors.candidates().size() && index < MAX_ITEMS; index++) {
                 Object advisor = advisors.candidates().get(index).instance();
                 if (advisor == null) {

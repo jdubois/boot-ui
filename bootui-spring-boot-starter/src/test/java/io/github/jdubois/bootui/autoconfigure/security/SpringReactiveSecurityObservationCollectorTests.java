@@ -588,6 +588,28 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void reactiveAdvisorInventoryOverflowKeepsMethodMetadataIncomplete() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        for (int index = 0; index <= 256; index++) {
+            factory.registerSingleton(
+                    "advisor" + index,
+                    org.springframework.security.authorization.method
+                            .AuthorizationManagerBeforeReactiveMethodInterceptor.preAuthorize());
+        }
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(report.evidence().limitations())
+                .contains("SEC-RXF-METHOD-001: Method-security family metadata is incomplete.");
+    }
+
+    @Test
     void initializedFactoryBeanProductTypeCallbacksNeverExecuteForEitherInventory() {
         AtomicInteger callbacks = new AtomicInteger();
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
