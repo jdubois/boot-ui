@@ -451,7 +451,7 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     releaseCacheRead()
     await expect(error).toHaveCount(0)
     await expect(cacheRetry).toHaveCount(0)
-    await expect(page.getByText(reason, {exact: true})).toBeVisible()
+    await expect(page.getByText(reason, {exact: true}).first()).toBeVisible()
     await expect(page.getByRole('button', {name: 'Connect', exact: true})).toHaveCount(0)
     await page.clock.runFor(120_000)
     await visibility('hidden')
