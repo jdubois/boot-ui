@@ -659,10 +659,10 @@ public final class RuntimeInsightsService {
         SqlCapture capture = sqlCapture();
         SqlCaptureScopes.Snapshot sqlScope = journal.sqlCaptureScope();
         boolean readLogs = journal.records(JournalSource.LOG) && visibility.visible(JournalSource.LOG);
+        CacheCapture caches = CacheCapture.read(cacheCapture);
         List<JournalEntry> retained = journal.entries();
         Map<Long, Optional<String>> logGaps = readLogs ? logGaps(retained, visibility) : Map.of();
         AppEventCapture appEvents = appEventCapture();
-        CacheCapture caches = CacheCapture.read(cacheCapture);
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
         // And so is what Code Inventory reports, which the agent's hit flags change without any journal event.

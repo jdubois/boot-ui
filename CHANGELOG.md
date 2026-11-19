@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Cache capture proof** brackets retained journal reads again, so a concurrent capture change cannot manufacture
+  an absence finding or hide newly retained work. Current SQL capture gaps still preserve known facts
+  ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Runtime capture qualification** retains observed SQL and log facts when live capture is unavailable, without
   treating preparation-only or unassessed work as healthy absence. Native logging defaults, per-unit coverage,
   request denominators and captured-fact exports remain explicit
