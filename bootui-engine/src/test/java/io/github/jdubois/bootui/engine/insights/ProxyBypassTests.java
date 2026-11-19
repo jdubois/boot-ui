@@ -153,6 +153,27 @@ class ProxyBypassTests {
                 });
     }
 
+    @Test
+    void aMatchingCacheAccessWithoutManagerIdentityCannotProveAbsence() {
+        request(
+                "GET",
+                "/api/prices",
+                "http-1",
+                List.of(
+                        new Child(JournalSource.CACHE, "http-1", 0, new CachePayload("prices", "MISS")),
+                        sql(1_000, "http-1", PRICE)));
+
+        RuntimeInsightsReportDto report = report();
+        assertThat(byKind(report)).isEmpty();
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                    assertThat(check.reason()).contains("lacked manager identity");
+                });
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "http-1", "reactor-http-nio-1", "reused-worker"})

@@ -23,6 +23,8 @@ import java.util.Set;
 public final class ProxyBypass implements Observation {
 
     public static final String KIND = "proxy-bypass";
+    private static final String UNKNOWN_CACHE_MANAGER =
+            "A matching cache access lacked manager identity, so cache proxy absence is not proven.";
 
     private volatile ProxyBoundaries boundaries;
 
@@ -86,12 +88,15 @@ public final class ProxyBypass implements Observation {
             for (ProjectedRequest request : route.getValue()) {
                 TransactionWindows windows = new TransactionWindows(request);
                 Set<CacheAccess> cachesSeen = new LinkedHashSet<>();
+                Set<String> cachesWithUnknownManager = new LinkedHashSet<>();
                 boolean ranAnnotated = false;
                 for (RuntimeEvent child : request.children()) {
-                    if (child.payload() instanceof CachePayload cache
-                            && cache.managerName() != null
-                            && cache.cacheName() != null) {
-                        cachesSeen.add(new CacheAccess(cache.managerName(), cache.cacheName()));
+                    if (child.payload() instanceof CachePayload cache && cache.cacheName() != null) {
+                        if (cache.managerName() == null) {
+                            cachesWithUnknownManager.add(cache.cacheName());
+                        } else {
+                            cachesSeen.add(new CacheAccess(cache.managerName(), cache.cacheName()));
+                        }
                         continue;
                     }
                     if (!(child.payload() instanceof SqlPayload sql) || !sql.executed() || sql.frames() == null) {
@@ -116,29 +121,32 @@ public final class ProxyBypass implements Observation {
                         if (caches && boundary.cacheUnobservable() != null) {
                             cacheUnassessed.add(request.requestId());
                             cacheReasons.add(boundary.cacheUnobservable());
-                        } else if (!boundary.cacheNames().isEmpty()
-                                && caches
-                                && boundary.cacheNames().stream()
-                                        .map(name -> new CacheAccess(
-                                                snapshot.cacheCapture().canonicalManager(boundary.cacheManager()),
-                                                name))
-                                        .noneMatch(cachesSeen::contains)) {
-                            String unavailable =
-                                    snapshot.cacheCapture().unavailable(boundary.cacheManager(), request.startMillis());
-                            if (unavailable == null) {
-                                frameAssessed = true;
-                                record(
-                                        bypasses,
-                                        frame,
-                                        "@Cacheable(" + String.join(", ", boundary.cacheNames()) + ")",
-                                        caller,
-                                        request);
-                            } else {
-                                cacheUnassessed.add(request.requestId());
-                                cacheReasons.add(unavailable);
-                            }
                         } else if (!boundary.cacheNames().isEmpty() && caches) {
-                            frameAssessed = true;
+                            boolean matchingManagerSeen = boundary.cacheNames().stream()
+                                    .map(name -> new CacheAccess(
+                                            snapshot.cacheCapture().canonicalManager(boundary.cacheManager()), name))
+                                    .anyMatch(cachesSeen::contains);
+                            if (matchingManagerSeen) {
+                                frameAssessed = true;
+                            } else if (boundary.cacheNames().stream().anyMatch(cachesWithUnknownManager::contains)) {
+                                cacheUnassessed.add(request.requestId());
+                                cacheReasons.add(UNKNOWN_CACHE_MANAGER);
+                            } else {
+                                String unavailable = snapshot.cacheCapture()
+                                        .unavailable(boundary.cacheManager(), request.startMillis());
+                                if (unavailable == null) {
+                                    frameAssessed = true;
+                                    record(
+                                            bypasses,
+                                            frame,
+                                            "@Cacheable(" + String.join(", ", boundary.cacheNames()) + ")",
+                                            caller,
+                                            request);
+                                } else {
+                                    cacheUnassessed.add(request.requestId());
+                                    cacheReasons.add(unavailable);
+                                }
+                            }
                         }
                         if (boundary.async()) {
                             asyncUnassessed.add(request.requestId());
