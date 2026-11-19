@@ -23,6 +23,25 @@ class BootUiRuntimeHintsTests {
     }
 
     @Test
+    void registersTheOptionalNativeMetricsFilterIdentityWithoutInvokingItsPolicy() {
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter")))
+                .accepts(hints);
+    }
+
+    @Test
+    void nativeMetricsFilterHintStaysOptionalWhenTheTypeIsAbsent() throws Exception {
+        RuntimeHints absent = new RuntimeHints();
+        try (FilteredClassLoader loader = new FilteredClassLoader(
+                name -> name.equals("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter"))) {
+            new BootUiRuntimeHints().registerHints(absent, loader);
+        }
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter")))
+                .rejects(absent);
+    }
+
+    @Test
     void registersClasspathResourcePatternsScannedAtRuntime() {
         assertThat(RuntimeHintsPredicates.resource().forResource("META-INF/maven/group/artifact/pom.properties"))
                 .accepts(hints);

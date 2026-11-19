@@ -646,7 +646,19 @@ class JournalFactObservationsTests {
                 200,
                 child(JournalSource.LOG, new LogPayload("com.example.Orders", "WARN", "Slow order {}", null)));
 
-        List<RuntimeObservationDto> warnings = byKind(service(null, null).report(), FrameworkWarningsByRoute.KIND);
+        RuntimeInsightsService service = service(null, null);
+        service.setLogCoverage(() -> new io.github.jdubois.bootui.engine.exceptions.LogCoverage() {
+            @Override
+            public String gap(long from, long to) {
+                return null;
+            }
+
+            @Override
+            public List<String> bypassingLoggers() {
+                return List.of();
+            }
+        });
+        List<RuntimeObservationDto> warnings = byKind(service.report(), FrameworkWarningsByRoute.KIND);
 
         assertThat(warnings).singleElement().satisfies(observation -> {
             assertThat(observation.sentence())
@@ -1006,11 +1018,13 @@ class JournalFactObservationsTests {
                 .singleElement()
                 .satisfies(observation -> {
                     assertThat(observation.sentence())
-                            .startsWith("`" + ORDERS + "` logged `ERROR` from `QuarkusErrorHandler` in 3 of 4 requests"
-                                    + " (3 events): ")
+                            .startsWith("Captured `ERROR` from `QuarkusErrorHandler` for `" + ORDERS
+                                    + "` in 3 requests (3 events): ")
                             .contains("/api/orders/<n> failed, error id: <id>")
                             .doesNotContain(base);
                     assertThat(observation.affected()).isEqualTo(3);
+                    assertThat(observation.limitations())
+                            .anyMatch(reason -> reason.contains("not a request-wide frequency"));
                 });
     }
 

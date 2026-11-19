@@ -89,7 +89,13 @@ public final class FrameworkWarningsByRoute implements Observation {
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
-            List<ProjectedRequest> requests = route.getValue();
+            boolean complete = route.getValue().stream().allMatch(request -> snapshot.logGap(request) == null);
+            List<ProjectedRequest> requests = route.getValue().stream()
+                    .filter(request -> snapshot.logGap(request) == null
+                            || request.children(JournalSource.LOG).stream()
+                                    .anyMatch(event ->
+                                            event.payload() instanceof LogPayload log && isFramework(log.logger())))
+                    .toList();
             eligible += requests.size();
             Map<String, Group> groups = new LinkedHashMap<>();
             for (ProjectedRequest request : requests) {
@@ -104,13 +110,20 @@ public final class FrameworkWarningsByRoute implements Observation {
                 perRequest.forEach((key, count) -> groups.get(key).add(request, count));
             }
             groups.forEach((key, group) ->
-                    findings.add(finding(route.getKey(), key, group, requests.size(), snapshot.exposure())));
+                    findings.add(finding(route.getKey(), key, group, requests.size(), complete, snapshot.exposure())));
         }
         Finding unowned = unowned(snapshot);
         if (unowned != null) {
             findings.add(unowned);
         }
-        return new Evaluation(eligible, findings);
+        long uncounted = snapshot.requests().size() - eligible;
+        return new Evaluation(
+                eligible,
+                findings,
+                uncounted == 0
+                        ? null
+                        : uncounted + " requests or executions had no observed framework log and"
+                                + " their log capture was not proven; missing warnings were not assessed.");
     }
 
     /**
@@ -120,6 +133,7 @@ public final class FrameworkWarningsByRoute implements Observation {
     private static Finding unowned(InsightsSnapshot snapshot) {
         Map<String, long[]> counts = new LinkedHashMap<>();
         Map<String, LogPayload> logs = new LinkedHashMap<>();
+        Set<String> captureGaps = new java.util.LinkedHashSet<>();
         Map<String, List<ProjectedRequest>> byThread = new LinkedHashMap<>();
         for (ProjectedRequest request : snapshot.httpRequests()) {
             // A blank name, as an unnamed virtual thread has, cannot tell one request's thread from another's.
@@ -135,6 +149,10 @@ public final class FrameworkWarningsByRoute implements Observation {
                     afterRequest++;
                     continue;
                 }
+                String gap = snapshot.logGap(event);
+                if (gap != null) {
+                    captureGaps.add(gap);
+                }
                 String key = log.logger() + "\n" + messageKey(log.template());
                 counts.computeIfAbsent(key, k -> new long[1])[0]++;
                 logs.putIfAbsent(key, log);
@@ -148,6 +166,7 @@ public final class FrameworkWarningsByRoute implements Observation {
                         + " startup; WARN events without one are not counted. Its affected count is those events,"
                         + " not requests.",
                 "Not yet compared with the previous run, whose summary does not keep log messages."));
+        limitations.addAll(captureGaps);
         if (afterRequest > 0) {
             limitations.add(InsightText.counted(afterRequest, "more event") + " written on the thread of a request that"
                     + " failed, within " + AFTER_REQUEST_MILLIS + " ms after it ended, as a container or error handler"
@@ -232,16 +251,30 @@ public final class FrameworkWarningsByRoute implements Observation {
         return false;
     }
 
-    private Finding finding(String route, String key, Group group, long eligible, JournalTextExposure text) {
+    private Finding finding(
+            String route, String key, Group group, long eligible, boolean complete, JournalTextExposure text) {
         LogPayload log = group.log;
         String template = log.template() == null ? "" : log.template();
         // The raw template only matches known fragments; what is quoted is the group's message, without the ids that
         // differ between its events, under the live exposure policy (§8).
         String shown = text.message(messageKey(template));
-        String sentence = "`" + route + "` logged `" + log.level() + "` from `" + InsightText.simpleName(log.logger())
-                + "` in " + group.rows.size() + " of " + InsightText.counted(eligible, InsightText.unit(route)) + " ("
-                + InsightText.counted(group.events, "event") + ")"
-                + (shown == null ? "." : ": \"" + InsightText.quoted(shown) + "\".");
+        String lead = complete
+                ? "`" + route + "` logged `" + log.level() + "` from `" + InsightText.simpleName(log.logger())
+                        + "` in " + group.rows.size() + " of " + InsightText.counted(eligible, InsightText.unit(route))
+                        + " ("
+                        + InsightText.counted(group.events, "event") + ")"
+                : "Captured `" + log.level() + "` from `" + InsightText.simpleName(log.logger()) + "` for `" + route
+                        + "` in " + InsightText.counted(group.rows.size(), InsightText.unit(route))
+                        + " (" + InsightText.counted(group.events, "event") + ")";
+        String sentence = lead + (shown == null ? "." : ": \"" + InsightText.quoted(shown) + "\".");
+        List<String> limitations = new ArrayList<>(List.of(
+                "Counts WARN and ERROR events written while the request's id was current; a warning logged"
+                        + " at startup or on another thread is not counted.",
+                "Not yet compared with the previous run, whose summary does not keep log messages."));
+        if (!complete) {
+            limitations.add("Log capture is not proven complete for this route; counts describe captured facts,"
+                    + " not a request-wide frequency.");
+        }
         List<String> checks = new ArrayList<>();
         KNOWN.forEach((fragment, check) -> {
             if (template.contains(fragment) && !checks.contains(check)) {
@@ -260,16 +293,13 @@ public final class FrameworkWarningsByRoute implements Observation {
                 route,
                 true,
                 sentence,
-                eligible,
+                complete ? eligible : 0,
                 group.rows.size(),
                 checks,
                 group.rows.stream().limit(3).map(row -> row.get(0)).toList(),
                 List.of("Request", "Status", "Events", "Logger"),
                 group.rows,
-                List.of(
-                        "Counts WARN and ERROR events written while the request's id was current; a warning logged"
-                                + " at startup or on another thread is not counted.",
-                        "Not yet compared with the previous run, whose summary does not keep log messages."));
+                limitations);
         return finding.unlisted(unlisted);
     }
 

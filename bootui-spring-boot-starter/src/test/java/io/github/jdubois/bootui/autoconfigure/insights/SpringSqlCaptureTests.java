@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 
@@ -48,6 +50,43 @@ class SpringSqlCaptureTests {
             context.refresh();
 
             assertThat(new SpringSqlCapture(context).get()).isEqualTo(SqlCapture.notRecorded(SqlCapture.NOT_RECORDED));
+        }
+    }
+
+    @Test
+    void passiveCaptureReadsDoNotCreateLazyRecordersOrInspectApplicationFactoryProducts() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AtomicInteger callbacks = new AtomicInteger();
+            context.registerBean(
+                    "lazyRecorder",
+                    SqlTraceRecorder.class,
+                    () -> {
+                        callbacks.incrementAndGet();
+                        throw new AssertionError("a passive capture read must not create a recorder");
+                    },
+                    definition -> definition.setLazyInit(true));
+            context.refresh();
+            assertThat(new SpringSqlCapture(context).get().recorded()).isFalse();
+            SqlTraceRecorder recorder = recorder();
+            recorder.registerDataSource("dataSource");
+            context.getBeanFactory().registerSingleton("nativeRecorder", recorder);
+            context.getBeanFactory().registerSingleton("applicationFactory", new FactoryBean<>() {
+                @Override
+                public Object getObject() {
+                    callbacks.incrementAndGet();
+                    throw new AssertionError("application factories must not run");
+                }
+
+                @Override
+                public Class<?> getObjectType() {
+                    callbacks.incrementAndGet();
+                    throw new AssertionError("application type callbacks must not run");
+                }
+            });
+            SqlCapture capture = new SpringSqlCapture(context, ConnectionFactory.class.getName()).get();
+            assertThat(capture.recorded()).isTrue();
+            assertThat(capture.reason()).contains("cannot be identified without invoking application callbacks");
+            assertThat(callbacks.get()).isZero();
         }
     }
 

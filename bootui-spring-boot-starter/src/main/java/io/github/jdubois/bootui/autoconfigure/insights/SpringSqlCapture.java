@@ -3,8 +3,9 @@ package io.github.jdubois.bootui.autoconfigure.insights;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.function.Supplier;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.util.ClassUtils;
 
 /**
@@ -18,9 +19,7 @@ final class SpringSqlCapture implements Supplier<SqlCapture> {
     static final String CONNECTION_FACTORY = "io.r2dbc.spi.ConnectionFactory";
 
     private final ApplicationContext context;
-    private final ObjectProvider<SqlTraceRecorder> recorder;
     private final String connectionFactory;
-    private volatile Boolean r2dbc;
 
     SpringSqlCapture(ApplicationContext context) {
         this(context, CONNECTION_FACTORY);
@@ -29,32 +28,46 @@ final class SpringSqlCapture implements Supplier<SqlCapture> {
     /** With the connection factory type named {@code connectionFactory}, for tests without R2DBC. */
     SpringSqlCapture(ApplicationContext context, String connectionFactory) {
         this.context = context;
-        this.recorder = context.getBeanProvider(SqlTraceRecorder.class);
         this.connectionFactory = connectionFactory;
     }
 
     @Override
     public SqlCapture get() {
-        return SqlCapture.of(recorder.getIfAvailable(), true, r2dbc());
-    }
-
-    /** Whether the application has an R2DBC connection factory bean, read once its context is refreshed. */
-    private boolean r2dbc() {
-        Boolean known = r2dbc;
-        if (known != null) {
-            return known;
+        if (!(context instanceof ConfigurableApplicationContext configurable)) {
+            return SqlCapture.notRecorded("Existing SQL capture metadata cannot be read passively.");
         }
+        var beans = configurable.getBeanFactory();
+        String[] names = beans.getSingletonNames();
+        if (names.length > 4096) {
+            return SqlCapture.notRecorded("Existing SQL capture metadata exceeds the bounded passive read.");
+        }
+        Class<?> reactiveType = null;
         ClassLoader loader = context.getClassLoader();
-        boolean found = false;
         if (ClassUtils.isPresent(connectionFactory, loader)) {
             try {
-                found = context.getBeanNamesForType(ClassUtils.forName(connectionFactory, loader), false, false).length
-                        > 0;
+                reactiveType = ClassUtils.forName(connectionFactory, loader);
             } catch (ClassNotFoundException | LinkageError ex) {
-                found = false;
+                return SqlCapture.notRecorded("Reactive database capture metadata could not be read passively.");
             }
         }
-        r2dbc = found;
-        return found;
+        SqlTraceRecorder recorder = null;
+        boolean reactive = false;
+        boolean unknownProducts = false;
+        for (String name : names) {
+            Object existing = beans.getSingleton(name);
+            if (existing instanceof SqlTraceRecorder candidate) {
+                if (recorder != null) {
+                    return SqlCapture.notRecorded("Existing SQL capture recorders are ambiguous.");
+                }
+                recorder = candidate;
+            }
+            reactive |= reactiveType != null && reactiveType.isInstance(existing);
+            unknownProducts |= reactiveType != null && existing instanceof FactoryBean<?>;
+        }
+        SqlCapture capture = SqlCapture.of(recorder, true, reactive);
+        return capture.recorded() && !reactive && unknownProducts
+                ? SqlCapture.recordedExcept("Only observed JDBC access is counted: reactive database factory products"
+                        + " cannot be identified without invoking application callbacks.")
+                : capture;
     }
 }

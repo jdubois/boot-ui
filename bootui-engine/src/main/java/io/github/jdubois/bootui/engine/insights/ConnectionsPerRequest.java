@@ -43,12 +43,19 @@ public final class ConnectionsPerRequest implements Observation {
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
+        long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             Map<String, List<String[]>> byDataSource = new LinkedHashMap<>();
             Map<String, Integer> mostHeld = new LinkedHashMap<>();
+            Map<String, Integer> eligibleByDataSource = new LinkedHashMap<>();
             for (ProjectedRequest request : route.getValue()) {
-                maxHeldTogether(request).forEach((dataSource, held) -> {
+                Map<String, Integer> heldTogether = maxHeldTogether(request);
+                if (!heldTogether.isEmpty()) {
+                    eligible++;
+                }
+                heldTogether.forEach((dataSource, held) -> {
+                    eligibleByDataSource.merge(dataSource, 1, Integer::sum);
                     if (held >= 2) {
                         byDataSource
                                 .computeIfAbsent(dataSource, d -> new ArrayList<>())
@@ -59,6 +66,7 @@ public final class ConnectionsPerRequest implements Observation {
             }
             byDataSource.forEach((dataSource, rows) -> {
                 int held = mostHeld.get(dataSource);
+                int requests = eligibleByDataSource.get(dataSource);
                 Integer pool = snapshot.poolSize(dataSource).orElse(null);
                 String estimate = pool == null
                         ? "With a pool of P connections, floor((P - 1) / " + (held - 1)
@@ -75,8 +83,8 @@ public final class ConnectionsPerRequest implements Observation {
                         true,
                         "`" + route.getKey() + "` held " + held + " connections of `" + dataSource
                                 + "` at the same time in " + rows.size() + " of "
-                                + InsightText.counted(route.getValue().size(), "request") + ".",
-                        route.getValue().size(),
+                                + InsightText.counted(requests, "request") + ".",
+                        requests,
                         rows.size(),
                         List.of(
                                 "Check for a REQUIRES_NEW transaction, or a second call to the data source, inside"
@@ -95,7 +103,14 @@ public final class ConnectionsPerRequest implements Observation {
                                         : "The estimate uses the pool's current maximum size.")));
             });
         }
-        return new Evaluation(snapshot.requests().size(), findings);
+        long uncounted = snapshot.requests().size() - eligible;
+        return new Evaluation(
+                eligible,
+                findings,
+                uncounted == 0
+                        ? null
+                        : uncounted + " requests or executions had no observed logical connection;"
+                                + " SQL execution capture alone does not establish connection absence.");
     }
 
     /** The most connections of each data source the request held at once. */

@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime capture qualification** retains observed SQL and log facts when live capture is unavailable, without
+  treating preparation-only or unassessed work as healthy absence. Native logging defaults, per-unit coverage,
+  request denominators and captured-fact exports remain explicit
+  ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Filtered collection fetches** add a bounded MEDIUM review for supported static queries that may initialize
   only part of a managed collection, without running queries. Unsupported shapes stay unassessed; query text and
   values are not exposed ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).

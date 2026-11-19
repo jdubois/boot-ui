@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
+import io.github.jdubois.bootui.engine.exceptions.LogCoverage;
 import io.github.jdubois.bootui.engine.insights.ChangeImpactService;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
@@ -32,6 +33,7 @@ import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -98,6 +100,7 @@ public class RuntimeInsightsController {
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
         this.insights.setSqlCapture(new SpringSqlCapture(context));
         this.insights.setCacheCapture(new SpringCacheCapture(context));
+        this.insights.setLogCoverage(() -> logCoverage(context));
         // Without BootUI's event multicaster, as beside Spring Modulith's, no application event is recorded (M4-8).
         SpringAppEventCapture appEvents = new SpringAppEventCapture(context);
         this.insights.setAppEventCapture(appEvents);
@@ -111,6 +114,7 @@ public class RuntimeInsightsController {
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
+
         ObjectProvider<JavaAgentService> javaAgent = context.getBeanProvider(JavaAgentService.class);
         this.insights.setAgent(
                 () -> AgentPropagation.unavailableReason(javaAgent),
@@ -177,6 +181,19 @@ public class RuntimeInsightsController {
                     return paths == null ? null : paths.methodRoutes(wanted);
                 });
         this.insights.setCodePathsService(codePaths::getIfUnique);
+    }
+
+    static LogCoverage logCoverage(ApplicationContext context) {
+        if (context instanceof ConfigurableApplicationContext configurable) {
+            Object existing = configurable.getBeanFactory().getSingleton("bootUiLogCoverage");
+            if (existing instanceof LogCoverage coverage
+                    && existing.getClass()
+                            .getName()
+                            .equals("io.github.jdubois.bootui.autoconfigure.journal.LogbackLogCoverage")) {
+                return coverage;
+            }
+        }
+        return LogCoverage.UNREADABLE;
     }
 
     @GetMapping

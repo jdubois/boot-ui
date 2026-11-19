@@ -1069,10 +1069,14 @@ class RuntimeInsightsServiceTests {
                 });
 
         service.setSqlCapture(SqlCapture::capturing);
+        assertThat(checks(service.report()).get(RepeatedSelects.KIND).status())
+                .as("current availability alone does not qualify earlier requests without SQL evidence")
+                .isEqualTo("INSUFFICIENT");
+        request("GET", "/api/captured", sqls("select 1", 0, null));
         assertThat(service.report().checks())
                 .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
-                .as("the requests remain eligible for SELECT checks once SQL capture is available")
+                .as("an observed execution establishes eligible SELECT work")
                 .containsExactly("EVALUATED");
     }
 
@@ -1115,8 +1119,8 @@ class RuntimeInsightsServiceTests {
                 .contains("its own application event multicaster", "Spring Modulith", "does not record");
         assertThat(report.limitations()).contains(AppEventCapture.CUSTOM_MULTICASTER);
         assertThat(checks.get(RepeatedSelects.KIND).status())
-                .as("a check reading no application event is evaluated as before")
-                .isEqualTo("EVALUATED");
+                .as("application-event availability cannot qualify requests without SQL evidence")
+                .isEqualTo("INSUFFICIENT");
 
         service.setAppEventCapture(AppEventCapture::capturing);
         RuntimeInsightsReportDto recorded = service.report();
@@ -1434,6 +1438,15 @@ class RuntimeInsightsServiceTests {
     @Test
     void aSurvivingScheduledRunDoesNotMakeHiddenHttpRequestsLookEvaluated() {
         request("GET", "/api/orders/{id}", sqls("select 1", 0, null));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                2_000,
+                0,
+                CorrelationContext.forExecution("job-1"),
+                "scheduler",
+                null,
+                false,
+                new SqlPayload("select 1", null, "db", false)));
         journal.offer(RuntimeEvent.of(
                 JournalSource.SCHEDULED,
                 2_000,

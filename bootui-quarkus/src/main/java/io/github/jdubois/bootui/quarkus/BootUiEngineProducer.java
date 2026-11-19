@@ -478,13 +478,16 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
+    public QuarkusLogCoverage logCoverage() {
+        return new QuarkusLogCoverage();
+    }
+
+    @Produces
+    @Singleton
     public CaughtExceptionsReader caughtExceptionsReader(
-            RuntimeJournal journal, Instance<AgentCaughtExceptions> caught) {
+            RuntimeJournal journal, Instance<AgentCaughtExceptions> caught, QuarkusLogCoverage logs) {
         return new CaughtExceptionsReader(
-                journal,
-                () -> caught.isResolvable() ? caught.get() : null,
-                new QuarkusLogCoverage(),
-                RunningHandoffs.shared());
+                journal, () -> caught.isResolvable() ? caught.get() : null, logs, RunningHandoffs.shared());
     }
 
     /**

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.AiCallOwners;
+import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.GcPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
@@ -13,9 +14,12 @@ import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
+import io.github.jdubois.bootui.engine.journal.SqlCaptureScopes;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.engine.support.BlankStrings;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -51,6 +55,9 @@ public final class InsightsSnapshot {
     private final Function<String, Integer> poolSizes;
     private JournalTextExposure exposure = JournalTextExposure.masked();
     private CacheCapture cacheCapture = CacheCapture.notRecorded(CacheCapture.NOT_RECORDED);
+    private boolean declaredSqlZero;
+    private java.util.Set<String> executionSources = java.util.Set.of();
+    private Map<Long, Optional<String>> logGaps = Map.of();
 
     private InsightsSnapshot(
             List<ProjectedRequest> requests,
@@ -437,6 +444,63 @@ public final class InsightsSnapshot {
     CacheCapture cacheCapture() {
         return cacheCapture;
     }
+
+    InsightsSnapshot withSqlCapture(SqlCapture capture, SqlCaptureScopes.Snapshot scope) {
+        declaredSqlZero = capture.recorded()
+                && !scope.executions().isEmpty()
+                && scope.preparations().isEmpty()
+                && !scope.incomplete();
+        executionSources = scope.executions();
+        return this;
+    }
+
+    /** Observed executions remain usable even when the current feeder scope cannot establish a zero. */
+    boolean sqlExecutionEligible(ProjectedRequest request) {
+        List<RuntimeEvent> sql = request.children(JournalSource.SQL);
+        List<RuntimeEvent> connections = request.children(JournalSource.CONNECTION);
+        return sql.stream().anyMatch(event -> event.payload() instanceof SqlPayload statement && statement.executed())
+                || (sql.isEmpty()
+                        && declaredSqlZero
+                        && available(JournalSource.CONNECTION)
+                        && !connections.isEmpty()
+                        && connections.stream()
+                                .allMatch(event -> event.payload() instanceof ConnectionPayload connection
+                                        && connection.statements() == 0
+                                        && connection.dataSource() != null
+                                        && executionSources.contains(connection.dataSource())));
+    }
+
+    InsightsSnapshot withLogGaps(Map<Long, Optional<String>> gaps) {
+        logGaps = Map.copyOf(gaps);
+        return this;
+    }
+
+    String logGap(ProjectedRequest request) {
+        return logGapAt(request.startMillis());
+    }
+
+    String logGap(RuntimeEvent event) {
+        return logGapAt(event.epochMillis());
+    }
+
+    private String logGapAt(long start) {
+        Optional<String> gap = logGaps.get(start);
+        return gap == null ? "Log capture is not proven available for this work." : gap.orElse(null);
+    }
+
+    String logGap() {
+        String reasons = logGaps.values().stream()
+                .flatMap(Optional::stream)
+                .map(BlankStrings::blankToNullTrimmed)
+                .filter(reason -> reason != null)
+                .map(reason ->
+                        reason.endsWith(".") || reason.endsWith("!") || reason.endsWith("?") ? reason : reason + ".")
+                .distinct()
+                .sorted()
+                .collect(java.util.stream.Collectors.joining(" "));
+        return reasons.isEmpty() ? null : reasons;
+    }
+
     /** Events the journal dropped from {@code source} in this run. */
     public long dropped(JournalSource source) {
         return status.dropped().getOrDefault(source, 0L);

@@ -2071,6 +2071,19 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   Eligibility follows the observation's unit, not just its request count: a heap-growth check that examined collections
   is evaluated even with zero requests,
   whether it observed growth or a stable heap.
+  Repeated SELECTs requires observed execution provenance, or an observed zero-statement connection within its
+  declared execution-only feeder scope; preparation-only and unknown SQL do not establish execution absence.
+  Connection overlap eligibility requires logical-connection evidence, never SQL execution completeness, and each
+  data-source finding uses its own observed denominator. Current capture uncertainty does not erase retained facts.
+  Native log-coverage gaps qualify framework-warning absence and optional log evidence without hiding captured
+  errors or independent 2xx failures. Coverage reads use held native metadata, not logging filters, custom appender
+  callbacks, or lazy application factories. SQL feeder-scope and log-gap changes also invalidate the projection cache.
+  Log qualifications are immutable per-projection results for each retained unit's own start and unowned captured
+  fact, not a run-wide window anchored by unrelated startup or GC events. Initial sampling, mid-read validation and
+  cache comparison use the same windows. Incomplete log scope uses captured-fact wording rather than request-wide
+  prevalence. Passive Insights coverage stays separate from existing explicit deep Caught inspection.
+  A captured framework-log finding without a proven request population keeps `eligible=0` even with positive
+  `affected`; consumers therefore omit request-frequency ratios without discarding the captured facts.
   Each kind's external validation (recorded once in the engine's `ExternalValidation`)
   decides whether its rows enter the agents' default selection, and is never exposed: no check, row, limitation, MCP
   or CLI text names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
