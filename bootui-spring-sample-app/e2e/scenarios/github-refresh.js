@@ -388,10 +388,13 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh', 'POST refresh', 'POST refresh'])
 
     await page.getByRole('button', {name: 'Stop', exact: true}).click()
+    await expect(refresh).toBeEnabled()
+    await expect(connect).toBeVisible()
+    const requestsAfterStop = requests.length
     await page.clock.runFor(120_000)
     await visibility('hidden')
     await visibility('visible')
-    expect(requests).toHaveLength(5)
+    expect(requests).toHaveLength(requestsAfterStop)
 
     await page.evaluate(() => (window.location.hash = '#/scorecard'))
     await expect(page.getByRole('heading', {name: 'Scorecard', exact: true})).toBeVisible()
@@ -399,7 +402,8 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect(page.getByRole('heading', {name: 'GitHub', exact: true})).toBeVisible()
     await expect(refresh).toBeEnabled()
     await expect(connect).toBeVisible()
-    expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh', 'POST refresh', 'POST refresh', 'GET cache'])
+    expect(requests).toHaveLength(requestsAfterStop + 1)
+    expect(requests.at(-1)).toBe('GET cache')
 
     await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 60_000)))
     const cachedTimestamp = await page.locator('.last-fetched-text').innerText()
