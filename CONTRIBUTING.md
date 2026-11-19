@@ -339,6 +339,21 @@ installing the reactor dependencies, run the affected conformance class:
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
 ```
 
+The Quarkus base API profile supplies a test-only, plain H2 datasource: the shared activity-persistence
+confirmation and keyed-finding dismissal/restore assertions execute against a real database and HTTP backend.
+Other base profiles still have no datasource or optional extensions. SQL Trace and Flyway intentionally remain
+unavailable there; their exact shared contract assertions run without assumptions in the existing capability fixtures:
+
+```bash
+./mvnw -B -ntp -pl bootui-quarkus-integration-tests/datasource,bootui-quarkus-integration-tests/flyway test \
+  -Dtest=BootUiQuarkusSqlTraceCaptureTest,BootUiQuarkusFlywayCaptureTest
+```
+
+`sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers` runs in the datasource fixture;
+`unavailableActionTargetReturnsCanonicalNotFound` runs in the Flyway fixture. Together with the base runner these
+cover the four capability-dependent assertions; the Spring DevTools restart assertion remains not applicable on Quarkus.
+Use the same absolute isolated Maven repository for dependency installation and each command.
+
 The correlation coverage scenario (`AbstractCorrelationCoverageTest`, [PLAN-v2.md](docs/PLAN-v2.md) §5.1) measures
 how much request-thread work Live Activity nests under its request when identical requests are paced, sent
 back-to-back, or sent simultaneously. It fails when a floor is missed, when a child is nested under a request that was

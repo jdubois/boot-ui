@@ -15,10 +15,11 @@
     <name>BootUI :: Quarkus Extension (Integration Tests)</name>
     <description>Minimal, Docker-free Quarkus app that runs the shared bootui-conformance contract against the
         bootui-quarkus extension under @QuarkusTest, gating every build the same way the Spring conformance test
-        does. Has no datasource deps on purpose, so it never starts a Dev Services container.</description>
+        does. Has no datasource extension, so it never starts a Dev Services container; the API conformance
+        profile alone supplies a plain, test-only in-memory H2 datasource.</description>
 
     <!--
-        This module deliberately has NO datasource / messaging dependencies, so a @QuarkusTest boots without
+        This module deliberately has NO datasource / messaging extensions, so a @QuarkusTest boots without
         Docker (no Dev Services). It is the Quarkus analogue of bootui-spring-sample-app's SpringApiConformanceTest:
         it proves the engine-backed /bootui/api/** surface and the safety floor behave on Quarkus exactly as
         the shared contract requires. Never published.
@@ -57,6 +58,11 @@
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
 

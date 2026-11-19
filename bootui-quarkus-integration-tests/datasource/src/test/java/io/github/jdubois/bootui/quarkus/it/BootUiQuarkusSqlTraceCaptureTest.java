@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.conformance.SqlTraceInsightsContract;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -136,6 +137,17 @@ class BootUiQuarkusSqlTraceCaptureTest {
         assertThat(attribution.path("unattributed").path("reason").asText(""))
                 .as("the unattributed bucket explains itself")
                 .isNotBlank();
+    }
+
+    @Test
+    void sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers() {
+        JsonNode root = SqlTraceInsightsContract.read(probe(), "/bootui/api");
+        assertThat(root.path("available").asBoolean())
+                .as("the native Agroal fixture must execute, never skip, the shared SQL insights contract")
+                .isTrue();
+        assertThat(root.path("window").path("retainedStatements").asInt()).isPositive();
+        assertThat(root.path("statements")).isNotEmpty();
+        SqlTraceInsightsContract.sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers(root);
     }
 
     @Test
