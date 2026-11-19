@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -41,16 +43,17 @@ class BootUiOverridesLoggingListenerTests {
         }
     }
 
-    @Test
-    void protectedBootstrapSelectorsCannotImportOrActivateSafetyPolicy(@TempDir Path tmp, CapturedOutput output)
-            throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"spring.config.import", "spring.config.import[0]"})
+    void protectedBootstrapSelectorsCannotImportOrActivateSafetyPolicy(
+            String importKey, @TempDir Path tmp, CapturedOutput output) throws Exception {
         Path imported = tmp.resolve("unsafe.properties");
         Files.writeString(imported, "bootui.enabled=ON\nimported.probe=must-not-load\n");
         Path file = tmp.resolve("overrides.properties");
         Files.writeString(
                 file,
                 "spring.profiles.active=dev\nSPRING_PROFILES_INCLUDE_0=local\n"
-                        + "spring.config.import=" + imported.toUri() + "\n"
+                        + importKey + "=" + imported.toUri() + "\n"
                         + "management.endpoints.web.exposure.include=*\n"
                         + "server.port=9090\nsample.greeting=still-applies\n");
 

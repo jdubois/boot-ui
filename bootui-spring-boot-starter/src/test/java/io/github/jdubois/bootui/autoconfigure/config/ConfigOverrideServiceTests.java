@@ -132,6 +132,25 @@ class ConfigOverrideServiceTests {
         assertThat(Files.exists(service.overridesFile())).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unreadableStartupOverridesAreNotReplacedByALaterMutation(boolean remove) throws Exception {
+        String original = "sample.greeting=before\nsample.invalid=\\uZZZZ\n";
+        Files.writeString(service.overridesFile(), original);
+        environment.setProperty("bootui.overrides-file", service.overridesFile().toString());
+        new BootUiOverridesEnvironmentPostProcessor()
+                .postProcessEnvironment(environment, new org.springframework.boot.SpringApplication());
+
+        assertThatThrownBy(() -> {
+                    if (remove) service.remove("sample.greeting");
+                    else service.put("sample.greeting", "after");
+                })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unreadable");
+        assertThat(Files.readString(service.overridesFile())).isEqualTo(original);
+        assertThat(service.overrides()).isEmpty();
+    }
+
     @Test
     void failedPersistenceDoesNotChangeLiveOverrides() throws Exception {
         service.put("sample.greeting", "before");

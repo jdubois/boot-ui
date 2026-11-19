@@ -13,14 +13,11 @@ public final class ConfigurationOverridePolicy {
             "bootuireadonly",
             "bootuiexposevalues",
             "bootuimasksecrets",
+            "bootuiheapdumpallowrawdownload",
             "bootuipath",
             "bootuiapipath",
             "bootuioverridesfile",
             "bootuiactuatorexposedefaults",
-            "springconfigname",
-            "springconfiglocation",
-            "springconfigadditionallocation",
-            "springconfigimport",
             "managementendpointswebbasepath",
             "managementendpointsenabledbydefault",
             "managementendpointsaccessdefault",
@@ -29,8 +26,15 @@ public final class ConfigurationOverridePolicy {
             "managementserverport",
             "managementserverbasepath");
 
-    private static final Set<String> PROTECTED_LISTS =
-            Set.of("bootuienabledprofiles", "bootuidisabledprofiles", "bootuiallowedhosts", "bootuitrustedproxies");
+    private static final Set<String> PROTECTED_LISTS = Set.of(
+            "bootuienabledprofiles",
+            "bootuidisabledprofiles",
+            "bootuiallowedhosts",
+            "bootuitrustedproxies",
+            "springconfigname",
+            "springconfiglocation",
+            "springconfigadditionallocation",
+            "springconfigimport");
 
     private ConfigurationOverridePolicy() {}
 

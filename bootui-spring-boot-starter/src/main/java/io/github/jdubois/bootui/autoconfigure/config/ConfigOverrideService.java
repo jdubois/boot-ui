@@ -70,7 +70,7 @@ public class ConfigOverrideService {
 
     public synchronized ConfigOverrideResult put(String name, String value) {
         validateName(name);
-        BootUiOverridesPropertySource src = source();
+        BootUiOverridesPropertySource src = writableSource();
         Object previous = src.getProperty(name);
         ValueExposure valueExposure = exposure.valueExposure();
         boolean maskSecrets = exposure.maskSecrets();
@@ -86,7 +86,7 @@ public class ConfigOverrideService {
 
     public synchronized ConfigOverrideResult remove(String name) {
         validateName(name);
-        BootUiOverridesPropertySource src = source();
+        BootUiOverridesPropertySource src = writableSource();
         ValueExposure valueExposure = exposure.valueExposure();
         boolean maskSecrets = exposure.maskSecrets();
         Object previous = src.getProperty(name);
@@ -106,6 +106,15 @@ public class ConfigOverrideService {
         BootUiOverridesPropertySource created = new BootUiOverridesPropertySource();
         sources.addFirst(created);
         return created;
+    }
+
+    private BootUiOverridesPropertySource writableSource() {
+        BootUiOverridesPropertySource source = source();
+        if (source.unreadable()) {
+            throw new IllegalStateException(
+                    "BootUI overrides file was unreadable at startup; repair it and restart before changing overrides.");
+        }
+        return source;
     }
 
     private void validateName(String name) {

@@ -129,12 +129,14 @@ restarts, and BootUI returns that warning with every override mutation.
 
 On Spring these application overrides deliberately load **before configuration data, even when BootUI is inactive**.
 Startup logs their path and key count at INFO while active, or WARN while inactive; values are never logged.
-An unreadable or malformed file is ignored with a warning. Removing a late property source would not undo settings
+An unreadable or malformed file is ignored with a warning; console edits cannot replace it until it is repaired and
+the application restarts. Removing a late property source would not undo settings
 already consumed during bootstrap, so inactive loading is not presented as an activation gate.
 
 BootUI safety settings cannot be written through runtime overrides and existing persisted entries are ignored before
 bootstrap: activation and profile lists, source/Host trust, authentication, global/panel read-only and panel enablement,
-value exposure/masking, UI/API mounts and the overrides-file location. Relaxed-binding spellings are covered too.
+value exposure/masking and raw heap downloads, UI/API mounts and the overrides-file location. Relaxed-binding
+spellings and indexed lists are covered too.
 Move such entries to host-owned configuration, system properties or environment variables.
 The same restriction covers indirect controls: Spring profile activation/default/include/groups, ConfigData
 name/location/additional-location/import selectors, and management HTTP exposure/access/mappings, health/value-display
