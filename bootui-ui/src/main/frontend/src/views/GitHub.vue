@@ -139,14 +139,25 @@ function targetFromReport(remote, report = data.value) {
   if (contextTarget?.host && contextTarget?.fullName) {
     return {remote, host: contextTarget.host, fullName: contextTarget.fullName}
   }
-  if (report?.repository && selectedRemote.value === remote && report.repository.host && report.repository.fullName) {
-    return {remote, host: report.repository.host, fullName: report.repository.fullName}
+  const repository = report?.repository
+  const host = repository?.host || repositoryHost(repository?.htmlUrl)
+  if (repository && selectedRemote.value === remote && host && repository.fullName) {
+    return {remote, host, fullName: repository.fullName}
   }
   return null
 }
 
 function reportMatchesTarget(report, target) {
-  return target && report?.repository?.host === target.host && report.repository.fullName === target.fullName
+  const host = report?.repository?.host || repositoryHost(report?.repository?.htmlUrl)
+  return target && host === target.host && report.repository.fullName === target.fullName
+}
+
+function repositoryHost(url) {
+  try {
+    return url ? new URL(url).host : null
+  } catch {
+    return null
+  }
 }
 
 async function currentTargetMatchesConsent(remote) {
