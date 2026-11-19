@@ -1,9 +1,9 @@
 <script>
 import {ref as pageRef} from 'vue'
 
-// Page-lifetime consent survives route unmounts, but never a reload or a new tab.
-// Neither cached server state nor persistent browser storage can grant it.
-const connectionConsent = pageRef(false)
+// Page-lifetime consent is scoped to one selected remote and survives route unmounts,
+// but never a reload or a new tab. Cached state cannot grant it.
+const consentedRemote = pageRef(null)
 const externalRefreshPending = pageRef(false)
 </script>
 
@@ -61,6 +61,7 @@ const connected = computed(() => data.value?.connected === true)
 const unavailable = computed(() => data.value?.available === false)
 const repositoryContext = computed(() => data.value?.repositoryContext)
 const forkData = computed(() => repository.value?.fork === true)
+const connectionConsent = computed(() => consentedRemote.value === selectedRemote.value)
 
 const canConnect = computed(
   () => manifestAvailable.value && !readOnly.value && data.value && !unavailable.value && !refreshDisabled.value
@@ -73,7 +74,7 @@ async function fetchDashboard(liveRefresh, remote = selectedRemote.value) {
     const query = remote === 'origin' ? '' : `?remote=${encodeURIComponent(remote)}`
     const report = await getJson(`${path}${query}`, liveRefresh ? {method: 'POST'} : {})
     // Permission belongs to the page, even after the requesting view has unmounted.
-    if (['BLOCKED', 'DISABLED'].includes(report.status)) connectionConsent.value = false
+    if (['BLOCKED', 'DISABLED'].includes(report.status)) consentedRemote.value = null
     if (disposed) return
     refreshDisabled.value = report.status === 'DISABLED'
     if (['ERROR', 'BLOCKED', 'DISABLED'].includes(report.status)) {
@@ -90,7 +91,7 @@ async function fetchDashboard(liveRefresh, remote = selectedRemote.value) {
     lastFetched.value = report.connected ? report.refreshedAt : null
     error.value = null
   } catch (e) {
-    if (e.status === 403) connectionConsent.value = false
+    if (e.status === 403) consentedRemote.value = null
     if (disposed) return
     error.value = describeLoadError(e, liveRefresh ? 'Unable to refresh GitHub' : 'Unable to load cached GitHub data')
   }
@@ -101,15 +102,15 @@ function connectRemote(remote) {
     load(false, remote)
     return
   }
-  connectionConsent.value = true
-  load(true, remote)
+  consentedRemote.value = remote
+  load(true, remote, true)
 }
 
 const {loading, initialLoading, refresh} = useRefreshState(fetchDashboard)
 
-async function load(liveRefresh = false, remote = selectedRemote.value) {
+async function load(liveRefresh = false, remote = selectedRemote.value, explicit = false) {
   if (disposed || inFlight || !manifestAvailable.value) return
-  if (liveRefresh && (!refreshAllowed.value || externalRefreshPending.value)) return
+  if (liveRefresh && (externalRefreshPending.value || (explicit ? readOnly.value : !refreshAllowed.value))) return
   inFlight = true
   if (liveRefresh) {
     ownsExternalRefresh = true
@@ -147,12 +148,12 @@ watch(
 
 function connect() {
   if (!canConnect.value || loading.value || externalRefreshPending.value) return
-  connectionConsent.value = true
-  load(true)
+  consentedRemote.value = selectedRemote.value
+  load(true, selectedRemote.value, true)
 }
 
 function stop() {
-  connectionConsent.value = false
+  consentedRemote.value = null
 }
 
 function stopTimer() {

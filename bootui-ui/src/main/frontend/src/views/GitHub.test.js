@@ -431,6 +431,53 @@ describe('GitHub', () => {
     expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
     expect(wrapper.get('a[href="https://github.com/jdubois/boot-ui"]').text()).toContain('jdubois/boot-ui')
     expect(wrapper.get('time').attributes('datetime')).toBe(new Date(origin.refreshedAt).toISOString())
+    expect(control(wrapper, 'Stop')).toBeUndefined()
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('connects to origin when the selected upstream has become unavailable', async () => {
+    const origin = forkReport()
+    const unavailableUpstream = githubReport({
+      available: false,
+      connected: false,
+      status: 'UNAVAILABLE',
+      unavailableReason: 'Configured upstream is unavailable',
+      repository: null,
+      repositoryContext: {
+        ...origin.repositoryContext,
+        selectedRemote: 'upstream',
+        upstream: null
+      }
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...origin,
+          repositoryContext: {
+            ...origin.repositoryContext,
+            selectedRemote: 'upstream'
+          }
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse(unavailableUpstream))
+      .mockResolvedValue(jsonResponse(origin))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect to configured upstream').trigger('click')
+    await flushPromises()
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Configured upstream is unavailable')
+    await control(wrapper, 'Connect to origin').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(wrapper.text()).toContain('jdubois/boot-ui')
   })
 
   it('reads only cache until Connect, regardless of cached connected state', async () => {
