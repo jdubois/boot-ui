@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -112,6 +113,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private volatile BooleanSupplier exposeRequestIdHeader = () -> false;
     private volatile Predicate<String> trustedSource = ignored -> false;
+    private volatile Function<HttpServletRequest, String> peerAddress = RequestCorrelationFilter::rawRemoteAddr;
 
     /**
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
@@ -129,8 +131,17 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
      * @param trustedSource live check for whether the request's raw peer address is a trusted loopback/local source
      */
     public void setRequestIdHeaderExposure(BooleanSupplier exposeRequestIdHeader, Predicate<String> trustedSource) {
+        setRequestIdHeaderExposure(exposeRequestIdHeader, trustedSource, RequestCorrelationFilter::rawRemoteAddr);
+    }
+
+    /** Shares the access guard's native transport provenance for opt-in header admission. */
+    public void setRequestIdHeaderExposure(
+            BooleanSupplier exposeRequestIdHeader,
+            Predicate<String> trustedSource,
+            Function<HttpServletRequest, String> peerAddress) {
         this.exposeRequestIdHeader = exposeRequestIdHeader == null ? () -> false : exposeRequestIdHeader;
         this.trustedSource = trustedSource == null ? ignored -> false : trustedSource;
+        this.peerAddress = peerAddress == null ? ignored -> null : peerAddress;
     }
 
     /** The request attribute marking a request whose values the BootUI agent's request value holder holds. */
@@ -203,7 +214,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             HttpServletRequest request, HttpServletResponse response, String requestId) {
         try {
             if (!exposeRequestIdHeader.getAsBoolean()
-                    || !trustedSource.test(rawRemoteAddr(request))
+                    || !trustedSource.test(peerAddress.apply(request))
                     || response.containsHeader(RequestIds.RESPONSE_HEADER)) {
                 return response;
             }

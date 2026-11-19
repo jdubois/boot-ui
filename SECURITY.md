@@ -73,7 +73,8 @@ Spring unwraps framework forwarding decorators and uses Tomcat's connector peer 
 Quarkus uses the Vert.x connection peer, not the rewritten request peer. Spring's explicit native forwarding strategy
 and cloud-platform native defaults fail closed with one warning when no supported raw-peer binding is available.
 Ordinary non-forwarded servlet transports remain supported. Native-forwarded Jetty/Undertow and arbitrary custom
-forwarding/server customizers are not certified; use framework forwarding or a supported raw-peer server binding.
+forwarding/server customizers are not certified. Framework forwarding is verified for servlet bindings and Reactor
+Netty; framework-forwarded non-Netty WebFlux transports remain uncertified. Use a supported raw-peer server binding.
 
 Quarkus native host forwarding does not retain the original authority. BootUI rejects requests when effective
 forwarded-host metadata makes that authority unavailable. Preserve Host and omit forwarded-host metadata on the

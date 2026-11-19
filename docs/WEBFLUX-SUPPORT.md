@@ -115,6 +115,9 @@ Raw source trust and token admission use Reactor Netty's channel peer even with 
 decorators are unwrapped. A native-forwarded transport without verified raw provenance fails closed with a warning.
 Writes reject same-site browser metadata; Origin-only clients must match scheme/host/effective port, while Vite's
 same-origin metadata permits its upstream port rewrite. Heap capture also requires JSON `{"confirm":true}`.
+
+Framework-forwarded transport metadata is verified on Reactor Netty. Non-Netty WebFlux servers using framework
+forwarding remain uncertified; use a supported raw-peer server binding.
 BootUI-added raw Actuator exposure/details are guarded independently of host-owned management policy, including
 separate listeners and health aliases; native endpoint beans and in-process panels are preserved.
 

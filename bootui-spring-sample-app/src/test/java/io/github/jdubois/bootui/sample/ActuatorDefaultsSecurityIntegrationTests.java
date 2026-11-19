@@ -48,6 +48,7 @@ class ActuatorDefaultsSecurityIntegrationTests {
             "bootui.show-banner=false",
             "management.endpoint.health.probes.enabled=true",
             "management.server.port=0",
+            "server.forward-headers-strategy=NATIVE",
             "management.server.address=127.0.0.1",
             "management.server.base-path=/manage",
             "management.endpoints.web.base-path=/actuator/private",

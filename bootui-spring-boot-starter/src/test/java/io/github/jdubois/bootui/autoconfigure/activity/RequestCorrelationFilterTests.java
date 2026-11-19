@@ -446,6 +446,36 @@ class RequestCorrelationFilterTests {
     }
 
     @Test
+    void requestIdExposureUsesTheGuardsVerifiedNativePeer() throws Exception {
+        var properties = new io.github.jdubois.bootui.autoconfigure.BootUiProperties();
+        properties.getHttpExchanges().setExposeRequestIdHeader(true);
+        var guard = new io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter(properties, true);
+        var registration = new io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration()
+                .bootUiRequestCorrelationFilterRegistration(
+                        new RequestCorrelationRegistry(10),
+                        new HttpExchangeTraceRegistry(10),
+                        properties,
+                        new org.springframework.mock.env.MockEnvironment(),
+                        null,
+                        org.mockito.Mockito.mock(io.github.jdubois.bootui.engine.journal.RuntimeJournal.class),
+                        guard);
+        RequestCorrelationFilter filter = registration.getFilter();
+        MockHttpServletRequest unknownPeer = new MockHttpServletRequest("GET", "/api/orders");
+        unknownPeer.setRemoteAddr("127.0.0.1");
+        assertThat(guard.remoteAddress(unknownPeer)).isNull();
+        MockHttpServletResponse rejected = new MockHttpServletResponse();
+        filter.doFilter(unknownPeer, rejected, new MockFilterChain());
+        assertThat(rejected.getHeader("X-BootUI-Request-Id")).isNull();
+
+        MockHttpServletRequest verifiedPeer = new MockHttpServletRequest("GET", "/api/orders");
+        verifiedPeer.setAttribute(
+                io.github.jdubois.bootui.autoconfigure.safety.ServletPeerAddress.ATTRIBUTE, "127.0.0.1");
+        MockHttpServletResponse accepted = new MockHttpServletResponse();
+        filter.doFilter(verifiedPeer, accepted, new MockFilterChain());
+        assertThat(accepted.getHeader("X-BootUI-Request-Id")).isNotBlank();
+    }
+
+    @Test
     void exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues()
             throws Exception {
         io.github.jdubois.bootui.autoconfigure.BootUiProperties properties =

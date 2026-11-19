@@ -1078,7 +1078,8 @@ public class BootUiAutoConfiguration {
         filter.setRequestIdHeaderExposure(
                 () -> properties.getHttpExchanges().isExposeRequestIdHeader()
                         && properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES),
-                localhostOnlyFilter::isTrustedSource);
+                localhostOnlyFilter::isTrustedSource,
+                localhostOnlyFilter::remoteAddress);
         // A Spring MVC request's scope is its whole handling on its pooled worker: the BootUI agent's thread-locals
         // sensor scans there (docs/PLAN-v2.md §5.16, M5-5f).
         AgentThreadLocals.configure(true);

@@ -6,6 +6,8 @@ import java.io.IOException;
 import org.apache.catalina.connector.Request;
 import org.apache.catalina.connector.Response;
 import org.apache.catalina.valves.ValveBase;
+import org.springframework.boot.actuate.autoconfigure.web.ManagementContextConfiguration;
+import org.springframework.boot.actuate.autoconfigure.web.ManagementContextType;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -15,6 +17,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 
 @AutoConfiguration
+@ManagementContextConfiguration(value = ManagementContextType.ANY, proxyBeanMethods = false)
 @ConditionalOnClass(name = "org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @Conditional(BootUiActivationCondition.class)

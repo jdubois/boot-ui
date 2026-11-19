@@ -44,6 +44,10 @@ public final class ActuatorSecurityContract {
         }
         String guardedPath = basePath + "/" + (ownsExposure ? envPath : "health");
         if (ownsExposure || ownsDetails) {
+            var local = management.request("GET", guardedPath, Map.of("Host", "localhost"), null, null);
+            assertThat(local.status())
+                    .as("loopback native management access remains usable")
+                    .isEqualTo(200);
             var response = management.request("GET", guardedPath, Map.of("Host", "foreign.invalid"), null, null);
             assertThat(response.status()).as("raw Actuator Host guard").isEqualTo(403);
             assertThat(response.json().path("error").asText())
