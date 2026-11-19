@@ -17,7 +17,7 @@ BootUI is a local development tool. By default, it does the following:
 - Permits the configured UI/API paths through Spring Security when Spring Security is present, with a startup warning, so the local
   console remains directly reachable while the loopback-only filter still applies.
 - Masks secret-like configuration values.
-- Exposes the local Actuator endpoints used by BootUI panels when BootUI is active.
+- Contributes local Actuator defaults on Spring, guarding only the exposure and health details BootUI adds.
 - Captures local application spans for the Traces panel when telemetry and the panel are enabled.
 - Disables itself for `prod` / `production` profiles.
 - Stores runtime configuration overrides in `.bootui/application-bootui.properties`, not in your source config files.
@@ -25,6 +25,12 @@ BootUI is a local development tool. By default, it does the following:
 You can disable any panel with `bootui.panels.<panel-id>.enabled=false`. Panels with mutating browser actions also
 accept `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes all of BootUI read-only. The
 [property reference](../PROPERTIES.md) lists every panel.
+
+On Spring, BootUI-added raw Actuator routes retain source/Host/write protection on the application or separate management
+listener, including mapped endpoints and health descendants/aliases. Host-owned management exposure/authentication is
+unchanged. Even with `bootui.allow-non-localhost=true`, raw BootUI-added Actuator requires a trusted source; remote
+token users use the in-process panels. Set `bootui.actuator.expose-defaults=false` to leave all exposure/detail defaults
+to the host. This does not remove endpoint beans; panel availability follows the native endpoint configuration.
 
 ## Scope BootUI to a dev-only profile
 

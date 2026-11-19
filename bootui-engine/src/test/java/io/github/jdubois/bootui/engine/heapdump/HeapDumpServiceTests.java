@@ -204,13 +204,24 @@ class HeapDumpServiceTests {
 
     @Test
     void captureWritesDumpAndRefreshesHistogram(@TempDir Path dir) {
-        HeapDumpReport report = service(config(), dir, true).capture(true);
+        HeapDumpReport report = service(config(), dir, true).capture(true, true);
 
         assertThat(report.capture().status()).isEqualTo("CAPTURED");
         assertThat(report.dumps()).hasSize(1);
         assertThat(report.dumps().get(0).name()).endsWith(".hprof");
         assertThat(report.dumps().get(0).live()).isTrue();
         assertThat(report.topClasses()).hasSize(3);
+    }
+
+    @Test
+    void missingOrDeclinedConfirmationDoesNotCreateADump(@TempDir Path dir) {
+        HeapDumpService service = service(config(), dir, true);
+        for (Boolean confirmation : new Boolean[] {null, false}) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.capture(true, confirmation))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Heap dump capture requires explicit confirmation.");
+        }
+        assertThat(service.report("", "").dumps()).isEmpty();
     }
 
     @Test

@@ -17,8 +17,6 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
@@ -203,7 +201,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
     private boolean shouldExposeRequestIdHeader(ServerHttpRequest request) {
         return properties.getHttpExchanges().isExposeRequestIdHeader()
                 && properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES)
-                && localhostOnlyFilter.isTrustedSource(remoteAddress(request));
+                && localhostOnlyFilter.isTrustedSource(localhostOnlyFilter.remoteAddress(request));
     }
 
     /**
@@ -211,16 +209,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
      * trusted-source check always inspects the underlying socket peer address rather than a forwarded header.
      */
     private static String remoteAddress(ServerHttpRequest request) {
-        ServerHttpRequest current = request;
-        while (current instanceof ServerHttpRequestDecorator decorator) {
-            current = decorator.getDelegate();
-        }
-        InetSocketAddress remote = current.getRemoteAddress();
-        if (remote == null) {
-            return null;
-        }
-        InetAddress address = remote.getAddress();
-        return address != null ? address.getHostAddress() : null;
+        return ReactivePeerAddress.remoteAddress(request);
     }
 
     /**

@@ -8,8 +8,6 @@ import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Allow;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Reject;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardRequest;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -40,14 +38,25 @@ public class ReactiveLocalhostOnlyFilter extends AbstractReactiveBootUiFilter im
 
     private final LocalhostGuard guard = new LocalhostGuard();
     private final LocalhostGuardConfigSupport configSupport;
+    private final boolean nativeForwarding;
 
     public ReactiveLocalhostOnlyFilter(BootUiProperties properties) {
         this(properties, new ContainerGatewayDetector());
     }
 
     ReactiveLocalhostOnlyFilter(BootUiProperties properties, ContainerGatewayDetector gatewayDetector) {
+        this(properties, gatewayDetector, false);
+    }
+
+    public ReactiveLocalhostOnlyFilter(BootUiProperties properties, boolean nativeForwarding) {
+        this(properties, new ContainerGatewayDetector(), nativeForwarding);
+    }
+
+    private ReactiveLocalhostOnlyFilter(
+            BootUiProperties properties, ContainerGatewayDetector gatewayDetector, boolean nativeForwarding) {
         super(properties);
         this.configSupport = new LocalhostGuardConfigSupport(properties, gatewayDetector);
+        this.nativeForwarding = nativeForwarding;
     }
 
     /**
@@ -85,9 +94,10 @@ public class ReactiveLocalhostOnlyFilter extends AbstractReactiveBootUiFilter im
         LocalhostGuardRequest guardRequest = new LocalhostGuardRequest(
                 request.getMethod() != null ? request.getMethod().name() : null,
                 remoteAddress(request),
-                request.getHeaders().getFirst("Host"),
+                ReactivePeerAddress.hostAuthority(request),
                 request.getHeaders().getFirst("Origin"),
-                request.getHeaders().getFirst("Sec-Fetch-Site"));
+                request.getHeaders().getFirst("Sec-Fetch-Site"),
+                request.getURI().getScheme());
 
         LocalhostGuardDecision decision = guard.decide(guardRequest, configSupport.buildConfig(log));
 
@@ -109,13 +119,8 @@ public class ReactiveLocalhostOnlyFilter extends AbstractReactiveBootUiFilter im
      * Never a forwarded header &mdash; matches the guard's contract that {@code remoteAddr} is the
      * actual peer, not client-supplied.
      */
-    private String remoteAddress(ServerHttpRequest request) {
-        InetSocketAddress remote = request.getRemoteAddress();
-        if (remote == null) {
-            return null;
-        }
-        InetAddress address = remote.getAddress();
-        return address != null ? address.getHostAddress() : null;
+    public String remoteAddress(ServerHttpRequest request) {
+        return ReactivePeerAddress.remoteAddress(request, nativeForwarding);
     }
 
     private void logRejection(Reject reject, ServerHttpRequest request) {

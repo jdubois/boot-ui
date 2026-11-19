@@ -126,6 +126,10 @@ routes there. Republishing BootUI's classpath directory under a URL of the host'
 When BootUI is active, the starter should contribute low-precedence Actuator defaults for the local panels, including
 `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
 applications can override those `management.*` settings explicitly.
+Only BootUI-contributed HTTP exposure and health details receive BootUI's raw-source, Host and write guard, including
+separate management listeners, mapped paths and health aliases. Host-owned settings remain native; ownership is
+independent per property. `bootui.actuator.expose-defaults=false` opts out without removing endpoint beans.
+Raw added Actuator URLs require source trust even when remote token access to BootUI's in-process panels is enabled.
 
 On Spring, BootUI's panels are served by the application's own Spring MVC or Spring WebFlux stack; the starter brings
 neither. BootUI also supports non-web (command-line) applications that have Spring MVC and an embedded servlet container
@@ -508,6 +512,10 @@ Features:
 - Clearly label modified values as local, runtime-only, and not persisted to `application.properties`, environment
   variables, or config server.
 - Persist overrides to BootUI's override file by default so they can be reapplied on restart.
+- Load application overrides before ConfigData even while inactive, with resolved-activation INFO/WARN and no values.
+  Exclude operator-owned BootUI safety, Spring profile/config-source selectors and management HTTP security/listener
+  settings before any bootstrap consumer can see them, and reject those writes. Use owner-only atomic replacement
+  and first-write ignore rules for overrides/heap dumps, without ignoring team dismissals.
 - Explain when a modified property may not affect already-created beans or already-bound `@ConfigurationProperties`
   without restart or explicit rebind support.
 
@@ -3666,6 +3674,11 @@ Rules:
   DNS-rebinding attacks, rejecting a present but malformed authority the same way as a disallowed hostname (only a
   genuinely missing or blank `Host` is allowed), and reject cross-site state-changing requests (via
   `Origin`/`Sec-Fetch-Site`) so mutating endpoints stay protected even when Spring Security is absent.
+- Present Fetch Metadata on writes must be `same-origin` or `none`. Present Origin must be a serialized HTTP(S) origin
+  with the same host, and must match scheme/effective port unless the browser asserts `same-origin` (the Vite proxy
+  case). Header-absent local tooling remains supported. Heap capture additionally requires JSON `{"confirm":true}`.
+- Source trust and authentication use raw connection peers, not substituted forwarded addresses. Unsupported native
+  forwarding on Spring fails closed when raw provenance is unavailable.
 - If Spring Security is present while BootUI is active, contribute a highest-precedence `/bootui/**` permit-all security
   chain and log a warning so the developer console stays directly reachable. This must not weaken the localhost-only
   servlet filter unless `bootui.allow-non-localhost=true` is explicitly set.

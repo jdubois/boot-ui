@@ -493,6 +493,48 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void independentOriginAndFetchMetadataHeadersEachEnforceTheWriteBoundary() {
+        for (Map<String, String> headers : List.of(
+                Map.of("Origin", "http://foreign.invalid"),
+                Map.of("Origin", "http://localhost:1"),
+                Map.of("Sec-Fetch-Site", "cross-site"),
+                Map.of("Sec-Fetch-Site", "same-site"),
+                Map.of("Origin", "null"),
+                Map.of("Origin", "http://localhost/path", "Sec-Fetch-Site", "same-origin"))) {
+            Response response = probe().post(api("/overview"), headers);
+            assertThat(response.status())
+                    .as("independent guard headers %s", headers)
+                    .isEqualTo(403);
+            assertThat(response.json().path("error").asText())
+                    .isEqualTo("BootUI rejected a cross-site request to a state-changing endpoint.");
+        }
+    }
+
+    @Test
+    void rawHostAndForwardedHeadersCannotDisarmTheHostBoundary() {
+        var raw = new BootUiRawHttpProbe(baseUrl());
+        for (Map<String, String> headers : List.of(
+                Map.of("Host", "foreign.invalid"),
+                Map.of("Host", "foreign.invalid", "X-Forwarded-Host", "localhost", "X-Forwarded-For", "127.0.0.1"),
+                Map.of("Host", "foreign.invalid", "Forwarded", "for=127.0.0.1;host=localhost"))) {
+            Response response = raw.request("GET", api("/overview"), headers, null, null);
+            assertThat(response.status()).isEqualTo(403);
+            assertThat(response.json().path("error").asText())
+                    .isEqualTo(
+                            "BootUI rejected an unrecognized Host header. Add it to bootui.allowed-hosts to allow this hostname.");
+        }
+        Response malformed = raw.request("GET", api("/overview"), Map.of("Host", "[::1]junk"), null, null);
+        assertThat(malformed.status())
+                .as("malformed Host is refused by the HTTP parser or BootUI guard")
+                .isIn(400, 403);
+        if (malformed.status() == 403) {
+            assertThat(malformed.json().path("error").asText())
+                    .isEqualTo(
+                            "BootUI rejected an unrecognized Host header. Add it to bootui.allowed-hosts to allow this hostname.");
+        }
+    }
+
+    @Test
     void securityHeadersCoverShellAndHashedAssets() {
         Response shell = probe().get(ui("/"));
         assertThat(shell.status()).as("GET %s/ status", uiPath()).isEqualTo(200);
@@ -3544,7 +3586,7 @@ public abstract class AbstractBootUiApiConformanceTest {
     private Map<String, String> stateChangingHeaders(BootUiHttpProbe probe) {
         Map<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("Origin", baseUrl());
+        headers.put("Origin", probe.origin());
         probe.get(api("/overview"));
         probe.cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
         return headers;

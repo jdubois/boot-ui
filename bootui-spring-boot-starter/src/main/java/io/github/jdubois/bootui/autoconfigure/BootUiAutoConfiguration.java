@@ -711,10 +711,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties) {
+    public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties, Environment environment) {
         // The filter constructs its own (framework-neutral, engine-owned) ContainerGatewayDetector so it
         // can auto-trust the container default gateway per bootui.trust-container-gateway.
-        return new LocalhostOnlyFilter(properties);
+        return new LocalhostOnlyFilter(
+                properties, io.github.jdubois.bootui.autoconfigure.safety.NativeForwarding.enabled(environment));
     }
 
     @Bean

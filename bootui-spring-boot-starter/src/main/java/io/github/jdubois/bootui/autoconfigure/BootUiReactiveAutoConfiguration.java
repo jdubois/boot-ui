@@ -631,10 +631,12 @@ public class BootUiReactiveAutoConfiguration {
     }
 
     @Bean
-    public ReactiveLocalhostOnlyFilter bootUiReactiveLocalhostOnlyFilter(BootUiProperties properties) {
+    public ReactiveLocalhostOnlyFilter bootUiReactiveLocalhostOnlyFilter(
+            BootUiProperties properties, Environment environment) {
         // Same rationale as LocalhostOnlyFilter: builds its own ContainerGatewayDetector so it can
         // auto-trust the container default gateway per bootui.trust-container-gateway.
-        return new ReactiveLocalhostOnlyFilter(properties);
+        return new ReactiveLocalhostOnlyFilter(
+                properties, io.github.jdubois.bootui.autoconfigure.safety.NativeForwarding.enabled(environment));
     }
 
     @Bean

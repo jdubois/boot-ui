@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.HeapDumpCaptureRequest;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.smallrye.common.annotation.Blocking;
@@ -52,8 +53,15 @@ public class HeapDumpResource {
     @Blocking
     @Path("/capture")
     @Produces(MediaType.APPLICATION_JSON)
-    public HeapDumpReport capture(@QueryParam("live") @DefaultValue("true") boolean live) {
-        return service.capture(live);
+    public Response capture(@QueryParam("live") @DefaultValue("true") boolean live, HeapDumpCaptureRequest request) {
+        try {
+            return Response.ok(service.capture(live, request == null ? null : request.confirm()))
+                    .build();
+        } catch (IllegalArgumentException ex) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(java.util.Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()))
+                    .build();
+        }
     }
 
     @POST

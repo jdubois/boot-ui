@@ -92,6 +92,40 @@ class BootUiQuarkusSafetyFilterTest {
         assertThat(BootUiQuarkusSafetyFilter.hostAuthority("", null)).isEmpty();
     }
 
+    @Test
+    void nativeHostForwardingRequiresAnAvailableOriginalAuthority() {
+        for (String header : Set.of("Forwarded", "X-Forwarded-Host", "X-Edge-Host")) {
+            RoutingContext rc = mockRequest("GET", "/bootui/api/overview", "127.0.0.1", "localhost:8080", null, null);
+            when(rc.request().getHeader(header))
+                    .thenReturn(header.equals("Forwarded") ? "for=127.0.0.1;host=localhost" : "localhost");
+            var filter = newFilter(Map.of(
+                    "quarkus.http.proxy.proxy-address-forwarding", "true",
+                    "quarkus.http.proxy.allow-forwarded", "true",
+                    "quarkus.http.proxy.allow-x-forwarded", "true",
+                    "quarkus.http.proxy.enable-forwarded-host", "true",
+                    "quarkus.http.proxy.forwarded-host-header",
+                            header.equals("X-Edge-Host") ? header : "X-Forwarded-Host"));
+
+            filter.handle(rc);
+
+            assertRejected(rc.response(), DISALLOWED_HOST_MESSAGE);
+            verify(rc, never()).next();
+        }
+    }
+
+    @Test
+    void nativeAddressForwardingWithoutHostMetadataPreservesOrdinaryRequests() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/overview", "127.0.0.1", "localhost:8080", null, null);
+        when(rc.request().getHeader("Forwarded")).thenReturn("for=192.0.2.10;proto=https");
+
+        newFilter(Map.of(
+                        "quarkus.http.proxy.proxy-address-forwarding", "true",
+                        "quarkus.http.proxy.allow-forwarded", "true"))
+                .handle(rc);
+
+        verify(rc).next();
+    }
+
     // --- remote sourcing ---------------------------------------------------------------------------
 
     @Test
@@ -221,7 +255,7 @@ class BootUiQuarkusSafetyFilterTest {
         // The supported Vite dev-server proxy: browser Origin :5173 proxied to a Host of :8080. Host-only
         // compare must let the state-changing request through.
         RoutingContext rc = mockRequest(
-                "POST", "/bootui/api/loggers", "127.0.0.1", "localhost:8080", "http://localhost:5173", null);
+                "POST", "/bootui/api/loggers", "127.0.0.1", "localhost:8080", "http://localhost:5173", "same-origin");
         BootUiQuarkusSafetyFilter filter = newFilter(Map.of());
 
         filter.handle(rc);
@@ -368,6 +402,10 @@ class BootUiQuarkusSafetyFilterTest {
         HttpServerRequest request = mock(HttpServerRequest.class);
         when(request.method()).thenReturn(HttpMethod.valueOf(method));
         when(request.remoteAddress()).thenReturn(SocketAddress.inetSocketAddress(54321, peer));
+        io.vertx.core.http.HttpConnection connection = mock(io.vertx.core.http.HttpConnection.class);
+        when(request.connection()).thenReturn(connection);
+        when(connection.remoteAddress()).thenReturn(SocketAddress.inetSocketAddress(54321, peer));
+        when(request.scheme()).thenReturn("http");
         when(request.getHeader("Host")).thenReturn(hostHeader);
         when(request.getHeader("Origin")).thenReturn(origin);
         when(request.getHeader("Sec-Fetch-Site")).thenReturn(secFetchSite);

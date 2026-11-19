@@ -25,6 +25,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.Config;
 import org.jboss.logging.Logger;
 
@@ -51,7 +53,7 @@ import org.jboss.logging.Logger;
  * source- and Host-gated; cross-site-write protection additionally applies to state-changing methods.
  * The {@code quarkus.http.root-path} prefix is stripped before the scope check (mirroring how the Spring
  * filter strips the servlet context path), so the console is still guarded when the host application runs
- * under a non-default root-path. The three defenses are bypassed entirely only when
+ * under a non-default root-path. Only the source restriction is bypassed when
  * {@code bootui.allow-non-localhost=true}. Config is read live from MicroProfile {@link Config} and <em>fails closed</em> (a missing/invalid value never
  * widens access). The container-gateway snapshot is resolved once, eagerly at startup and off the Vert.x
  * event loop (the detector does blocking {@code /proc}/DNS work that must never run on the event loop),
@@ -65,6 +67,7 @@ public class BootUiQuarkusSafetyFilter {
 
     private static final String BASE_PATH = "/bootui";
     private static final String API_PATH = "/bootui/api";
+    private static final Pattern FORWARDED_HOST = Pattern.compile("(?:^|[;,])\\s*host\\s*=", Pattern.CASE_INSENSITIVE);
 
     static final String ALLOW_NON_LOCALHOST_KEY = "bootui.allow-non-localhost";
     static final String ALLOWED_HOSTS_KEY = "bootui.allowed-hosts";
@@ -81,6 +84,7 @@ public class BootUiQuarkusSafetyFilter {
     private final Config config;
     private final LocalhostGuard guard = new LocalhostGuard();
     private final ContainerGatewayDetector gatewayDetector;
+    private final AtomicBoolean warnedForwardedAuthority = new AtomicBoolean();
 
     private volatile boolean inContainer = false;
     private volatile Set<InetAddress> containerGateways = Set.of();
@@ -187,22 +191,55 @@ public class BootUiQuarkusSafetyFilter {
 
     /**
      * Builds the neutral guard request from the Vert.x request, passing <em>raw</em> values: the guard
-     * owns all parsing. The source address is always the real TCP peer ({@link
-     * HttpServerRequest#remoteAddress()}), never a forwarded header.
+     * owns all parsing. The source address comes from the connection, not rewritten request metadata.
      */
     LocalhostGuardRequest toGuardRequest(RoutingContext rc) {
         HttpServerRequest request = rc.request();
         return new LocalhostGuardRequest(
                 request.method().name(),
-                remoteAddr(request.remoteAddress()),
+                rawPeerAddress(request),
                 hostAuthority(request.getHeader("Host"), request.authority()),
                 request.getHeader("Origin"),
-                request.getHeader("Sec-Fetch-Site"));
+                request.getHeader("Sec-Fetch-Site"),
+                request.scheme(),
+                rawHostAvailable(request));
+    }
+
+    private boolean rawHostAvailable(HttpServerRequest request) {
+        if (!config.getOptionalValue("quarkus.http.proxy.proxy-address-forwarding", Boolean.class)
+                .orElse(false)) {
+            return true;
+        }
+        boolean allowForwarded = config.getOptionalValue("quarkus.http.proxy.allow-forwarded", Boolean.class)
+                .orElse(false);
+        String forwarded = allowForwarded ? request.getHeader("Forwarded") : null;
+        boolean rewritten =
+                forwarded != null && FORWARDED_HOST.matcher(forwarded).find();
+        boolean allowXForwarded = config.getOptionalValue("quarkus.http.proxy.allow-x-forwarded", Boolean.class)
+                .orElse(!allowForwarded);
+        if (allowXForwarded
+                && config.getOptionalValue("quarkus.http.proxy.enable-forwarded-host", Boolean.class)
+                        .orElse(false)) {
+            String header = config.getOptionalValue("quarkus.http.proxy.forwarded-host-header", String.class)
+                    .orElse("X-Forwarded-Host");
+            rewritten |= request.getHeader(header) != null;
+        }
+        if (rewritten && warnedForwardedAuthority.compareAndSet(false, true)) {
+            LOG.warn("BootUI cannot establish the original Host after native host forwarding; "
+                    + "use a proxy that preserves Host and omits forwarded-host metadata for BootUI requests.");
+        }
+        return !rewritten;
     }
 
     /** The raw socket peer address (e.g. {@code 127.0.0.1}), or {@code null} when unavailable. */
     static String remoteAddr(SocketAddress remoteAddress) {
         return remoteAddress == null ? null : remoteAddress.hostAddress();
+    }
+
+    public static String rawPeerAddress(HttpServerRequest request) {
+        return request.connection() == null
+                ? null
+                : remoteAddr(request.connection().remoteAddress());
     }
 
     /**
@@ -348,9 +385,7 @@ public class BootUiQuarkusSafetyFilter {
         String path = rc.normalizedPath();
         switch (reject.reason()) {
             case NON_LOOPBACK_SOURCE ->
-                LOG.warnf(
-                        "BootUI rejected non-loopback request from %s to %s",
-                        remoteAddr(request.remoteAddress()), path);
+                LOG.warnf("BootUI rejected non-loopback request from %s to %s", rawPeerAddress(request), path);
             case DISALLOWED_HOST ->
                 LOG.warnf("BootUI rejected request with disallowed Host '%s' to %s", request.getHeader("Host"), path);
             case CROSS_SITE_WRITE ->

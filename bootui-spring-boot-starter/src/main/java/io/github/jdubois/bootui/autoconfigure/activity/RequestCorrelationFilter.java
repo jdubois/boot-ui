@@ -236,6 +236,11 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         while (current instanceof ServletRequestWrapper wrapper && wrapper.getRequest() != null) {
             current = wrapper.getRequest();
         }
+        if (current != null
+                && current.getAttribute(io.github.jdubois.bootui.autoconfigure.safety.ServletPeerAddress.ATTRIBUTE)
+                        instanceof String peer) {
+            return peer;
+        }
         return current == null ? null : current.getRemoteAddr();
     }
 

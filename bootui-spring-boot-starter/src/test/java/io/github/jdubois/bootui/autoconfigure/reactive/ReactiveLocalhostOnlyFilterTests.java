@@ -76,6 +76,22 @@ class ReactiveLocalhostOnlyFilterTests {
     }
 
     @Test
+    void forwardedFrameworkDecoratorCannotReplaceTheActualPeer() {
+        var request = MockServerHttpRequest.get("http://localhost:8080/bootui/api/overview")
+                .remoteAddress(new InetSocketAddress("192.0.2.10", 1234))
+                .header("X-Forwarded-For", "127.0.0.1")
+                .build();
+        var transformed = new org.springframework.web.server.adapter.ForwardedHeaderTransformer().apply(request);
+        assertThat(transformed.getRemoteAddress().getHostString()).isEqualTo("127.0.0.1");
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        filter.filter(exchange.mutate().request(transformed).build(), OK_CHAIN).block(Duration.ofSeconds(5));
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(bodyAsString(exchange)).contains("restricted to loopback");
+    }
+
+    @Test
     void allowsNonLoopbackWhenExplicitlyOptedIn() {
         properties.setAllowNonLocalhost(true);
         MockServerWebExchange exchange = bootUiExchange("GET", "/bootui/api/health", "10.0.0.5");
@@ -153,7 +169,8 @@ class ReactiveLocalhostOnlyFilterTests {
 
     @Test
     void allowsSameOriginStateChangingRequest() {
-        MockServerHttpRequest.BaseBuilder<?> builder = MockServerHttpRequest.post("/bootui/api/config")
+        MockServerHttpRequest.BaseBuilder<?> builder = MockServerHttpRequest.post(
+                        "http://localhost:8080/bootui/api/config")
                 .header("Host", "localhost:8080")
                 .header("Origin", "http://localhost:8080");
         builder.remoteAddress(new InetSocketAddress("127.0.0.1", 54321));

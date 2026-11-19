@@ -53,6 +53,12 @@ public final class BootUiHttpProbe {
                 .build();
     }
 
+    /** A serialized browser origin, without any root/context path or trailing slash. */
+    public String origin() {
+        URI uri = URI.create(baseUrl);
+        return uri.getScheme() + "://" + uri.getRawAuthority();
+    }
+
     /** GET {@code path} (relative to the base URL) with no extra headers. */
     public Response get(String path) {
         return get(path, Map.of());

@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * evaluation order, and the canonical 403 messages) lives in the engine so the Quarkus adapter shares
  * it.</p>
  *
- * <p>The three defenses are bypassed entirely only when {@code bootui.allow-non-localhost=true}:</p>
+ * <p>{@code bootui.allow-non-localhost=true} bypasses only the source restriction:</p>
  * <ol>
  *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, fall
  *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation), or equal an
@@ -37,7 +37,7 @@ import org.slf4j.LoggerFactory;
  *       must parse as a well-formed authority and resolve to a known loopback name or a configured
  *       {@code bootui.allowed-hosts} entry; a malformed value is rejected the same way.</li>
  *   <li><strong>Cross-site write protection (CSRF defense)</strong> — state-changing methods are
- *       rejected on {@code Sec-Fetch-Site: cross-site} or an {@code Origin} host mismatch.</li>
+ *       admitted only when Fetch Metadata and Origin satisfy the shared write policy.</li>
  * </ol>
  *
  * <p>The per-instance caches and side effects the guard intentionally does not own (the
@@ -55,14 +55,29 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
     private final LocalhostGuard guard = new LocalhostGuard();
     private final LocalhostGuardConfigSupport configSupport;
+    private final ServletPeerAddress peerAddress;
 
     public LocalhostOnlyFilter(BootUiProperties properties) {
         this(properties, new ContainerGatewayDetector());
     }
 
     LocalhostOnlyFilter(BootUiProperties properties, ContainerGatewayDetector gatewayDetector) {
+        this(properties, gatewayDetector, false);
+    }
+
+    public LocalhostOnlyFilter(BootUiProperties properties, boolean nativeForwarding) {
+        this(properties, new ContainerGatewayDetector(), nativeForwarding);
+    }
+
+    private LocalhostOnlyFilter(
+            BootUiProperties properties, ContainerGatewayDetector gatewayDetector, boolean nativeForwarding) {
         super(properties);
         this.configSupport = new LocalhostGuardConfigSupport(properties, gatewayDetector);
+        this.peerAddress = new ServletPeerAddress(nativeForwarding);
+    }
+
+    public String remoteAddress(HttpServletRequest request) {
+        return peerAddress.remoteAddress(request);
     }
 
     /**
@@ -90,10 +105,11 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
         LocalhostGuardRequest guardRequest = new LocalhostGuardRequest(
                 request.getMethod(),
-                request.getRemoteAddr(),
-                request.getHeader("Host"),
+                remoteAddress(request),
+                ServletPeerAddress.rawRequest(request).getHeader("Host"),
                 request.getHeader("Origin"),
-                request.getHeader("Sec-Fetch-Site"));
+                request.getHeader("Sec-Fetch-Site"),
+                request.getScheme());
 
         LocalhostGuardDecision decision = guard.decide(guardRequest, configSupport.buildConfig(log));
 
@@ -114,7 +130,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
             case NON_LOOPBACK_SOURCE ->
                 log.warn(
                         "BootUI rejected non-loopback request from {} to {}",
-                        request.getRemoteAddr(),
+                        remoteAddress(request),
                         request.getRequestURI());
             case DISALLOWED_HOST ->
                 log.warn(

@@ -54,8 +54,8 @@ Security integration deliberately permits BootUI routes in its own
 highest-precedence chain: it is the BootUI filters above, not the host
 application's login, that enforce this boundary.
 
-Unless `bootui.allow-non-localhost=true`, `LocalhostGuard` applies these checks
-in order:
+`LocalhostGuard` applies these checks in order; `bootui.allow-non-localhost=true`
+bypasses only the first:
 
 1. The raw TCP peer must be loopback, in a CIDR listed by
    `bootui.trusted-proxies`, or an auto-detected container gateway trusted by
@@ -63,10 +63,21 @@ in order:
    consulted.
 2. A present `Host` header must use a built-in loopback name or a hostname in
    `bootui.allowed-hosts`.
-3. A state-changing request is rejected when `Sec-Fetch-Site` is `cross-site`,
-   or when a present `Origin` has a different host. The comparison intentionally
-   ignores scheme and port; requests with neither header are not rejected by
-   this check.
+3. On writes, a present `Sec-Fetch-Site` must be `same-origin` or `none`; `same-site`, `cross-site`
+   and invalid values are refused. A present `Origin` must be a serialized HTTP(S) origin with the
+   same host (no path, credentials, query or fragment). Unless browser metadata says `same-origin`,
+   its scheme and effective port must also match. With neither header, local CLI/tooling requests
+   remain admitted by this check. Vite's same-origin browser metadata survives its upstream port rewrite.
+
+Spring unwraps framework forwarding decorators and uses Tomcat's connector peer or Reactor Netty's raw channel;
+Quarkus uses the Vert.x connection peer, not the rewritten request peer. Spring's explicit native forwarding strategy
+and cloud-platform native defaults fail closed with one warning when no supported raw-peer binding is available.
+Ordinary non-forwarded servlet transports remain supported. Native-forwarded Jetty/Undertow and arbitrary custom
+forwarding/server customizers are not certified; use framework forwarding or a supported raw-peer server binding.
+
+Quarkus native host forwarding does not retain the original authority. BootUI rejects requests when effective
+forwarded-host metadata makes that authority unavailable. Preserve Host and omit forwarded-host metadata on the
+proxy's BootUI route; address/protocol forwarding alone remains supported. This does not change other application routes.
 
 `bootui.allowed-hosts` does not trust a source address. Conversely,
 `bootui.trusted-proxies` and `bootui.trust-container-gateway` treat the matching
@@ -74,8 +85,8 @@ raw peer as trusted: those callers remain authentication-free, but the `Host`
 and cross-site-write checks still apply. Scope these trust mechanisms to
 controlled local/development networks.
 
-`bootui.allow-non-localhost=true` is a broader escape hatch. It bypasses all
-three `LocalhostGuard` checks, but it does **not** mark the peer as trusted.
+`bootui.allow-non-localhost=true` bypasses only the source restriction, not the Host or write checks,
+and does **not** mark the peer as trusted.
 The static SPA may load, while every `/bootui/api/**` request from that peer
 must present either the configured/generated token as
 `Authorization: Bearer <token>` or the BootUI session cookie. Authentication
@@ -106,6 +117,22 @@ at a development proxy, configure the host framework/proxy so the backend
 correctly recognizes the original HTTPS scheme before relying on the cookie's
 `Secure` attribute. BootUI does not provide token rotation, login throttling,
 or user-level authorization.
+
+### Spring Actuator and persisted configuration
+
+BootUI's added raw Actuator exposure and health details receive the same source, Host and write checks on both Spring
+stacks, including custom mappings, health descendants/aliases and separate management listeners. Ownership is tracked
+independently for exposure and health details; host-owned management exposure and authentication remain native.
+Raw BootUI-added Actuator URLs still require a trusted source when `allow-non-localhost=true`: remote token users
+access the in-process BootUI panels, not anonymous raw Actuator. No endpoint bean is removed.
+`bootui.actuator.expose-defaults=false` opts out of BootUI's exposure/detail defaults; native endpoint availability then
+follows host configuration.
+
+Persisted application overrides deliberately load before ConfigData even when BootUI is inactive. They log a path/key
+count warning while inactive, never values. Operator-owned BootUI safety, Spring profile/config-source selectors and
+management HTTP security/listener settings are rejected on write and excluded before loading. Configure those settings
+outside the console. Files are replaced with owner-only permissions; see
+[runtime overrides](docs/setup/activation.md#runtime-overrides) for migration and ignore rules.
 
 ### Data exposure
 
