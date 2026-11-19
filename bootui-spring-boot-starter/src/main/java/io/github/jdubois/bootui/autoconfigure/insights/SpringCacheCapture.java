@@ -75,6 +75,7 @@ final class SpringCacheCapture implements Supplier<CacheCapture> {
         }
         List<String> managers = known.names(CacheManager.class);
         Map<String, Long> observable = new LinkedHashMap<>();
+        Map<String, String> canonical = new LinkedHashMap<>();
         for (String name : managers) {
             Object manager = beans.getSingleton(name);
             String captured = manager instanceof CacheManager cacheManager
@@ -83,17 +84,19 @@ final class SpringCacheCapture implements Supplier<CacheCapture> {
             Long since = captured == null ? null : state.continuousSince().get(captured);
             if (since != null) {
                 observable.put(name, since);
+                canonical.put(name, captured);
                 for (String alias : beans.getAliases(name)) {
                     if (observable.size() >= MAX_BEANS) {
                         return CacheCapture.notRecorded("Cache-manager aliases exceeded the bounded capture proof.");
                     }
                     observable.put(alias, since);
+                    canonical.put(alias, captured);
                 }
             }
         }
         String defaultManager =
                 managers.size() == 1 && observable.containsKey(managers.get(0)) ? managers.get(0) : null;
-        return new CacheCapture(observable, defaultManager, state.epoch(), null);
+        return new CacheCapture(observable, defaultManager, state.epoch(), null, canonical);
     }
 
     private static boolean standardInterceptor(ConfigurableListableBeanFactory beans, String name) {

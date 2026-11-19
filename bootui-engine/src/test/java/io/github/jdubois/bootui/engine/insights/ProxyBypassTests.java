@@ -130,6 +130,29 @@ class ProxyBypassTests {
         assertThat(single(report).exemplarRequestIds()).containsExactly("r1");
     }
 
+    @Test
+    void anAliasAccessMatchesTheCanonicalRecordedManager() {
+        ProxyBoundaries boundaries = frame -> frame.equals(PRICE)
+                ? new ProxyBoundaries.Boundary(false, Set.of("prices"), false, "priceAlias", null)
+                : ProxyBoundaries.Boundary.NONE;
+        request("GET", "/api/prices", "http-1", List.of(cache("primary", "prices"), sql(1_000, "http-1", PRICE)));
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        service.setProxyBoundaries(boundaries);
+        service.setCacheCapture(
+                () -> new CacheCapture(Map.of("priceAlias", 0L), null, 0, null, Map.of("priceAlias", "primary")));
+
+        RuntimeInsightsReportDto report = service.report();
+        assertThat(byKind(report)).isEmpty();
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.eligibleRequests()).isEqualTo(1);
+                    assertThat(check.reason()).isNull();
+                });
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "http-1", "reactor-http-nio-1", "reused-worker"})

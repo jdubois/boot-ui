@@ -120,7 +120,8 @@ public final class ProxyBypass implements Observation {
                                 && caches
                                 && boundary.cacheNames().stream()
                                         .map(name -> new CacheAccess(
-                                                snapshot.cacheCapture().selectedManager(boundary.cacheManager()), name))
+                                                snapshot.cacheCapture().canonicalManager(boundary.cacheManager()),
+                                                name))
                                         .noneMatch(cachesSeen::contains)) {
                             String unavailable =
                                     snapshot.cacheCapture().unavailable(boundary.cacheManager(), request.startMillis());

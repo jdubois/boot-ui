@@ -8,7 +8,12 @@ import java.util.function.Supplier;
  * The proven continuous-capture window of each observable synchronous cache manager. This qualifies only absence
  * inference, never the readability of retained events. Manager routing is proven by the adapter, not by this record.
  */
-public record CacheCapture(Map<String, Long> continuousSince, String defaultManager, long epoch, String reason) {
+public record CacheCapture(
+        Map<String, Long> continuousSince,
+        String defaultManager,
+        long epoch,
+        String reason,
+        Map<String, String> canonicalManagers) {
 
     public static final String DISABLED = "Cache activity capture is disabled for this recorder"
             + " (bootui.cache.activity-capture-enabled or the Cache panel's startup policy),"
@@ -28,6 +33,12 @@ public record CacheCapture(Map<String, Long> continuousSince, String defaultMana
 
     public CacheCapture {
         continuousSince = Map.copyOf(continuousSince);
+        canonicalManagers = Map.copyOf(canonicalManagers);
+    }
+
+    /** Capture metadata from code predating manager-alias provenance. */
+    public CacheCapture(Map<String, Long> continuousSince, String defaultManager, long epoch, String reason) {
+        this(continuousSince, defaultManager, epoch, reason, Map.of());
     }
 
     /** Complete evidence supplied by controlled engine fixtures, not a production availability default. */
@@ -76,9 +87,15 @@ public record CacheCapture(Map<String, Long> continuousSince, String defaultMana
         return manager == null || manager.isBlank() ? defaultManager : manager;
     }
 
+    /** The recorder identity corresponding to a declared manager name or alias. */
+    String canonicalManager(String manager) {
+        String selected = selectedManager(manager);
+        return selected == null ? null : canonicalManagers.getOrDefault(selected, selected);
+    }
+
     /** Keeps known routing identity while withholding absence inference after a read-time change. */
     CacheCapture withReason(String reason) {
-        return new CacheCapture(continuousSince, defaultManager, epoch, reason);
+        return new CacheCapture(continuousSince, defaultManager, epoch, reason, canonicalManagers);
     }
 
     /** Missing, failed, or ambiguous adapter evidence never proves that capture was installed. */

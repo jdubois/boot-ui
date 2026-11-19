@@ -138,6 +138,24 @@ class SpringCacheCaptureTests {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    void aliasedManagerHitsUseTheCanonicalRecorderIdentity(boolean reactive) {
+        try (App app = new App(
+                reactive, true, context -> context.getBeanFactory().registerAlias("cacheManager", "priceAlias"))) {
+            Operations operations = app.context.getBean(Operations.class);
+            app.request("alias-miss", operations::aliased);
+            app.request("alias-hit", operations::aliased);
+
+            assertThat(app.controller.report().observations())
+                    .noneMatch(row -> row.kind().equals(ProxyBypass.KIND));
+            assertThat(app.controller.report().checks())
+                    .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                    .singleElement()
+                    .satisfies(check -> assertThat(check.eligibleRequests()).isEqualTo(1));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     void customResolversAreNeverInvokedToEstablishCapture(boolean reactive) {
         AtomicInteger resolverCalls = new AtomicInteger();
         Cache nativeCache = new ConcurrentMapCacheManager("prices").getCache("prices");
@@ -524,6 +542,12 @@ class SpringCacheCaptureTests {
         @Cacheable(cacheNames = "prices", cacheManager = "unwrapped")
         public int unwrapped() {
             app.statement("unwrapped");
+            return 1;
+        }
+
+        @Cacheable(cacheNames = "prices", cacheManager = "priceAlias")
+        public int aliased() {
+            app.statement("aliased");
             return 1;
         }
 
