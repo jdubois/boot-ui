@@ -67,6 +67,15 @@ function Get-RemoteText([string] $Url) {
   return [string] $content
 }
 
+function Invoke-GnuPg([string[]] $GpgArguments) {
+  # Windows PowerShell 5.1 turns native stderr into error records even on success.
+  # Keep that diagnostic handling local; callers still enforce the native status.
+  $ErrorActionPreference = 'Continue'
+  $output = & $gpg.Source @GpgArguments 2>&1
+  $code = $LASTEXITCODE
+  [pscustomobject] @{ ExitCode = $code; Output = $output }
+}
+
 # Windows PowerShell 5.1 may still default to TLS 1.0, which Maven Central refuses.
 try {
   [Net.ServicePointManager]::SecurityProtocol =
@@ -182,11 +191,12 @@ try {
     $signature = Join-Path $tempDir 'cli.asc'
     Invoke-WebRequest -Uri $ReleaseKeyUrl -OutFile $releaseKey -UseBasicParsing
     Invoke-WebRequest -Uri "$jarUrl.asc" -OutFile $signature -UseBasicParsing
-    & $gpg.Source --homedir $keyring --batch --import $releaseKey 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { Stop-Install 'could not import the release key.' }
-    $verification = & $gpg.Source --homedir $keyring --batch --status-fd 1 --verify $signature $tempJar 2>&1
-    if ($LASTEXITCODE -ne 0 -or
-        -not ($verification -match "^\[GNUPG:\] VALIDSIG .* $ReleaseKeyFingerprint$")) {
+    $keyImport = Invoke-GnuPg -GpgArguments @('--homedir', $keyring, '--batch', '--import', $releaseKey)
+    if ($keyImport.ExitCode -ne 0) { Stop-Install 'could not import the release key.' }
+    $verification = Invoke-GnuPg -GpgArguments @('--homedir', $keyring, '--batch', '--status-fd', '1',
+      '--verify', $signature, $tempJar)
+    if ($verification.ExitCode -ne 0 -or
+        -not ($verification.Output -match "^\[GNUPG:\] VALIDSIG .* $ReleaseKeyFingerprint$")) {
       Stop-Install 'invalid release signature or signer is not the pinned BootUI key. Nothing was installed.'
     }
     Write-Step "Verification: OpenPGP signature matched pinned BootUI key $ReleaseKeyFingerprint."

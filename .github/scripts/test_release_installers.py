@@ -132,12 +132,58 @@ esac
         )
         self.assertIn(f"fpr:::::::::{FINGERPRINT}:", result.stdout)
 
+    def test_powershell_accepts_successful_native_diagnostics(self):
+        runtime = shutil.which("powershell") or shutil.which("pwsh")
+        if runtime is None:
+            self.skipTest("PowerShell unavailable for native diagnostic execution")
+        self.checksum()
+        self.jar.with_name(self.jar.name + ".asc").write_text("fixture signature")
+        if os.name == "nt":
+            self.tool("gpg.cmd", f"""@echo off
+echo successful GnuPG diagnostic 1>&2
+echo [GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}
+exit /b 0
+""")
+        else:
+            self.tool("gpg", f"""#!/bin/sh
+echo 'successful GnuPG diagnostic' >&2
+printf '[GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}\\n'
+""")
+
+        def quote(value):
+            return "'" + str(value).replace("'", "''") + "'"
+
+        bootstrap = self.root / "install-fixture.ps1"
+        bootstrap.write_text(f"""
+$ErrorActionPreference = 'Stop'
+function Invoke-WebRequest {{
+  param([string] $Uri, [string] $OutFile, [switch] $UseBasicParsing)
+  $name = [IO.Path]::GetFileName(([Uri] $Uri).AbsolutePath)
+  $source = if ($name -eq 'bootui-release-key.asc') {{ {quote(KEY)} }} else {{ Join-Path {quote(self.repository)} $name }}
+  if (-not (Test-Path -LiteralPath $source)) {{ throw 'Fixture asset absent' }}
+  if ($OutFile) {{ Copy-Item -LiteralPath $source -Destination $OutFile; return }}
+  [pscustomobject] @{{ Content = [IO.File]::ReadAllText($source) }}
+}}
+& {quote(PUBLIC / 'install.ps1')} -Version test -MavenRepo https://fixture.invalid `
+  -InstallDir {quote(self.root / 'install')} -BinDir {quote(self.root / 'bin')} -NoPathUpdate
+exit $LASTEXITCODE
+""")
+        environment = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ.get("PATH", ""))
+        result = subprocess.run(
+            [runtime, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(bootstrap)],
+            env=environment, capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("signature matched pinned BootUI key", result.stdout)
+        self.assertEqual((self.root / "install" / self.jar.name).read_bytes(), self.jar.read_bytes())
+
     def test_powershell_contract_has_the_same_fail_closed_and_pinned_signer_checks(self):
         script = (PUBLIC / "install.ps1").read_text()
         self.assertIn("[switch] $AllowUnverified", script)
         self.assertIn("if (-not $AllowUnverified)", script)
         self.assertIn("malformed published $algorithm checksum", script)
-        self.assertIn("$LASTEXITCODE -ne 0", script)
+        self.assertIn("$keyImport.ExitCode -ne 0", script)
+        self.assertIn("$verification.ExitCode -ne 0", script)
         self.assertIn("signer not authenticated", script)
         self.assertIn(FINGERPRINT, script)
 
