@@ -199,6 +199,10 @@ html[data-bootui-theme='win95'] .contribute-card:hover {
   transform: none;
 }
 
+html[data-bootui-theme='win95'] .feedback-action--survey strong {
+  color: var(--w95-title);
+}
+
 html[data-bootui-theme='win95'] .brand-mark,
 html[data-bootui-theme='win95'] .contribute-icon,
 html[data-bootui-theme='win95'] .authentication-icon {

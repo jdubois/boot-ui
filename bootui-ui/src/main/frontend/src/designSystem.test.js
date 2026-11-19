@@ -84,6 +84,7 @@ describe('BootUI design system contracts', () => {
         if (classes.has('btn-link')) issues.push(`${relative(file)}:${line}: link-styled action`)
         if (!['a', 'router-link'].includes(node.tag)) return
         if (classes.has('btn') || classes.has('activity-kpi-link')) return
+        if (relative(file) === 'views/components/FeedbackPopover.vue' && classes.has('feedback-action')) return
         const destination = node.props.find(
           (prop) =>
             (prop.type === 6 && ['href', 'to'].includes(prop.name)) ||

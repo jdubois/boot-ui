@@ -321,7 +321,9 @@ describe('App sidebar navigation', () => {
     expect(document.activeElement).toBe(wrapper.find('.sidebar-toggle').element)
 
     const first = wrapper.find('.brand-card')
-    const last = wrapper.find('.contribute-card')
+    const last = wrapper.find('.feedback-trigger')
+    // jsdom has no layout; the closed popover's links still have to be excluded by inert.
+    const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 48, 48)])
     first.element.focus()
     await drawer.trigger('keydown', {key: 'Tab', shiftKey: true})
     expect(document.activeElement).toBe(last.element)
@@ -329,6 +331,7 @@ describe('App sidebar navigation', () => {
     last.element.focus()
     await drawer.trigger('keydown', {key: 'Tab'})
     expect(document.activeElement).toBe(first.element)
+    rects.mockRestore()
 
     await drawer.trigger('keydown', {key: 'Escape'})
     await flushPromises()

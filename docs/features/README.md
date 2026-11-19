@@ -3,6 +3,10 @@
 These groups match the console's own menu. Pick one to read its panels in detail, or use the search box to jump
 straight to a panel by name.
 
+Use **Help improve BootUI** at the bottom of the sidebar to open the user survey or contribute on GitHub.
+The popover stays closed until opened, works in the collapsed sidebar and mobile navigation, and opens both
+destinations in a new tab. BootUI does not send application diagnostics with either link.
+
 | Group | Panels | What it answers |
 | ----- | ------ | --------------- |
 | [Home](./scorecard.md) | Scorecard · Live Activity · Runtime Insights | What should I fix first, what did my application just do, and what did this run do that no single panel shows? Each panel has its own page: [Scorecard](./scorecard.md), [Live Activity](./live-activity.md), [Runtime Insights](./runtime-insights.md). |
