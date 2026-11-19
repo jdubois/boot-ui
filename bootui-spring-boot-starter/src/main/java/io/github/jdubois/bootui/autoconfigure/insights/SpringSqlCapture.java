@@ -46,6 +46,10 @@ final class SpringSqlCapture implements Supplier<SqlCapture> {
         if (!(context instanceof ConfigurableApplicationContext configurable)) {
             return SqlCapture.notRecorded("Existing SQL capture metadata cannot be read passively.");
         }
+        if (context.getParent() != null) {
+            return SqlCapture.notRecorded(
+                    "Existing SQL capture metadata cannot be completed across an application-context hierarchy.");
+        }
         var beans = configurable.getBeanFactory();
         String[] singletonNames = beans.getSingletonNames();
         String[] definitionNames = beans.getBeanDefinitionNames();
@@ -108,7 +112,9 @@ final class SpringSqlCapture implements Supplier<SqlCapture> {
                 reactive |= reactiveType.isInstance(existing);
             } else {
                 Class<?> declaredType = declaredType(definition, loader);
-                if (declaredType != null && reactiveType.isAssignableFrom(declaredType)) {
+                if (definition != null && (declaredType == null || declaredType == Object.class)) {
+                    unknownProducts = true;
+                } else if (declaredType != null && reactiveType.isAssignableFrom(declaredType)) {
                     reactive = true;
                 } else if (declaredType != null && FactoryBean.class.isAssignableFrom(declaredType)) {
                     Class<?> productType = factoryProductType(definition, declaredType);

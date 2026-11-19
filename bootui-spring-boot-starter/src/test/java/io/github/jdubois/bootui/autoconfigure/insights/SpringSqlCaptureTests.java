@@ -158,6 +158,38 @@ class SpringSqlCaptureTests {
     }
 
     @Test
+    void unresolvedOrdinaryDefinitionsKeepJdbcCoverageIncomplete() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            SqlTraceRecorder recorder = recorder();
+            recorder.registerDataSource("dataSource");
+            context.getBeanFactory().registerSingleton("recorder", recorder);
+            RootBeanDefinition unresolved = new RootBeanDefinition(Object.class);
+            unresolved.setLazyInit(true);
+            context.registerBeanDefinition("unresolved", unresolved);
+            context.refresh();
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .satisfies(capture -> {
+                        assertThat(capture.recorded()).isTrue();
+                        assertThat(capture.reason()).contains("cannot be identified");
+                    });
+        }
+    }
+
+    @Test
+    void aParentApplicationContextKeepsSqlCaptureIncomplete() {
+        try (GenericApplicationContext parent = new GenericApplicationContext();
+                GenericApplicationContext child = new GenericApplicationContext(parent)) {
+            child.refresh();
+
+            assertThat(new SpringSqlCapture(child, ConnectionFactory.class.getName())
+                            .get()
+                            .recorded())
+                    .isFalse();
+        }
+    }
+
+    @Test
     void aLazyReactiveFactoryBeanProductIsIdentifiedFromItsGenericType() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(

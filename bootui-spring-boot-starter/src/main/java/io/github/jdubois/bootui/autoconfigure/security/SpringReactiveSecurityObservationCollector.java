@@ -923,6 +923,7 @@ public final class SpringReactiveSecurityObservationCollector {
                 type = singleton.getClass();
             }
             if (type == null) {
+                complete = false;
                 continue;
             }
             if (hasEnableReactiveMethodSecurity(type, new HashSet<>(), 0)) {
@@ -939,6 +940,10 @@ public final class SpringReactiveSecurityObservationCollector {
             if (singleton != null && singleton.getClass() != type) {
                 complete &= collectMethodFamilies(singleton.getClass(), used, new HashSet<>(), 0);
             }
+        }
+        if (factory instanceof ConfigurableListableBeanFactory configurable
+                && configurable.getParentBeanFactory() != null) {
+            complete = false;
         }
         Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
         if (advisorType != null) {

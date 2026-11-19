@@ -21,6 +21,7 @@ import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.env.OriginTrackedMapPropertySource;
 import org.springframework.boot.origin.OriginTrackedValue;
@@ -607,6 +608,34 @@ class SpringReactiveSecurityObservationCollectorTests {
         assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
         assertThat(report.evidence().limitations())
                 .contains("SEC-RXF-METHOD-001: Method-security family metadata is incomplete.");
+    }
+
+    @Test
+    void unresolvedOrdinaryReactiveBeanDefinitionsKeepMethodMetadataIncomplete() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        GenericBeanDefinition unresolved = new GenericBeanDefinition();
+        unresolved.setParentName("missingParent");
+        factory.registerBeanDefinition("unresolvedService", unresolved);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+    }
+
+    @Test
+    void inheritedReactiveBeanFactoryKeepsMethodMetadataIncomplete() {
+        DefaultListableBeanFactory parent = new DefaultListableBeanFactory();
+        parent.registerSingleton("chain0", chain());
+        DefaultListableBeanFactory child = new DefaultListableBeanFactory(parent);
+
+        ReactiveSecurityObservation observation =
+                collector(child, new MockEnvironment()).collect();
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
     }
 
     @Test
