@@ -67,11 +67,11 @@ function Get-RemoteText([string] $Url) {
   return [string] $content
 }
 
-function Invoke-GnuPg([string[]] $GpgArguments) {
+function Invoke-NativeCommand([string] $Command, [string[]] $Arguments) {
   # Windows PowerShell 5.1 turns native stderr into error records even on success.
   # Keep that diagnostic handling local; callers still enforce the native status.
   $ErrorActionPreference = 'Continue'
-  $output = & $gpg.Source @GpgArguments 2>&1
+  $output = & $Command @Arguments 2>&1
   $code = $LASTEXITCODE
   [pscustomobject] @{ ExitCode = $code; Output = $output }
 }
@@ -191,9 +191,9 @@ try {
     $signature = Join-Path $tempDir 'cli.asc'
     Invoke-WebRequest -Uri $ReleaseKeyUrl -OutFile $releaseKey -UseBasicParsing
     Invoke-WebRequest -Uri "$jarUrl.asc" -OutFile $signature -UseBasicParsing
-    $keyImport = Invoke-GnuPg -GpgArguments @('--homedir', $keyring, '--batch', '--import', $releaseKey)
+    $keyImport = Invoke-NativeCommand -Command $gpg.Source -Arguments @('--homedir', $keyring, '--batch', '--import', $releaseKey)
     if ($keyImport.ExitCode -ne 0) { Stop-Install 'could not import the release key.' }
-    $verification = Invoke-GnuPg -GpgArguments @('--homedir', $keyring, '--batch', '--status-fd', '1',
+    $verification = Invoke-NativeCommand -Command $gpg.Source -Arguments @('--homedir', $keyring, '--batch', '--status-fd', '1',
       '--verify', $signature, $tempJar)
     if ($verification.ExitCode -ne 0 -or
         -not ($verification.Output -match "^\[GNUPG:\] VALIDSIG .* $ReleaseKeyFingerprint$")) {
@@ -267,13 +267,16 @@ Write-Step "Installed the bootui command at $shim"
 # to install one, so say it plainly rather than refuse to finish.
 $java = Get-Command java -ErrorAction SilentlyContinue
 if ($java) {
-  $versionLine = (& $java.Source -version 2>&1 | Select-Object -First 1) -as [string]
+  $javaVersion = Invoke-NativeCommand -Command $java.Source -Arguments @('-version')
+  $versionLine = ($javaVersion.Output | Select-Object -First 1) -as [string]
   if ($versionLine -match '(\d+)') {
     $major = [int] $Matches[1]
     if ($major -lt 17) {
       Write-Step ''
       Write-Step "Warning: the java on your PATH is version $major. BootUI needs 17 or later."
     }
+  } elseif ($javaVersion.ExitCode -ne 0) {
+    Write-Step 'Warning: could not determine the Java version. Run java -version to check for JDK 17 or later.'
   }
 } else {
   Write-Step ''

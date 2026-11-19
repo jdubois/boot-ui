@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -24,8 +25,16 @@ class InstallerTests(unittest.TestCase):
         self.repository.mkdir()
         self.jar = self.repository / "bootui-cli-test-all.jar"
         self.jar.write_bytes(b"test artifact")
+        for command in (
+            "sh", "awk", "tr", "sed", "cat", "cp", "mv", "rm", "rmdir", "ln", "mkdir",
+            "chmod", "mktemp", "head", "dirname", "basename", "grep",
+            "sha512sum", "sha256sum", "sha1sum", "shasum", "openssl",
+        ):
+            executable = shutil.which(command)
+            if executable is not None:
+                (self.bin / command).symlink_to(executable)
         self.environment = dict(
-            os.environ, PATH=f"{self.bin}:/usr/bin:/bin",
+            os.environ, PATH=str(self.bin),
             FIXTURE=str(self.repository), KEY=str(KEY),
             BOOTUI_INSTALL_DIR=str(self.root / "install"), BOOTUI_BIN_DIR=str(self.root / "bin"),
         )
@@ -46,6 +55,7 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi
 
     def tool(self, name, text):
         path = self.bin / name
+        path.unlink(missing_ok=True)
         path.write_text(text)
         path.chmod(0o755)
 
@@ -77,8 +87,11 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi
 
     def test_failed_hash_command_does_not_become_a_successful_empty_pipeline(self):
         self.checksum()
-        self.tool("shasum", "#!/bin/sh\nexit 1\n")
-        self.assert_not_installed(self.install())
+        for command in ("sha512sum", "sha256sum", "sha1sum", "shasum", "openssl"):
+            self.tool(command, "#!/bin/sh\nexit 1\n")
+        result = self.install()
+        self.assert_not_installed(result)
+        self.assertIn("no checksum could be verified", result.stderr)
 
     def test_checksum_only_install_reports_no_signer_authentication(self):
         self.checksum()
@@ -126,11 +139,43 @@ esac
         gpg = shutil.which("gpg")
         if gpg is None:
             self.skipTest("GnuPG unavailable for public-key fingerprint inspection")
+        keyring = self.root / "key-inspection"
+        keyring.mkdir(mode=0o700)
         result = subprocess.run(
-            [gpg, "--batch", "--show-keys", "--with-colons", str(KEY)],
+            [gpg, "--homedir", str(keyring), "--batch", "--no-autostart", "--show-keys", "--with-colons", str(KEY)],
             capture_output=True, text=True, check=True,
         )
         self.assertIn(f"fpr:::::::::{FINGERPRINT}:", result.stdout)
+
+    def test_short_gpg_alias_remains_inside_a_private_directory(self):
+        self.checksum()
+        self.jar.with_name(self.jar.name + ".asc").write_text("fixture signature")
+        probe = self.root / "keyring-probe.py"
+        record = self.root / "alias-directory"
+        probe.write_text("""import os, stat, sys
+from pathlib import Path
+home = Path(sys.argv[1])
+assert home.is_symlink()
+assert not home.parent.is_symlink()
+assert stat.S_IMODE(home.parent.stat().st_mode) == 0o700
+Path(os.environ["KEYRING_RECORD"]).write_text(str(home.parent))
+""")
+        self.environment.update(
+            PYTHON_FIXTURE=sys.executable, KEYRING_PROBE=str(probe), KEYRING_RECORD=str(record)
+        )
+        self.tool("gpg", f"""#!/bin/sh
+home=
+previous=
+for argument do
+  if [ "$previous" = --homedir ]; then home="$argument"; fi
+  previous="$argument"
+done
+"$PYTHON_FIXTURE" "$KEYRING_PROBE" "$home" || exit 1
+printf '[GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}\\n'
+""")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(Path(record.read_text()).exists())
 
     def test_powershell_accepts_successful_native_diagnostics(self):
         runtime = shutil.which("powershell") or shutil.which("pwsh")

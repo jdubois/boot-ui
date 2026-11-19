@@ -25,8 +25,14 @@ RELEASE_KEY_FINGERPRINT="7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9"
 RELEASE_KEY_URL="https://www.julien-dubois.com/boot-ui/bootui-release-key.asc"
 
 tmp_dir=""
+keyring_alias_dir=""
 
 cleanup() {
+  if [ -n "$keyring_alias_dir" ] && [ -d "$keyring_alias_dir" ]; then
+    rm -f "$keyring_alias_dir/keyring"
+    rmdir "$keyring_alias_dir" ||
+      printf 'bootui install: could not remove private keyring alias directory %s\n' "$keyring_alias_dir" >&2
+  fi
   if [ -n "$tmp_dir" ] && [ -d "$tmp_dir" ]; then
     rm -rf "$tmp_dir"
   fi
@@ -219,12 +225,11 @@ if [ "$verified" = no ]; then
 fi
 
 if command -v gpg >/dev/null 2>&1; then
-  keyring="$(mktemp -d /tmp/bootui-install-gpg.XXXXXXXX)" || die "could not create a private keyring."
-  # Keep the keyring under the main temporary directory for cleanup, but use its
-  # short alias for GnuPG's Unix-domain socket path limit.
-  mv "$keyring" "$tmp_dir/keyring"
+  keyring_alias_dir="$(mktemp -d /tmp/bootui-install-gpg.XXXXXXXX)" || die "could not create a private keyring."
+  keyring="$keyring_alias_dir/keyring"
+  mkdir -m 700 "$tmp_dir/keyring"
+  # Keep the short socket alias inside its original owner-only directory.
   ln -s "$tmp_dir/keyring" "$keyring"
-  trap 'rm -f "$keyring"; cleanup' EXIT INT TERM
   fetch "$RELEASE_KEY_URL" "$tmp_dir/release-key.asc" || die "could not download the pinned release key."
   fetch "$jar_url.asc" "$tmp_dir/cli.asc" || die "could not download the release signature."
   gpg --homedir "$keyring" --batch --import "$tmp_dir/release-key.asc" >/dev/null 2>&1 ||
