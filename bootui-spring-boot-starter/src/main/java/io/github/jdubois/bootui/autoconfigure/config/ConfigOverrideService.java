@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
+import io.github.jdubois.bootui.engine.safety.ConfigurationOverridePolicy;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
@@ -69,8 +70,10 @@ public class ConfigOverrideService {
         ValueExposure valueExposure = exposure.valueExposure();
         boolean maskSecrets = exposure.maskSecrets();
         String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
+        Map<String, Object> updated = new LinkedHashMap<>(src.mutableSource());
+        updated.put(name, value);
+        store.save(updated);
         src.put(name, value);
-        store.save(src.mutableSource());
         String message = describeRebindCaveat();
         return new ConfigOverrideResult(
                 name, displayValue(name, value, valueExposure, maskSecrets), previousDisplay, true, message);
@@ -81,8 +84,11 @@ public class ConfigOverrideService {
         BootUiOverridesPropertySource src = source();
         ValueExposure valueExposure = exposure.valueExposure();
         boolean maskSecrets = exposure.maskSecrets();
-        Object previous = src.remove(name);
-        store.save(src.mutableSource());
+        Object previous = src.getProperty(name);
+        Map<String, Object> updated = new LinkedHashMap<>(src.mutableSource());
+        updated.remove(name);
+        store.save(updated);
+        src.remove(name);
         String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
         return new ConfigOverrideResult(name, null, previousDisplay, true, describeRebindCaveat());
     }
@@ -101,6 +107,7 @@ public class ConfigOverrideService {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Property name must not be blank");
         }
+        ConfigurationOverridePolicy.requireWritable(name);
     }
 
     private String displayValue(String name, Object value, ValueExposure valueExposure, boolean maskSecrets) {

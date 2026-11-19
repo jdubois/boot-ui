@@ -9,6 +9,10 @@ defaults when known, the active profiles, and masked values. It can also create,
 overrides persisted to `.bootui/application-bootui.properties`, showing the restart and rebinding caveats with every
 mutation.
 
+BootUI's own safety settings are operator-owned and cannot be changed through persisted overrides; configure them
+outside the console. Application overrides also apply while BootUI is inactive, with an explicit startup warning.
+See [runtime overrides](../setup/activation.md#runtime-overrides) for permissions, ignore rules and migration.
+
 Large property tables load in bounded server-side pages, with filters for search, source, and overrides only. Each page
 reports the total property count and the matched count separately, so a search that narrows to nothing reads as an
 empty result rather than an empty inventory.

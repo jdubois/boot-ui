@@ -56,4 +56,11 @@ public class ConfigController {
     public ConfigOverrideResult delete(@PathVariable String name) {
         return overrideService.remove(name);
     }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> handleBadRequest(
+            IllegalArgumentException ex) {
+        return org.springframework.http.ResponseEntity.badRequest()
+                .body(java.util.Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
+    }
 }

@@ -143,6 +143,10 @@ A value you want to hold across every environment belongs in configuration rathe
 toggle — which is in-memory only and is never written to either file — cannot quietly become the new default.
 
 The volume is the right tool for what a developer discovers while using the console, dismissals above all.
+Do not copy `.bootui/application-bootui.properties` or heap dumps into an image or commit them. Persisted application
+overrides also apply when the Spring console is inactive, with a warning; review a mounted file before reusing it.
+BootUI writes overrides owner-only and creates ignore rules on first write. Safety/bootstrap/management policy belongs
+in host-owned configuration, not that file; see [runtime overrides](activation.md#runtime-overrides).
 
 ::: details Committing a baseline of accepted findings
 Because `boot-ui.yml` is a small, stable file, a team can commit it next to the application configuration and copy it

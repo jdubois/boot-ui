@@ -113,11 +113,25 @@ class ConfigOverrideServiceTests {
     }
 
     @Test
-    void putDisplaysExposureOverrideUsingPreviousExposureMode() {
-        ConfigOverrideResult result = service.put("bootui.expose-values", "METADATA_ONLY");
+    void rejectsSafetyOverridesBeforeChangingEnvironmentOrDisk() {
+        assertThatThrownBy(() -> service.put("bootui.expose-values", "FULL"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("outside runtime overrides");
+        assertThat(environment.getProperty("bootui.expose-values")).isNull();
+        assertThat(Files.exists(service.overridesFile())).isFalse();
+    }
 
-        assertThat(result.value()).isEqualTo("METADATA_ONLY");
-        assertThat(environment.getProperty("bootui.expose-values")).isEqualTo("METADATA_ONLY");
+    @Test
+    void failedPersistenceDoesNotChangeLiveOverrides() throws Exception {
+        service.put("sample.greeting", "before");
+        Files.delete(service.overridesFile());
+        Files.createDirectory(service.overridesFile());
+        Files.writeString(service.overridesFile().resolve("occupied"), "x");
+
+        assertThatThrownBy(() -> service.put("sample.greeting", "after")).isInstanceOf(IllegalStateException.class);
+        assertThat(environment.getProperty("sample.greeting")).isEqualTo("before");
+        assertThatThrownBy(() -> service.remove("sample.greeting")).isInstanceOf(IllegalStateException.class);
+        assertThat(environment.getProperty("sample.greeting")).isEqualTo("before");
     }
 
     @Test
