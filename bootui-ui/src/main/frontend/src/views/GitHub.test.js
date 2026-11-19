@@ -480,6 +480,56 @@ describe('GitHub', () => {
     expect(wrapper.text()).toContain('jdubois/boot-ui')
   })
 
+  it('keeps Stop actionable while an explicit upstream switch is pending', async () => {
+    const origin = forkReport()
+    const pending = deferredResponse()
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(origin)).mockReturnValueOnce(pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await control(wrapper, 'Connect to configured upstream').trigger('click')
+    await flushPromises()
+
+    expect(control(wrapper, 'Stop')).toBeDefined()
+    await control(wrapper, 'Stop').trigger('click')
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    pending.resolve(jsonResponse(origin))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('revokes stale consent when a cached GET resolves the remote to another repository', async () => {
+    const origin = forkReport()
+    const changedOrigin = {
+      ...origin,
+      repository: {...origin.repository, fullName: 'other/project', htmlUrl: 'https://github.com/other/project'},
+      repositoryContext: {
+        ...origin.repositoryContext,
+        origin: {...origin.repositoryContext.origin, fullName: 'other/project'}
+      }
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValue(jsonResponse(changedOrigin))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('configured GitHub repository changed')
+    expect(control(wrapper, 'Stop')).toBeUndefined()
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+  })
+
   it('reads only cache until Connect, regardless of cached connected state', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
     vi.stubGlobal('fetch', fetchMock)
@@ -514,15 +564,16 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
 
     await control(wrapper, 'Stop').trigger('click')
     await vi.advanceTimersByTimeAsync(180_000)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(control(wrapper, 'Connect')).toBeDefined()
     expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
       ['api/github', 'GET'],
       ['api/github/refresh', 'POST'],
+      ['api/github', 'GET'],
       ['api/github/refresh', 'POST']
     ])
   })
@@ -589,7 +640,7 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(3)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
     returned.unmount()
 
     vi.resetModules()
@@ -598,7 +649,7 @@ describe('GitHub', () => {
     await flushPromises()
     expect(control(reloaded, 'Connect')).toBeDefined()
     await vi.advanceTimersByTimeAsync(120_000)
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
     expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
   })
 
@@ -622,7 +673,7 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it('pauses a kept-alive inactive panel and reactivates cache-first', async () => {
@@ -647,7 +698,7 @@ describe('GitHub', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
     expect(fetchMock).toHaveBeenCalledTimes(3)
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
   })
 
   it('never overlaps refreshes or queues missed ticks, including across route remounts', async () => {
@@ -675,7 +726,7 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(4)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
     await control(returned, 'Stop').trigger('click')
   })
 
@@ -986,7 +1037,7 @@ describe('GitHub', () => {
     expect(wrapper.text()).toContain('QUOTA_PROTECTED')
     expect(wrapper.text()).toContain('Optional GitHub calls were skipped')
 
-    fetchMock.mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(jsonResponse(quotaReport)).mockResolvedValueOnce(
       jsonResponse({
         ...connectedReport(),
         status: 'PARTIAL',
