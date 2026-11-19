@@ -570,6 +570,24 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void uncachedReactiveAdvisorProductsCannotProveActivation() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        ReactiveAdvisorFactory producer = new ReactiveAdvisorFactory();
+        factory.registerSingleton("advisorFactory", producer);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(observation.enabledMethodFamilies()).isEmpty();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
     void initializedFactoryBeanProductTypeCallbacksNeverExecuteForEitherInventory() {
         AtomicInteger callbacks = new AtomicInteger();
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();

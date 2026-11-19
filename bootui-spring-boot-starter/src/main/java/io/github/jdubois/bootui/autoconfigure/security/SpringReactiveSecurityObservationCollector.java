@@ -947,6 +947,7 @@ public final class SpringReactiveSecurityObservationCollector {
             for (int index = 0; index < advisors.candidates().size() && index < MAX_ITEMS; index++) {
                 Object advisor = advisors.candidates().get(index).instance();
                 if (advisor == null) {
+                    complete = false;
                     continue;
                 }
                 String type = advisor.getClass().getName();
