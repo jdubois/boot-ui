@@ -296,6 +296,9 @@ async function connectGithub() {
   github.error = null
   try {
     const report = await getJson('api/github/refresh', {method: 'POST'})
+    if (report?.status === 'ERROR') {
+      throw new Error(report.message || 'GitHub refresh failed')
+    }
     const score = githubSecurityScore(report)
     github.available = report.available !== false
     github.connected = report.connected === true

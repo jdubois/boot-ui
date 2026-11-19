@@ -390,6 +390,42 @@ describe('Overview', () => {
     expect(card.get('.scanner-status').text()).toBe('Connected')
   })
 
+  it('retains the last valid GitHub score when a refresh returns an HTTP-200 ERROR report', async () => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    let refresh = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init) => {
+        const report =
+          init?.method === 'POST' && ++refresh > 1
+            ? {
+                available: true,
+                connected: false,
+                status: 'ERROR',
+                message: 'GitHub credentials expired',
+                credential: {authenticated: false},
+                securitySignals: []
+              }
+            : githubReport({alerts: 2})
+        return Promise.resolve(new Response(JSON.stringify(report), {status: 200}))
+      })
+    )
+    const wrapper = mountOverview(onlyPanels('github'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'GitHub')
+
+    await card.get('button').trigger('click')
+    await flushPromises()
+    expect(card.get('.scanner-score').text()).toBe('80')
+    expect(card.get('.scanner-status').text()).toBe('Connected')
+
+    await card.get('button').trigger('click')
+    await flushPromises()
+    expect(card.get('.scanner-score').text()).toBe('80')
+    expect(card.get('.scanner-status').text()).toBe('Connected')
+    expect(card.text()).toContain('GitHub credentials expired')
+  })
+
   afterEach(() => {
     document.head.innerHTML = ''
     vi.unstubAllGlobals()
