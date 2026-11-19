@@ -1,8 +1,10 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {registerButtonLinkTests} from '../../../bootui-spring-sample-app/e2e/scenarios/button-links.js'
+import {registerFeedbackPopoverTests} from '../../../bootui-spring-sample-app/e2e/scenarios/feedback-popover.js'
 
 registerButtonLinkTests(test, expect)
+registerFeedbackPopoverTests(test, expect)
 
 /**
  * The shared Vue UI renders the same panel headings on Quarkus as on Spring Boot, with one

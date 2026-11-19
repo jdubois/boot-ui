@@ -198,6 +198,16 @@ it('keeps the Windows 95 title-bar caption legible', () => {
   expect(contrastRatio(parseColor('#ffffff'), parseColor(tokens['--w95-title']))).toBeGreaterThanOrEqual(4.5)
 })
 
+it('keeps the Windows 95 survey label legible on its tinted navigation row', () => {
+  const source = skinCss('win95')
+  const tokens = declarations(cssBlock("html[data-bootui-theme='win95'] {", source))
+  const label = cssBlock("html[data-bootui-theme='win95'] .feedback-action--survey strong", source)
+  const token = label.match(/color:\s*var\((--[\w-]+)\)/)[1]
+  expect(contrastRatio(parseColor(tokens[token]), parseColor(tokens['--bootui-nav-hover-bg']))).toBeGreaterThanOrEqual(
+    4.5
+  )
+})
+
 describe.each(['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95'])(
   '%s secondary button states',
   (theme) => {

@@ -1,8 +1,10 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {registerButtonLinkTests} from '../scenarios/button-links.js'
+import {registerFeedbackPopoverTests} from '../scenarios/feedback-popover.js'
 
 registerButtonLinkTests(test, expect)
+registerFeedbackPopoverTests(test, expect)
 
 const allPanelLinks = [
   {id: 'overview', path: 'scorecard', title: 'Scorecard', heading: /^Scorecard/},
