@@ -165,8 +165,23 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await page.route(
       (url) => url.pathname === `${apiPath}/github`,
       async (route) => {
-        requests.push('GET origin')
-        await route.fulfill({json: {...origin, repositoryContext: context}})
+        const remote = new URL(route.request().url()).searchParams.get('remote') || 'origin'
+        requests.push(`GET ${remote}`)
+        await route.fulfill({
+          json:
+            remote === 'origin'
+              ? {...origin, repositoryContext: context}
+              : {
+                  ...origin,
+                  repository: {
+                    ...origin.repository,
+                    host: 'ghe.example.com',
+                    fullName: 'team/service',
+                    fork: false
+                  },
+                  repositoryContext: {...context, selectedRemote: 'upstream'}
+                }
+        })
       }
     )
     await page.route(
@@ -218,7 +233,9 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect(page.getByRole('button', {name: /Dependabot alerts/})).not.toContainText('Fork data')
     await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
     await page.clock.runFor(60_000)
-    await expect.poll(() => requests).toEqual(['GET origin', 'POST upstream', 'POST upstream', 'POST upstream'])
+    await expect
+      .poll(() => requests)
+      .toEqual(['GET origin', 'POST upstream', 'POST upstream', 'GET upstream', 'POST upstream'])
     upstreamAvailable = false
     await page.getByRole('button', {name: 'Refresh panel', exact: true}).click()
     await expect(page.getByText('Configured upstream was removed', {exact: false})).toBeVisible()
@@ -228,14 +245,17 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect.poll(() => requests.at(-1)).toBe('POST origin')
     const beforeOriginPoll = requests.length
     await page.clock.runFor(60_000)
-    await expect.poll(() => requests.length).toBe(beforeOriginPoll + 1)
+    await expect.poll(() => requests.length).toBe(beforeOriginPoll + 2)
     expect(requests).toEqual([
       'GET origin',
       'POST upstream',
       'POST upstream',
+      'GET upstream',
       'POST upstream',
+      'GET upstream',
       'POST upstream',
       'POST origin',
+      'GET origin',
       'POST origin'
     ])
   })
@@ -372,11 +392,13 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect.poll(() => requests).toEqual(['GET cache', 'GET cache', 'POST refresh'])
     await page.clock.runFor(60_000)
     await expect(refresh).toBeEnabled()
-    expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh', 'POST refresh'])
+    await expect
+      .poll(() => requests)
+      .toEqual(['GET cache', 'GET cache', 'POST refresh', 'GET cache', 'POST refresh'])
 
     await visibility('hidden')
     await page.clock.runFor(120_000)
-    expect(requests).toHaveLength(4)
+    expect(requests).toHaveLength(5)
     await visibility('visible')
     await expect(refresh).toBeEnabled()
     await expect
@@ -384,8 +406,16 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
         await page.clock.runFor(60_000)
         return requests.length
       })
-      .toBe(5)
-    expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh', 'POST refresh', 'POST refresh'])
+      .toBe(7)
+    expect(requests).toEqual([
+      'GET cache',
+      'GET cache',
+      'POST refresh',
+      'GET cache',
+      'POST refresh',
+      'GET cache',
+      'POST refresh'
+    ])
 
     await page.getByRole('button', {name: 'Stop', exact: true}).click()
     await expect(refresh).toBeEnabled()
@@ -422,7 +452,7 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await retry.click()
     await expect(error).toHaveCount(0)
     await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
-    expect(requests.slice(-2)).toEqual(['POST refresh', 'POST refresh'])
+    expect(requests.slice(-4)).toEqual(['GET cache', 'POST refresh', 'GET cache', 'POST refresh'])
     await page.clock.resume()
 
     const reason = 'GitHub is read-only by configuration.'

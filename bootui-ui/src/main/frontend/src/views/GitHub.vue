@@ -107,6 +107,7 @@ async function fetchDashboard(liveRefresh, remote = selectedRemote.value, granti
     }
     if (
       liveRefresh &&
+      report.available !== false &&
       !reportMatchesTarget(
         report,
         consentedTarget.value ?? {
