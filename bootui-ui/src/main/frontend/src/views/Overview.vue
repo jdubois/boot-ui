@@ -256,6 +256,8 @@ const github = reactive({
   state: 'idle',
   score: null,
   hasReport: false,
+  target: null,
+  targetBlocked: false,
   connected: false,
   authenticated: false,
   available: true,
@@ -290,15 +292,46 @@ const overallBand = computed(() => {
   return {tone, label: {secondary: 'Not scored', success: 'Good', warning: 'Needs attention', danger: 'At risk'}[tone]}
 })
 
+function githubTarget(report) {
+  const repository = report?.repository
+  if (!repository?.fullName) return null
+  const host =
+    repository.host ||
+    (() => {
+      try {
+        return repository.htmlUrl ? new URL(repository.htmlUrl).host : null
+      } catch {
+        return null
+      }
+    })()
+  return host ? {host, fullName: repository.fullName} : null
+}
+
 async function connectGithub() {
-  if (actionReason('github') || github.state === 'running') return
+  if (actionReason('github') || github.state === 'running' || github.targetBlocked) return
   github.state = 'running'
   github.error = null
   try {
-    const report = await getJson('api/github/refresh', {method: 'POST'})
+    const parameters = new URLSearchParams()
+    if (github.target) {
+      parameters.set('expectedHost', github.target.host)
+      parameters.set('expectedRepository', github.target.fullName)
+    }
+    const query = parameters.size ? `?${parameters}` : ''
+    const report = await getJson(`api/github/refresh${query}`, {method: 'POST'})
     if (report?.status === 'ERROR') {
+      const currentTarget = githubTarget(report)
+      if (
+        github.target &&
+        currentTarget &&
+        (currentTarget.host !== github.target.host || currentTarget.fullName !== github.target.fullName)
+      ) {
+        github.targetBlocked = true
+      }
       throw new Error(report.message || 'GitHub refresh failed')
     }
+    github.target = githubTarget(report)
+    github.targetBlocked = false
     const score = githubSecurityScore(report)
     github.available = report.available !== false
     github.connected = report.connected === true
@@ -323,7 +356,7 @@ const unscannedCount = computed(() => visibleScanners.value.filter((def) => scan
 const incompleteCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].incomplete).length)
 const hasActions = computed(() => visibleScanners.value.length > 0 || githubVisible.value)
 const runnableScanners = computed(() => visibleScanners.value.filter((def) => !actionReason(def.id)))
-const githubRunnable = computed(() => githubVisible.value && !actionReason('github'))
+const githubRunnable = computed(() => githubVisible.value && !actionReason('github') && !github.targetBlocked)
 const runAllDisabledReason = computed(() => {
   if (runnableScanners.value.length || githubRunnable.value) return null
   if (!injectedPanels?.value && !localPanels.value)
@@ -630,7 +663,7 @@ watch(
               class="btn btn-sm btn-primary"
               type="button"
               icon="bi-github"
-              :disabled="github.state === 'running' || !!actionReason('github')"
+              :disabled="github.state === 'running' || !!actionReason('github') || github.targetBlocked"
               :aria-describedby="reasonId"
               @click="connectGithub"
             >

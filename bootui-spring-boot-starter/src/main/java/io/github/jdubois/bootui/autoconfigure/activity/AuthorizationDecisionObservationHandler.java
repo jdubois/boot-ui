@@ -10,8 +10,8 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authorization.AuthorityAuthorizationDecision;
@@ -72,7 +72,11 @@ public final class AuthorizationDecisionObservationHandler
         Started started = context.get(Started.class);
         RuntimeJournal target = journal.get();
         AuthorizationResult result = context.getAuthorizationResult();
-        if (started == null || target == null || result == null || !target.records(JournalSource.AUTHORIZATION)) {
+        if (started == null
+                || target == null
+                || result == null
+                || !frameworkSecurityType(result.getClass())
+                || !target.records(JournalSource.AUTHORIZATION)) {
             return;
         }
         Object object = context.getObject();
@@ -86,19 +90,18 @@ public final class AuthorizationDecisionObservationHandler
         }
         Authentication authentication = context.getAuthentication();
         if (authentication == null && exchange == null) {
-            // On a servlet thread, the request's security context holds the caller even when the rule did not ask.
-            authentication = SecurityContextHolder.getContext().getAuthentication();
+            authentication = servletAuthentication();
         }
+        boolean granted = result.isGranted();
         boolean method = object instanceof MethodInvocation || object instanceof MethodInvocationResult;
+        int authorities = authorities(authentication);
         AuthorizationPayload payload = new AuthorizationPayload(
                 method ? AuthorizationPayload.METHOD : AuthorizationPayload.REQUEST,
                 method ? subject(object) : null,
                 rule(result),
-                authentication == null && exchange != null
-                        ? AuthorizationPayload.UNKNOWN
-                        : authenticationOf(authentication),
-                result.isGranted(),
-                authentication == null ? 0 : authentication.getAuthorities().size());
+                authentication == null ? AuthorizationPayload.UNKNOWN : authenticationOf(authentication),
+                granted,
+                authorities);
         target.offer(RuntimeEvent.of(
                 JournalSource.AUTHORIZATION,
                 started.epochMillis(),
@@ -106,7 +109,7 @@ public final class AuthorizationDecisionObservationHandler
                 correlation,
                 started.thread(),
                 null,
-                !result.isGranted(),
+                !granted,
                 payload));
     }
 
@@ -114,25 +117,57 @@ public final class AuthorizationDecisionObservationHandler
         if (authentication == null) {
             return AuthorizationPayload.NONE;
         }
+        if (!frameworkSecurityType(authentication.getClass())) {
+            return AuthorizationPayload.UNKNOWN;
+        }
         if (authentication instanceof AnonymousAuthenticationToken) {
             return AuthorizationPayload.ANONYMOUS;
         }
         return authentication.isAuthenticated() ? AuthorizationPayload.AUTHENTICATED : AuthorizationPayload.NONE;
     }
 
+    static int authorities(Authentication authentication) {
+        if (authentication == null || !frameworkSecurityType(authentication.getClass())) return 0;
+        var iterator = authentication.getAuthorities().iterator();
+        int count = 0;
+        while (count < 1_024 && iterator.hasNext()) {
+            iterator.next();
+            count++;
+        }
+        return count;
+    }
+
     /** The rule a decision names: the authorities it required, or its type when that says more than granted. */
     static String rule(AuthorizationResult result) {
         if (result instanceof AuthorityAuthorizationDecision authority) {
-            return "hasAnyAuthority("
-                    + authority.getAuthorities().stream()
-                            .map(GrantedAuthority::getAuthority)
-                            .sorted()
-                            .collect(Collectors.joining(", "))
-                    + ")";
+            var names = new ArrayList<String>();
+            int inspected = 0;
+            var iterator = authority.getAuthorities().iterator();
+            while (inspected++ < 1_024 && names.size() < 64 && iterator.hasNext()) {
+                GrantedAuthority granted = iterator.next();
+                if (granted != null && frameworkSecurityType(granted.getClass())) {
+                    String name = granted.getAuthority();
+                    if (name != null && !name.isBlank())
+                        names.add(name.length() <= 256 ? name : name.substring(0, 256));
+                }
+            }
+            names.sort(String::compareTo);
+            return "hasAnyAuthority(" + String.join(", ", names) + ")";
         }
         return result.getClass() == AuthorizationDecision.class
                 ? null
                 : result.getClass().getSimpleName();
+    }
+
+    private static boolean frameworkSecurityType(Class<?> type) {
+        return type.getPackageName().startsWith("org.springframework.security.") || type == AuthorizationDecision.class;
+    }
+
+    private static Authentication servletAuthentication() {
+        var strategy = SecurityContextHolder.getContextHolderStrategy();
+        if (!frameworkSecurityType(strategy.getClass())) return null;
+        var context = strategy.getContext();
+        return frameworkSecurityType(context.getClass()) ? context.getAuthentication() : null;
     }
 
     private static String subject(Object object) {

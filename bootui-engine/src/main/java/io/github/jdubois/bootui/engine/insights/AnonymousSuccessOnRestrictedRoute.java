@@ -90,7 +90,7 @@ public final class AnonymousSuccessOnRestrictedRoute implements Observation {
             AuthorizationPayload decision,
             List<AuthorizationPayload> decisions,
             JournalTextExposure exposure) {
-        String rule = decision.request() ? decision.rule() : null;
+        String rule = decision.request() ? exposure.authorizationRule(decision.rule()) : null;
         String path = exposure.path(request.path());
         String methods = decisions.stream()
                 .filter(context -> AuthorizationPayload.METHOD.equals(context.target()))

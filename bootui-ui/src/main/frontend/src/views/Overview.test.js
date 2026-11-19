@@ -1135,6 +1135,49 @@ describe('Overview', () => {
     expect(card.text()).not.toMatch(/Good|high/)
   })
 
+  it('binds later GitHub refreshes to the repository displayed by the scorecard', async () => {
+    const first = {
+      ...githubReport(),
+      repository: {host: 'github.com', fullName: 'jdubois/boot-ui', htmlUrl: 'https://github.com/jdubois/boot-ui'}
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(first), {status: 200}))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ...first,
+            status: 'ERROR',
+            message: 'The configured GitHub repository changed after page permission was granted.',
+            repository: {
+              host: 'github.com',
+              fullName: 'other/project',
+              htmlUrl: 'https://github.com/other/project'
+            }
+          }),
+          {status: 200}
+        )
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountOverview(onlyPanels('github'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'GitHub')
+
+    await card.get('button').trigger('click')
+    await flushPromises()
+    await card.get('button').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'api/github/refresh',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui'
+    ])
+    expect(card.text()).toContain('configured GitHub repository changed')
+    expect(card.get('button').attributes('disabled')).toBeDefined()
+    await card.get('button').trigger('click')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('leaves three MEDIUM findings at 91 when another advisor becomes clean', async () => {
     const handlers = {'api/architecture': severityReport([{severity: 'MEDIUM', count: 3}])}
     stubFetch(handlers)

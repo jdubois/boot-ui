@@ -80,15 +80,14 @@ const refreshAllowed = computed(() => connectionConsent.value && canConnect.valu
 async function fetchDashboard(liveRefresh, remote = selectedRemote.value, granting = false) {
   try {
     const path = liveRefresh ? 'api/github/refresh' : 'api/github'
-    const query = remote === 'origin' ? '' : `?remote=${encodeURIComponent(remote)}`
-    if (liveRefresh && !granting && !(await currentTargetMatchesConsent(remote))) {
-      consentedTarget.value = null
-      error.value = describeLoadError(
-        new Error('The configured GitHub repository changed after permission was granted.'),
-        'GitHub refresh not authorized'
-      )
-      return
+    const parameters = new URLSearchParams()
+    if (remote !== 'origin') parameters.set('remote', remote)
+    const expected = consentedTarget.value
+    if (liveRefresh && expected?.remote === remote) {
+      parameters.set('expectedHost', expected.host)
+      parameters.set('expectedRepository', expected.fullName)
     }
+    const query = parameters.size ? `?${parameters}` : ''
     const report = await getJson(`${path}${query}`, liveRefresh ? {method: 'POST'} : {})
     // Permission belongs to the page, even after the requesting view has unmounted.
     if (['BLOCKED', 'DISABLED'].includes(report.status) || (granting && report.status === 'ERROR')) {
@@ -96,21 +95,13 @@ async function fetchDashboard(liveRefresh, remote = selectedRemote.value, granti
     }
     if (disposed) return
     refreshDisabled.value = report.status === 'DISABLED'
-    if (['ERROR', 'BLOCKED', 'DISABLED'].includes(report.status)) {
-      error.value = describeLoadError(
-        new Error(report.message || `GitHub returned ${report.status}`),
-        `GitHub refresh failed (${report.status})`
-      )
-      // These timestamps describe attempts, not successful snapshots.
-      if (!data.value) data.value = report
-      return
-    }
     if (
       liveRefresh &&
       report.available !== false &&
+      report.repository &&
       !reportMatchesTarget(
         report,
-        consentedTarget.value ?? {
+        expected ?? {
           remote,
           host: repositoryContext.value?.[remote]?.host,
           fullName: repositoryContext.value?.[remote]?.fullName
@@ -119,9 +110,18 @@ async function fetchDashboard(liveRefresh, remote = selectedRemote.value, granti
     ) {
       consentedTarget.value = null
       error.value = describeLoadError(
-        new Error('GitHub returned a different repository than the one authorized by the page.'),
+        new Error('The configured GitHub repository changed after permission was granted.'),
         'GitHub refresh not authorized'
       )
+      return
+    }
+    if (['ERROR', 'BLOCKED', 'DISABLED'].includes(report.status)) {
+      error.value = describeLoadError(
+        new Error(report.message || `GitHub returned ${report.status}`),
+        `GitHub refresh failed (${report.status})`
+      )
+      // These timestamps describe attempts, not successful snapshots.
+      if (!data.value) data.value = report
       return
     }
     data.value = report
@@ -159,14 +159,6 @@ function repositoryHost(url) {
   } catch {
     return null
   }
-}
-
-async function currentTargetMatchesConsent(remote) {
-  const expected = consentedTarget.value
-  if (!expected || expected.remote !== remote) return false
-  const query = remote === 'origin' ? '' : `?remote=${encodeURIComponent(remote)}`
-  const current = await getJson(`api/github${query}`)
-  return reportMatchesTarget(current, expected)
 }
 
 function connectRemote(remote) {

@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
+import java.util.AbstractList;
 import java.util.List;
 import org.aopalliance.intercept.MethodInvocation;
 import org.junit.jupiter.api.AfterEach;
@@ -28,7 +29,11 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationObservationContext;
+import org.springframework.security.authorization.AuthorizationResult;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 class AuthorizationDecisionObservationHandlerTests {
 
@@ -40,6 +45,7 @@ class AuthorizationDecisionObservationHandlerTests {
 
     @AfterEach
     void close() {
+        SecurityContextHolder.clearContext();
         journal.close();
     }
 
@@ -69,6 +75,133 @@ class AuthorizationDecisionObservationHandlerTests {
         report.observations().forEach(observation -> service.insight(observation.id()));
         assertThat(service.report()).isEqualTo(report);
         assertThat(journal.entries()).containsExactlyElementsOf(retained);
+    }
+
+    @Test
+    void applicationAuthorizationObjectsAreNotInvokedByObservation() {
+        AuthorizationResult result = new ApplicationAuthorizationResult();
+        Authentication authentication = new ApplicationAuthentication();
+        AuthorizationObservationContext<Object> context =
+                new AuthorizationObservationContext<>(new MockHttpServletRequest("GET", "/api/orders"));
+        context.setAuthentication(authentication);
+        handler.onStart(context);
+        context.setAuthorizationResult(result);
+
+        handler.onStop(context);
+
+        assertThat(journal.entries()).isEmpty();
+    }
+
+    @Test
+    void applicationAuthenticationIsRecordedAsUnknownWithoutInvokingIt() throws Exception {
+        AuthorizationObservationContext<Object> context =
+                new AuthorizationObservationContext<>(new MockHttpServletRequest("GET", "/api/orders"));
+        context.setAuthentication(new ApplicationAuthentication());
+        handler.onStart(context);
+        context.setAuthorizationResult(new AuthorizationDecision(true));
+
+        handler.onStop(context);
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.event().payload())
+                        .isInstanceOfSatisfying(AuthorizationPayload.class, payload -> {
+                            assertThat(payload.authentication()).isEqualTo(AuthorizationPayload.UNKNOWN);
+                            assertThat(payload.authorities()).isZero();
+                        }));
+    }
+
+    @Test
+    void deferredApplicationSecurityContextIsNotResolvedForObservation() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(new ApplicationAuthentication());
+        AuthorizationObservationContext<Object> context =
+                new AuthorizationObservationContext<>(new MockHttpServletRequest("GET", "/api/orders"));
+        handler.onStart(context);
+        context.setAuthorizationResult(new AuthorizationDecision(true));
+
+        handler.onStop(context);
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.event().payload())
+                        .isInstanceOfSatisfying(
+                                AuthorizationPayload.class,
+                                payload ->
+                                        assertThat(payload.authentication()).isEqualTo(AuthorizationPayload.UNKNOWN)));
+    }
+
+    @Test
+    void servletPermitAllRetainsTheCapturedAnonymousAuthentication() throws Exception {
+        SecurityContextHolder.getContext()
+                .setAuthentication(new AnonymousAuthenticationToken(
+                        "test", "anonymous", List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS"))));
+        AuthorizationObservationContext<Object> context =
+                new AuthorizationObservationContext<>(new MockHttpServletRequest("GET", "/api/public"));
+        handler.onStart(context);
+        context.setAuthorizationResult(new AuthorizationDecision(true));
+
+        handler.onStop(context);
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.event().payload())
+                        .isInstanceOfSatisfying(
+                                AuthorizationPayload.class,
+                                payload -> assertThat(payload.authentication())
+                                        .isEqualTo(AuthorizationPayload.ANONYMOUS)));
+    }
+
+    @Test
+    void trustedAuthenticationTypesDoNotInvokeApplicationAuthorities() throws Exception {
+        GrantedAuthority opaque = new GrantedAuthority() {
+            @Override
+            public String getAuthority() {
+                throw new AssertionError("Application authority callbacks must not run");
+            }
+        };
+        Authentication authentication =
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        "test", "secret", List.of(opaque));
+        AuthorizationObservationContext<Object> context =
+                new AuthorizationObservationContext<>(new MockHttpServletRequest("GET", "/api/orders"));
+        context.setAuthentication(authentication);
+        handler.onStart(context);
+        context.setAuthorizationResult(
+                new org.springframework.security.authorization.AuthorityAuthorizationDecision(true, List.of(opaque)));
+
+        handler.onStop(context);
+
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.entries()).hasSize(1);
+        assertThat(journal.entries().get(0).event().payload())
+                .isInstanceOfSatisfying(AuthorizationPayload.class, payload -> {
+                    assertThat(payload.authorities()).isOne();
+                    assertThat(payload.rule()).isEqualTo("hasAnyAuthority()");
+                });
+    }
+
+    @Test
+    void opaqueAuthorityCollectionsAreOnlyInspectedToTheBound() {
+        var authorities = new AbstractList<GrantedAuthority>() {
+            @Override
+            public GrantedAuthority get(int index) {
+                if (index >= 1_024) throw new AssertionError("Authority inspection exceeded its bound");
+                return () -> "ROLE_" + index;
+            }
+
+            @Override
+            public int size() {
+                return 5_000;
+            }
+        };
+        var result = new org.springframework.security.authorization.AuthorityAuthorizationDecision(true, authorities);
+
+        assertThat(AuthorizationDecisionObservationHandler.rule(result))
+                .startsWith("hasAnyAuthority(")
+                .doesNotContain("ROLE_1024");
     }
 
     private void request(
@@ -108,6 +241,48 @@ class AuthorizationDecisionObservationHandlerTests {
     private static final class ArticleService {
         void read() {
             throw new AssertionError("An observation must not invoke application methods");
+        }
+    }
+
+    private static final class ApplicationAuthorizationResult implements AuthorizationResult {
+        @Override
+        public boolean isGranted() {
+            throw new AssertionError("Application authorization result callbacks must not run");
+        }
+    }
+
+    private static final class ApplicationAuthentication implements Authentication {
+        @Override
+        public java.util.Collection<? extends GrantedAuthority> getAuthorities() {
+            throw new AssertionError("Application authentication callbacks must not run");
+        }
+
+        @Override
+        public Object getCredentials() {
+            return null;
+        }
+
+        @Override
+        public Object getDetails() {
+            return null;
+        }
+
+        @Override
+        public Object getPrincipal() {
+            return "test";
+        }
+
+        @Override
+        public boolean isAuthenticated() {
+            throw new AssertionError("Application authentication callbacks must not run");
+        }
+
+        @Override
+        public void setAuthenticated(boolean isAuthenticated) throws IllegalArgumentException {}
+
+        @Override
+        public String getName() {
+            return "test";
         }
     }
 }

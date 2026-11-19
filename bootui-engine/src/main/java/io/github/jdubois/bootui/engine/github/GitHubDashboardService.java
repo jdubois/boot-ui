@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class GitHubDashboardService {
 
@@ -60,7 +61,12 @@ public final class GitHubDashboardService {
     }
 
     public GitHubDashboardReport refresh(String remote) {
+        return refresh(remote, null, null);
+    }
+
+    public GitHubDashboardReport refresh(String remote, String expectedHost, String expectedRepository) {
         validateRemote(remote);
+        validateExpectedTarget(expectedHost, expectedRepository);
         GitHubRepositoryDetector.Remotes remotes =
                 GitHubRepositoryDetector.detectRemotes(workingDirectory, config.allowedApiHosts());
         GitHubRepositoryContextDto context = context(remote, remotes);
@@ -68,6 +74,31 @@ public final class GitHubDashboardService {
                 "upstream".equals(remote) ? remotes.upstream() : remotes.origin();
         if (repository == null) {
             return unavailable(unavailableReason(remote)).withRepositoryContext(context);
+        }
+        if (expectedHost != null
+                && (!expectedHost.equals(repository.host()) || !expectedRepository.equals(repository.fullName()))) {
+            GitHubDashboardReport report =
+                    ready(repository, "The configured GitHub repository changed after page permission was granted.");
+            return new GitHubDashboardReport(
+                            report.available(),
+                            report.unavailableReason(),
+                            false,
+                            "ERROR",
+                            report.message(),
+                            Instant.now().toEpochMilli(),
+                            report.repository(),
+                            report.credential(),
+                            report.metrics(),
+                            report.quotas(),
+                            report.pullRequests(),
+                            report.workflowRuns(),
+                            report.workflows(),
+                            report.issueBuckets(),
+                            report.issues(),
+                            report.securitySignals(),
+                            report.copilotUsage(),
+                            report.warnings())
+                    .withRepositoryContext(context);
         }
         if (!config.apiEnabled()) {
             GitHubDashboardReport report = ready(
@@ -126,6 +157,43 @@ public final class GitHubDashboardService {
         validateRemote(remote);
         return remote;
     }
+
+    public static RefreshSelection parseRefreshSelection(Map<String, ? extends List<String>> queryParameters) {
+        String remote = parseRemoteSelection(queryParameters);
+        for (String name : queryParameters.keySet()) {
+            if (!Set.of("remote", "expectedHost", "expectedRepository").contains(name)) {
+                throw new IllegalArgumentException("GitHub refresh query is invalid");
+            }
+        }
+        String host = optionalSingle(queryParameters, "expectedHost");
+        String repository = optionalSingle(queryParameters, "expectedRepository");
+        validateExpectedTarget(host, repository);
+        return new RefreshSelection(remote, host, repository);
+    }
+
+    private static String optionalSingle(Map<String, ? extends List<String>> queryParameters, String name) {
+        if (!queryParameters.containsKey(name)) return null;
+        List<String> values = queryParameters.get(name);
+        if (values == null
+                || values.size() != 1
+                || values.get(0) == null
+                || values.get(0).isBlank()) {
+            throw new IllegalArgumentException("GitHub refresh target identity is invalid");
+        }
+        return values.get(0);
+    }
+
+    private static void validateExpectedTarget(String host, String repository) {
+        if (host == null && repository == null) return;
+        if (host == null
+                || repository == null
+                || !host.matches("[A-Za-z0-9.-]{1,253}")
+                || !repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
+            throw new IllegalArgumentException("GitHub refresh target identity is invalid");
+        }
+    }
+
+    public record RefreshSelection(String remote, String host, String repository) {}
 
     private GitHubRepositoryContextDto context(String remote, GitHubRepositoryDetector.Remotes remotes) {
         return new GitHubRepositoryContextDto(

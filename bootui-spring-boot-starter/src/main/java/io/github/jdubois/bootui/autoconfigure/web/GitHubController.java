@@ -60,7 +60,12 @@ public class GitHubController {
 
     @PostMapping("/refresh")
     public GitHubDashboardReport refresh(@RequestParam MultiValueMap<String, String> queryParameters) {
-        return service.refresh(selectedRemote(queryParameters));
+        try {
+            var selection = GitHubDashboardService.parseRefreshSelection(queryParameters);
+            return service.refresh(selection.remote(), selection.host(), selection.repository());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
+        }
     }
 
     private String selectedRemote(MultiValueMap<String, String> queryParameters) {

@@ -398,7 +398,7 @@ describe('GitHub', () => {
     await control(wrapper, 'Connect to configured upstream').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenLastCalledWith(
-      'api/github/refresh?remote=upstream',
+      'api/github/refresh?remote=upstream&expectedHost=ghe.example.com&expectedRepository=team%2Fservice',
       expect.objectContaining({method: 'POST'})
     )
     expect(metricButton(wrapper, 'Dependabot alerts').text()).not.toContain('Fork data')
@@ -407,7 +407,7 @@ describe('GitHub', () => {
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenLastCalledWith(
-      'api/github/refresh?remote=upstream',
+      'api/github/refresh?remote=upstream&expectedHost=ghe.example.com&expectedRepository=team%2Fservice',
       expect.objectContaining({method: 'POST'})
     )
   })
@@ -476,7 +476,10 @@ describe('GitHub', () => {
     expect(wrapper.text()).toContain('Configured upstream is unavailable')
     await control(wrapper, 'Connect to origin').trigger('click')
     await flushPromises()
-    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
+      expect.objectContaining({method: 'POST'})
+    )
     expect(wrapper.text()).toContain('jdubois/boot-ui')
   })
 
@@ -527,7 +530,7 @@ describe('GitHub', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('configured GitHub repository changed')
     expect(control(wrapper, 'Stop')).toBeUndefined()
     expect(control(wrapper, 'Connect')).toBeDefined()
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2)
   })
 
   it('reads only cache until Connect, regardless of cached connected state', async () => {
@@ -557,24 +560,26 @@ describe('GitHub', () => {
     await control(wrapper, 'Connect').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
+      expect.objectContaining({method: 'POST'})
+    )
     expect(control(wrapper, 'Stop')).toBeDefined()
     expect(control(wrapper, 'Connect')).toBeUndefined()
 
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
 
     await control(wrapper, 'Stop').trigger('click')
     await vi.advanceTimersByTimeAsync(180_000)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(control(wrapper, 'Connect')).toBeDefined()
     expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
       ['api/github', 'GET'],
-      ['api/github/refresh', 'POST'],
-      ['api/github', 'GET'],
-      ['api/github/refresh', 'POST']
+      ['api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui', 'POST'],
+      ['api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui', 'POST']
     ])
   })
 
@@ -640,7 +645,7 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(3)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
     returned.unmount()
 
     vi.resetModules()
@@ -649,7 +654,7 @@ describe('GitHub', () => {
     await flushPromises()
     expect(control(reloaded, 'Connect')).toBeDefined()
     await vi.advanceTimersByTimeAsync(120_000)
-    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
     expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
   })
 
@@ -673,7 +678,7 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('pauses a kept-alive inactive panel and reactivates cache-first', async () => {
@@ -698,7 +703,7 @@ describe('GitHub', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
     expect(fetchMock).toHaveBeenCalledTimes(3)
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it('never overlaps refreshes or queues missed ticks, including across route remounts', async () => {
@@ -726,7 +731,7 @@ describe('GitHub', () => {
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(4)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
     await control(returned, 'Stop').trigger('click')
   })
 
@@ -756,7 +761,7 @@ describe('GitHub', () => {
       // Even a still-CONNECTED cache cannot restore permission after the late denial.
       expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
         ['api/github', 'GET'],
-        ['api/github/refresh', 'POST'],
+        ['api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui', 'POST'],
         ['api/github', 'GET']
       ])
     }
@@ -792,7 +797,7 @@ describe('GitHub', () => {
       await flushPromises()
       await vi.advanceTimersByTimeAsync(180_000)
       expect(control(returned, 'Stop')).toBeUndefined()
-      expect(fetchMock.mock.calls.filter(([url]) => url === 'api/github/refresh')).toHaveLength(1)
+      expect(fetchMock.mock.calls.filter(([url]) => url.startsWith('api/github/refresh'))).toHaveLength(1)
     }
   )
 
@@ -821,7 +826,7 @@ describe('GitHub', () => {
     expect(returned.get('time').attributes('datetime')).toBe(new Date(cached.refreshedAt).toISOString())
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'api/github',
-      'api/github/refresh',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
       'api/github',
       'api/github'
     ])
@@ -856,7 +861,7 @@ describe('GitHub', () => {
     expect(metricButton(returned, 'Open pull requests').text()).toContain('99')
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'api/github',
-      'api/github/refresh',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
       'api/github',
       'api/github'
     ])
@@ -881,7 +886,10 @@ describe('GitHub', () => {
     )
     await flushPromises()
     expect(metricButton(wrapper, 'Open pull requests').text()).toContain('99')
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['api/github', 'api/github/refresh'])
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'api/github',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui'
+    ])
     await control(wrapper, 'Stop').trigger('click')
     await vi.advanceTimersByTimeAsync(180_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -1037,7 +1045,7 @@ describe('GitHub', () => {
     expect(wrapper.text()).toContain('QUOTA_PROTECTED')
     expect(wrapper.text()).toContain('Optional GitHub calls were skipped')
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(quotaReport)).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       jsonResponse({
         ...connectedReport(),
         status: 'PARTIAL',

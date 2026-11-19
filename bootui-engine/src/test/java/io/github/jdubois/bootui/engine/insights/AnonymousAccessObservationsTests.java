@@ -159,7 +159,7 @@ class AnonymousAccessObservationsTests {
                 "/api/articles/draft;token=draft-secret",
                 "/api/articles/{id}",
                 403,
-                decision("ANONYMOUS", false, null),
+                decision("ANONYMOUS", false, "hasAnyAuthority(ROLE_ADMIN, password=draft-rule-secret)"),
                 methodDecision("ANONYMOUS", false, "@policy.canRead(#article, 'draft-rule-secret')"));
 
         RuntimeInsightsService service =
@@ -195,12 +195,12 @@ class AnonymousAccessObservationsTests {
                 .extracting(RuntimeObservationRowDto::cells)
                 .anySatisfy(cells ->
                         assertThat(cells).contains("/api/articles/public;token=public-secret;variant=public-value"))
-                .allSatisfy(cells ->
-                        assertThat(String.join(" ", cells)).doesNotContain("public-rule-secret", "draft-rule-secret"));
+                .allSatisfy(cells -> assertThat(String.join(" ", cells)).doesNotContain("public-rule-secret"));
         mode[0] = ValueExposure.METADATA_ONLY;
         assertThat(service.insight(finding.id()).rows())
                 .extracting(RuntimeObservationRowDto::cells)
                 .anySatisfy(cells -> assertThat(cells).contains("/api/articles/public;token=******;variant=******"))
+                .allSatisfy(cells -> assertThat(cells.get(3)).isEmpty())
                 .allSatisfy(cells -> assertThat(String.join(" ", cells))
                         .doesNotContain(
                                 "public-secret",

@@ -124,6 +124,40 @@ class GitHubDashboardServiceTests {
     }
 
     @Test
+    void refreshRejectsAChangedRepositoryIdentityBeforeCallingTheClient() throws Exception {
+        Path project = githubProject("https://github.com/team/service.git");
+        CountingGitHubClient client = new CountingGitHubClient();
+        var service = GitHubDashboardService.using(project, new GitHubDashboardConfig(true, List.of()), client);
+
+        Files.writeString(project.resolve(".git/config"), """
+                [remote "origin"]
+                    url = https://github.com/other/service.git
+                """);
+
+        var report = service.refresh("origin", "github.com", "team/service");
+
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.repository().fullName()).isEqualTo("other/service");
+        assertThat(report.message()).contains("changed after page permission");
+        assertThat(client.calls).isZero();
+    }
+
+    @Test
+    void refreshCallsTheClientWhenTheExpectedRepositoryIdentityMatches() throws Exception {
+        CountingGitHubClient client = new CountingGitHubClient();
+        var service = GitHubDashboardService.using(
+                githubProject("https://github.com/team/service.git"),
+                new GitHubDashboardConfig(true, List.of()),
+                client);
+
+        var report = service.refresh("origin", "github.com", "team/service");
+
+        assertThat(report.status()).isEqualTo("CONNECTED");
+        assertThat(client.calls).isOne();
+        assertThat(client.hosts).containsExactly("github.com");
+    }
+
+    @Test
     void missingOrInvalidSelectionCannotFallBackToOriginOrCallTheClient() throws Exception {
         CountingGitHubClient client = new CountingGitHubClient();
         var service = GitHubDashboardService.using(
@@ -157,6 +191,32 @@ class GitHubDashboardServiceTests {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> GitHubDashboardService.parseRemoteSelection(query))
                     .withMessage("GitHub remote must be origin or upstream");
+        }
+    }
+
+    @Test
+    void refreshQueryRequiresAnExactPairedTargetIdentity() {
+        assertThat(GitHubDashboardService.parseRefreshSelection(Map.of(
+                        "remote",
+                        List.of("upstream"),
+                        "expectedHost",
+                        List.of("ghe.example.com"),
+                        "expectedRepository",
+                        List.of("team/service"))))
+                .isEqualTo(new GitHubDashboardService.RefreshSelection("upstream", "ghe.example.com", "team/service"));
+        for (Map<String, ? extends List<String>> query : List.of(
+                Map.of("expectedHost", List.of("github.com")),
+                Map.of("expectedRepository", List.of("team/service")),
+                Map.of("expectedHost", List.of(""), "expectedRepository", List.of("team/service")),
+                Map.of("expectedHost", List.of("github.com"), "expectedRepository", List.of("service")),
+                Map.of(
+                        "expectedHost",
+                        List.of("github.com"),
+                        "expectedRepository",
+                        List.of("team/service"),
+                        "extra",
+                        List.of("x")))) {
+            assertThatIllegalArgumentException().isThrownBy(() -> GitHubDashboardService.parseRefreshSelection(query));
         }
     }
 

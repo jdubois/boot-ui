@@ -60,7 +60,12 @@ public class GitHubResource {
     @Path("/refresh")
     @Produces(MediaType.APPLICATION_JSON)
     public GitHubDashboardReport refresh(@Context UriInfo uriInfo) {
-        return service.refresh(selectedRemote(uriInfo));
+        try {
+            var selection = GitHubDashboardService.parseRefreshSelection(uriInfo.getQueryParameters());
+            return service.refresh(selection.remote(), selection.host(), selection.repository());
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException(ex.getMessage(), ex);
+        }
     }
 
     private String selectedRemote(UriInfo uriInfo) {

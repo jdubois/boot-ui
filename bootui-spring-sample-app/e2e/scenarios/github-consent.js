@@ -36,11 +36,14 @@ export function registerGitHubConsentTests(test, expect, {uiPath = '/bootui', ap
         cacheReads += 1
         await route.fulfill({contentType: 'application/json', body: payload})
       })
-      await page.route(`**${apiPath}/github/refresh`, async (route) => {
-        expect(route.request().method()).toBe('POST')
-        refreshCount += 1
-        await route.fulfill({contentType: 'application/json', body: payload})
-      })
+      await page.route(
+        (url) => url.pathname === `${apiPath}/github/refresh`,
+        async (route) => {
+          expect(route.request().method()).toBe('POST')
+          refreshCount += 1
+          await route.fulfill({contentType: 'application/json', body: payload})
+        }
+      )
 
       await page.goto(`${uiPath}/#/github`)
       const connect = page.getByRole('button', {name: 'Connect', exact: true})
@@ -55,7 +58,7 @@ export function registerGitHubConsentTests(test, expect, {uiPath = '/bootui', ap
       await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeFocused()
       await expect(page.getByRole('button', {name: 'Refresh panel', exact: true})).toBeEnabled()
       await page.clock.runFor(61_000)
-      await expect.poll(() => cacheReads).toBe(2)
+      await expect.poll(() => cacheReads).toBe(1)
       await expect.poll(() => refreshCount).toBe(2)
 
       await page.evaluate(() => (window.location.hash = '#/beans'))
@@ -69,7 +72,7 @@ export function registerGitHubConsentTests(test, expect, {uiPath = '/bootui', ap
       await page.clock.runFor(30_000)
       expect(refreshCount).toBe(2)
       await page.clock.runFor(31_000)
-      await expect.poll(() => cacheReads).toBe(4)
+      await expect.poll(() => cacheReads).toBe(2)
       await expect.poll(() => refreshCount).toBe(3)
 
       await page.evaluate(() => {
@@ -86,7 +89,7 @@ export function registerGitHubConsentTests(test, expect, {uiPath = '/bootui', ap
       await page.clock.runFor(30_000)
       expect(refreshCount).toBe(3)
       await page.clock.runFor(31_000)
-      await expect.poll(() => cacheReads).toBe(5)
+      await expect.poll(() => cacheReads).toBe(2)
       await expect.poll(() => refreshCount).toBe(4)
 
       await page.getByRole('button', {name: 'Stop', exact: true}).click()
@@ -105,18 +108,20 @@ export function registerGitHubConsentTests(test, expect, {uiPath = '/bootui', ap
       await page.route(`**${apiPath}/github`, (route) =>
         route.fulfill({contentType: 'application/json', body: JSON.stringify(dashboard)})
       )
-      await page.route(`**${apiPath}/github/refresh`, (route) =>
-        route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            available: true,
-            connected: false,
-            status: 'ERROR',
-            message: 'GitHub credentials were rejected.',
-            refreshedAt: Date.now(),
-            repository: dashboard.repository
+      await page.route(
+        (url) => url.pathname === `${apiPath}/github/refresh`,
+        (route) =>
+          route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              available: true,
+              connected: false,
+              status: 'ERROR',
+              message: 'GitHub credentials were rejected.',
+              refreshedAt: Date.now(),
+              repository: dashboard.repository
+            })
           })
-        })
       )
       await page.goto(`${uiPath}/#/github`)
       const snapshot = page.locator('main time')
