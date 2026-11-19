@@ -609,6 +609,10 @@ Playwright starts the relevant sample app automatically and reuses an existing
 server on port `8080` (Spring MVC), `8081` (Spring WebFlux), or `8082`
 (Quarkus).
 
+After the frontend dependencies and Spring Playwright Chromium are installed, run the manual Vite proxy contract with
+`(cd bootui-spring-sample-app/e2e && npm run test:proxy)`. It uses real Chromium and the repository's Vite configuration
+against an ephemeral local backend; this manual gate is not part of the default browser suite.
+
 The agent suites start their sample with `-javaagent:` and the jar `./mvnw install` built in `bootui-agent/target`, or
 `BOOTUI_AGENT_JAR`, and set the `agentAttached` fixture option, so the Java Agent, Code Inventory, and Code Paths specs
 assert the armed claim and the recorded run instead of the not-attached state. The Quarkus agent suite passes the jar to
