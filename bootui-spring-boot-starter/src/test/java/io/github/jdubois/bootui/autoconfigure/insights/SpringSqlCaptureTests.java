@@ -45,6 +45,70 @@ class SpringSqlCaptureTests {
     }
 
     @Test
+    void lazyAndPrototypeR2dbcFactoriesAreIdentifiedWithoutCreatingThem() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AtomicInteger callbacks = new AtomicInteger();
+            context.registerBean(
+                    "lazyReactive",
+                    ConnectionFactory.class,
+                    () -> {
+                        callbacks.incrementAndGet();
+                        throw new AssertionError("a lazy connection factory must not be created");
+                    },
+                    definition -> definition.setLazyInit(true));
+            context.registerBean(
+                    "prototypeReactive",
+                    ConnectionFactory.class,
+                    () -> {
+                        callbacks.incrementAndGet();
+                        throw new AssertionError("a prototype connection factory must not be created");
+                    },
+                    definition -> definition.setScope("prototype"));
+            context.refresh();
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .isEqualTo(SqlCapture.notRecorded(SqlCapture.R2DBC_ONLY));
+            assertThat(callbacks).hasValue(0);
+        }
+    }
+
+    @Test
+    void aMixedJdbcApplicationQualifiesAPrototypeR2dbcFactory() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AtomicInteger callbacks = new AtomicInteger();
+            SqlTraceRecorder recorder = recorder();
+            recorder.registerDataSource("dataSource");
+            context.registerBean(SqlTraceRecorder.class, () -> recorder);
+            context.registerBean(
+                    "prototypeReactive",
+                    ConnectionFactory.class,
+                    () -> {
+                        callbacks.incrementAndGet();
+                        throw new AssertionError("a prototype connection factory must not be created");
+                    },
+                    definition -> definition.setScope("prototype"));
+            context.refresh();
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .isEqualTo(SqlCapture.recordedExcept(SqlCapture.R2DBC_NOT_RECORDED));
+            assertThat(callbacks).hasValue(0);
+        }
+    }
+
+    @Test
+    void aLazyReactiveFactoryBeanProductIsIdentifiedFromItsGenericType() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(
+                    "reactiveFactory", ConnectionFactoryBean.class, definition -> definition.setLazyInit(true));
+            context.refresh();
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .isEqualTo(SqlCapture.notRecorded(SqlCapture.R2DBC_ONLY));
+            assertThat(ConnectionFactoryBean.creations).hasValue(0);
+        }
+    }
+
+    @Test
     void withoutSqlTraceNothingIsRecorded() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.refresh();
@@ -92,5 +156,23 @@ class SpringSqlCaptureTests {
 
     private static SqlTraceRecorder recorder() {
         return new SqlTraceRecorder(true, true, false, false, 8, 100, 2000, 200, 5);
+    }
+
+    static class ConnectionFactoryBean implements FactoryBean<ConnectionFactory> {
+        private static final AtomicInteger creations = new AtomicInteger();
+
+        ConnectionFactoryBean() {
+            creations.incrementAndGet();
+        }
+
+        @Override
+        public ConnectionFactory getObject() {
+            throw new AssertionError("a passive capture read must not request the product");
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            return ConnectionFactory.class;
+        }
     }
 }
