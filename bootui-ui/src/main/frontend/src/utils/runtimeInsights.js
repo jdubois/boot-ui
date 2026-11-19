@@ -65,7 +65,7 @@ const GROUP_SUMMARIES = {
   'safe-method-dml': 'GET or HEAD requests with recorded database write activity.',
   'proxy-bypass': 'Recorded calls that bypassed proxy advice.',
   'paged-without-order': 'Paged database reads without an explicit ORDER BY.',
-  'event-loop-blocking': 'JDBC statements started on an event-loop thread.',
+  'event-loop-blocking': 'JDBC executions or synchronous HTTP calls issued on an event-loop thread.',
   'transaction-across-remote-call': 'Transactions and their connections span outbound calls.',
   'split-transaction-writes': 'Captured write groups whose atomicity needs verification.',
   'repeated-selects': 'The same SELECT repeated after another statement.',

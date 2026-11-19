@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
+import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
@@ -13,9 +16,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code event-loop-blocking} ({@code docs/PLAN-v2.md} §5.5): JDBC statements that started on a thread the adapter
- * identified as an event loop, per route and call site. One confirmed statement is enough; it is said to recur once three
- * requests show it. An asynchronous client completing on an event loop is normal and never counts.
+ * {@code event-loop-blocking} ({@code docs/PLAN-v2.md} §5.5): JDBC executions and native synchronous Spring HTTP calls
+ * issued on a thread the adapter identified as an event loop, per route and call site. One confirmed call is enough;
+ * it is said to recur once three requests show it. An asynchronous client completing on an event loop never counts.
  */
 public final class EventLoopBlocking implements Observation {
 
@@ -23,6 +26,8 @@ public final class EventLoopBlocking implements Observation {
 
     /** The requests from which it is said to recur. */
     static final int RECURRING_REQUESTS = 3;
+
+    private static final JournalTextExposure SITE_IDENTITY = new JournalTextExposure(ValueExposure.METADATA_ONLY, true);
 
     @Override
     public String kind() {
@@ -41,13 +46,26 @@ public final class EventLoopBlocking implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.SQL);
+        return Set.of();
+    }
+
+    @Override
+    public Set<JournalSource> optionalReads() {
+        return Set.of(JournalSource.SQL, JournalSource.REST_CLIENT);
+    }
+
+    @Override
+    public Set<JournalSource> optionalReads(InsightsSnapshot snapshot) {
+        return snapshot.stack() == InsightsStack.QUARKUS ? Set.of(JournalSource.SQL) : optionalReads();
     }
 
     @Override
     public String notApplicable(InsightsSnapshot snapshot) {
-        return snapshot.stack() == InsightsStack.SPRING_MVC
-                ? "Spring MVC serves requests on worker threads, not on event loops."
+        if (snapshot.stack() == InsightsStack.SPRING_MVC) {
+            return "Spring MVC serves requests on worker threads, not on event loops.";
+        }
+        return optionalReads(snapshot).stream().noneMatch(snapshot::available)
+                ? "No supported blocking-call source is recorded and visible."
                 : null;
     }
 
@@ -56,91 +74,148 @@ public final class EventLoopBlocking implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         long unverified = 0;
+        long unclassified = 0;
+        boolean sqlAvailable = snapshot.available(JournalSource.SQL);
+        boolean httpAvailable =
+                snapshot.stack() != InsightsStack.QUARKUS && snapshot.available(JournalSource.REST_CLIENT);
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
-            List<ProjectedRequest> requests = route.getValue();
-            eligible += requests.size();
             Map<String, Site> sites = new LinkedHashMap<>();
-            for (ProjectedRequest request : requests) {
-                Map<String, Integer> perRequest = new LinkedHashMap<>();
-                for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    if (event.threadKind() == ThreadKind.EVENT_LOOP && event.payload() instanceof SqlPayload sql) {
+            for (ProjectedRequest request : route.getValue()) {
+                Map<String, Boolean> perRequest = new LinkedHashMap<>();
+                for (RuntimeEvent event : request.children()) {
+                    String site;
+                    Site found;
+                    String work;
+                    if (sqlAvailable && event.payload() instanceof SqlPayload sql) {
                         if (!sql.executed()) {
-                            unverified++;
+                            if (event.threadKind() == ThreadKind.EVENT_LOOP) {
+                                unverified++;
+                            }
                             continue;
                         }
-                        String site = sql.callSite() != null ? sql.callSite() : SqlShapes.fingerprint(sql.sql());
-                        sites.computeIfAbsent(
-                                        site,
-                                        s -> new Site(
-                                                sql.callSite() != null
-                                                        ? sql.callSite()
-                                                        : InsightText.statement(sql.sql())))
-                                .add(request, event, sql);
-                        perRequest.merge(site, 1, Integer::sum);
+                        site = sql.callSite() != null ? sql.callSite() : SqlShapes.fingerprint(sql.sql());
+                        found = sites.computeIfAbsent(
+                                site,
+                                s -> new Site(
+                                        sql.callSite() != null ? sql.callSite() : InsightText.statement(sql.sql()),
+                                        null));
+                        work = InsightText.statement(sql.sql());
+                    } else if (httpAvailable
+                            && event.payload() instanceof RestClientPayload call
+                            && ("RestClient".equals(call.clientType()) || "RestTemplate".equals(call.clientType()))) {
+                        work = describe(call, snapshot);
+                        String callSite =
+                                call.frames() == null ? null : call.frames().callSite();
+                        site = "http:" + call.clientType() + ":"
+                                + (callSite == null
+                                        ? call.method() + " " + call.authority() + SITE_IDENTITY.path(call.path())
+                                        : callSite);
+                        found = sites.computeIfAbsent(
+                                site, s -> new Site(callSite == null ? work : callSite, call.clientType()));
+                    } else {
+                        continue;
                     }
+                    if (event.threadKind() == null || event.threadKind() == ThreadKind.OTHER) {
+                        unclassified++;
+                        continue;
+                    }
+                    boolean onLoop = event.threadKind() == ThreadKind.EVENT_LOOP;
+                    if (onLoop) {
+                        found.add(request, event, work);
+                    }
+                    perRequest.merge(site, onLoop, Boolean::logicalOr);
                 }
-                perRequest.keySet().forEach(site -> sites.get(site).requests++);
+                if (!perRequest.isEmpty()) {
+                    eligible++;
+                }
+                perRequest.forEach((site, onLoop) -> {
+                    sites.get(site).eligible++;
+                    if (onLoop) {
+                        sites.get(site).requests++;
+                    }
+                });
             }
-            sites.forEach(
-                    (site, found) -> findings.add(finding(route.getKey(), site, found, requests.size(), snapshot)));
+            sites.forEach((site, found) -> {
+                if (!found.rows.isEmpty()) {
+                    findings.add(finding(route.getKey(), site, found, snapshot));
+                }
+            });
         }
-        return new Evaluation(
-                eligible,
-                findings,
-                unverified == 0
-                        ? null
-                        : InsightText.counted(unverified, "SQL capture")
-                                + " on event-loop threads did not establish JDBC execution and are not counted:"
-                                + " preparation alone does not prove blocking.");
+        List<String> uncounted = new ArrayList<>();
+        if (unverified > 0) {
+            uncounted.add(InsightText.counted(unverified, "SQL capture")
+                    + " on event-loop threads did not establish JDBC execution and are not counted:"
+                    + " preparation alone does not prove blocking.");
+        }
+        if (unclassified > 0) {
+            uncounted.add(InsightText.counted(unclassified, "blocking-capable call")
+                    + " had no classified issuing thread and could not be assessed.");
+        }
+        return new Evaluation(eligible, findings, uncounted.isEmpty() ? null : String.join(" ", uncounted));
     }
 
-    private Finding finding(String route, String site, Site found, long eligible, InsightsSnapshot snapshot) {
-        String sentence = "`" + route + "` started " + InsightText.counted(found.rows.size(), "JDBC statement")
+    private static String describe(RestClientPayload call, InsightsSnapshot snapshot) {
+        return ((call.method() == null ? "" : call.method() + " ")
+                        + (call.authority() == null ? "" : call.authority())
+                        + (call.path() == null ? "" : snapshot.exposure().path(call.path())))
+                .trim();
+    }
+
+    private Finding finding(String route, String site, Site found, InsightsSnapshot snapshot) {
+        boolean jdbc = found.clientType == null;
+        String sentence = "`" + route + "` started "
+                + InsightText.counted(found.rows.size(), jdbc ? "JDBC statement" : found.clientType + " call")
                 + " on an event-loop thread, in " + found.requests + " of "
-                + InsightText.counted(eligible, InsightText.unit(route))
+                + InsightText.counted(found.eligible, InsightText.unit(route))
+                + " that captured this " + (jdbc ? "JDBC site" : "client site")
                 + ", at `" + found.label + "`"
                 + (found.requests >= RECURRING_REQUESTS ? "; it recurs." : ".");
         String move = snapshot.stack() == InsightsStack.QUARKUS
                 ? "Run the endpoint on a worker or virtual thread with @Blocking or @RunOnVirtualThread, or use a"
                         + " reactive client."
                 : "Move the blocking call off the event loop with subscribeOn(Schedulers.boundedElastic()), or use"
-                        + " R2DBC.";
+                        + (jdbc ? " R2DBC." : " a non-blocking WebClient pipeline.");
         return new Finding(
                 route + ":" + InsightText.stableHash(site),
                 route,
                 true,
                 sentence,
-                eligible,
+                found.eligible,
                 found.requests,
                 List.of(
                         move,
-                        "While a statement runs, the event loop serves no other request: check its latency under"
+                        "While a blocking call runs, the event loop serves no other request: check its latency under"
                                 + " load."),
                 found.rows.stream().map(row -> row.get(0)).distinct().limit(3).toList(),
-                List.of("Request", "Thread", "Statement", "Time (ms)"),
+                List.of("Request", "Thread", jdbc ? "Statement" : "HTTP call", "Time (ms)"),
                 found.rows,
                 List.of("Counts observed JDBC executions, including a measured zero duration; SQL preparation alone"
-                        + " does not count. Other blocking calls, such as file or synchronous HTTP I/O,"
-                        + " are not recorded."));
+                        + " does not count. On Spring, native RestClient and RestTemplate interceptors record synchronous"
+                        + " calls on their issuing thread. WebClient completions, thread names and duration alone never"
+                        + " prove blocking. Other client types and file I/O are not assessed; Quarkus HTTP clients"
+                        + " do not establish this synchronous Spring-client evidence."));
     }
 
     private static final class Site {
 
         private final List<List<String>> rows = new ArrayList<>();
         private final String label;
+        private final String clientType;
         private long requests;
+        private long eligible;
 
         /** @param label the call site, or the statement as a sentence quotes it when none was recorded */
-        Site(String label) {
+        Site(String label, String clientType) {
             this.label = label;
+            this.clientType = clientType;
         }
 
-        void add(ProjectedRequest request, RuntimeEvent event, SqlPayload sql) {
+        void add(ProjectedRequest request, RuntimeEvent event, String work) {
             rows.add(List.of(
                     request.requestId(),
                     event.thread() == null ? "" : event.thread(),
-                    InsightText.statement(sql.sql()),
+                    work,
                     InsightText.millis(Math.max(0, event.durationNanos()))));
         }
     }

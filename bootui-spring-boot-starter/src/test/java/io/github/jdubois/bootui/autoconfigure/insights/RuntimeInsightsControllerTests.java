@@ -428,7 +428,11 @@ class RuntimeInsightsControllerTests {
             assertThat(check(reactive, RepeatedSelects.KIND))
                     .satisfies(check -> assertThat(check.status()).isEqualTo("UNAVAILABLE"))
                     .satisfies(check -> assertThat(check.reason()).isEqualTo(SqlCapture.NOT_RECORDED));
-            assertThat(check(reactive, EventLoopBlocking.KIND).status()).isEqualTo("UNAVAILABLE");
+            assertThat(check(reactive, EventLoopBlocking.KIND)).satisfies(check -> {
+                assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                assertThat(check.eligibleRequests()).isZero();
+                assertThat(check.reason()).contains(SqlCapture.NOT_RECORDED);
+            });
             assertThat(check(disabled, RepeatedSelects.KIND).reason()).isEqualTo(SqlCapture.DISABLED);
             assertThat(check(traced, RepeatedSelects.KIND)).satisfies(check -> {
                 assertThat(check.status()).isEqualTo("INSUFFICIENT");

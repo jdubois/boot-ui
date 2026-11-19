@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,
+  preserves independent SQL and client evidence, and keeps matrix parameters out of fallback site identity.
+  Thread names no longer diagnose `@Async` proxy bypass; unassessed async frames retain independently judgeable
+  transaction and cache boundaries ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Resource attribution** keeps observed connection overlap without inferring nested waiting or an exhaustion
   estimate, and asks about write atomicity across captured data sources and boundaries without claiming physical
   ownership or independent commits ([Runtime Insights](docs/features/runtime-insights.md)).

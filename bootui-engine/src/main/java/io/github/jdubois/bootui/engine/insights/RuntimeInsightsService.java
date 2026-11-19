@@ -1096,13 +1096,17 @@ public final class RuntimeInsightsService {
                 checks.add(check(observation, "NOT_APPLICABLE", 0, 0, missing));
                 continue;
             }
+            boolean sqlOnlyEventLoop = EventLoopBlocking.KIND.equals(observation.kind())
+                    && (snapshot.stack() == InsightsStack.QUARKUS || !snapshot.available(JournalSource.REST_CLIENT));
             if (!capture.recorded()
-                    && readsSql(observation.reads())
+                    && (readsSql(observation.reads()) || sqlOnlyEventLoop)
                     && snapshot.requests().stream()
-                            .noneMatch(request -> observation.reads().stream()
-                                    .filter(source -> source == JournalSource.SQL || source == JournalSource.CONNECTION)
-                                    .anyMatch(
-                                            source -> !request.children(source).isEmpty()))) {
+                            .noneMatch(request -> (sqlOnlyEventLoop ? Set.of(JournalSource.SQL) : observation.reads())
+                                    .stream()
+                                            .filter(source ->
+                                                    source == JournalSource.SQL || source == JournalSource.CONNECTION)
+                                            .anyMatch(source ->
+                                                    !request.children(source).isEmpty()))) {
                 checks.add(check(observation, "UNAVAILABLE", 0, 0, capture.reason()));
                 continue;
             }

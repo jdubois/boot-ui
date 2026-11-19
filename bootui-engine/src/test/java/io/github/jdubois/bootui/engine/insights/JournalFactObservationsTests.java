@@ -618,7 +618,7 @@ class JournalFactObservationsTests {
         assertThat(blocking).singleElement().satisfies(observation -> {
             assertThat(observation.sentence())
                     .isEqualTo("`" + ORDERS + "` started 3 JDBC statements on an event-loop thread, in 3 of 3"
-                            + " requests, at `OrderRepository.find:12`; it recurs.");
+                            + " requests that captured this JDBC site, at `OrderRepository.find:12`; it recurs.");
             assertThat(observation.whatToCheck().get(0)).contains("boundedElastic");
         });
         assertThat(byKind(service(InsightsStack.QUARKUS, null).report(), EventLoopBlocking.KIND)

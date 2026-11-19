@@ -2067,7 +2067,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   concurrent transitions and failed cache observations withhold absence inference. Unsupported or inherited routing,
   reactive retrieval, unresolved declarations and lazy or ambiguous capture remain unassessed, without application or
   factory callbacks. This qualifies only proxy-bypass absence inference: retained cache events,
-  route comparisons, dropped-event qualifications and independent transaction/async evaluation remain unchanged.
+  route comparisons, dropped-event qualifications and independent transaction evaluation remain unchanged.
+  Thread names and kinds do not prove physical identity or whether `@Async` advice ran. Async-only work stays
+  unassessed without hiding independently judgeable outer transaction or cache boundaries.
   Eligibility follows the observation's unit, not just its request count: a heap-growth check that examined collections
   is evaluated even with zero requests,
   whether it observed growth or a stable heap.
@@ -2075,6 +2077,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   declared execution-only feeder scope; preparation-only and unknown SQL do not establish execution absence.
   Connection overlap eligibility requires logical-connection evidence, never SQL execution completeness, and each
   data-source finding uses its own observed denominator. Current capture uncertainty does not erase retained facts.
+  Event-loop checks independently examine executed JDBC and native synchronous Spring HTTP-client calls with
+  classified issuing threads. A supported HTTP channel can remain usable without JDBC capture; SQL-only contexts
+  with no retained SQL facts remain unavailable when SQL cannot be recorded.
   Native log-coverage gaps qualify framework-warning absence and optional log evidence without hiding captured
   errors or independent 2xx failures. Coverage reads use held native metadata, not logging filters, custom appender
   callbacks, or lazy application factories. SQL feeder-scope and log-gap changes also invalidate the projection cache.

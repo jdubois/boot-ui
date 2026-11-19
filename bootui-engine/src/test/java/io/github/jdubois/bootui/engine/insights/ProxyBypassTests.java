@@ -31,6 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ProxyBypassTests {
 
@@ -83,26 +85,104 @@ class ProxyBypassTests {
                 .isEqualTo("`POST /api/orders` ran `OrderService.place` without its `@Transactional` proxy in 1 of 2"
                         + " requests that ran an annotated method, called from `" + CHECKOUT + "`.");
         assertThat(finding.affected()).isEqualTo(1);
-        assertThat(finding.whatToCheck().get(0)).startsWith("Call the method through the bean");
+        assertThat(finding.whatToCheck().get(0)).contains("If", "on `this`", "managed bean");
         assertThat(finding.whatToCheck().get(1)).contains("ARCH-SPRING-004");
     }
 
     @Test
-    void aCacheableMethodWithoutAnAccessToItsCacheAndAnAsyncMethodOnTheRequestThreadWereBypassed() {
+    void aMissingCacheEffectIsJudgedButAsyncThreadNamesAreNot() {
         request("GET", "/api/prices", "http-1", List.of(sql(1_000, "http-1", PRICE)));
         request("GET", "/api/prices", "http-1", List.of(cache("prices"), sql(1_000, "http-1", PRICE)));
         request("POST", "/api/ship", "http-2", List.of(sql(1_000, "http-2", NOTIFY)));
         request("POST", "/api/ship", "http-2", List.of(sql(1_000, "task-1", NOTIFY)));
 
-        List<RuntimeObservationDto> findings = byKind(report());
+        RuntimeInsightsReportDto report = report();
+        List<RuntimeObservationDto> findings = byKind(report);
 
         assertThat(findings)
                 .extracting(RuntimeObservationDto::sentence)
-                .containsExactlyInAnyOrder(
+                .containsExactly(
                         "`GET /api/prices` ran `PriceService.price` without its `@Cacheable(prices)` proxy in 1 of 2"
-                                + " requests that ran an annotated method.",
-                        "`POST /api/ship` ran `Notifier.notifyShipped` without its `@Async` proxy in 1 of 2 requests"
-                                + " that ran an annotated method.");
+                                + " requests that ran an annotated method.");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.eligibleRequests()).isEqualTo(2);
+                    assertThat(check.reason()).contains("2 requests or executions", "@Async");
+                });
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "http-1", "reactor-http-nio-1", "reused-worker"})
+    void equalThreadNamesDoNotEstablishThatAsyncAdviceWasBypassed(String name) {
+        request("POST", "/api/ship", name, List.of(sql(1_000, name, NOTIFY)));
+        for (InsightsStack stack : List.of(InsightsStack.SPRING_MVC, InsightsStack.SPRING_WEBFLUX)) {
+            RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, stack, null);
+            service.setProxyBoundaries(BOUNDARIES);
+            RuntimeInsightsReportDto report = service.report();
+
+            assertThat(byKind(report)).isEmpty();
+            assertThat(report.window().requests()).isEqualTo(1);
+            assertThat(report.checks())
+                    .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                    .singleElement()
+                    .satisfies(check -> {
+                        assertThat(check.eligibleRequests()).isZero();
+                        assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                        assertThat(check.reason()).contains("@Async", "thread");
+                    });
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = InsightsStack.class,
+            names = {"SPRING_MVC", "SPRING_WEBFLUX"})
+    void anUnassessableAsyncFrameDoesNotHideIndependentTransactionOrCacheEvidence(InsightsStack stack) {
+        request("POST", "/api/orders", "http-1", List.of(sql(1_000, "http-1", NOTIFY, PLACE, CHECKOUT)));
+        request("GET", "/api/prices", "http-1", List.of(sql(1_000, "http-1", NOTIFY, PRICE)));
+        RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, stack, null);
+        service.setProxyBoundaries(BOUNDARIES);
+        service.setCacheCapture(CacheCapture::capturing);
+
+        RuntimeInsightsReportDto report = service.report();
+
+        assertThat(byKind(report))
+                .extracting(RuntimeObservationDto::sentence)
+                .hasSize(2)
+                .anyMatch(sentence -> sentence.contains("@Transactional"))
+                .anyMatch(sentence -> sentence.contains("@Cacheable(prices)"))
+                .noneMatch(sentence -> sentence.contains("`@Async`"));
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.eligibleRequests()).isEqualTo(2);
+                    assertThat(check.reason()).contains("@Async");
+                });
+    }
+
+    @Test
+    void recommendationsDistinguishACapturedSameClassCallerFromAnotherCallerWithoutDiagnosingTheCause() {
+        request("POST", "/self", "http-1", List.of(sql(1_000, "http-1", PLACE, CHECKOUT)));
+        request(
+                "POST",
+                "/other",
+                "http-1",
+                List.of(sql(1_000, "http-1", PLACE, "com.example.OrderController.create(OrderController.java:9)")));
+
+        assertThat(byKind(report()))
+                .filteredOn(row -> row.subject().equals("POST /self"))
+                .singleElement()
+                .satisfies(row -> assertThat(row.whatToCheck().get(0)).contains("If", "this"));
+        assertThat(byKind(report()))
+                .filteredOn(row -> row.subject().equals("POST /other"))
+                .singleElement()
+                .satisfies(row -> assertThat(row.whatToCheck().get(0))
+                        .contains("infrastructure", "managed bean")
+                        .doesNotContain("self-invocation", "on `this`"));
     }
 
     @ParameterizedTest
@@ -122,14 +202,14 @@ class ProxyBypassTests {
         if (earlierAssessedStatement) {
             children.add(sql(900, "http-1", PRICE));
         }
-        children.add(sql(1_000, "http-1", UNKNOWN_CACHE, transactionalOuter ? PLACE : NOTIFY));
+        children.add(sql(1_000, "http-1", UNKNOWN_CACHE, transactionalOuter ? PLACE : PRICE));
         request("POST", "/api/mixed", "http-1", children);
         RuntimeInsightsReportDto report =
                 serviceWithUnobservableCacheFrame(stack).report();
         List<RuntimeObservationDto> findings = byKind(report);
-        assertThat(findings).hasSize(earlierAssessedStatement ? 2 : 1);
+        assertThat(findings).hasSize(earlierAssessedStatement && transactionalOuter ? 2 : 1);
         assertThat(findings)
-                .filteredOn(row -> row.sentence().contains(transactionalOuter ? "@Transactional" : "@Async"))
+                .filteredOn(row -> row.sentence().contains(transactionalOuter ? "@Transactional" : "@Cacheable"))
                 .singleElement()
                 .satisfies(row -> {
                     assertThat(row.affected()).isEqualTo(1);
@@ -146,14 +226,14 @@ class ProxyBypassTests {
                 "POST",
                 "/api/mixed",
                 "http-1",
-                List.of(cache("prices"), sql(1_000, "http-1", UNKNOWN_CACHE, transactionalOuter ? PLACE : NOTIFY)));
+                List.of(sql(1_000, "http-1", UNKNOWN_CACHE, transactionalOuter ? PLACE : PRICE)));
         RuntimeInsightsReportDto report = serviceWithUnobservableCacheFrame(
                         stack, new ProxyBoundaries.Boundary(false, Set.of("prices"), false, null, UNKNOWN_CACHE_REASON))
                 .report();
         assertThat(byKind(report))
                 .singleElement()
-                .satisfies(
-                        row -> assertThat(row.sentence()).contains(transactionalOuter ? "@Transactional" : "@Async"));
+                .satisfies(row ->
+                        assertThat(row.sentence()).contains(transactionalOuter ? "@Transactional" : "@Cacheable"));
         assertCacheReason(report, UNKNOWN_CACHE_REASON);
     }
 
@@ -173,8 +253,8 @@ class ProxyBypassTests {
                 .report();
         assertThat(byKind(report)).singleElement().satisfies(row -> {
             assertThat(row.sentence())
-                    .contains("DynamicPrices.fetch", transactionalFrame ? "@Transactional" : "@Async");
-            assertThat(row.sentence()).doesNotContain(transactionalFrame ? "@Async" : "@Transactional");
+                    .contains(transactionalFrame ? "DynamicPrices.fetch" : "OrderService.place", "@Transactional");
+            assertThat(row.sentence()).doesNotContain("`@Async`");
         });
         assertCacheReason(report, UNKNOWN_CACHE_REASON);
     }

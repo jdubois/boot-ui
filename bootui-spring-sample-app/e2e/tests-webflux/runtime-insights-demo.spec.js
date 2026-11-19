@@ -25,6 +25,11 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
     ]) {
       await openInsightObservation(page, expect, title, subject)
     }
+    await expect(
+      page
+        .locator('.insight-group-summary')
+        .filter({hasText: 'JDBC executions or synchronous HTTP calls issued on an event-loop thread.'})
+    ).toBeVisible()
     await expect(page.locator('.insight-show-all')).toHaveCount(0)
     // Internal validation history is not a user-facing classification.
     await expect(page.locator('.insight-list')).not.toContainText(/validat/i)
