@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 
@@ -96,6 +97,67 @@ class SpringSqlCaptureTests {
     }
 
     @Test
+    void aConclusiveNonReactiveFactoryDoesNotQualifyRecordedJdbcCapture() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AtomicInteger callbacks = new AtomicInteger();
+            SqlTraceRecorder recorder = recorder();
+            recorder.registerDataSource("dataSource");
+            context.getBeanFactory().registerSingleton("recorder", recorder);
+            context.getBeanFactory().registerSingleton("unrelatedFactory", new FactoryBean<String>() {
+                @Override
+                public String getObject() {
+                    callbacks.incrementAndGet();
+                    return "application";
+                }
+
+                @Override
+                public Class<?> getObjectType() {
+                    callbacks.incrementAndGet();
+                    return String.class;
+                }
+            });
+            context.refresh();
+            callbacks.set(0);
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .isEqualTo(SqlCapture.capturing());
+            assertThat(callbacks).hasValue(0);
+        }
+    }
+
+    @Test
+    void aCachedOpaqueReactiveFactoryProductIsRecognizedWithoutAnotherCallback() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            AtomicInteger callbacks = new AtomicInteger();
+            SqlTraceRecorder recorder = recorder();
+            recorder.registerDataSource("dataSource");
+            context.registerBean(SqlTraceRecorder.class, () -> recorder);
+            context.registerBeanDefinition("reactiveFactory", new RootBeanDefinition(OpaqueConnectionFactory.class));
+            OpaqueConnectionFactory.callbacks = callbacks;
+            context.refresh();
+            assertThat(context.getBean("reactiveFactory")).isInstanceOf(ConnectionFactory.class);
+            callbacks.set(0);
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .isEqualTo(SqlCapture.recordedExcept(SqlCapture.R2DBC_NOT_RECORDED));
+            assertThat(callbacks).hasValue(0);
+        }
+    }
+
+    @Test
+    void anAbstractReactiveFactoryDefinitionDoesNotEstablishR2dbcUse() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            RootBeanDefinition definition = new RootBeanDefinition(ConnectionFactory.class);
+            definition.setAbstract(true);
+            context.registerBeanDefinition("abstractReactive", definition);
+            context.refresh();
+
+            assertThat(new SpringSqlCapture(context, ConnectionFactory.class.getName()).get())
+                    .isEqualTo(SqlCapture.notRecorded(SqlCapture.NOT_RECORDED));
+        }
+    }
+
+    @Test
     void aLazyReactiveFactoryBeanProductIsIdentifiedFromItsGenericType() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(
@@ -173,6 +235,22 @@ class SpringSqlCaptureTests {
         @Override
         public Class<?> getObjectType() {
             return ConnectionFactory.class;
+        }
+    }
+
+    public static final class OpaqueConnectionFactory implements FactoryBean<Object> {
+        static AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public Object getObject() {
+            callbacks.incrementAndGet();
+            return new ConnectionFactory() {};
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            callbacks.incrementAndGet();
+            return Object.class;
         }
     }
 }
