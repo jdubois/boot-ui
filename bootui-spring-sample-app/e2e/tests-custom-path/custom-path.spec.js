@@ -15,7 +15,7 @@ test('loads the SPA and assets only from the configured path', async ({page, req
   const response = await page.goto(`${UI_PATH}/`)
 
   expect(response?.ok()).toBeTruthy()
-  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/scorecard$`))
+  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/home$`))
   await expect(page.locator('.brand-name')).toHaveText('BootUI')
   await expect(page.locator('base')).toHaveAttribute('href', `${UI_PATH}/`)
   await expect(page.locator('meta[name="bootui-application-path"]')).toHaveAttribute('content', '/host/')
@@ -40,6 +40,7 @@ test('loads the SPA and assets only from the configured path', async ({page, req
   expect((await request.get('/host/bootui/')).status()).toBe(404)
   expect((await request.get('/host/bootui/api/overview')).status()).toBe(404)
 
+  await page.locator('aside a[href$="#/scorecard"]').click()
   const home = page.getByRole('link', {name: 'Application homepage'})
   await expect(home).toHaveAttribute('href', '/host/')
   await home.click()
@@ -52,8 +53,8 @@ test('recovers from an unknown hash without losing the configured mount', async 
   await expect(page.getByRole('heading', {name: 'Page not found'})).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/missing-panel$`))
 
-  await page.getByRole('link', {name: 'Go to Scorecard'}).click()
-  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/scorecard$`))
+  await page.getByRole('link', {name: 'Go to Home'}).click()
+  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/home$`))
 })
 
 test('uses the configured API path for queries, SSE, and security', async ({page, request}) => {

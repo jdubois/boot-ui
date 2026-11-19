@@ -6,7 +6,7 @@ only a Docker-compatible engine such as Docker Desktop, Docker Engine, or Podman
 The images are rebuilt nightly from `main`, so they include the runtime journal and Runtime Insights.
 
 ```bash
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
+docker run --rm -p 127.0.0.1:8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
 ```
 
 Then open <http://localhost:8080/bootui> from a browser on the same machine.
@@ -44,7 +44,7 @@ not applicable there.
 Database migrations are disabled for a faster boot. To populate the Flyway and Liquibase panels, turn them back on:
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run --rm -p 127.0.0.1:8080:8080 \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
   jdubois/bootui-sample-app
@@ -72,7 +72,7 @@ toolchain and no CRIU privileges:
   Docker build and replays it on every start.
 
 ```bash
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-aot
+docker run --rm -p 127.0.0.1:8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-aot
 ```
 
 Historical sample measurements showed roughly 40–45 % off the Spring-reported startup time (about 9.7 s down to
@@ -108,7 +108,7 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 reported about 0.3 s of application startup; the current v2 code has not been remeasured:
 
 ```bash
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-native
+docker run --rm -p 127.0.0.1:8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-native
 ```
 
 A native image freezes auto-configuration during AOT, so both the `dev` profile and the disabled migrations are baked
@@ -137,7 +137,7 @@ It runs on a **Linux** host only, needs elevated privileges for [CRIU](https://c
 a volume so it survives container restarts:
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run --rm -p 127.0.0.1:8080:8080 \
   --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN --cap-add=NET_ADMIN \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -v bootui-sample-app-crac:/opt/crac/checkpoint \
@@ -155,7 +155,7 @@ README.
 engine on Netty:
 
 ```bash
-docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-webflux
+docker run --rm -p 127.0.0.1:8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-webflux
 ```
 
 Then open <http://localhost:8081/bootui>.
@@ -177,7 +177,7 @@ adapter, not to demonstrate every JVM startup technique twice.
 `jdubois/bootui-sample-app-quarkus` serves the same console at `/bootui`, backed by the Quarkus build of the engine:
 
 ```bash
-docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-quarkus
+docker run --rm -p 127.0.0.1:8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-quarkus
 ```
 
 Then open <http://localhost:8082/bootui>.

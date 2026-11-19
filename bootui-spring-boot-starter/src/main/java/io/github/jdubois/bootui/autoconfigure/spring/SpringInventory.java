@@ -1192,7 +1192,7 @@ final class SpringInventory {
                 && servers.size() == 1
                 && isBoot(servers.get(0), "org.springframework.boot.")
                 && typed("org.springframework.boot.web.server.WebServerFactoryCustomizer").stream()
-                        .allMatch(e -> isFramework(e))) facts.put(BOOT_WEB_SERVER, true);
+                        .allMatch(e -> isFramework(e) || isBootUiPeerCustomizer(e))) facts.put(BOOT_WEB_SERVER, true);
         if (entries.stream()
                 .anyMatch(e -> isBoot(e, "org.springframework.boot.jackson.autoconfigure.")
                         && e.ref().group().equals("jackson3"))) facts.put(JACKSON3_CONFIGURATION, true);
@@ -1742,6 +1742,12 @@ final class SpringInventory {
                         && entry.method() == null
                         && entry.type().getName().startsWith("org.springframework.boot.")
                         && hasAnnotation(entry.type(), "org.springframework.context.annotation.Configuration"));
+    }
+
+    private static boolean isBootUiPeerCustomizer(Entry entry) {
+        // This owned customizer adds only transport metadata, not server-policy settings.
+        return "io.github.jdubois.bootui.autoconfigure.BootUiTomcatPeerAutoConfiguration".equals(entry.factory())
+                && "bootUiTomcatPeerCustomizer".equals(entry.method());
     }
 
     private static boolean isKnownNonCodecWebFluxConfigurer(Entry entry) {

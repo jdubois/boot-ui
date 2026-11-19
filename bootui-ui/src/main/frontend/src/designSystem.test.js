@@ -84,6 +84,7 @@ describe('BootUI design system contracts', () => {
         if (classes.has('btn-link')) issues.push(`${relative(file)}:${line}: link-styled action`)
         if (!['a', 'router-link'].includes(node.tag)) return
         if (classes.has('btn') || classes.has('activity-kpi-link')) return
+        if (relative(file) === 'views/components/FeedbackPopover.vue' && classes.has('feedback-action')) return
         const destination = node.props.find(
           (prop) =>
             (prop.type === 6 && ['href', 'to'].includes(prop.name)) ||
@@ -212,6 +213,7 @@ describe('BootUI design system contracts', () => {
     const exempt = new Set([
       'BeanGraph.vue', // canvas rendered by BeansGraphMode, which owns the state
       'BeansGraphMode.vue', // sub-mode of Beans.vue, which owns the PanelHeader
+      'Home.vue', // static navigation guide: owns no data fetch
       'HttpProbe.vue', // request builder: nothing loads until the user probes
       'LiveFlowMode.vue', // sub-mode of Live Activity
       'LogTail.vue', // streams over EventSource and reports its connection state

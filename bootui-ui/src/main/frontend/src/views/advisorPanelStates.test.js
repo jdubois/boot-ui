@@ -250,7 +250,9 @@ describe('advisor panel states', () => {
     const wrapper = mountSpring()
     await flushPromises()
 
-    const ruleId = wrapper.findAll('.font-monospace').filter((node) => node.text() === 'SPRING-001')
+    const ruleId = wrapper
+      .findAll('.advisor-rule-toggle .font-monospace')
+      .filter((node) => node.text() === 'SPRING-001')
     const category = wrapper.findAll('.badge.font-monospace').filter((node) => node.text() === 'BEANS')
 
     expect(ruleId).toHaveLength(1)

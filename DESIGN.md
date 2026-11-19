@@ -282,6 +282,9 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **Inline references stay inline:** product/library names, attribution, and references embedded in explanatory
   sentences remain conventional links. Sidebar rows, tabs, interactive KPI cards, and the footer retain their own
   established affordances rather than becoming a second button toolbar.
+- **Feedback:** a compact **Help improve BootUI** disclosure replaces the sidebar contribution card. Its non-modal
+  popover uses two navigation rows for the survey and GitHub, with explicit external-link cues rather than the
+  panel-toolbar button treatment. It stays closed until requested and supports the icon rail and mobile drawer.
 - **Style:** a frosted, blurred left sidebar (`backdrop-filter: blur(22px)`) grouped under uppercase nav-group labels; collapses to a 5.25rem icon rail and to an off-canvas drawer below 992px.
 - **Default / Hover:** slate link text; hover tints the row green (`rgba(25,135,84,0.08)` bg, green text).
 - **Active:** the green→blue gradient pill with white text — the one place the gradient appears.

@@ -46,7 +46,7 @@
 #
 # Build and run:
 #   docker build -f Dockerfile-aot -t bootui-sample-app-aot .
-#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-aot
+#   docker run --rm -p 127.0.0.1:8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-aot
 #   # then open http://localhost:8080/bootui
 #
 # Or use docker-compose-aot.yml (docker compose -f docker-compose-aot.yml up --build).
@@ -66,7 +66,7 @@
 # on. To populate those panels, rebuild the image with the two flags removed from the `aot`
 # profile's process-aot <jvmArguments>:
 #   docker build -f Dockerfile-aot -t bootui-sample-app-aot-migrations .
-#   docker run --rm -p 8080:8080 \
+#   docker run --rm -p 127.0.0.1:8080:8080 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     bootui-sample-app-aot-migrations
 

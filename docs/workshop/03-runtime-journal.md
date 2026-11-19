@@ -37,7 +37,7 @@ Follow the SQL evidence into **SQL Trace**, **Transactions**, and any retained *
 route normally prepares **17 SELECTs** for 16 orders/customers; the joined control normally prepares **one**.
 The repository acceptance test allows small framework variation. Count the request's SELECTs, not all startup SQL.
 
-### Explain the 1 + N
+### Explain the N + 1
 
 ![Original order request profile showing 17 Hibernate statements, request-linked timeline, and touched tables](../images/workshop-03-journal-request-profile.webp)
 
@@ -108,7 +108,7 @@ Persistence is optional and does not make the stream a production monitoring gua
 
 Save two request ids and the import's HTTP/transaction/log result. Explain the strongest correlation tier and
 which information could disappear first. For the main investigation, write the original/control SQL counts and
-your explanation of the 1 + N. Next, check whether that pattern survives repeated requests.
+your explanation of the N + 1. Next, check whether that pattern survives repeated requests.
 
 **Optional:** Use **Copy for AI** in a profile drawer, review the preview/omissions, and keep it locally. The button
 copies evidence; it does not send anything to a model.

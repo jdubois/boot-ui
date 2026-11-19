@@ -32,14 +32,14 @@ continue after a response. They support the same evidence discipline; fixing tho
 
 - JDK 17 or later, Git 2.23 or later, an editor, and basic familiarity with Java and Maven.
 - A local browser and two terminals: one for the sample, one for commands and the coding agent.
-- The released **2.4.0** sample source and published CLI, prepared in [Chapter 01](01-setup-and-tooling.md).
+- The released **2.5.0** sample source and published CLI, prepared in [Chapter 01](01-setup-and-tooling.md).
 - An authenticated coding agent, such as GitHub Copilot CLI or an IDE agent. Pairing is welcome.
 - Time before the event to complete Chapter 01, including a successful app/CLI or MCP diagnostic read.
 
 Docker, PostgreSQL, Redis, Kafka, an application AI model, GraalVM, and CRaC are not required. The core workshop
 uses H2 and an in-memory Caffeine cache. BootUI itself requires no coding-agent subscription.
 
-Use the exact release the facilitator specifies; this edition pins **2.4.0**. Do not mix a moving branch, a released
+Use the exact release the facilitator specifies; this edition pins **2.5.0**. Do not mix a moving branch, a released
 1.x CLI, and a different Java agent. Participants edit a disposable clone, never an employer's application.
 
 ## Agenda
@@ -49,7 +49,7 @@ Use the exact release the facilitator specifies; this edition pins **2.4.0**. Do
 | 00:00-00:10 | 10 | [00 - Runtime understanding](00-runtime-understanding.md) | Define the mission and what would prove a fix |
 | 00:10-00:25 | 15 | [01 - Setup and tooling](01-setup-and-tooling.md) | Correct app, safe exposure, working diagnostic read |
 | 00:25-00:40 | 15 | [02 - Configuration and wiring](02-configuration-and-wiring.md) | Find the owning code and predict its database work |
-| 00:40-01:05 | 25 | [03 - Runtime journal](03-runtime-journal.md) | Measure the original/control requests and explain 1 + N |
+| 00:40-01:05 | 25 | [03 - Runtime journal](03-runtime-journal.md) | Measure the original/control requests and explain N + 1 |
 | 01:05-01:30 | 25 | [04 - Runtime Insights](04-runtime-insights.md) | Reproduce the pattern and challenge the hypothesis |
 | 01:30-01:40 | 10 | Break | Catch up or pair with a working participant |
 | 01:40-02:05 | 25 | [05 - Java instrumentation](05-java-instrumentation.md) | Attribute the SQL to an executed method and save a new baseline |
@@ -63,7 +63,7 @@ three hours. The timed capstone does not depend on completing these optional exe
 
 ## How to work
 
-Screenshots use the released frontend at commit `0df7ed764688d04f83c246c9965e90158c1db488` with deterministic,
+Screenshots use the released frontend at commit `c4458db8dd18c08074119f22a79dda3e714abbda` with deterministic,
 synthetic workshop data, captured through the same browser tooling as the Features screenshots. They are visual
 references, not participant-run evidence or latency benchmarks. Record your own counts, identities, and coverage.
 

@@ -77,18 +77,19 @@ test.describe('Java Agent view on Spring WebFlux', () => {
     await expect(tabs.first()).toBeVisible()
     expect(await tabs.count()).toBeGreaterThan(0)
 
+    const selectedTab = (await tabs.count()) > 1 ? tabs.nth(1) : tabs.first()
+    const panelId = await selectedTab.getAttribute('aria-controls')
     if ((await tabs.count()) > 1) {
-      const secondTab = tabs.nth(1)
-      const panelId = await secondTab.getAttribute('aria-controls')
-      await secondTab.click()
-      await expect(secondTab).toHaveAttribute('aria-selected', 'true')
-      await expect(page.locator(`#${panelId}`)).toBeVisible()
+      await selectedTab.click()
+      await expect(selectedTab).toHaveAttribute('aria-selected', 'true')
     }
+    const activePanel = page.locator(`#${panelId}`)
+    await expect(activePanel).toBeVisible()
 
-    const activeSnippet = page.getByRole('tabpanel').locator('pre code')
+    const activeSnippet = activePanel.locator('pre code')
     const snippetText = await activeSnippet.textContent()
-    await page.getByRole('button', {name: /^Copy$/}).click()
-    await expect(page.getByRole('button', {name: /Copied!/})).toBeVisible({timeout: 5_000})
+    await activePanel.getByRole('button', {name: /^Copy$/}).click()
+    await expect(activePanel.getByRole('button', {name: /Copied!/})).toBeVisible({timeout: 5_000})
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(snippetText)
   })
 })

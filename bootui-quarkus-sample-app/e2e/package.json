@@ -1,7 +1,7 @@
 {
   "name": "bootui-quarkus-sample-app-e2e",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Playwright end-to-end integration tests that exercise the BootUI console and the sample Quarkus application from a real browser.",
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "format:check": "prettier --config ../../prettier.config.cjs --ignore-path ../../.prettierignore --check ."
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.0",
     "prettier": "3.9.10"
   }
 }

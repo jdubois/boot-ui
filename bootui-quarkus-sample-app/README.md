@@ -160,7 +160,7 @@ runs this app with the BootUI console, **Docker-free** (in-memory H2 — no Post
 
 ```bash
 docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
-docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
+docker run --rm -p 127.0.0.1:8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
 # then open http://localhost:8082/bootui
 ```
 
@@ -177,7 +177,7 @@ The sample Flyway/Liquibase migrations are off by default for a faster boot (Hib
 tables). Re-enable them to populate the Flyway/Liquibase panels:
 
 ```bash
-docker run --rm -p 8082:8082 \
+docker run --rm -p 127.0.0.1:8082:8082 \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
   bootui-sample-app-quarkus

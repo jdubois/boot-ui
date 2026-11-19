@@ -5,8 +5,8 @@
 .DESCRIPTION
   Downloads the runnable `bootui` jar from Maven Central, checks it against the
   checksum Maven Central publishes beside it, and writes a `bootui` command that
-  runs it. It needs no administrator rights and talks to nothing but the Maven
-  repository.
+  runs it. With GnuPG installed it also verifies the pinned release signature
+  using the key served by the BootUI site. It needs no administrator rights.
 
 .EXAMPLE
   irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex
@@ -29,7 +29,9 @@ param(
   # Leave the user PATH alone.
   [switch] $NoPathUpdate,
   # Remove what this script installed.
-  [switch] $Uninstall
+  [switch] $Uninstall,
+  # Permit a missing checksum only after independent verification; never a mismatch.
+  [switch] $AllowUnverified
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +41,8 @@ $ProgressPreference = 'SilentlyContinue'
 
 $GroupPath = 'com/julien-dubois/bootui'
 $Artifact = 'bootui-cli'
+$ReleaseKeyFingerprint = '7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9'
+$ReleaseKeyUrl = 'https://www.julien-dubois.com/boot-ui/bootui-release-key.asc'
 
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'BootUI' }
 if (-not $BinDir) { $BinDir = Join-Path $InstallDir 'bin' }
@@ -61,6 +65,15 @@ function Get-RemoteText([string] $Url) {
     return [Text.Encoding]::UTF8.GetString($content)
   }
   return [string] $content
+}
+
+function Invoke-NativeCommand([string] $Command, [string[]] $Arguments) {
+  # Windows PowerShell 5.1 turns native stderr into error records even on success.
+  # Keep that diagnostic handling local; callers still enforce the native status.
+  $ErrorActionPreference = 'Continue'
+  $output = & $Command @Arguments 2>&1
+  $code = $LASTEXITCODE
+  [pscustomobject] @{ ExitCode = $code; Output = $output }
 }
 
 # Windows PowerShell 5.1 may still default to TLS 1.0, which Maven Central refuses.
@@ -149,17 +162,47 @@ try {
     }
     # A Maven checksum file holds a bare digest, sometimes followed by a file name.
     $expected = ($published -split '\r?\n')[0].Trim().Split(' ')[0].ToLowerInvariant()
-    if (-not $expected) { continue }
+    $length = @{ SHA512 = 128; SHA256 = 64; SHA1 = 40 }[$algorithm]
+    if ($expected -notmatch "^[0-9a-f]{$length}$") {
+      Stop-Install "malformed published $algorithm checksum. Nothing was installed."
+    }
     $actual = (Get-FileHash -LiteralPath $tempJar -Algorithm $algorithm).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
       Stop-Install ("the download does not match the $algorithm checksum published beside it.`n" +
         "  expected $expected`n  got      $actual`n  Nothing was installed.")
     }
-    Write-Step "Checked the download against its published $algorithm checksum."
+    Write-Step "Verification: published $algorithm checksum matched (repository integrity, not signer authentication)."
+    if ($algorithm -eq 'SHA1') { Write-Step 'Warning: this older release supplies only the legacy SHA-1 checksum.' }
     $verified = $true
     break
   }
-  if (-not $verified) { Write-Step 'Note: no checksum was available to check this download against.' }
+  if (-not $verified) {
+    if (-not $AllowUnverified) {
+      Stop-Install 'no checksum could be verified. Nothing was installed. Use -AllowUnverified only after independent verification.'
+    }
+    Write-Step 'Warning: checksum verification was explicitly bypassed with -AllowUnverified.'
+  }
+
+  $gpg = Get-Command gpg -ErrorAction SilentlyContinue
+  if ($gpg) {
+    $keyring = Join-Path $tempDir 'keyring'
+    New-Item -ItemType Directory -Path $keyring | Out-Null
+    $releaseKey = Join-Path $tempDir 'release-key.asc'
+    $signature = Join-Path $tempDir 'cli.asc'
+    Invoke-WebRequest -Uri $ReleaseKeyUrl -OutFile $releaseKey -UseBasicParsing
+    Invoke-WebRequest -Uri "$jarUrl.asc" -OutFile $signature -UseBasicParsing
+    $keyImport = Invoke-NativeCommand -Command $gpg.Source -Arguments @('--homedir', $keyring, '--batch', '--import', $releaseKey)
+    if ($keyImport.ExitCode -ne 0) { Stop-Install 'could not import the release key.' }
+    $verification = Invoke-NativeCommand -Command $gpg.Source -Arguments @('--homedir', $keyring, '--batch', '--status-fd', '1',
+      '--verify', $signature, $tempJar)
+    if ($verification.ExitCode -ne 0 -or
+        -not ($verification.Output -match "^\[GNUPG:\] VALIDSIG .* $ReleaseKeyFingerprint$")) {
+      Stop-Install 'invalid release signature or signer is not the pinned BootUI key. Nothing was installed.'
+    }
+    Write-Step "Verification: OpenPGP signature matched pinned BootUI key $ReleaseKeyFingerprint."
+  } else {
+    Write-Step 'Verification: signer not authenticated (GnuPG unavailable).'
+  }
 
   # ---------------------------------------------------------------- install
 
@@ -224,13 +267,16 @@ Write-Step "Installed the bootui command at $shim"
 # to install one, so say it plainly rather than refuse to finish.
 $java = Get-Command java -ErrorAction SilentlyContinue
 if ($java) {
-  $versionLine = (& $java.Source -version 2>&1 | Select-Object -First 1) -as [string]
+  $javaVersion = Invoke-NativeCommand -Command $java.Source -Arguments @('-version')
+  $versionLine = ($javaVersion.Output | Select-Object -First 1) -as [string]
   if ($versionLine -match '(\d+)') {
     $major = [int] $Matches[1]
     if ($major -lt 17) {
       Write-Step ''
       Write-Step "Warning: the java on your PATH is version $major. BootUI needs 17 or later."
     }
+  } elseif ($javaVersion.ExitCode -ne 0) {
+    Write-Step 'Warning: could not determine the Java version. Run java -version to check for JDK 17 or later.'
   }
 } else {
   Write-Step ''

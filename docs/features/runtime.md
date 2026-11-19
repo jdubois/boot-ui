@@ -192,6 +192,8 @@ The Heap Dump panel captures local heap dumps on demand and analyzes them throug
 investigating suspected leaks or unexpected retention. A confirmed capture triggers a full GC and writes an `.hprof`
 file under the configured output directory. The panel then shows live heap usage, the top retaining classes by instance
 count and shallow size, and the captured dumps with retention-based eviction.
+The capture API requires JSON `{"confirm":true}` as well as the existing read-only and request-safety gates; missing
+or declined confirmation returns `400` before JVM work.
 
 Capture, live analysis, and delete share one single-flight admission; a conflicting action receives the canonical `409`
 busy response, while report reads remain available. Use [Free BootUI memory](#free-bootui-memory) first, so BootUI's own

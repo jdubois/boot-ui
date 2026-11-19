@@ -55,6 +55,7 @@ test.describe('Hibernate Advisor view', () => {
     await expect(toOneRow).toContainText('Review eager to-one fetch plans')
     await expect(toOneRow).not.toContainText('enabledFeatures')
     await expect(collectionRow).toContainText('Eager collection fetching should stay bounded')
+    for (const toggle of await page.locator('.advisor-rule-toggle').all()) await toggle.click()
 
     const diagnosticsToggle = page.getByRole('button', {name: 'Show diagnostics'})
     await expect(page.getByText('Scan diagnostics')).toBeVisible()

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.core.env.MapPropertySource;
@@ -15,16 +16,39 @@ public class BootUiOverridesPropertySource extends MapPropertySource {
 
     public static final String NAME = "bootui-overrides";
 
+    private final Path file;
+    private final int protectedKeys;
+    private final boolean unreadable;
+
     public BootUiOverridesPropertySource(Map<String, Object> source) {
+        this(source, null, 0, false);
+    }
+
+    BootUiOverridesPropertySource(Map<String, Object> source, Path file, int protectedKeys, boolean unreadable) {
         super(NAME, source);
+        this.file = file;
+        this.protectedKeys = protectedKeys;
+        this.unreadable = unreadable;
     }
 
     public BootUiOverridesPropertySource() {
-        super(NAME, new LinkedHashMap<>());
+        this(new LinkedHashMap<>());
     }
 
     public Map<String, Object> mutableSource() {
         return getSource();
+    }
+
+    Path file() {
+        return file;
+    }
+
+    int protectedKeys() {
+        return protectedKeys;
+    }
+
+    boolean unreadable() {
+        return unreadable;
     }
 
     public void put(String name, Object value) {

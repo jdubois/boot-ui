@@ -4,7 +4,7 @@ import {describe, expect, it, vi} from 'vitest'
 import NotFound from './NotFound.vue'
 
 describe('NotFound', () => {
-  it('offers overview and command-search recovery actions', async () => {
+  it('offers Home and command-search recovery actions', async () => {
     const openCommandPalette = vi.fn()
     const wrapper = mount(NotFound, {
       global: {
@@ -19,7 +19,7 @@ describe('NotFound', () => {
     })
 
     expect(wrapper.get('h2').text()).toBe('Page not found')
-    expect(wrapper.get('a').attributes('href')).toBe('/scorecard')
+    expect(wrapper.get('a').attributes('href')).toBe('/home')
 
     await wrapper.get('button').trigger('click')
     expect(openCommandPalette).toHaveBeenCalledOnce()

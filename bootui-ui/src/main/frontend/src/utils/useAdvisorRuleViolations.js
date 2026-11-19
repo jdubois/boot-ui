@@ -94,6 +94,7 @@ export function useAdvisorRuleViolations(props) {
     load,
     retry: () => load(requestOffset.value),
     refresh,
+    cancelPending: invalidate,
     backToSamples
   }
 }

@@ -24,9 +24,10 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['refresh', 'update:autoRefresh', 'retryAutoRefresh'])
+const emit = defineEmits(['refresh', 'update:autoRefresh', 'retryAutoRefresh', 'titleAction'])
 
 const instance = getCurrentInstance()
+const hasTitleAction = computed(() => !!instance?.vnode.props?.onTitleAction)
 const hasRefresh = computed(() => props.refreshable && !!instance?.vnode.props?.onRefresh)
 const hasAutoRefresh = computed(() => props.autoRefreshable && props.autoRefresh !== null)
 const now = ref(Date.now())
@@ -80,11 +81,25 @@ onBeforeUnmount(stopRelativeTimer)
 <template>
   <div class="panel-header">
     <div class="panel-header__identity">
-      <span v-if="icon" class="panel-header__icon" aria-hidden="true">
+      <span v-if="icon && !hasTitleAction" class="panel-header__icon" aria-hidden="true">
         <i :class="['bi', icon]"></i>
       </span>
       <div class="panel-header__info">
-        <h2 class="panel-header__title">{{ title }}</h2>
+        <h2 class="panel-header__title">
+          <button
+            v-if="hasTitleAction"
+            type="button"
+            class="panel-header__title-action"
+            :disabled="loading"
+            @click="emit('titleAction')"
+          >
+            <span v-if="icon" class="panel-header__icon" aria-hidden="true">
+              <i :class="['bi', icon]"></i>
+            </span>
+            {{ title }}
+          </button>
+          <template v-else>{{ title }}</template>
+        </h2>
         <div v-if="subtitle || $slots['subtitle-actions']" class="panel-header__subtitle-row">
           <p v-if="subtitle" class="panel-header__subtitle">{{ subtitle }}</p>
           <slot name="subtitle-actions"></slot>
@@ -177,6 +192,32 @@ onBeforeUnmount(stopRelativeTimer)
   line-height: 1.2;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.panel-header__title-action {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: var(--bootui-radius-md);
+  color: inherit;
+  display: inline-flex;
+  font: inherit;
+  gap: 0.9rem;
+  letter-spacing: inherit;
+  min-height: 44px;
+  padding: 0;
+  text-align: left;
+  text-shadow: inherit;
+}
+
+.panel-header__title-action:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.panel-header__title-action:focus-visible {
+  outline: 2px solid var(--bootui-blue);
+  outline-offset: 3px;
 }
 
 .panel-header__subtitle-row {

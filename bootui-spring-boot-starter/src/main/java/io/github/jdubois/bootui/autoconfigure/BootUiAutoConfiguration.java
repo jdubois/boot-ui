@@ -711,10 +711,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties) {
+    public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties, Environment environment) {
         // The filter constructs its own (framework-neutral, engine-owned) ContainerGatewayDetector so it
         // can auto-trust the container default gateway per bootui.trust-container-gateway.
-        return new LocalhostOnlyFilter(properties);
+        return new LocalhostOnlyFilter(
+                properties, io.github.jdubois.bootui.autoconfigure.safety.NativeForwarding.enabled(environment));
     }
 
     @Bean
@@ -1077,7 +1078,8 @@ public class BootUiAutoConfiguration {
         filter.setRequestIdHeaderExposure(
                 () -> properties.getHttpExchanges().isExposeRequestIdHeader()
                         && properties.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES),
-                localhostOnlyFilter::isTrustedSource);
+                localhostOnlyFilter::isTrustedSource,
+                localhostOnlyFilter::remoteAddress);
         // A Spring MVC request's scope is its whole handling on its pooled worker: the BootUI agent's thread-locals
         // sensor scans there (docs/PLAN-v2.md §5.16, M5-5f).
         AgentThreadLocals.configure(true);

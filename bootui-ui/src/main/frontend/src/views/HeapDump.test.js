@@ -5,6 +5,9 @@ import HeapDump from './HeapDump.vue'
 import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
 import PanelHeader from './components/PanelHeader.vue'
 
+const {confirm} = vi.hoisted(() => ({confirm: vi.fn()}))
+vi.mock('../utils/useConfirm.js', () => ({useConfirm: () => ({confirm})}))
+
 function heapReport(overrides = {}) {
   return {
     hotspotAvailable: true,
@@ -42,6 +45,26 @@ function jsonResponse(body, ok = true, status = 200) {
 describe('HeapDump', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    confirm.mockReset()
+  })
+
+  it('sends explicit JSON confirmation only after the user accepts heap capture', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(heapReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(HeapDump)
+    await flushPromises()
+    const capture = wrapper.findAll('button').find((button) => button.text().includes('Capture heap dump'))
+    confirm.mockResolvedValueOnce(false)
+    await capture.trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    confirm.mockResolvedValueOnce(true)
+    await capture.trigger('click')
+    await flushPromises()
+    const request = fetchMock.mock.calls.find(([url]) => url.includes('/capture'))
+    expect(request[1].method).toBe('POST')
+    expect(new Headers(request[1].headers).get('Content-Type')).toBe('application/json')
+    expect(JSON.parse(request[1].body)).toEqual({confirm: true})
   })
 
   afterEach(() => {

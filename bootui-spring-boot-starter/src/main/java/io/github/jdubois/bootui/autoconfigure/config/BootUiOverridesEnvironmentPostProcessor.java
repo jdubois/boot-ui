@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
+import io.github.jdubois.bootui.engine.safety.ConfigurationOverridePolicy;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
@@ -34,8 +36,18 @@ public class BootUiOverridesEnvironmentPostProcessor implements EnvironmentPostP
                 configured != null && !configured.isBlank() ? configured : ".bootui/application-bootui.properties");
 
         ConfigOverridesFileStore store = new ConfigOverridesFileStore(file);
-        Map<String, Object> existing = store.load();
-        BootUiOverridesPropertySource source = new BootUiOverridesPropertySource(existing);
+        Map<String, Object> existing;
+        boolean unreadable = false;
+        try {
+            existing = store.load();
+        } catch (IllegalStateException | IllegalArgumentException ex) {
+            existing = new LinkedHashMap<>();
+            unreadable = true;
+        }
+        int before = existing.size();
+        existing.keySet().removeIf(ConfigurationOverridePolicy::isProtected);
+        BootUiOverridesPropertySource source =
+                new BootUiOverridesPropertySource(existing, file, before - existing.size(), unreadable);
 
         MutablePropertySources sources = environment.getPropertySources();
         if (sources.contains(BootUiOverridesPropertySource.NAME)) {

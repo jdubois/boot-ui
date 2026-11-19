@@ -78,7 +78,7 @@ describe('advisor detail integration', () => {
         )
       )
     )
-    const wrapper = mount(view, {props: {panel: {id, readOnly: true}}})
+    const wrapper = mount(view, {attachTo: document.body, props: {panel: {id, readOnly: true}}})
     wrappers.push(wrapper)
     await flushPromises()
     // REST API also reads its error contract; Memory also counts its Runtime Insights rows (docs/PLAN-v2.md M4-19).
@@ -86,6 +86,14 @@ describe('advisor detail integration', () => {
     expect(fetch.mock.calls[0][0]).toBe(`api/${id}`)
     if (id === 'memory') expect(fetch.mock.calls[1][0]).toBe('api/runtime-insights')
     const detail = wrapper.get('.advisor-rule-violations')
+    const expand = wrapper.get('.advisor-rule-toggle')
+    expect(expand.attributes('aria-expanded')).toBe('false')
+    expect(detail.isVisible()).toBe(false)
+    const cachedReadCount = fetch.mock.calls.length
+    await expand.trigger('click')
+    expect(expand.attributes('aria-expanded')).toBe('true')
+    expect(detail.isVisible()).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(cachedReadCount)
     expect(detail.findAll('li')).toHaveLength(10)
     expect(wrapper.get('.btn-primary').attributes('disabled')).toBeDefined()
     const control = detail.get('button')

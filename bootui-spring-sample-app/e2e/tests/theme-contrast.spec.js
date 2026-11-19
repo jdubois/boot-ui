@@ -40,6 +40,117 @@ function contrastRatio(foreground, background) {
   )
 }
 
+test('Home guides keep text and keyboard focus readable in every theme', async ({page}) => {
+  test.setTimeout(60_000)
+  await page.emulateMedia({reducedMotion: 'reduce'})
+  const choose = async (id) => {
+    await page.locator(`[data-home-choice="${id}"]`).click()
+    await expect(page.locator('.home-guide-stage')).toHaveAttribute('aria-busy', 'false')
+  }
+  const checkText = async (theme) => {
+    const readings = await page.locator('.home-guide-step').evaluate((guide) =>
+      [
+        ...guide.querySelectorAll(
+          '.home-guide-context, .home-guide-explanation, .home-guide-choice-title, .home-guide-panel-reason, .home-guide-panel-status, .home-guide-resource p, .home-guide-resource li, .home-guide-resource pre, .home-guide-resource h3, .home-guide-copy, .home-guide-documentation, h2:not(.visually-hidden)'
+        )
+      ]
+        .filter((element) => element.checkVisibility())
+        .map((element) => {
+          const layers = []
+          for (let node = element; node; node = node.parentElement) {
+            const style = getComputedStyle(node)
+            layers.unshift({color: style.backgroundColor, image: style.backgroundImage})
+          }
+          return {text: element.textContent.trim(), color: getComputedStyle(element).color, layers}
+        })
+    )
+    expect(readings.length).toBeGreaterThan(3)
+    for (const reading of readings) {
+      let fills = [{red: 255, green: 255, blue: 255, alpha: 1}]
+      for (const layer of reading.layers) {
+        fills = fills.map((fill) => composite(parseColor(layer.color), fill))
+        // Paint lower background images before the translucent gradients above them.
+        const images = []
+        let depth = 0
+        let start = 0
+        for (let index = 0; index < layer.image.length; index++) {
+          if (layer.image[index] === '(') depth++
+          if (layer.image[index] === ')') depth--
+          if (layer.image[index] === ',' && depth === 0) {
+            images.push(layer.image.slice(start, index))
+            start = index + 1
+          }
+        }
+        images.push(layer.image.slice(start))
+        for (const image of images.reverse()) {
+          const stops = image.match(/rgba?\([^)]*\)/g) || []
+          if (stops.length) fills = fills.flatMap((fill) => stops.map((stop) => composite(parseColor(stop), fill)))
+        }
+      }
+      const foreground = parseColor(reading.color)
+      const minimumContrast = fills.reduce(
+        (minimum, fill) => Math.min(minimum, contrastRatio(foreground, fill)),
+        Infinity
+      )
+      expect(minimumContrast, `${theme}: ${reading.text}`).toBeGreaterThanOrEqual(4.5)
+    }
+  }
+  for (const theme of ['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95']) {
+    await page.goto('/bootui/#/home')
+    await page.evaluate((value) => localStorage.setItem('bootui.theme', value), theme)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-bootui-theme', theme)
+    await checkText(theme)
+    await page.keyboard.press('Tab')
+    const choice = page.locator('[data-home-choice="understand"]')
+    const header = page.getByRole('button', {name: 'Home', exact: true})
+    for (const control of [header, choice]) {
+      await control.focus()
+      const focus = await control.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {style: style.outlineStyle, width: parseFloat(style.outlineWidth)}
+      })
+      expect(focus.style).toBe('solid')
+      expect(focus.width).toBeGreaterThanOrEqual(2)
+    }
+    const shadows = await header.evaluate((element) => {
+      return {
+        action: getComputedStyle(element).textShadow,
+        heading: getComputedStyle(element.closest('h2')).textShadow
+      }
+    })
+    expect(shadows.action).toBe(shadows.heading)
+    await choose('understand')
+    await checkText(theme)
+    await choose('memory')
+    await checkText(theme)
+    await page.locator('[data-home-back="root"]').click()
+    await expect(page.locator('.home-guide-stage')).toHaveAttribute('aria-busy', 'false')
+    await choose('agents')
+    await checkText(theme)
+    for (const resource of ['agent-skill', 'agent-playbooks']) {
+      await choose(resource)
+      await checkText(theme)
+      if (resource === 'agent-skill') {
+        const copy = page.getByRole('button', {name: /^Copy commands:/}).first()
+        await page.keyboard.press('Tab')
+        await expect(copy).toBeFocused()
+        const focus = await copy.evaluate((element) => {
+          const style = getComputedStyle(element)
+          return {style: style.outlineStyle, width: parseFloat(style.outlineWidth)}
+        })
+        // Win95 deliberately gives standard buttons the native dotted focus rectangle.
+        expect(focus.style).toBe(theme === 'win95' ? 'dotted' : 'solid')
+        expect(focus.width).toBeGreaterThanOrEqual(theme === 'win95' ? 1 : 2)
+        await copy.hover()
+        await checkText(theme)
+      }
+      await page.locator('[data-home-back="topics"]').click()
+      await expect(page.locator('.home-guide-stage')).toHaveAttribute('aria-busy', 'false')
+    }
+  }
+})
+
 test('keeps placeholders, helper text, and selected identifiers readable in every theme', async ({page, openView}) => {
   // Every opt-in skin re-skins these same surfaces, so all of them are held to the same bar.
   for (const theme of ['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95']) {

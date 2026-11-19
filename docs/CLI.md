@@ -65,12 +65,17 @@ irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex
 That asks Maven Central for the newest release, tries its published SHA-512, SHA-256, then SHA-1 checksum, and leaves
 a `bootui` command in `~/.local/bin` — `%LOCALAPPDATA%\BootUI\bin` on Windows, which it adds
 to your user `PATH`. It needs no administrator rights, does not edit your shell profile, and contacts
-nothing but the Maven repository. Running it again upgrades in place, and `--uninstall` — `-Uninstall` in
+the Maven repository and, when GnuPG is available, BootUI's published signing-key asset. Running it again upgrades in place, and `--uninstall` — `-Uninstall` in
 PowerShell — reverses it.
 
-An available checksum mismatch aborts without installing. If no checksum can be fetched or calculated, the installer
-prints a note and continues without verification; it does not verify a GPG signature. Inspect that output before
-trusting the installed jar.
+The fail-closed and pinned-signature installer changes below are **unreleased source changes**; the published
+installer may still use the earlier verification behavior.
+
+Missing, malformed or mismatched checksums abort without installing. `--allow-unverified` (`-AllowUnverified` in
+PowerShell) explicitly permits a missing/uncomputable checksum after independent verification, never a mismatch.
+When GnuPG is available, a valid OpenPGP signature from the pinned BootUI release key is also mandatory; signature
+failures cannot be bypassed. Output distinguishes repository checksums from signer authentication and warns when only
+legacy SHA-1 is available. See [manual verification](https://github.com/jdubois/boot-ui/blob/main/SECURITY.md#cli-download-verification).
 
 To pin a version or install somewhere else, pass options after `sh -s --`:
 
@@ -102,7 +107,7 @@ Install it as a real command with `jbang app install bootui@jdubois/boot-ui`, an
 **Or download the jar and run it directly:**
 
 ```bash
-VERSION=2.4.0
+VERSION=2.5.0
 BASE=https://repo1.maven.org/maven2/com/julien-dubois/bootui/bootui-cli
 curl -fLO "${BASE}/${VERSION}/bootui-cli-${VERSION}-all.jar"
 java -jar "bootui-cli-${VERSION}-all.jar" beans
@@ -130,7 +135,7 @@ or `BOOTUI_NO_UPDATE_CHECK=1`. It needs network access, but no running applicati
 Older script installations can be recognized from their launcher on `PATH` or in `BOOTUI_BIN_DIR`.
 It respects `BOOTUI_MAVEN_REPO`, then the repository recorded by the installer, then Maven Central.
 It downloads the shaded jar and requires a published SHA-512, SHA-256, or SHA-1 checksum, in that preference order.
-A missing checksum tries the next algorithm; a malformed or mismatched checksum aborts. Unlike the installation scripts,
+A missing checksum tries the next algorithm; a malformed or mismatched checksum aborts. Unlike an explicitly bypassed installer,
 self-update **never installs an unverified download**. Checksums do not verify a GPG signature.
 
 Only the proven managed jar is replaced, atomically, after checking its entry point and version. The launcher and
@@ -708,7 +713,7 @@ messages under `METADATA_ONLY`.
 ### Strict CI assessments
 
 <!-- bootui-ci:release:start -->
-> **Example release: BootUI 2.4.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.4.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
+> **Example release: BootUI 2.5.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.5.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
 <!-- bootui-ci:release:end -->
 
 For the simple GitHub Action and complete examples, see [BootUI in CI](CI.md).

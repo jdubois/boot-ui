@@ -1,4 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
+import {reactive} from 'vue'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import RestApi from './RestApi.vue'
@@ -115,6 +116,7 @@ async function mountWithReport(report, contract = errorContractReport()) {
 
 describe('RestApi', () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     currentRoute = {query: {}}
   })
@@ -153,7 +155,7 @@ describe('RestApi', () => {
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('3 findings found for this rule.')
     expect(wrapper.text()).not.toContain('Passing informational rule')
-    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
       'High severity finding',
       'Medium severity finding',
       'Low severity finding'
@@ -230,6 +232,67 @@ describe('RestApi', () => {
       const requested = fetch.mock.calls.map((call) => String(call[0])).filter((url) => url.includes('error-contract'))
       expect(requested).not.toHaveLength(0)
       expect(requested.every((url) => url.includes('q=com.example.GlobalAdvice'))).toBe(true)
+    })
+
+    it('synchronizes changing error-contract links without losing finding filters or loaded evidence', async () => {
+      vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+      currentRoute = reactive({query: {errorContract: ' AdviceA '}})
+      const report = restApiReport([ruleResult('RAPI-1', 'Routing check', 'HIGH', 'VIOLATION', 4)])
+      report.violationDetails = {scanId: 'scan-1', total: 4, retained: 4, truncated: false}
+      const wrapper = await mountWithReport(report, errorContractReport([contractEntry()]))
+      try {
+        const catalogue = wrapper.get('input[aria-label="Filter declared error contract"]')
+        const findingSearch = wrapper.get('.advisor-rule-results input')
+        const severity = wrapper.get('.advisor-rule-results select')
+        await wrapper.get('.advisor-rule-toggle').trigger('click')
+        fetch.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              scanId: 'scan-1',
+              ruleId: 'RAPI-1',
+              violationCount: 4,
+              retainedCount: 4,
+              violations: ['explicitly loaded ******'],
+              suppressed: [],
+              page: {offset: 0, returned: 1, limit: 100, hasMore: false}
+            }),
+            {status: 200}
+          )
+        )
+        await wrapper.get('button[aria-label="View violations for RAPI-1"]').trigger('click')
+        await flushPromises()
+        await findingSearch.setValue('Routing')
+        await severity.setValue('HIGH')
+        expect(fetch).toHaveBeenCalledTimes(3)
+        const queries = () =>
+          fetch.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('error-contract'))
+        expect(queries()).toHaveLength(1)
+        expect(queries()[0]).toContain('q=AdviceA')
+        for (const linked of ['AdviceB', 'AdviceA', 'AdviceB', undefined]) {
+          currentRoute.query = linked ? {errorContract: linked, rule: 'RAPI-1'} : {rule: 'RAPI-1'}
+          await flushPromises()
+          await vi.advanceTimersByTimeAsync(250)
+          await flushPromises()
+          expect(catalogue.element.value).toBe(linked || '')
+          expect(new URL(queries().at(-1), 'http://localhost').searchParams.get('q')).toBe(linked || null)
+          expect(findingSearch.element.value).toBe('Routing')
+          expect(severity.element.value).toBe('HIGH')
+          expect(wrapper.get('.advisor-rule-violations').text()).toContain('explicitly loaded ******')
+        }
+        await catalogue.setValue('manual filter')
+        await vi.advanceTimersByTimeAsync(250)
+        await flushPromises()
+        const requests = [...fetch.mock.calls]
+        currentRoute.query = {rule: 'OTHER', keep: 'yes'}
+        await flushPromises()
+        await vi.advanceTimersByTimeAsync(250)
+        expect(catalogue.element.value).toBe('manual filter')
+        expect(fetch.mock.calls).toEqual(requests)
+        expect(fetch.mock.calls.filter(([url]) => String(url).includes('/violations?'))).toHaveLength(1)
+        expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true)
+      } finally {
+        wrapper.unmount()
+      }
     })
 
     it('explains an unavailable backend instead of looking like an application with no handlers', async () => {

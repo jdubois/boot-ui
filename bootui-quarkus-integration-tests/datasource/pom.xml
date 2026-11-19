@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-quarkus-integration-tests-aggregator</artifactId>
-        <version>2.4.0</version>
+        <version>2.5.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -140,7 +140,7 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>
-                        <version>3.6.2</version>
+                        <version>3.8.0</version>
                         <executions>
                             <execution>
                                 <id>mysql-live-test-sources</id>

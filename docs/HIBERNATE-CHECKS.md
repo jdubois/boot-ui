@@ -129,7 +129,7 @@ positional `unit-N` otherwise, so a positional label can shift when a factory fa
 ### Version baseline
 
 The audited baselines are Spring Boot 4.1.1 with Hibernate 7.4.5.Final, and Quarkus 3.33.3.1 with Hibernate
-7.2.19.Final, both on Jakarta Persistence 3.2.0. BootUI now builds its Quarkus adapter against Quarkus 3.40.1, which
+7.2.19.Final, both on Jakarta Persistence 3.2.0. BootUI now builds its Quarkus adapter against Quarkus 3.40.1.2, which
 manages Hibernate 7.4.9.Final. Your application may override these versions, and version-dependent conclusions use
 runtime evidence. Primary references and version caveats are listed at the end of this catalog.
 

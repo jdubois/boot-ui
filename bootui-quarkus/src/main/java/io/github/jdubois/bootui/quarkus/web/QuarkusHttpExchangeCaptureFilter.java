@@ -372,9 +372,7 @@ public class QuarkusHttpExchangeCaptureFilter {
     }
 
     private static String remoteAddr(RoutingContext rc) {
-        return rc.request().remoteAddress() == null
-                ? null
-                : rc.request().remoteAddress().hostAddress();
+        return io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter.rawPeerAddress(rc.request());
     }
 
     private void exposeRequestIdHeaderIfAllowed(RoutingContext rc, String requestId) {

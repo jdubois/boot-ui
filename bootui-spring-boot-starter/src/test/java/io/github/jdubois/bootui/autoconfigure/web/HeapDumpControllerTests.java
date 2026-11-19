@@ -84,17 +84,35 @@ class HeapDumpControllerTests {
     @Test
     void captureWritesDump() throws Exception {
         HeapDumpService service = mock(HeapDumpService.class);
-        when(service.capture(true))
+        when(service.capture(true, true))
                 .thenReturn(report(
                         "CAPTURED",
                         List.of(new HeapDumpFileDto("app-heap-20260531-050000-live.hprof", 10, 1L, true)),
                         List.of()));
 
         mvc(service)
-                .perform(post("/bootui/api/heap-dump/capture").param("live", "true"))
+                .perform(post("/bootui/api/heap-dump/capture")
+                        .param("live", "true")
+                        .contentType("application/json")
+                        .content("{\"confirm\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.capture.status").value("CAPTURED"))
                 .andExpect(jsonPath("$.dumps.length()").value(1));
+    }
+
+    @Test
+    void captureRequiresExplicitServerSideConfirmationBeforeCallingTheJvm() throws Exception {
+        HeapDumpService service = mock(HeapDumpService.class);
+        doCallRealMethod().when(service).capture(anyBoolean(), nullable(Boolean.class));
+        MockMvc mvc = mvc(service);
+        for (String body : new String[] {"", "{}", "{\"confirm\":false}"}) {
+            mvc.perform(post("/bootui/api/heap-dump/capture")
+                            .contentType("application/json")
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("Heap dump capture requires explicit confirmation."));
+        }
+        verify(service, never()).capture(anyBoolean());
     }
 
     @Test

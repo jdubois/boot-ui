@@ -86,7 +86,7 @@ describe('Architecture', () => {
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('3 violations found for this rule.')
     expect(wrapper.text()).not.toContain('Passing informational rule')
-    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
       'High severity violation',
       'Medium severity violation',
       'Low severity violation'
@@ -137,7 +137,7 @@ describe('Architecture', () => {
       const wrapper = await mountWithReport(architectureReport(results))
 
       expect(wrapper.get('.advisor-summary__value').text()).toBe(withDefects ? '89' : '100')
-      expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual(
+      expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual(
         withDefects
           ? [
               'Classes should not forcibly terminate the JVM',

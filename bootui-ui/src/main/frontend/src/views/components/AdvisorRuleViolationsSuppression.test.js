@@ -174,6 +174,60 @@ describe('AdvisorRuleViolations per-finding dismissal', () => {
     expect(wrapper.findAll('li')[1].text()).toContain('Dismissed')
   })
 
+  it('cancels a superseded hidden refresh without losing its page or refreshing when revealed', async () => {
+    let finishOld
+    fetch
+      .mockResolvedValueOnce(response(page()))
+      .mockReturnValueOnce(new Promise((resolve) => (finishOld = resolve)))
+      .mockResolvedValueOnce(response(page({suppressed: [true, false, false]})))
+    const wrapper = render()
+    await openPage(wrapper)
+    await wrapper.setProps({revision: 1})
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    await wrapper.setProps({active: false, revision: 2})
+    expect(fetch.mock.calls[1][1].signal.aborted).toBe(true)
+    finishOld(response(page({suppressed: [false, true, false]})))
+    await flushPromises()
+    expect(wrapper.findAll('li')).toHaveLength(3)
+    expect(wrapper.findAll('[data-testid="suppressed-finding"]')).toHaveLength(0)
+    await wrapper.setProps({active: true})
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('Dismissal state may be outdated')
+    await wrapper.get(`button[aria-label="Refresh dismissal state for ${ruleId}"]`).trigger('click')
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(wrapper.text()).not.toContain('Dismissal state may be outdated')
+    expect(wrapper.findAll('li')[0].text()).toContain('Dismissed')
+    await wrapper.setProps({details: {...details, scanId: 'scan-2'}})
+    expect(wrapper.find(`button[aria-label="View violations for ${ruleId}"]`).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Dismissal state may be outdated')
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('retains the qualification and disables actions after explicit refresh failure until an explicit retry succeeds', async () => {
+    fetch
+      .mockResolvedValueOnce(response(page()))
+      .mockResolvedValueOnce(new Response('{}', {status: 503}))
+      .mockResolvedValueOnce(response(page({suppressed: [true, false, false]})))
+    const wrapper = render()
+    await openPage(wrapper)
+    await wrapper.setProps({active: false, revision: 1})
+    await wrapper.setProps({active: true})
+    expect(fetch).toHaveBeenCalledOnce()
+    await wrapper.get(`button[aria-label="Refresh dismissal state for ${ruleId}"]`).trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Unable to load violations: HTTP 503')
+    expect(wrapper.text()).toContain('Dismissal state may be outdated')
+    expect(wrapper.findAll('li')).toHaveLength(3)
+    expect(wrapper.findAll('.advisor-finding-action').every((button) => button.element.disabled)).toBe(true)
+    await wrapper.get(`button[aria-label="Retry violations for ${ruleId}"]`).trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Dismissal state may be outdated')
+    expect(wrapper.findAll('.advisor-finding-action').every((button) => !button.element.disabled)).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
   it('says when every finding of a rule is dismissed', async () => {
     const wrapper = render({
       rule: {id: ruleId, violationCount: 0, suppressedCount: 3, sampleViolations: []}

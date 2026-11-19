@@ -51,7 +51,7 @@ public class BootUiQuarkusAuthenticationFilter {
         }
 
         HttpServerRequest request = rc.request();
-        String remoteAddress = remoteAddress(request.remoteAddress());
+        String remoteAddress = BootUiQuarkusSafetyFilter.rawPeerAddress(request);
         boolean trustedSource = safetyFilter.isTrustedSource(remoteAddress);
         if (!authenticator.isAuthorized(
                 trustedSource, request.getHeader("Authorization"), request.getHeader("Cookie"))) {

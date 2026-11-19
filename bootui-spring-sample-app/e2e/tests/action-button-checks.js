@@ -280,6 +280,7 @@ export function registerActionButtonTests(test, expect) {
       await expect(setup).toHaveAttribute('href', '#/java-agent')
 
       await page.goto('/bootui/#/architecture')
+      await page.locator('.advisor-rule-toggle').click()
       const reference = page.getByRole('link', {name: /Learn more/})
       await assertButton(expect, reference)
       await expect(reference).toHaveAttribute('href', 'https://example.com/reference')

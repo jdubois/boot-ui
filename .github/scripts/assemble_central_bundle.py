@@ -14,7 +14,7 @@ installed. check-central-bundle.py then checks the bundle's coordinates and POMs
 directory without a POM, which is exactly what the central-publishing-maven-plugin produced under Maven
 3.10, whose installer writes that bookkeeping into the plugin's staging directory.
 
-Only the md5 and sha1 checksums Central requires are generated; signatures get none.
+Central's md5 and sha1 checksums and a SHA-256 checksum are generated; signatures get none.
 """
 
 from __future__ import annotations
@@ -98,6 +98,7 @@ def assemble(local_repository: Path, version: str, output: Path, signed: bool = 
             if not path.name.endswith(".asc"):
                 entries.append((f"{entry}.md5", hashlib.md5(content).hexdigest().encode()))
                 entries.append((f"{entry}.sha1", hashlib.sha1(content).hexdigest().encode()))
+                entries.append((f"{entry}.sha256", hashlib.sha256(content).hexdigest().encode()))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:

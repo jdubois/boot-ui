@@ -94,6 +94,7 @@ class AssembleCentralBundleTests(unittest.TestCase):
             names = bundle.namelist()
             pom = "com/julien-dubois/bootui/bootui-engine/1.2.3/bootui-engine-1.2.3.pom"
             self.assertEqual(bundle.read(pom + ".sha1").decode(), hashlib.sha1(pom.rsplit("/", 1)[1].encode()).hexdigest())
+            self.assertEqual(bundle.read(pom + ".sha256").decode(), hashlib.sha256(pom.rsplit("/", 1)[1].encode()).hexdigest())
             self.assertEqual(bundle.read(pom + ".md5").decode(), hashlib.md5(pom.rsplit("/", 1)[1].encode()).hexdigest())
         directories = {name.rsplit("/", 1)[0] for name in names}
         self.assertEqual(directories, {f"com/julien-dubois/bootui/{a}/{VERSION}" for a in ARTIFACT_IDS})

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.SecretMasker;
@@ -9,9 +10,19 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 
 class ConfigOverrideServiceTests {
@@ -113,11 +124,94 @@ class ConfigOverrideServiceTests {
     }
 
     @Test
-    void putDisplaysExposureOverrideUsingPreviousExposureMode() {
-        ConfigOverrideResult result = service.put("bootui.expose-values", "METADATA_ONLY");
+    void rejectsSafetyOverridesBeforeChangingEnvironmentOrDisk() {
+        assertThatThrownBy(() -> service.put("bootui.expose-values", "FULL"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("outside runtime overrides");
+        assertThat(environment.getProperty("bootui.expose-values")).isNull();
+        assertThat(Files.exists(service.overridesFile())).isFalse();
+    }
 
-        assertThat(result.value()).isEqualTo("METADATA_ONLY");
-        assertThat(environment.getProperty("bootui.expose-values")).isEqualTo("METADATA_ONLY");
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unreadableStartupOverridesAreNotReplacedByALaterMutation(boolean remove) throws Exception {
+        String original = "sample.greeting=before\nsample.invalid=\\uZZZZ\n";
+        Files.writeString(service.overridesFile(), original);
+        environment.setProperty("bootui.overrides-file", service.overridesFile().toString());
+        new BootUiOverridesEnvironmentPostProcessor()
+                .postProcessEnvironment(environment, new org.springframework.boot.SpringApplication());
+
+        assertThatThrownBy(() -> {
+                    if (remove) service.remove("sample.greeting");
+                    else service.put("sample.greeting", "after");
+                })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unreadable");
+        assertThat(Files.readString(service.overridesFile())).isEqualTo(original);
+        assertThat(service.overrides()).isEmpty();
+    }
+
+    @Test
+    void failedPersistenceDoesNotChangeLiveOverrides() throws Exception {
+        service.put("sample.greeting", "before");
+        Files.delete(service.overridesFile());
+        Files.createDirectory(service.overridesFile());
+        Files.writeString(service.overridesFile().resolve("occupied"), "x");
+
+        assertThatThrownBy(() -> service.put("sample.greeting", "after")).isInstanceOf(IllegalStateException.class);
+        assertThat(environment.getProperty("sample.greeting")).isEqualTo("before");
+        assertThatThrownBy(() -> service.remove("sample.greeting")).isInstanceOf(IllegalStateException.class);
+        assertThat(environment.getProperty("sample.greeting")).isEqualTo("before");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void concurrentUpdatesPreserveEveryAcknowledgedChangeOnDisk(boolean remove) throws Exception {
+        var firstSave = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var holdFirst = new AtomicBoolean(true);
+        var store = new ConfigOverridesFileStore(service.overridesFile()) {
+            @Override
+            public void save(Map<String, Object> values) {
+                if (holdFirst.getAndSet(false)) {
+                    firstSave.countDown();
+                    try {
+                        assertThat(releaseFirst.await(5, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(ex);
+                    }
+                }
+                super.save(values);
+            }
+        };
+        environment
+                .getPropertySources()
+                .addFirst(new BootUiOverridesPropertySource(new LinkedHashMap<>(Map.of("existing", "original"))));
+        service = new ConfigOverrideService(environment, new BootUiExposure(environment, properties), store);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> service.put("first", "one"));
+            assertThat(firstSave.await(5, TimeUnit.SECONDS)).isTrue();
+            var secondThread = new AtomicReference<Thread>();
+            var second = executor.submit(() -> {
+                secondThread.set(Thread.currentThread());
+                return remove ? service.remove("existing") : service.put("second", "two");
+            });
+            await().atMost(Duration.ofSeconds(5))
+                    .until(() -> second.isDone()
+                            || (secondThread.get() != null && secondThread.get().getState() == Thread.State.BLOCKED));
+            releaseFirst.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS).persisted()).isTrue();
+            assertThat(second.get(5, TimeUnit.SECONDS).persisted()).isTrue();
+            Map<String, Object> expected =
+                    remove ? Map.of("first", "one") : Map.of("existing", "original", "first", "one", "second", "two");
+            assertThat(store.load()).isEqualTo(expected);
+            assertThat(service.overrides()).isEqualTo(expected);
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

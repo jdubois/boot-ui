@@ -22,8 +22,8 @@ applyTo: "bootui-ui/**,bootui-spring-sample-app/e2e/**,bootui-quarkus-sample-app
   suite with `npm run test:custom-path`; the Quarkus E2E project runs with `npm test`. CI runs all four.
 - For HMR, run the backend separately and open the Vite URL at `http://localhost:5173/bootui/`; Maven-served assets do
   not hot reload. Use `BOOTUI_API_PROXY_TARGET` for a non-default backend, and `BOOTUI_DEV_PATH` plus
-  `BOOTUI_DEV_API_PATH` for custom mounts. Spring MVC, WebFlux, and Quarkus compare Origin/Host by host rather than port,
-  so state-changing requests from Vite's port remain same-host.
+  `BOOTUI_DEV_API_PATH` for custom mounts. Preserve the browser's `Sec-Fetch-Site: same-origin` through Vite's proxy:
+  that metadata permits the upstream port rewrite; Origin-only writes must match scheme, host and effective port.
 - Before screenshots, reset both window scroll and `.bootui-workspace` scroll. Feature screenshots remain 1600x900 WebP at quality 80 with realistic non-sensitive data.
 - A new page under `docs/` needs a `docs/.vuepress/sidebar.js` entry, or it is unreachable on the published site. Verify
   documentation changes with `npm install && npm run docs:build` from the repository root.

@@ -31,7 +31,7 @@ the same starter binds to WebFlux. An application with neither starts no web ser
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>2.4.0</version>
+  <version>2.5.0</version>
 </dependency>
 ```
 
@@ -39,12 +39,12 @@ the same starter binds to WebFlux. An application with neither starts no web ser
 
 ```groovy
 // Groovy DSL (build.gradle)
-runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:2.4.0'
+runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:2.5.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:2.4.0")
+runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:2.5.0")
 ```
 
 :::
@@ -92,6 +92,23 @@ In `application.yml`, `ON`, `OFF`, `yes`, `no`, `true`, and `false` are booleans
 
 BootUI is now available at <http://localhost:8080/bootui>.
 
+::: tip Unreleased source preview
+The Home guides, compact findings, copy previews and startup diagnostic below are unreleased. The published
+dependency above does not include them.
+[Build from source](https://github.com/jdubois/boot-ui/blob/main/CONTRIBUTING.md#build) to preview these changes.
+:::
+
+The [Home guides](features/README.md#home) help you choose a panel: understand the app, follow its behavior, or review
+the code. To start an assessment, follow **Review the code**, open an available advisor and choose its run action
+(for example **Run architecture checks**).
+Regular advisor rows start collapsed; search or
+filter by severity, open a row for its cached samples, and preview **Copy for AI** to share qualified evidence.
+Source locations appear only when that advisor can establish them. See [Advisors](features/advisors.md).
+
+If the console returns 404, check the startup diagnostic and the [symptom-first troubleshooting guide](setup/troubleshooting.md).
+An ordinary inactive Spring AUTO installation explains how to activate it; deliberate OFF and disabled profiles remain
+quiet at INFO. Do not enable BootUI in production just to remove the 404.
+
 ### Use a custom path
 
 To move the console, set `bootui.path`:
@@ -121,6 +138,36 @@ query and fragment components, encoded separators, consecutive interior slashes,
 `bootui.path` may not live under the reserved `/bootui/**` namespace. See the [property reference](PROPERTIES.md#custom-ui-and-api-paths).
 :::
 
+## Use the CLI (optional)
+
+Prefer a terminal? The `bootui` CLI connects to your running BootUI-enabled Spring Boot or Quarkus application.
+It needs Java 17 or later. The CLI endpoint is enabled by default; enabling MCP is not required.
+
+::: tabs#cli-install
+
+@tab Linux and macOS
+
+```bash
+curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
+```
+
+@tab Windows (PowerShell)
+
+```powershell
+irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex
+```
+
+:::
+
+With your application still running, try a read-only diagnostic:
+
+```bash
+bootui --url http://localhost:8080 beans
+```
+
+For installation details and alternatives, see [Install the CLI](CLI.md#install).
+The [Command line reference](CLI.md) covers commands, custom URLs, output formats, and configuration.
+
 ## What to read next
 
 Everything below is optional.
@@ -129,6 +176,7 @@ Everything below is optional.
 | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | Understand when BootUI turns on, or keep it out of your prod build | [Activation and safety](setup/activation.md)                     |
 | Run BootUI on WebFlux or Quarkus                                   | [Spring WebFlux](setup/webflux.md) · [Quarkus](setup/quarkus.md) |
+| Query your running application from a terminal                    | [Command line](CLI.md)                                          |
 | Run inside Docker, or in a command-line app                        | [Non-standard runtimes](setup/environments.md)                   |
 | See which methods ran, and whether your change did                 | [Java agent](setup/java-agent.md)                                |
 | Fix something that is not working                                  | [Troubleshooting](setup/troubleshooting.md)                      |

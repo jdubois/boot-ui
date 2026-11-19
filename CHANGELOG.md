@@ -190,7 +190,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([migration and gate impact](docs/HIBERNATE-CHECKS.md#hib-fetch-001---review-eager-to-one-fetch-plans)).
 - **Servlet authorization findings** use MEDIUM coverage review for observed method-annotation use with matching activation for every used family; HTTP gaps remain and endpoint protection is not proven
   ([Security checks](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
-
 ## [2.5.0] - 2026-11-17
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.
@@ -213,6 +212,8 @@ It also adds local CLI discovery and setup, expands advisor coverage, and remove
 
 ### Changed
 
+- **Quarkus LTS baseline** advances to 3.40.1.2 while retaining support for Quarkus 3.33 and later in the 3.x line
+  ([#1729](https://github.com/jdubois/boot-ui/pull/1729)).
 - **Investigation navigation** adds subject grouping, clearer request profiles, route-exchange drawers, and recognizable cross-panel links
   ([Runtime Insights](docs/features/runtime-insights.md); [#1711](https://github.com/jdubois/boot-ui/pull/1711), [#1712](https://github.com/jdubois/boot-ui/pull/1712), [#1713](https://github.com/jdubois/boot-ui/pull/1713)).
 - **Request ID response header** is enabled by default for loopback and trusted-peer requests while HTTP Exchanges is enabled, with an opt-out

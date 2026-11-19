@@ -88,7 +88,10 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
             return;
         }
 
-        Map<String, Object> defaults = new LinkedHashMap<>(ACTUATOR_DEFAULTS);
+        Map<String, Object> defaults = new LinkedHashMap<>();
+        if (environment.getProperty("bootui.actuator.expose-defaults", Boolean.class, true)) {
+            defaults.putAll(ACTUATOR_DEFAULTS);
+        }
         if (telemetryEnabled(environment) && tracesPanelEnabled(environment)) {
             defaults.put(TRACING_SAMPLING_PROBABILITY_PROPERTY, TRACING_SAMPLING_PROBABILITY);
             defaults.putAll(TRACING_LOG_LEVEL_DEFAULTS);
@@ -103,7 +106,7 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         // Only contribute defaults the host has not already configured through any property source,
         // so BootUI never overrides application-provided actuator settings. containsProperty is used
         // (instead of getProperty) so an unresolvable placeholder in a host value cannot raise here.
-        defaults.keySet().removeIf(environment::containsProperty);
+        defaults.keySet().removeIf(key -> BootUiActuatorContributions.configured(environment, key));
         if (defaults.isEmpty()) {
             return;
         }
@@ -111,6 +114,7 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         // Merge into the shared defaultProperties source, which Spring Boot keeps as the lowest-priority
         // source, so configuration added by any other mechanism (including later post-processors) wins.
         MutablePropertySources sources = environment.getPropertySources();
+        BootUiActuatorContributions.record(environment, defaults);
         DefaultPropertiesPropertySource.addOrMerge(defaults, sources);
     }
 

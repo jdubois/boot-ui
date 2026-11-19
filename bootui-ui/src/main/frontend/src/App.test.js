@@ -4,12 +4,17 @@ import {createMemoryHistory, createRouter} from 'vue-router'
 
 import {routes} from './routes.js'
 
-const TestPanel = {template: '<section />'}
+const TestPanel = {
+  template: '<section />',
+  data: () => ({report: null, filter: ''})
+}
 const namedRoutes = routes.filter((route) => route.name && route.meta?.title)
 const NARROW_QUERY = '(max-width: 991.98px)'
 
-function shellRoutes() {
-  return routes.map((route) => (route.redirect || !route.name ? route : {...route, component: TestPanel}))
+function shellRoutes(actualHome = false) {
+  return routes.map((route) =>
+    route.redirect || !route.name || (actualHome && route.name === 'home') ? route : {...route, component: TestPanel}
+  )
 }
 
 function jsonResponse(body) {
@@ -41,13 +46,15 @@ function mockShellFetch(platform = 'spring-boot', panelOverrides = {}) {
         return Promise.resolve(
           jsonResponse({
             platform,
-            panels: namedRoutes.map((route) => ({
-              id: route.name,
-              title: route.meta.title,
-              available: true,
-              enabled: true,
-              ...panelOverrides[route.name]
-            }))
+            panels: namedRoutes
+              .filter((route) => !route.meta.uiOnly)
+              .map((route) => ({
+                id: route.name,
+                title: route.meta.title,
+                available: true,
+                enabled: true,
+                ...panelOverrides[route.name]
+              }))
           })
         )
       }
@@ -122,7 +129,7 @@ async function mountApp(initialPath = '/overview', options = {}) {
   const {createRouteAssetRecovery, routeAssetRecoveryKey} = await import('./utils/routeAssetRecovery.js')
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: shellRoutes()
+    routes: shellRoutes(options.actualHome)
   })
   const browser = {
     location: {href: 'http://localhost/bootui/#/overview', reload: vi.fn()},
@@ -164,9 +171,42 @@ describe('App sidebar navigation', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     restoreLocalStorage()
     document.body.innerHTML = ''
+  })
+
+  it('loads Home metadata only through the shell without adding refresh controls or polling', async () => {
+    vi.useFakeTimers()
+    const {wrapper, router} = await mountApp('/', {actualHome: true, stubRouterView: false})
+    expect(router.currentRoute.value.name).toBe('home')
+    expect(fetch.mock.calls.map(([url]) => url).sort()).toEqual(['api/overview', 'api/panels'])
+    expect(wrapper.get('.brand-card').attributes('href')).toBe('/home')
+    expect(wrapper.findAll('.home-guide-choice')).toHaveLength(4)
+    expect(wrapper.find('[aria-label="Toggle auto-refresh"]').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/overview', 'api/panels'])
+    wrapper.unmount()
+  })
+
+  it('keeps Home and its agent guides usable when initial metadata fails, with the shell error visible', async () => {
+    const fetchShell = fetch.getMockImplementation()
+    fetch.mockImplementation((url) =>
+      url === 'api/panels' ? Promise.resolve({ok: false, status: 503}) : fetchShell(url)
+    )
+    const {wrapper} = await mountApp('/home', {actualHome: true, stubRouterView: false})
+    expect(wrapper.text()).toContain('HTTP 503')
+    expect(wrapper.findAll('.home-guide-choice')).toHaveLength(4)
+    await wrapper.get('[data-home-choice="agents"]').trigger('click')
+    expect(wrapper.findAll('.home-guide a[target="_blank"]')).toHaveLength(0)
+    expect(wrapper.find('.home-guide [data-home-panel] a').exists()).toBe(false)
+    await wrapper.get('[data-home-choice="agent-skill"]').trigger('click')
+    expect(wrapper.get('.home-guide-resource').text()).toContain('plain HTTP')
+    expect(wrapper.findAll('.home-guide a[target="_blank"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('HTTP 503')
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/overview', 'api/panels'])
+    wrapper.unmount()
   })
 
   it('preserves the HTTP Exchanges panel while opening and closing a route query', async () => {
@@ -180,6 +220,95 @@ describe('App sidebar navigation', () => {
     await router.replace({query: {}})
     await flushPromises()
     expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+    wrapper.unmount()
+  })
+
+  it.each(['/architecture', '/rest-api', '/spring', '/hibernate', '/database-advisor', '/memory', '/security'])(
+    'preserves loaded reports and filters on %s rule-query navigation without acquiring evidence',
+    async (path) => {
+      const {router, wrapper} = await mountApp(`${path}?keep=yes`, {stubRouterView: false})
+      const panel = wrapper.getComponent(TestPanel).vm
+      panel.report = {scanId: 'cached-scan', results: [{id: 'RULE-1'}]}
+      panel.filter = 'retained filter'
+      const requests = [...fetch.mock.calls]
+
+      for (const rule of ['RULE-1', 'RULE-2', undefined]) {
+        await router.push({path, query: {keep: 'yes', ...(rule ? {rule} : {})}})
+        await flushPromises()
+        expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+        expect(panel.report).toEqual({scanId: 'cached-scan', results: [{id: 'RULE-1'}]})
+        expect(panel.filter).toBe('retained filter')
+        expect(router.currentRoute.value.query.keep).toBe('yes')
+        expect(fetch.mock.calls).toEqual(requests)
+      }
+
+      router.back()
+      await flushPromises()
+      expect(router.currentRoute.value.query.rule).toBe('RULE-2')
+      expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+      router.forward()
+      await flushPromises()
+      expect(router.currentRoute.value.query.rule).toBeUndefined()
+      expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+      expect(fetch.mock.calls).toEqual(requests)
+      wrapper.unmount()
+    }
+  )
+
+  it('still replaces unrelated panels on query changes and when leaving an advisor', async () => {
+    const {router, wrapper} = await mountApp('/health', {stubRouterView: false})
+    const health = wrapper.getComponent(TestPanel).vm
+    await router.push('/health?view=details')
+    await flushPromises()
+    expect(wrapper.getComponent(TestPanel).vm === health).toBe(false)
+
+    await router.push('/architecture?rule=RULE-1')
+    await flushPromises()
+    const architecture = wrapper.getComponent(TestPanel).vm
+    await router.push('/memory?rule=RULE-1')
+    await flushPromises()
+    expect(wrapper.getComponent(TestPanel).vm === architecture).toBe(false)
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/overview', 'api/panels'])
+    wrapper.unmount()
+  })
+
+  it.each(['/architecture', '/rest-api', '/spring', '/hibernate', '/database-advisor', '/memory', '/security'])(
+    'uses canonical advisor identity for case and trailing-slash variants of %s',
+    async (path) => {
+      const {router, wrapper} = await mountApp(`${path.toUpperCase()}/?keep=yes`, {stubRouterView: false})
+      const panel = wrapper.getComponent(TestPanel).vm
+      panel.report = {scanId: 'retained-scan'}
+      panel.filter = 'retained filter'
+      const requests = [...fetch.mock.calls]
+      for (const variant of [`${path.toUpperCase()}/`, path, `${path}/`]) {
+        await router.push({path: variant, query: {keep: 'yes', rule: 'RULE-1'}})
+        await flushPromises()
+        expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+        expect(panel.report).toEqual({scanId: 'retained-scan'})
+        expect(panel.filter).toBe('retained filter')
+        expect(router.currentRoute.value.path).toBe(variant)
+        await router.push({path: variant, query: {keep: 'yes'}})
+        await flushPromises()
+        expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+      }
+      router.back()
+      await flushPromises()
+      expect(router.currentRoute.value.query.rule).toBe('RULE-1')
+      expect(wrapper.getComponent(TestPanel).vm).toBe(panel)
+      expect(fetch.mock.calls).toEqual(requests)
+      wrapper.unmount()
+    }
+  )
+
+  it('keeps full-path identity for non-advisor case and trailing-slash variants', async () => {
+    const {router, wrapper} = await mountApp('/HEALTH/', {stubRouterView: false})
+    for (const path of ['/HEALTH/?view=details', '/health?view=summary', '/health/']) {
+      const previous = wrapper.getComponent(TestPanel).vm
+      await router.push(path)
+      await flushPromises()
+      expect(wrapper.getComponent(TestPanel).vm === previous).toBe(false)
+    }
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/overview', 'api/panels'])
     wrapper.unmount()
   })
 
@@ -321,7 +450,9 @@ describe('App sidebar navigation', () => {
     expect(document.activeElement).toBe(wrapper.find('.sidebar-toggle').element)
 
     const first = wrapper.find('.brand-card')
-    const last = wrapper.find('.contribute-card')
+    const last = wrapper.find('.feedback-trigger')
+    // jsdom has no layout; the closed popover's links still have to be excluded by inert.
+    const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 48, 48)])
     first.element.focus()
     await drawer.trigger('keydown', {key: 'Tab', shiftKey: true})
     expect(document.activeElement).toBe(last.element)
@@ -329,6 +460,7 @@ describe('App sidebar navigation', () => {
     last.element.focus()
     await drawer.trigger('keydown', {key: 'Tab'})
     expect(document.activeElement).toBe(first.element)
+    rects.mockRestore()
 
     await drawer.trigger('keydown', {key: 'Escape'})
     await flushPromises()
@@ -605,7 +737,7 @@ describe('App route recovery and document title', () => {
     expect(document.title).toBe('Beans · bootui-sample · BootUI')
   })
 
-  it('renders the catch-all route and recovers through overview or command search', async () => {
+  it('renders the catch-all route and recovers through Home or command search', async () => {
     mockShellFetch()
     const {router, wrapper} = await mountApp('/missing-panel', {
       stubCommandPalette: false,
@@ -617,7 +749,7 @@ describe('App route recovery and document title', () => {
 
     await wrapper.get('.not-found-actions a').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('overview')
+    expect(router.currentRoute.value.name).toBe('home')
 
     await router.push('/still-missing')
     await flushPromises()

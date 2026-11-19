@@ -40,7 +40,7 @@ public abstract class AbstractMcpConformanceTest {
         BootUiHttpProbe probe = probe();
         Map<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("Origin", baseUrl());
+        headers.put("Origin", probe.origin());
         probe.get("/bootui/api/overview");
         probe.cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
         Response response =

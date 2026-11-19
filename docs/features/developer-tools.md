@@ -302,25 +302,28 @@ the panel when no projects directory is found. Data is read-only: BootUI never m
 
 ![BootUI GitHub panel](../images/bootui-github.webp)
 
-Summarizes the current project's GitHub state, read from the local `origin` remote. Opening or reopening the panel
-uses only `GET /bootui/api/github`, which never contacts GitHub and returns the cached report. Its timestamp is the
-last live refresh, not the time the cache was read; a never-refreshed report has no refresh timestamp.
+_Source preview with illustrative sample data._
 
-**Connect** or the header's **Refresh** button explicitly requests live data through `POST /bootui/api/github/refresh`,
-gated by `bootui.github.api-enabled` and the host allow-list. **Auto-refresh** is off each time the panel opens. Enable
-it to refresh every minute while visible and on returning to the tab. Read-only mode prevents live refreshes and
-turns polling off; becoming writable again does not restart polling. Failed requests, including HTTP-success
-responses marked `ERROR`, retain the last good report and its timestamp alongside the error. A first-load error
-does not create fresh data. **Retry cached data** recovers a failed read in read-only mode using only the cached
-`GET`, never a live refresh.
+The Connect/Stop behavior below is an **unreleased source preview**; see [setup](../SETUP.md#open-the-console).
+
+Summarizes the current project's GitHub state, read from the local `origin` remote. Opening the panel reads only
+`GET /bootui/api/github`, which never contacts GitHub. **Connect** explicitly starts an external refresh and permits
+the existing one-minute refresh while this panel is active and the browser page is visible. **Stop** ends that
+permission. Cached server connection state alone never authorizes external access.
+
+Consent is held in memory until the BootUI page reloads, not in browser storage. Leaving the panel pauses external
+refresh; returning reads the cache first, with later scheduled refreshes allowed by the same consent. A reload or new
+tab requires Connect again. Only `POST /bootui/api/github/refresh` reaches GitHub, gated by panel read-only policy,
+`bootui.github.api-enabled`, and the host allow-list. Failed refreshes keep the last cached report and its timestamp
+with a clear error.
 
 Origin remains the default. When GitHub reports `fork: true`, security cards are labelled **Fork data**, not upstream
 evidence. A validated, allowed local remote named `upstream` is offered as **Connect to configured upstream**, showing
 its host and repository before any request. This is a local configuration choice, not proof of the fork's parent.
-Clicking explicitly refreshes that target and turns polling off; **Connect to origin** returns to origin. Missing or
-malformed upstream metadata and unknown fork status remain unknown. Read-only mode blocks live connections.
+Clicking explicitly refreshes that target under the same page consent; **Connect to origin** returns to origin.
+Missing or malformed upstream metadata and unknown fork status remain unknown. Read-only mode blocks live connections.
 If upstream becomes unavailable, returning to origin stays available; **Read cached origin** uses only GET in read-only
-mode and never enables polling.
+mode and never enables live refresh.
 
 The existing GET and refresh POST accept optional `remote=origin|upstream`; old callers still use origin. GET stays
 network-free for either selection. Additive `repositoryContext` metadata contains only sanitized identities, never

@@ -151,7 +151,7 @@ describe('Hibernate', () => {
     expect(wrapper.text()).toContain('2 findings found for this rule.')
     expect(wrapper.text()).toContain('Learn more')
     expect(wrapper.text()).not.toContain('Passing mapping rule')
-    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
       'Eager collection fetching should stay bounded',
       'Review eager to-one fetch plans',
       'Informational fetch finding'

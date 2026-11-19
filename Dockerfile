@@ -35,7 +35,7 @@
 #
 # Build and run:
 #   docker build -t bootui-sample-app .
-#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
+#   docker run --rm -p 127.0.0.1:8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
 #   # then open http://localhost:8080/bootui
 #
 # Optional corporate npm registry (requires an existing ~/.npmrc):
@@ -47,7 +47,7 @@
 # The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup
 # so those panels have data to show. They are off by default for a faster boot; turn them back on
 # at runtime with Spring Boot's environment variables:
-#   docker run --rm -p 8080:8080 \
+#   docker run --rm -p 127.0.0.1:8080:8080 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
 #     bootui-sample-app

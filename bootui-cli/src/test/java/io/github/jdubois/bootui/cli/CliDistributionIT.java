@@ -102,7 +102,7 @@ class CliDistributionIT {
 
     @Test
     @DisabledOnOs(OS.WINDOWS)
-    void realShellInstallUpdatesInPlaceAndUninstallsItsProvenance() throws Exception {
+    void realChecksumOnlyShellInstallUpdatesInPlaceAndUninstallsItsProvenance() throws Exception {
         try (var repository = new UpdateTestRepository()) {
             repository.metadata("1.0.0");
             repository.artifact("1.0.0", versionedJar("1.0.0"), "SHA-512");
@@ -119,9 +119,13 @@ class CliDistributionIT {
                     "BOOTUI_NO_UPDATE_CHECK",
                     "1",
                     "JAVA_HOME",
-                    System.getProperty("java.home"));
+                    System.getProperty("java.home"),
+                    "PATH",
+                    checksumOnlyTools().toString());
             Path script = Path.of("../docs/.vuepress/public/install.sh").toAbsolutePath();
-            assertThat(process(List.of("sh", script.toString()), env).code()).isZero();
+            Result installed = process(List.of("sh", script.toString()), env);
+            assertThat(installed.code()).as(installed.output()).isZero();
+            assertThat(installed.output()).contains("signer not authenticated");
             Path launcher = bin.resolve("bootui");
             assertThat(Files.readString(install.resolve(Installation.RECORD)))
                     .contains(install.toString(), bin.toString(), repository.url());
@@ -148,6 +152,42 @@ class CliDistributionIT {
             assertThat(install.resolve(Installation.RECORD)).doesNotExist();
             assertThat(install.resolve("update.lock")).doesNotExist();
         }
+    }
+
+    private Path checksumOnlyTools() throws Exception {
+        // Source-built fixture jars are unsigned; exercise the supported checksum-only installation mode.
+        Path tools = Files.createDirectory(directory.resolve("checksum tools"));
+        for (String command : List.of(
+                "sh",
+                "curl",
+                "wget",
+                "awk",
+                "sed",
+                "tr",
+                "mkdir",
+                "mv",
+                "chmod",
+                "mktemp",
+                "rm",
+                "rmdir",
+                "cat",
+                "dirname",
+                "basename",
+                "ln",
+                "sha512sum",
+                "sha256sum",
+                "sha1sum",
+                "shasum",
+                "openssl")) {
+            for (String folder : System.getenv("PATH").split(File.pathSeparator)) {
+                Path executable = Path.of(folder).resolve(command);
+                if (Files.isRegularFile(executable) && Files.isExecutable(executable)) {
+                    Files.createSymbolicLink(tools.resolve(command), executable.toAbsolutePath());
+                    break;
+                }
+            }
+        }
+        return tools;
     }
 
     @Test

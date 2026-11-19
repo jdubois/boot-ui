@@ -40,7 +40,7 @@ public final class ApiAuthenticationFilter extends AbstractBootUiFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        boolean trustedSource = localhostOnlyFilter.isTrustedSource(request.getRemoteAddr());
+        boolean trustedSource = localhostOnlyFilter.isTrustedSource(localhostOnlyFilter.remoteAddress(request));
         boolean authorized = authenticator.isAuthorized(
                 trustedSource, request.getHeader("Authorization"), request.getHeader("Cookie"));
         if (!authorized) {

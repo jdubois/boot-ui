@@ -1,8 +1,10 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {registerButtonLinkTests} from '../../../bootui-spring-sample-app/e2e/scenarios/button-links.js'
+import {registerFeedbackPopoverTests} from '../../../bootui-spring-sample-app/e2e/scenarios/feedback-popover.js'
 
 registerButtonLinkTests(test, expect)
+registerFeedbackPopoverTests(test, expect)
 
 /**
  * The shared Vue UI renders the same panel headings on Quarkus as on Spring Boot, with one
@@ -110,11 +112,17 @@ test.describe('BootUI app shell (Quarkus)', () => {
     await expect(page.locator('.bootui-footer')).toContainText('Quarkus')
   })
 
-  test('sidebar links to the BootUI GitHub project', async ({page}) => {
+  test('sidebar feedback popover links to the BootUI GitHub project', async ({page}) => {
     await page.goto('/bootui/')
 
-    const contributeLink = page.getByRole('link', {name: /Contribute to the project/})
+    const feedback = page.getByRole('region', {name: 'Feedback & contributions', exact: true})
+    await expect(feedback).toBeHidden()
+    await page.getByRole('button', {name: 'Help improve BootUI', exact: true}).click()
+    await expect(feedback).toBeVisible()
+    const contributeLink = feedback.getByRole('link', {name: /Contribute on GitHub.*opens in a new tab/})
     await expect(contributeLink).toHaveAttribute('href', 'https://github.com/jdubois/boot-ui')
+    await expect(contributeLink).toHaveAttribute('target', '_blank')
+    await expect(contributeLink).toHaveAttribute('rel', 'noopener noreferrer')
     await expect(contributeLink.locator('.bi-github')).toBeVisible()
   })
 
@@ -191,9 +199,9 @@ test.describe('BootUI app shell (Quarkus)', () => {
     }
   })
 
-  test('redirects the root path to /scorecard', async ({page}) => {
+  test('redirects the root path to /home', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/home$/)
   })
 
   test('redirects the former /overview route to /scorecard', async ({page}) => {
@@ -222,6 +230,7 @@ test.describe('BootUI app shell (Quarkus)', () => {
     await page.goto('/bootui/')
 
     await expect(page.getByRole('group', {name: 'Home panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Home',
       'Scorecard',
       'Live Activity',
       'Runtime Insights'

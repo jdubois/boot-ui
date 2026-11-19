@@ -356,7 +356,6 @@ final class HibernateQueryShape {
                         && !attribute.isCollectionAssociation()
                         && !attribute.isElementCollection());
     }
-
     /** A bounded single-root static SELECT can exclude explicit collection fetching without following its joins. */
     static boolean verifiedFetchFreeSelect(HibernateContext context, HibernateRepositoryMethodModel method) {
         HibernateQueryEvidence evidence = method.evidence();

@@ -8,6 +8,8 @@ import {registerJvmSizingInputTests} from '../scenarios/jvm-sizing-inputs.js'
 import {registerGitHubRefreshTests} from '../scenarios/github-refresh.js'
 import {registerMemoryHistogramTests} from '../scenarios/memory-histogram.js'
 import {registerVulnerabilityCandidateTests} from '../scenarios/vulnerability-candidates.js'
+import {registerHomeGuideTests} from '../scenarios/home-guide.js'
+import {registerFeedbackPopoverTests} from '../scenarios/feedback-popover.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
 registerActionPolicyTests(test, expect)
@@ -16,6 +18,8 @@ registerJvmSizingInputTests(test, expect)
 registerGitHubRefreshTests(test, expect)
 registerMemoryHistogramTests(test, expect)
 registerVulnerabilityCandidateTests(test, expect)
+registerHomeGuideTests(test, expect)
+registerFeedbackPopoverTests(test, expect)
 
 async function expandAllSidebarGroups(page) {
   const toggles = page.locator('aside .bootui-nav-group__toggle')
@@ -95,9 +99,9 @@ test.describe('BootUI on Spring WebFlux', () => {
     })
   })
 
-  test('redirects the root path to /scorecard', async ({page}) => {
+  test('redirects the root path to /home', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/home$/)
   })
 
   test('turns off low-footprint mode from the AI Framework banner', async ({page}) => {

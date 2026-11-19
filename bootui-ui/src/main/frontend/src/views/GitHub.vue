@@ -1,16 +1,25 @@
+<script>
+import {ref as pageRef} from 'vue'
+
+// Page-lifetime consent survives route unmounts, but never a reload or a new tab.
+// Neither cached server state nor persistent browser storage can grant it.
+const connectionConsent = pageRef(false)
+const externalRefreshPending = pageRef(false)
+</script>
+
 <script setup>
 import {getJson} from '../api.js'
-import {computed, ref, watch} from 'vue'
+import {computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch} from 'vue'
 import {formatNumber, formatRelative} from '../utils/format.js'
 import {formatBytes} from '../utils/memoryReport.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useRefreshState} from '../utils/useRefreshState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
-const {readOnly, readOnlyReason} = usePanelState(props)
+const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const AUTO_REFRESH_INTERVAL_MS = 60_000
 const QUOTA_COLOR_SCALE = [
   {threshold: 0, color: '#D73027', textColor: '#fff'},
@@ -27,6 +36,14 @@ const error = ref(null)
 const lastFetched = ref(null)
 const activeDrawer = ref(null)
 const selectedRemote = ref('origin')
+const active = ref(false)
+const visible = ref(document.visibilityState === 'visible')
+const refreshDisabled = ref(false)
+let timer = null
+let inFlight = false
+let ownsExternalRefresh = false
+let completedCacheReadPending = false
+let disposed = false
 
 const metrics = computed(() => data.value?.metrics ?? [])
 const quotas = computed(() => data.value?.quotas ?? [])
@@ -45,41 +62,146 @@ const unavailable = computed(() => data.value?.available === false)
 const repositoryContext = computed(() => data.value?.repositoryContext)
 const forkData = computed(() => repository.value?.fork === true)
 
-async function fetchDashboard(requestRefresh = null, remote = selectedRemote.value) {
-  const liveRefresh = !readOnly.value && (requestRefresh ?? autoRefresh.value)
+const canConnect = computed(
+  () => manifestAvailable.value && !readOnly.value && data.value && !unavailable.value && !refreshDisabled.value
+)
+const refreshAllowed = computed(() => connectionConsent.value && canConnect.value && active.value && visible.value)
+
+async function fetchDashboard(liveRefresh, remote = selectedRemote.value) {
   try {
     const path = liveRefresh ? 'api/github/refresh' : 'api/github'
     const query = remote === 'origin' ? '' : `?remote=${encodeURIComponent(remote)}`
     const report = await getJson(`${path}${query}`, liveRefresh ? {method: 'POST'} : {})
-    if (report?.status === 'ERROR') {
-      throw new Error(report.message || 'GitHub refresh failed')
+    // Permission belongs to the page, even after the requesting view has unmounted.
+    if (['BLOCKED', 'DISABLED'].includes(report.status)) connectionConsent.value = false
+    if (disposed) return
+    refreshDisabled.value = report.status === 'DISABLED'
+    if (['ERROR', 'BLOCKED', 'DISABLED'].includes(report.status)) {
+      error.value = describeLoadError(
+        new Error(report.message || `GitHub returned ${report.status}`),
+        `GitHub refresh failed (${report.status})`
+      )
+      // These timestamps describe attempts, not successful snapshots.
+      if (!data.value) data.value = report
+      return
     }
     data.value = report
     selectedRemote.value = report?.repositoryContext?.selectedRemote ?? remote
-    lastFetched.value = report?.refreshedAt ?? null
+    lastFetched.value = report.connected ? report.refreshedAt : null
     error.value = null
   } catch (e) {
+    if (e.status === 403) connectionConsent.value = false
+    if (disposed) return
     error.value = describeLoadError(e, liveRefresh ? 'Unable to refresh GitHub' : 'Unable to load cached GitHub data')
   }
 }
 
 function connectRemote(remote) {
-  autoRefresh.value = false
+  if (readOnly.value) {
+    load(false, remote)
+    return
+  }
+  connectionConsent.value = true
   load(true, remote)
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchDashboard, {
-  intervalMs: AUTO_REFRESH_INTERVAL_MS,
-  defaultEnabled: false
-})
+const {loading, initialLoading, refresh} = useRefreshState(fetchDashboard)
 
+async function load(liveRefresh = false, remote = selectedRemote.value) {
+  if (disposed || inFlight || !manifestAvailable.value) return
+  if (liveRefresh && (!refreshAllowed.value || externalRefreshPending.value)) return
+  inFlight = true
+  if (liveRefresh) {
+    ownsExternalRefresh = true
+    externalRefreshPending.value = true
+  } else {
+    completedCacheReadPending = false
+  }
+  try {
+    await refresh(liveRefresh, remote)
+  } finally {
+    if (liveRefresh) {
+      externalRefreshPending.value = false
+      ownsExternalRefresh = false
+    }
+    inFlight = false
+    readCompletedCache()
+  }
+}
+
+function readCompletedCache() {
+  if (completedCacheReadPending && active.value && visible.value && !externalRefreshPending.value) load()
+}
+
+// A replacement may have read the cache before the previous instance's POST completed.
+// Its own POST already supplies a report; only other instances need this cache-only read.
+// Keep at most one read pending behind a cached GET, or until this panel is visible again.
 watch(
-  [readOnly, autoRefresh],
-  ([locked]) => {
-    if (locked) autoRefresh.value = false
+  [externalRefreshPending, visible, manifestAvailable],
+  ([pending], [wasPending]) => {
+    if (wasPending && !pending && !ownsExternalRefresh) completedCacheReadPending = true
+    readCompletedCache()
   },
   {flush: 'sync'}
 )
+
+function connect() {
+  if (!canConnect.value || loading.value || externalRefreshPending.value) return
+  connectionConsent.value = true
+  load(true)
+}
+
+function stop() {
+  connectionConsent.value = false
+}
+
+function stopTimer() {
+  if (timer !== null) clearInterval(timer)
+  timer = null
+}
+
+// Resuming visibility/activation starts a full interval, never an immediate POST.
+watch(
+  refreshAllowed,
+  (allowed) => {
+    stopTimer()
+    if (allowed) timer = setInterval(() => load(true), AUTO_REFRESH_INTERVAL_MS)
+  },
+  {flush: 'sync'}
+)
+
+watch(
+  [readOnly, manifestAvailable, unavailable, refreshDisabled],
+  ([readOnlyNow, availableNow, unavailableNow, disabledNow]) => {
+    if (readOnlyNow || !availableNow || unavailableNow || disabledNow) stop()
+  },
+  {immediate: true, flush: 'sync'}
+)
+
+function activate() {
+  if (active.value) return
+  active.value = true
+  load()
+}
+
+function onVisibilityChange() {
+  visible.value = document.visibilityState === 'visible'
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  activate()
+})
+onActivated(activate)
+onDeactivated(() => {
+  active.value = false
+})
+onBeforeUnmount(() => {
+  disposed = true
+  active.value = false
+  stopTimer()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 function statusBadgeClass(status) {
   return (
@@ -458,45 +580,60 @@ function securitySignalUrl(signal) {
     <PanelHeader
       icon="bi-github"
       title="GitHub"
-      subtitle="Live repository metrics, CI state, security signals, and quota usage. Origin is the default."
+      subtitle="Cached repository metrics, CI state, security signals, and quota usage for the local GitHub origin."
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
-      :refreshable="!readOnly"
-      :auto-refreshable="!readOnly"
-      auto-refresh-title="Refresh every minute while this tab is visible"
-      v-model:auto-refresh="autoRefresh"
-      @refresh="load(true)"
+      last-fetched-label="Cached"
+      :refreshable="manifestAvailable"
+      :auto-refreshable="false"
+      @refresh="load(connectionConsent)"
     >
       <template #actions>
         <button
-          v-if="readOnly && error"
+          v-if="!readOnly && manifestAvailable"
           type="button"
-          class="btn btn-outline-secondary btn-sm"
-          :disabled="loading"
-          :aria-busy="loading || undefined"
-          @click="load(false)"
+          class="btn btn-sm"
+          :class="connectionConsent ? 'btn-outline-secondary' : 'btn-primary'"
+          :disabled="!connectionConsent && (!canConnect || loading || externalRefreshPending)"
+          aria-describedby="github-connection-note"
+          @click="connectionConsent ? stop() : connect()"
         >
-          Retry cached data
+          {{ connectionConsent ? 'Stop' : 'Connect' }}
         </button>
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="initialLoading" />
+    <div id="github-connection-note" class="alert alert-info github-refresh-note">
+      <i class="bi bi-shield-lock me-2" aria-hidden="true"></i>
+      <div>
+        <p class="mb-1">
+          <strong>{{ connectionConsent ? 'Automatic GitHub refresh enabled.' : 'Cached data only.' }}</strong>
+          Connect allows BootUI to contact GitHub now and every minute while this panel is active and visible, until you
+          stop or reload this page. Returning to the panel reads cached data first.
+        </p>
+        <p class="small mb-0">
+          Tokens from <code>GITHUB_TOKEN</code>, <code>GH_TOKEN</code>, or <code>gh auth token</code> stay server-side.
+          Stopping prevents future refreshes; a request already in progress may finish.
+        </p>
+        <p v-if="readOnly" class="mb-0 mt-1">{{ readOnlyReason }}</p>
+        <p v-else-if="!manifestAvailable" class="mb-0 mt-1">{{ manifestUnavailableReason }}</p>
+      </div>
+    </div>
+
+    <div v-if="lastFetched" class="small text-muted mb-3">
+      Cached snapshot:
+      <time :datetime="new Date(lastFetched).toISOString()">{{ formatDate(lastFetched) }}</time
+      >.
+      <span v-if="error">The previous snapshot is still shown; the refresh did not succeed.</span>
+    </div>
+
+    <PanelSkeleton v-if="initialLoading && manifestAvailable" />
 
     <template v-else-if="data">
       <div v-if="unavailable" class="alert alert-warning">
         <strong>GitHub repository unavailable.</strong>
         {{ data.unavailableReason }}
-      </div>
-
-      <div v-else class="alert alert-info github-refresh-note">
-        <i class="bi bi-shield-lock me-2"></i>
-        <span>
-          Opening this panel reads cached data only. Refresh manually or enable auto-refresh for updates every minute
-          while visible. Tokens from <code>GITHUB_TOKEN</code>, <code>GH_TOKEN</code>, or
-          <code>gh auth token</code> stay server-side and are never sent to the browser.
-        </span>
       </div>
 
       <div v-if="!unavailable" class="row g-3 mb-3">
@@ -616,22 +753,10 @@ function securitySignalUrl(signal) {
       <div v-if="!unavailable && !connected" class="card border-dashed mb-3">
         <div class="card-body text-center text-muted py-4">
           <i class="bi bi-cloud-arrow-down fs-1 d-block mb-2"></i>
-          <div class="fw-semibold text-body">
-            {{ readOnly ? 'No cached GitHub metrics' : 'Connect to GitHub to load live metrics' }}
+          <div class="fw-semibold text-body">Connect to GitHub to load live metrics</div>
+          <div>
+            Repository detection is local; quota and project metrics load from GitHub only after you choose Connect.
           </div>
-          <div v-if="readOnly">{{ readOnlyReason }}</div>
-          <template v-else>
-            <div>Repository detection is local; Connect requests live quota and project metrics from GitHub.</div>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm mt-3"
-              :disabled="loading"
-              :aria-busy="loading || undefined"
-              @click="load(true)"
-            >
-              Connect
-            </button>
-          </template>
         </div>
       </div>
 

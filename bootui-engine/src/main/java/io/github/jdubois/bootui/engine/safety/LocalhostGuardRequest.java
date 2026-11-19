@@ -14,6 +14,25 @@ package io.github.jdubois.bootui.engine.safety;
  *     is allowed — a present but malformed value is rejected)
  * @param origin the raw {@code Origin} header value; may be {@code null}
  * @param secFetchSite the raw {@code Sec-Fetch-Site} header value; may be {@code null}
+ * @param scheme the effective HTTP scheme used for Origin comparison
+ * @param rawHostAvailable whether the adapter can distinguish the original authority from a rewritten one
  */
 public record LocalhostGuardRequest(
-        String method, String remoteAddr, String hostAuthority, String origin, String secFetchSite) {}
+        String method,
+        String remoteAddr,
+        String hostAuthority,
+        String origin,
+        String secFetchSite,
+        String scheme,
+        boolean rawHostAvailable) {
+
+    public LocalhostGuardRequest(
+            String method, String remoteAddr, String hostAuthority, String origin, String secFetchSite, String scheme) {
+        this(method, remoteAddr, hostAuthority, origin, secFetchSite, scheme, true);
+    }
+
+    public LocalhostGuardRequest(
+            String method, String remoteAddr, String hostAuthority, String origin, String secFetchSite) {
+        this(method, remoteAddr, hostAuthority, origin, secFetchSite, "http");
+    }
+}

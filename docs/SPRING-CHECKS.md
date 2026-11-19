@@ -315,6 +315,9 @@ findings from the score.
 
 ## Web and HTTP
 
+Boot-managed server attribution permits BootUI's metadata-only peer customizer, which adds a capture valve without
+changing server policy. Application customizers remain unknown; collection never invokes a customizer.
+
 ### SPRING-WEB-001 - Consider origin response compression
 
 - **Severity**: INFO

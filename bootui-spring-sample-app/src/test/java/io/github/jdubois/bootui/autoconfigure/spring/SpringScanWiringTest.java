@@ -78,7 +78,9 @@ class SpringScanWiringTest {
         var report = controller.scan();
         assertThat(snapshot.applicationSecurityChainPresent()).isTrue();
         assertThat(report.rulesEvaluated()).isEqualTo(45);
-        assertThat(report.evidence().coverageComplete()).isTrue();
+        assertThat(report.evidence().coverageComplete())
+                .as("Spring advisor report: %s", report)
+                .isTrue();
         assertThat(report.evidence().limitations()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
         assertThat(report.results())

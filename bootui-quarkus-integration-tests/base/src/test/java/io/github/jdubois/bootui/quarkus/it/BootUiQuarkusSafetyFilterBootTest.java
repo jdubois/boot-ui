@@ -60,7 +60,9 @@ class BootUiQuarkusSafetyFilterBootTest {
     void sameOriginWriteIsNotBlockedByTheGuard() {
         // Host-only Origin match (the loopback Host is localhost:<port>): the guard must let it through.
         // Routing then answers 405 because /bootui/api/overview is GET-only — proving the guard did not 403.
-        Response response = probe().post("/bootui/api/overview", Map.of("Origin", "http://localhost"));
+        Response response = probe().post(
+                        "/bootui/api/overview",
+                        Map.of("Origin", baseUrl.toExternalForm().replaceAll("/$", "")));
         assertThat(response.status())
                 .as("same-origin write must not be rejected (403) by the safety guard")
                 .isNotEqualTo(403);

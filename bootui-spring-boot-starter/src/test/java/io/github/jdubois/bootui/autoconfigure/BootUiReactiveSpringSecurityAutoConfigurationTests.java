@@ -338,6 +338,7 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
         String token = context.getBean(ApiTokenAuthenticator.class).token();
         return WebTestClient.bindToApplicationContext(context)
                 .configureClient()
+                .baseUrl("http://localhost")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .defaultHeader(HttpHeaders.HOST, "localhost")
                 .build();
