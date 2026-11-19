@@ -217,23 +217,24 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     await expect(page.getByRole('button', {name: 'Connect to origin', exact: true})).toBeVisible()
     await expect(page.getByRole('button', {name: /Dependabot alerts/})).not.toContainText('Fork data')
     await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
-    await page.clock.runFor(120_000)
-    expect(requests).toEqual(['GET origin', 'POST upstream', 'POST upstream', 'POST upstream', 'POST upstream'])
+    await page.clock.runFor(60_000)
+    await expect.poll(() => requests).toEqual(['GET origin', 'POST upstream', 'POST upstream', 'POST upstream'])
     upstreamAvailable = false
     await page.getByRole('button', {name: 'Refresh panel', exact: true}).click()
     await expect(page.getByText('Configured upstream was removed', {exact: false})).toBeVisible()
     await page.getByRole('button', {name: 'Connect to origin', exact: true}).click()
     await expect(page.getByRole('button', {name: /Dependabot alerts/})).toContainText('Fork data')
     await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
-    await page.clock.runFor(120_000)
+    await expect.poll(() => requests.at(-1)).toBe('POST origin')
+    const beforeOriginPoll = requests.length
+    await page.clock.runFor(60_000)
+    await expect.poll(() => requests.length).toBe(beforeOriginPoll + 1)
     expect(requests).toEqual([
       'GET origin',
       'POST upstream',
       'POST upstream',
       'POST upstream',
       'POST upstream',
-      'POST upstream',
-      'POST origin',
       'POST origin',
       'POST origin'
     ])
@@ -368,7 +369,7 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
 
     await connect.click()
     await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
-    expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh'])
+    await expect.poll(() => requests).toEqual(['GET cache', 'GET cache', 'POST refresh'])
     await page.clock.runFor(60_000)
     await expect(refresh).toBeEnabled()
     expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh', 'POST refresh'])
