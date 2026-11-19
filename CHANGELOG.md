@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Authorization target evidence** distinguishes request-route restrictions from object-level method decisions.
+  Genuine request findings retain exposure-controlled paths and separately labeled method context without
+  exposing method rules ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Cache capture proof** brackets retained journal reads again, so a concurrent capture change cannot manufacture
   an absence finding or hide newly retained work. Current SQL capture gaps still preserve known facts
   ([Runtime Insights](docs/features/runtime-insights.md)).
