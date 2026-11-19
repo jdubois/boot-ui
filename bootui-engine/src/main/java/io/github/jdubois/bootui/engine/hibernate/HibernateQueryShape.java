@@ -49,8 +49,7 @@ final class HibernateQueryShape {
                 if (!closed) return null;
             } else if (c == '-' && i + 1 < query.length() && query.charAt(i + 1) == '-') {
                 if (!lineComments) return null;
-                while (i + 1 < query.length() && query.charAt(i + 1) != '\n') i++;
-                result.append(' ');
+                result.append(c);
             } else if (c == '/' && i + 1 < query.length() && query.charAt(i + 1) == '*') {
                 int end = query.indexOf("*/", i + 2);
                 if (end < 0) return null;
