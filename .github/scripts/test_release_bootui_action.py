@@ -620,7 +620,9 @@ exit 0
         commands = self.log.read_text().splitlines()
         self.assertEqual(sum(" --verify " in line for line in commands), 2)
         self.assertTrue(any(" --import " in line for line in commands))
-        self.assertEqual(sum(line.startswith("curl ") for line in commands), 3)
+        self.assertEqual(sum(line.startswith("curl ") for line in commands), 2)
+        self.assertFalse(any("keyserver" in line for line in commands))
+        self.assertTrue(any("bootui-release-key.asc" in line and " --import " in line for line in commands))
 
     def test_download_with_bad_signature_or_wrong_primary_key_is_not_installed(self):
         for verify, primary in (("invalid", self.FINGERPRINT), ("valid", "F" * 40)):

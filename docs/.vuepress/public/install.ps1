@@ -5,8 +5,8 @@
 .DESCRIPTION
   Downloads the runnable `bootui` jar from Maven Central, checks it against the
   checksum Maven Central publishes beside it, and writes a `bootui` command that
-  runs it. It needs no administrator rights and talks to nothing but the Maven
-  repository.
+  runs it. With GnuPG installed it also verifies the pinned release signature
+  using the key served by the BootUI site. It needs no administrator rights.
 
 .EXAMPLE
   irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex
@@ -29,7 +29,9 @@ param(
   # Leave the user PATH alone.
   [switch] $NoPathUpdate,
   # Remove what this script installed.
-  [switch] $Uninstall
+  [switch] $Uninstall,
+  # Permit a missing checksum only after independent verification; never a mismatch.
+  [switch] $AllowUnverified
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +41,8 @@ $ProgressPreference = 'SilentlyContinue'
 
 $GroupPath = 'com/julien-dubois/bootui'
 $Artifact = 'bootui-cli'
+$ReleaseKeyFingerprint = '7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9'
+$ReleaseKeyUrl = 'https://www.julien-dubois.com/boot-ui/bootui-release-key.asc'
 
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'BootUI' }
 if (-not $BinDir) { $BinDir = Join-Path $InstallDir 'bin' }
@@ -149,17 +153,46 @@ try {
     }
     # A Maven checksum file holds a bare digest, sometimes followed by a file name.
     $expected = ($published -split '\r?\n')[0].Trim().Split(' ')[0].ToLowerInvariant()
-    if (-not $expected) { continue }
+    $length = @{ SHA512 = 128; SHA256 = 64; SHA1 = 40 }[$algorithm]
+    if ($expected -notmatch "^[0-9a-f]{$length}$") {
+      Stop-Install "malformed published $algorithm checksum. Nothing was installed."
+    }
     $actual = (Get-FileHash -LiteralPath $tempJar -Algorithm $algorithm).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
       Stop-Install ("the download does not match the $algorithm checksum published beside it.`n" +
         "  expected $expected`n  got      $actual`n  Nothing was installed.")
     }
-    Write-Step "Checked the download against its published $algorithm checksum."
+    Write-Step "Verification: published $algorithm checksum matched (repository integrity, not signer authentication)."
+    if ($algorithm -eq 'SHA1') { Write-Step 'Warning: this older release supplies only the legacy SHA-1 checksum.' }
     $verified = $true
     break
   }
-  if (-not $verified) { Write-Step 'Note: no checksum was available to check this download against.' }
+  if (-not $verified) {
+    if (-not $AllowUnverified) {
+      Stop-Install 'no checksum could be verified. Nothing was installed. Use -AllowUnverified only after independent verification.'
+    }
+    Write-Step 'Warning: checksum verification was explicitly bypassed with -AllowUnverified.'
+  }
+
+  $gpg = Get-Command gpg -ErrorAction SilentlyContinue
+  if ($gpg) {
+    $keyring = Join-Path $tempDir 'keyring'
+    New-Item -ItemType Directory -Path $keyring | Out-Null
+    $releaseKey = Join-Path $tempDir 'release-key.asc'
+    $signature = Join-Path $tempDir 'cli.asc'
+    Invoke-WebRequest -Uri $ReleaseKeyUrl -OutFile $releaseKey -UseBasicParsing
+    Invoke-WebRequest -Uri "$jarUrl.asc" -OutFile $signature -UseBasicParsing
+    & $gpg.Source --homedir $keyring --batch --import $releaseKey 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Stop-Install 'could not import the release key.' }
+    $verification = & $gpg.Source --homedir $keyring --batch --status-fd 1 --verify $signature $tempJar 2>&1
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($verification -match "^\[GNUPG:\] VALIDSIG .* $ReleaseKeyFingerprint$")) {
+      Stop-Install 'invalid release signature or signer is not the pinned BootUI key. Nothing was installed.'
+    }
+    Write-Step "Verification: OpenPGP signature matched pinned BootUI key $ReleaseKeyFingerprint."
+  } else {
+    Write-Step 'Verification: signer not authenticated (GnuPG unavailable).'
+  }
 
   # ---------------------------------------------------------------- install
 

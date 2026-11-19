@@ -113,6 +113,28 @@ BootUI masks values for property keys that look like secrets (`password`,
 `token`, `secret`, `key`, …). This is controlled by `bootui.expose-values`,
 which defaults to `MASKED`.
 
+### CLI download verification
+
+The installers require a published checksum and, when GnuPG is installed, an OpenPGP signature from primary key
+`7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9`. The GitHub Action bundles that public key and never contacts a keyserver.
+Installers fetch the same key from BootUI's site into a private temporary keyring. A checksum authenticates only
+repository integrity, not the signer; the output says which verification completed. Older releases can use SHA-1
+with a warning; new release bundles additionally include SHA-256.
+
+For manual verification, download the jar and its `.asc` from the same Maven repository path, then:
+
+```bash
+curl -fsSLo bootui-release-key.asc https://www.julien-dubois.com/boot-ui/bootui-release-key.asc
+gpg --show-keys --with-fingerprint bootui-release-key.asc
+# Compare the primary fingerprint with the pinned value above before importing.
+gpg --import bootui-release-key.asc
+gpg --status-fd 1 --verify bootui-cli-VERSION-all.jar.asc bootui-cli-VERSION-all.jar
+```
+
+Require a successful exit and a `VALIDSIG` whose primary fingerprint is the pinned value. An installer
+`--allow-unverified` / `-AllowUnverified` only bypasses a missing checksum, never a checksum mismatch or invalid
+signature. `bootui update` remains checksum-verified; it does not claim OpenPGP signer authentication.
+
 ### Local agent session panels (Copilot and Claude Code)
 
 The Copilot and Claude Code panels surface activity from local AI coding

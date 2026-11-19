@@ -73,7 +73,7 @@ readonly cli_directory="$RUNNER_TEMP/bootui-cli/$version"
 readonly keyring_directory="$RUNNER_TEMP/bootui-cli/gnupg"
 readonly cli_jar="$cli_directory/bootui-cli-$version-all.jar"
 readonly cli_signature="$cli_jar.asc"
-readonly release_key="$cli_directory/bootui-release-key.asc"
+readonly release_key="$script_dir/bootui-release-key.asc"
 mkdir -p "$cli_directory" "$keyring_directory"
 chmod 700 "$keyring_directory"
 keyring_bytes="$(printf '%s' "$keyring_directory" | wc -c)"
@@ -87,10 +87,7 @@ else
 fi
 
 if ! gpg --batch --list-keys "$RELEASE_KEY_FINGERPRINT" >/dev/null 2>&1; then
-  curl --fail --silent --show-error --location --max-redirs 3 --retry 3 --connect-timeout 10 --max-time 60 --retry-max-time 180 \
-    --output "$release_key" \
-    "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$RELEASE_KEY_FINGERPRINT" \
-    || fail "Could not retrieve the pinned BootUI release signing key."
+  [[ -r "$release_key" ]] || fail "The bundled BootUI release signing key is missing."
   gpg --batch --import "$release_key" >/dev/null \
     || fail "Could not import the pinned BootUI release signing key."
 fi
