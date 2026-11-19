@@ -107,6 +107,14 @@ class HibernateQueryShapeTests {
     }
 
     @Test
+    void commentLikeDoubleMinusTextIsNotParsedAsAnOperatorSequence() {
+        assertThat(HibernateQueryShape.lexical("select o from QueryOrder o -- join fetch o.items"))
+                .isNull();
+        assertThat(HibernateQueryShape.lexical("select o from QueryOrder o where o.id = 1--1"))
+                .contains("1--1");
+    }
+
+    @Test
     void filteredFetchRequiresMappedFetchedAliasEqualityRatherThanAnAliasMention() {
         for (String query : List.of(
                 "select o from QueryOrder o join fetch o.items i where i.status = :status",

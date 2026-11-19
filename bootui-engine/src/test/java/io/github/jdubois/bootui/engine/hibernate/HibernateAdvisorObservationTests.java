@@ -1246,6 +1246,18 @@ class HibernateAdvisorObservationTests {
     }
 
     @Test
+    void commentLikeAdjacentMinusTextCannotInventCollectionFetches() {
+        String query = "select o from Order o -- join fetch o.items";
+        HibernateContext context = context("7.2.19.Final", List.of(method(query, null, Order.class, false)));
+
+        for (HibernateRule rule :
+                List.of(new CollectionJoinFetchPageableRule(), new MultipleCollectionJoinFetchRule())) {
+            rule.evaluate(context);
+        }
+        assertThat(context.evidence().requiredUnknown()).as(query).isTrue();
+    }
+
+    @Test
     void fetchFreeExclusionPreservesUnknownAndGenuineFetchEvaluations() {
         for (String query : List.of(
                 "select new app.PostDto(o.id) from Order o join Other u on o.id = u.id join\nFeTcH o.items",
