@@ -128,9 +128,24 @@ assessment's `exit-code` is `0`; an invalid report makes the assessment result `
 
 ## Reports and failures
 
-An assessment writes `bundle.json`, `summary.md`, and `junit.xml`. The Action adds the Markdown summary to the GitHub
-job summary. The default `run` phase uploads only those bounded reports; the advanced phases leave artifact upload to
-the caller. Uploading JUnit XML alone does not create a native GitHub test-results dashboard.
+An assessment writes `bundle.json`, `summary.md`, `junit.xml`, and `sarif.json`. The Action adds the Markdown summary
+to the GitHub job summary. The default `run` phase uploads only those bounded reports; the advanced phases leave artifact
+upload to the caller. Uploading JUnit XML alone does not create a native GitHub test-results dashboard.
+
+`sarif.json` is a SARIF 2.1.0 projection of the sanitized bundle, so it holds the same facts as the Markdown summary: one
+result per retained rule summary, with the rule ID, a level from the severity (`error` for CRITICAL and HIGH, `warning`
+for MEDIUM, `note` for LOW and INFO), the advisor, the count, and whether the severity meets the advisor's `failOn`.
+Security-advisor rules also carry a GitHub `security-severity`. A skipped optional advisor and each assessment error are
+tool execution notifications, and a NOT_ASSESSED report is an unsuccessful run, so an empty result list never reads as a
+pass. **This is a downloadable SARIF report, not a GitHub code-scanning integration.** The Action does not call
+`upload-sarif`. The bundle retains no source files, routes, or finding text, so results have no physical location and
+must not be advertised as GitHub file annotations. No source path or line is invented. A runtime-gate violation of
+`request-input-in-sink` names up to five call sites (`Class#method`) as SARIF logical locations, and every runtime-gate
+rule carries its CWE and OWASP Top 10 category (`cwe`, `owasp`, and `external/cwe/...` tags). Advisor findings carry no
+CWE or OWASP mapping, because advisor reports do not provide one. Runtime observations have no assigned
+`security-severity`: their SARIF `error` level reflects the selected CI policy, not measured exploitability or a CVSS
+score. Their CWE/OWASP labels identify related categories, not confirmed vulnerabilities. Run properties explicitly
+state `sourceLocations: UNAVAILABLE` and `workloadAttribution: UNVERIFIED`.
 
 If attachment failed, pass its original result to assess. Assessment then avoids scans and stale witnesses and writes
 a minimal `ATTACH_FAILED` report. CLI setup/report failures use a separate fresh `<output-dir>.action-error` directory,
@@ -214,13 +229,84 @@ GitHub log masking is not a substitute for report sanitization. Protect artifact
 ## Runtime Insights
 
 Add `"runtimeContext": { "includeInsights": true }` to request a bounded, report-only Runtime Insights snapshot.
-Omitting it, or setting it to false, makes no extra request. Runtime observations never change the advisor verdict.
+Omitting it, or setting it to false, makes no extra request. Runtime observations never change the advisor verdict
+unless the policy names them in `failOnObservations` ([runtime gate](#runtime-gate)).
 
 The optional read has a ten-second bound and preserves time for the final target identity check. `PARTIAL`,
 `UNAVAILABLE`, `ERROR`, and `NOT_COLLECTED` do not imply zero activity or a passing workload. The report retains aggregate
 coverage and at most 20 default-listed observation summaries, not routes, request IDs, application prose, or suggestions.
 Workload attribution remains `UNVERIFIED`: the observed process identity and counts do not prove that your tests exercised it.
-JUnit output remains advisor-only.
+Without a runtime gate, JUnit output remains advisor-only.
+
+### Runtime gate
+
+To fail the assessment on a runtime security observation, name it in `failOnObservations` (unreleased):
+
+```json
+"runtimeContext": {
+  "includeInsights": true,
+  "failOnObservations": [
+    "anonymous-success-on-restricted-route",
+    "anonymous-data-reach",
+    "request-input-in-sink"
+  ]
+}
+```
+
+| Kind | Source | Needs |
+| --- | --- | --- |
+| `anonymous-success-on-restricted-route`, `anonymous-data-reach` | [Runtime Insights](../features/runtime-insights.md) | `includeInsights: true`; a workload that sends anonymous requests to restricted routes |
+| `request-input-in-sink` | the [BootUI agent](../features/java-agent.md#the-security-sinks-sensor)'s `security-sinks` sensor | the target started with the `-javaagent`, `bootui.agent.sensors` including `security-sinks`, `bootui.agent.security-sinks.request-values=true`, and a workload such as your tests or a DAST scan |
+
+The assessment reads each named kind separately (`anonymous-data-reach` is not in the default listing, and sink rows
+come from Side Effects). **Attach before sending the workload to a fresh application instance.** For gated policies,
+attachment takes bounded, read-only start snapshots and records only sanitized gate readiness in the witness.
+Pre-existing request evidence cannot satisfy a later gate: it produces `PREEXISTING_EVIDENCE`, not a pass.
+Use a new JVM for each gated assessment; request-value holder counters survive clearing rows and application reloads.
+An unavailable or incomplete source at attachment remains not assessed; fix its configuration and attach again.
+Policies without `failOnObservations` make no start-snapshot requests and retain their existing witness format.
+
+The assessment judges each named kind:
+
+| Result | When |
+| --- | --- |
+| `VIOLATION` | The run recorded at least one observation of the kind, or one confirmed request-input sink row (SQL text, command, file path, or outbound URL; the sensor's JDK checks do not count); the assessment fails with exit code `3`. |
+| `PASS` | The start snapshot established an empty evidence floor, then the named check positively ran with complete evidence and recorded nothing. |
+| `NOT_ASSESSED` | Evidence predates attachment, the source was unavailable or incomplete, capture dropped records, the check did not positively run, matching checked no sink, or the target is too old to establish completeness. The assessment reports `RUNTIME_GATE_INCOMPLETE` and exits `1`. |
+
+The anonymous-access checks rely only on requests an authorization decision proved anonymous, so a workload without
+anonymous requests to restricted routes leaves them insufficient: not assessed, not passed. The bundle's
+`runtimeContext.gate` keeps each kind's result, reason, affected count, and, for a sink violation, up to five
+application call sites (`Class#method`), never routes, tables, parameter names, values, or sentences; the summary, a `runtime:<kind>` JUnit test case, and a SARIF result per violation report the same
+facts, and offline checks re-validate them against the policy.
+
+::: details Diagnosing an incomplete gate
+
+| Reason | What to change |
+| --- | --- |
+| `PREEXISTING_EVIDENCE` | Start a fresh application and attach before its workload; clearing rows does not reset JVM counters. |
+| `UNAVAILABLE`, `SENSOR_NOT_RECORDING`, `REQUEST_VALUES_OFF` | Enable the required panel, journal, sensor and matching before attachment; wait for agent installation. |
+| `NO_REQUESTS`, `NO_REQUEST_VALUES`, `NO_SINK_CHECKS`, `CHECK_NOT_RUN`, `CHECK_NOT_EVALUATED` | Exercise relevant anonymous requests or requests with supported query/path values reaching a recorded sink. Tests running in another JVM do not exercise this target. |
+| `PARTIAL_CAPTURE`, `PARTIAL`, `INSUFFICIENT`, `UNCONFIRMED`, `OMITTED` | Reduce capture pressure or run a sufficient bounded workload. Lost, truncated, excluded or unconfirmed evidence cannot establish a clean result. |
+| `UNSUPPORTED`, `ERROR` | Use a compatible target exposing positive check metadata and complete counters; inspect its local configuration. |
+
+`get_runtime_insights.completeWindow` must confirm that no journal event was evicted, dropped or cleared, and recording
+was never paused, even if it has since resumed.
+`get_runtime_insights.evaluatedChecks` positively names fully evaluated checks. Missing an observation and missing
+a `checksNotRun` entry alone are not evidence of success. `get_side_effects.requestValueChecks` counts actual sink-text
+checks; holding values is not sufficient. `requestValueChecksSkipped` includes capture bounds, truncated/overflowed
+matching, dropped publication and ownership gaps, with `-1` for unavailable counters. Recording clears, claim
+replacement and sink-sensor discontinuities also leave this count positive; removing rows cannot restore a clean gate.
+Values shorter than the sensor's documented four-character matching minimum are out of scope, not capture loss.
+Matches still awaiting route attribution remain unconfirmed rather than appearing absent.
+
+:::
+
+These are **observation-policy gates**, not vulnerability verdicts or proof of coverage. Unchanged input can
+legitimately reach a sink; investigate its use and context before diagnosing injection. A pass covers only the retained,
+supported evidence, not all routes, request inputs or exploit classes. BootUI does not generate payloads, attest that
+the caller's tests produced the traffic, or suppress existing findings through a baseline. Start with a dedicated,
+non-release-blocking CI job before adopting these gates as required checks.
 
 ## Offline rechecking
 

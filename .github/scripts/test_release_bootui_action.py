@@ -57,7 +57,9 @@ class BootUiActionTests(unittest.TestCase):
         self.assertEqual(
             json.loads((report / "bundle.json").read_text())["errors"], [{"code": "CLI_SETUP_FAILED"}],
         )
-        self.assertEqual({path.name for path in report.iterdir()}, {"bundle.json", "summary.md", "junit.xml"})
+        self.assertEqual(
+            {path.name for path in report.iterdir()}, {"bundle.json", "summary.md", "junit.xml", "sarif.json"}
+        )
 
     def test_root_action_remains_in_the_formatting_scope(self):
         self.assertIn("<include>action.yml</include>", (ROOT / "pom.xml").read_text())
@@ -158,6 +160,10 @@ class BootUiActionTests(unittest.TestCase):
         self.assertEqual(bundle["status"], "NOT_ASSESSED")
         self.assertEqual(bundle["errors"], [{"code": "ATTACH_FAILED"}])
         self.assertIn("<error", (report / "junit.xml").read_text())
+        sarif = json.loads((report / "sarif.json").read_text())
+        properties = sarif["runs"][0]["properties"]
+        self.assertEqual(properties["sourceLocations"], "UNAVAILABLE")
+        self.assertEqual(properties["workloadAttribution"], "UNVERIFIED")
         self.assertIn(f"report-dir={report}", self.outputs.read_text())
         second = self.run_script("report-error.sh")
         self.assertNotEqual(second.returncode, 0)
@@ -375,6 +381,7 @@ class BootUiActionTests(unittest.TestCase):
             "if [[ \"$FAKE_REPORTS\" != partial ]]; then\n"
             "  echo '{}' > \"$BOOTUI_OUTPUT_DIR/bundle.json\"\n"
             "  echo '<testsuite/>' > \"$BOOTUI_OUTPUT_DIR/junit.xml\"\n"
+            "  echo '{}' > \"$BOOTUI_OUTPUT_DIR/sarif.json\"\n"
             "fi\n"
             "case \"$FAKE_REPORTS\" in\n"
             "  empty) : > \"$BOOTUI_OUTPUT_DIR/bundle.json\" ;;\n"

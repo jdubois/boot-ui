@@ -26,6 +26,11 @@ the running application instead:
 
 Every tool reuses the same services and immutable DTO contracts as the browser UI, with compact agent projections
 where needed, so the agent sees masked, bounded evidence, never raw internals. Method-probe shapes stay in the panel.
+Runtime Insights' `evaluatedChecks` names checks positively evaluated without missing evidence, independently of
+the query; `completeWindow` is false after journal eviction, drops, clears or recording pauses. Side Effects exposes
+request-value matching, held-value and actual sink-check counts, skipped checks and
+unconfirmed matches. Counts never expose input values; missing positive metadata cannot establish a clean
+[CI runtime gate](ci/reference.md#runtime-gate).
 
 ::: details Dismissed Pentesting findings
 `pentest_scan`, `get_pentest_report`, their CLI equivalents, and the REST API retain accepted findings with

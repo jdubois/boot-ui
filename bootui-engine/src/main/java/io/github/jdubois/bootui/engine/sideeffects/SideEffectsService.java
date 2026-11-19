@@ -1121,15 +1121,22 @@ public final class SideEffectsService implements AutoCloseable {
         List<SideEffectsSensorDto> sensors = agentSensors(report.sensors(), bySensor ? asked : null);
         if (!report.available()) {
             return new SideEffectsAgentReport(
-                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of());
+                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of(), null, 0, 0, 0, 0);
         }
         String needle = asked.toLowerCase(Locale.ROOT);
         List<SideEffectsRowDto> matching = new ArrayList<>();
+        long unconfirmed = 0;
+        boolean discontinuous = true;
         Run current = settledRun();
         if (current != null) {
             Function<String, String[]> captures = captures();
             boolean codePaths = codePathsShown();
             synchronized (lock) {
+                unconfirmed = current.store.unconfirmed();
+                discontinuous = replaced
+                        || lastClearedAt != Long.MIN_VALUE
+                        || current.reinstalled
+                        || current.switched.contains(SideEffectsCatalog.SECURITY_SINKS_ID);
                 for (SideEffectsCatalog.Sensor sensor : SideEffectsCatalog.SENSORS) {
                     if (!sensor.available() || (bySensor && !sensor.id().equals(asked))) {
                         continue;
@@ -1158,6 +1165,26 @@ public final class SideEffectsService implements AutoCloseable {
                                     + " three each."
                             : ""));
         }
+        Map<String, Object> holder = AgentRequestValues.status();
+        long skipped = holderCount(
+                holder,
+                "tableFull",
+                "valuesTooLong",
+                "valuesOverCount",
+                "expired",
+                "partial",
+                "overflow",
+                "stopped",
+                "busy",
+                "refusedHandoff",
+                "refusedExecution",
+                "lockTakeovers",
+                "dropped",
+                "notKept",
+                "errors");
+        if (skipped >= 0 && discontinuous) {
+            skipped = Math.addExact(skipped, 1);
+        }
         return new SideEffectsAgentReport(
                 true,
                 null,
@@ -1166,7 +1193,24 @@ public final class SideEffectsService implements AutoCloseable {
                 matching.size(),
                 List.copyOf(listed),
                 matching.size() - listed.size(),
-                limitations);
+                limitations,
+                AgentRequestValues.active(),
+                unconfirmed,
+                holderCount(holder, "values"),
+                skipped,
+                holderCount(holder, "checks"));
+    }
+
+    /** A missing counter cannot establish complete capture for a CI gate. */
+    private static long holderCount(Map<String, Object> holder, String... keys) {
+        long total = 0;
+        for (String key : keys) {
+            if (!(holder.get(key) instanceof Number number) || number.longValue() < 0) {
+                return -1;
+            }
+            total = Math.addExact(total, number.longValue());
+        }
+        return total;
     }
 
     /** The sensors whose rows each fixed limitation describes; the others apply to every row. */

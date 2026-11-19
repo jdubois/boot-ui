@@ -647,14 +647,22 @@ public final class RuntimeInsightsService {
                 && cached.sqlCapture().equals(capture)
                 && cached.appEventCapture().equals(appEvents)
                 && cached.clears() == status.clears()
+                && cached.report().window().captureInterrupted() == captureInterrupted()
                 && cached.dropped().equals(status.dropped())
                 && text.equals(cached.exposure())
                 && cached.inventory() == inventory) {
             return cached;
         }
+
         cached = project(status, journal.entries(), watermark, evicted, visibility, capture, appEvents, text)
                 .withInventory(inventory);
         return cached;
+    }
+
+    private boolean captureInterrupted() {
+        return journal.paused()
+                || java.util.Arrays.stream(JournalSource.values())
+                        .anyMatch(source -> journal.lostMillis(source) != null);
     }
 
     private boolean codeInventoryVisible() {
@@ -1117,7 +1125,9 @@ public final class RuntimeInsightsService {
                         status.retainedEvents(),
                         snapshot.httpRequests().size(),
                         evicted,
-                        status.droppedTotal()),
+                        status.droppedTotal(),
+                        status.clears(),
+                        captureInterrupted()),
                 coverage,
                 checks,
                 rows,

@@ -21,6 +21,9 @@ import java.util.List;
  * @param omitted the matching observations beyond {@code limit}
  * @param insufficient the report-wide count of observations below their evidence minimum
  * @param partial the report-wide count of observations with incomplete source evidence
+ * @param evaluatedChecks the kinds positively evaluated without missing evidence, independently of the query
+ * @param completeWindow whether the journal lost no events through eviction, drops, clears or recording pauses;
+ *     {@code null} when unknown
  * @param notExercised declared routes no request of this run reached, at most {@value #MAX_NOT_EXERCISED}
  * @param notExercisedOmitted the declared routes not reached beyond those listed
  * @param limitations what the report cannot see
@@ -40,7 +43,9 @@ public record RuntimeInsightsAgentReportDto(
         List<String> limitations,
         List<RuntimeNextStepDto> next,
         int insufficient,
-        int partial) {
+        int partial,
+        List<String> evaluatedChecks,
+        Boolean completeWindow) {
 
     /** The observations listed when no limit is asked for. */
     public static final int DEFAULT_LIMIT = 8;
@@ -55,6 +60,41 @@ public record RuntimeInsightsAgentReportDto(
         notExercised = DtoCollections.immutableCopy(notExercised);
         limitations = DtoCollections.immutableCopy(limitations);
         next = DtoCollections.immutableCopy(next);
+        evaluatedChecks = DtoCollections.immutableCopy(evaluatedChecks);
+    }
+
+    public RuntimeInsightsAgentReportDto(
+            boolean available,
+            String unavailableReason,
+            String query,
+            long requests,
+            List<RuntimeInsightCoverageDto> coverage,
+            List<String> checksNotRun,
+            List<RuntimeInsightAgentDto> observations,
+            int omitted,
+            List<String> notExercised,
+            int notExercisedOmitted,
+            List<String> limitations,
+            List<RuntimeNextStepDto> next,
+            int insufficient,
+            int partial) {
+        this(
+                available,
+                unavailableReason,
+                query,
+                requests,
+                coverage,
+                checksNotRun,
+                observations,
+                omitted,
+                notExercised,
+                notExercisedOmitted,
+                limitations,
+                next,
+                insufficient,
+                partial,
+                List.of(),
+                null);
     }
 
     public RuntimeInsightsAgentReportDto(

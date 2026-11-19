@@ -727,7 +727,11 @@ Database advisor's policy key is `database-advisor`, but its CLI commands are `b
 `bootui db report --json`, not `bootui database-advisor scan`. A scan's `topFindings` preview does not establish
 complete coverage; read the cached advisor report for its evidence and diagnostics.
 
-Runtime Insights context is optional and report-only: omit the
+Runtime Insights context is optional and report-only unless the policy explicitly selects
+[`runtimeContext.failOnObservations`](ci/reference.md#runtime-gate). Gated policies require attachment to a fresh
+application before the workload, an empty start snapshot and positive, complete check evidence; they fail closed on
+pre-existing activity. These are observation-policy gates, not vulnerability verdicts.
+Without a runtime gate, omit the
 `runtimeContext` object (or set `includeInsights` to `false`) to make no extra request. A policy containing
 `runtimeContext` requires a CLI version that understands that key; older releases reject unknown policy keys.
 
@@ -796,12 +800,12 @@ if [ "$workload_status" -ne 0 ]; then exit "$workload_status"; fi
 exit "$assessment_status"
 ```
 
-The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
+The assessment writes a bounded `bundle.json`, `summary.md`, `junit.xml`, and `sarif.json`; report prose and raw finding text are
 not copied into these outputs. The Markdown summary lists up to 50 retained rule IDs, severities, counts, and whether
 they meet their advisor's threshold. Threshold-meeting findings appear first; any omitted rule summaries remain in
 `bundle.json`. Stable assessment error codes also appear in the summary. With `runtimeContext.includeInsights: true`,
 one bounded read-only Runtime Insights call adds aggregate coverage and at most 20 default-listed, sanitized observation
-summaries to the bundle and Markdown summary, never to JUnit. The projection omits routes, request IDs, observation
+summaries to the bundle and Markdown summary, not to JUnit unless a runtime gate is selected. The projection omits routes, request IDs, observation
 prose, and follow-up suggestions; its HTTP exchange count cannot prove the CI workload exercised the witnessed process.
 `CAPTURED`, `PARTIAL` (low-footprint mode),
 `UNAVAILABLE`, and `ERROR` describe the optional context only and never affect the advisor verdict or exit code;
@@ -847,7 +851,8 @@ the policy digest and assessment ID, and recomputes the threshold result from th
 URL or network fallback. The check validates consistency, not authenticity: CI artifacts are self-reported evidence,
 not tamper-proof attestation. Optional `SKIPPED` advisor rows are also self-reported and are not independently
 corroborated offline; mark every advisor needed for the gate as `required: true` in the collection policy. It validates
-the optional runtime projection's bounded structure and its policy opt-in, but never gates on its observations.
+the optional runtime projection's bounded structure and its policy opt-in. Observation gates apply only when the exact
+policy explicitly names them.
 Schema-version-1 success bundles are treated as Spring Boot for compatibility; a `NOT_ASSESSED` bundle can remain
 schema version 1 if identity was never established. Schema-version-1 bundles may omit `runtimeContext` only when the
 policy did not request Runtime Insights. Schema-version-2 bundles record `frameworkName` when identity is known.
@@ -865,8 +870,9 @@ still prevent collection or publishing; the witness proves identity continuity, 
 The composite Action downloads a pinned stable CLI release and verifies its Maven Central signature against BootUI's
 pinned release signing key. The Action and CLI commands become usable by consumers only after a release containing
 them is published. The lifecycle API and expected-window commands are part of the CLI artifact, not a framework
-plugin; the test suite must call them from its own lifecycle hooks. This increment does not provide comparisons,
-SARIF, or annotations.
+plugin; the test suite must call them from its own lifecycle hooks. Reports include location-independent SARIF as a
+downloadable artifact, not source-file annotations or automatic GitHub code-scanning upload. Baseline comparisons
+are not provided.
 
 ## Every command
 

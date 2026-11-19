@@ -203,7 +203,17 @@ public final class RuntimeInsightsAgentView {
                 // A diff query asks for the comparison, so it comes before the lead observation's follow-ups.
                 asked.equalsIgnoreCase("diff") ? asks.then(next) : next.then(asks),
                 insufficient,
-                partial);
+                partial,
+                report.checks().stream()
+                        .filter(check ->
+                                "EVALUATED".equals(check.status()) && JudgedWithoutFinding.gaps(check.reason()) == null)
+                        .map(RuntimeInsightCheckDto::kind)
+                        .toList(),
+                report.window() != null
+                        && report.window().evictedEvents() == 0
+                        && report.window().droppedEvents() == 0
+                        && report.window().recordingClears() == 0
+                        && !report.window().captureInterrupted());
     }
 
     /** {@link #detail(RuntimeObservationDetailDto, Predicate)} naming any tool as a next step. */

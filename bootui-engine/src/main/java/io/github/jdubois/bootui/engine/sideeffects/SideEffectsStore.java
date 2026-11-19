@@ -1569,9 +1569,16 @@ final class SideEffectsStore {
     /** Security-sinks matches not confirmed yet that arrived past the row caps, never kept as rows. */
     private long unconfirmedPastCap;
 
-    /** The security-sinks rows not shown yet: matches no second request confirmed, which may be coincidental. */
+    /** Security-sinks matches waiting for ownership or a second request, which may be coincidental. */
     long unconfirmed() {
         long hidden = unconfirmedPastCap;
+        for (Pending waiting : pending) {
+            Observation observation = waiting.observation();
+            if (SideEffectsCatalog.SECURITY_SINKS_ID.equals(observation.sensor())
+                    && !CheckWording.isCheck(observation.kind())) {
+                hidden++;
+            }
+        }
         for (Row row : rows.values()) {
             if (!visible(row)) {
                 hidden++;

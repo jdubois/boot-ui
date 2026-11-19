@@ -90,6 +90,43 @@ class RuntimeInsightsAgentViewTests {
     }
 
     @Test
+    void evaluatedChecksArePositiveUnfilteredEvidenceAndExcludePartialOrUnsupportedChecks() {
+        RuntimeInsightsReportDto source = report();
+        List<RuntimeInsightCheckDto> checks = List.of(
+                new RuntimeInsightCheckDto("clean", "Clean", "EVALUATED", 3, 0, null),
+                new RuntimeInsightCheckDto("gap", "Gap", "EVALUATED", 3, 0, "Some source events were lost."),
+                new RuntimeInsightCheckDto("partial", "Partial", "PARTIAL", 3, 0, null),
+                new RuntimeInsightCheckDto("absent", "Absent", "NOT_APPLICABLE", 0, 0, null));
+        RuntimeInsightsReportDto evaluated = new RuntimeInsightsReportDto(
+                true, null, source.window(), List.of(), checks, List.of(), List.of(), List.of(), 0);
+
+        RuntimeInsightsAgentReportDto answer = RuntimeInsightsAgentView.list(evaluated, "clean", 1);
+
+        assertThat(answer.observations()).isEmpty();
+        assertThat(answer.evaluatedChecks()).containsExactly("clean");
+        assertThat(answer.checksNotRun()).hasSize(3);
+    }
+
+    @Test
+    void evictionDropsClearsAndUnknownLifecycleCannotBeCompleteWindows() {
+        for (long[] losses : new long[][] {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}}) {
+            RuntimeInsightsReportDto source = new RuntimeInsightsReportDto(
+                    true,
+                    null,
+                    new RuntimeInsightsWindowDto("run", null, null, 2, 1, losses[0], losses[1], losses[2]),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    0);
+
+            assertThat(RuntimeInsightsAgentView.list(source, null, null).completeWindow())
+                    .isEqualTo(losses[0] == 0 && losses[1] == 0 && losses[2] == 0);
+        }
+    }
+
+    @Test
     void requestsZeroIsNotIdleWhenObservationsEvictionOrNonHttpExecutionsSayOtherwise() {
         RuntimeInsightsReportDto observed = idleReport(List.of(observation(1, RepeatedSelects.KIND, "job", "ran")), 0);
         assertThat(RuntimeInsightsAgentView.list(observed, null, null)

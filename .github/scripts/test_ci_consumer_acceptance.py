@@ -220,6 +220,9 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         reports = self.root / "reports"
         reports.mkdir()
         (reports / "bundle.json").write_text('{"status":"PASS"}', encoding="utf-8")
+        (reports / "sarif.json").write_text(
+            '{"version":"2.1.0","runs":[{"invocations":[{"executionSuccessful":true}]}]}', encoding="utf-8"
+        )
         summary = reports / "summary.md"
         summary.write_text("# BootUI assessment: PASS\n", encoding="utf-8")
         junit = reports / "junit.xml"
@@ -245,6 +248,9 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         reports = self.root / "reports"
         reports.mkdir()
         (reports / "bundle.json").write_text('{"status":"PASS"}', encoding="utf-8")
+        (reports / "sarif.json").write_text(
+            '{"version":"2.1.0","runs":[{"invocations":[{"executionSuccessful":true}]}]}', encoding="utf-8"
+        )
         (reports / "summary.md").write_text("# BootUI assessment: PASS\n", encoding="utf-8")
         junit = reports / "junit.xml"
         junit.write_text(

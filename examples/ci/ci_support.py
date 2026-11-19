@@ -12,7 +12,12 @@ import xml.etree.ElementTree as ET
 
 
 EXAMPLES = Path(__file__).resolve().parent
-REPORT_LIMITS = {"bundle.json": 16 * 1024 * 1024, "summary.md": 256 * 1024, "junit.xml": 256 * 1024}
+REPORT_LIMITS = {
+    "bundle.json": 16 * 1024 * 1024,
+    "summary.md": 256 * 1024,
+    "junit.xml": 256 * 1024,
+    "sarif.json": 4 * 1024 * 1024,
+}
 
 
 def interrupted(signum, frame):
@@ -162,6 +167,13 @@ class Recipe:
             '<testsuite name="bootui-ci" tests="1" failures="0" errors="1" skipped="0">'
             '<testcase name="assessment"><error message="Assessment not completed"/></testcase>'
             '</testsuite>\n', encoding="utf-8")
+        notification = {"level": "error", "descriptor": {"id": code}, "message": {"text": "Assessment error: " + code + "."}}
+        sarif = {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0", "runs": [{
+            "tool": {"driver": {"name": "BootUI", "informationUri": "https://github.com/jdubois/boot-ui", "rules": []}},
+            "invocations": [{"executionSuccessful": False, "toolExecutionNotifications": [notification]}],
+            "results": [],
+            "properties": {"assessmentId": self.assessment_id, "status": "NOT_ASSESSED", "policySha256": ""}}]}
+        (directory / "sarif.json").write_text(json.dumps(sarif) + "\n", encoding="utf-8")
 
     def cleanup(self):
         # Never remove a user-specified tree. Only these two files were created by this run.
