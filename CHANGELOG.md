@@ -120,8 +120,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Dependency risk labels** keep unassessed evidence neutral instead of showing green `NONE`; completed packages
   and known finding severities retain their meaning ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
 - **Servlet method-inventory evidence** uses the application class loader and distinguishes observed singletons,
-  bound final factory declarations and unresolved proxy/inherited creation paths without executing callbacks or
-  creating early singleton references. A failed application type lookup preserves other observations. Existing
+  cached factory producers/products, proven static proxy targets and bound final factory declarations from opaque
+  or inherited creation paths without executing callbacks or creating early singleton references. Native creator
+  eligibility qualifies advisor activation; legacy configuration has independent evidence and passive field hints
+  cover the added readers. Unresolved targets and bindings remain unknown, including class-based targets on GraalVM.
+  A failed application type lookup preserves other observations. Rule IDs, severities and dismissals are unchanged. Existing
   `SEC-AUTHZ-001`/`SEC-AUTHZ-002` findings stay HIGH when metadata is incomplete; assessment eligibility and strict CI
   verdicts can change ([scope and verdict impact](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
 - **Ignored security paths** use new SEC-AUTHZ-006 instead of filterless-chain SEC-AUTHZ-001 findings;

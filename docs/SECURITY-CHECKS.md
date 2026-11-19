@@ -67,8 +67,11 @@ No live property provider is invoked.
 Here, "native" framework objects means the framework's own implementations, not necessarily a GraalVM executable.
 GraalVM additionally requires reflection metadata for the passive readers' private fields. BootUI supplies
 classpath-conditional field hints for supported Spring Security chains, filters, headers, matchers, provider
-metadata, Spring environment sources, Actuator descriptors and the embedded Tomcat context. The hints cover the
-servlet and reactive collectors without making servlet or optional security dependencies mandatory. They do not
+metadata, Spring environment sources, Actuator descriptors, the embedded Tomcat context, native factory-product
+caches, static JDK target fields, advisor inventories and supported proxy-creator bindings.
+Class-based target recovery on GraalVM remains incomplete: generated callback fields are not inspected without
+their generated-class reachability metadata. The hints cover the servlet and reactive collectors without making
+servlet or optional security dependencies mandatory. They do not
 register arbitrary application callbacks or execute them. Without these hints, even a live `FilterChainProxy`
 can lose its readable `filterChains` inventory, yielding zero observed chains and an unusable partial report.
 Public-method hints alone cannot preserve that inventory.
@@ -217,10 +220,34 @@ Resolved Spring framework types and abstract bean-definition templates without a
 this missing-type gap. An already-created ordinary singleton still supplies passive type metadata for an abstract
 definition with no declared type.
 Application definitions use their bean factory's class loader without initializing the class. Already-created
-ordinary singleton types take precedence over declared owners; a raw `FactoryBean` singleton is not its product.
-JDK interface proxies remain unknown because their implementation-only annotations are not exposed by the proxy
-class. Observable interface annotation families are retained without implying complete target metadata. The collector
-does not invoke target sources, invocation handlers or application getters to resolve them.
+ordinary singleton types take precedence over declared owners. A raw `FactoryBean` is not its product: the collector
+can inspect an already-created product in Spring's native singleton-product cache, but never calls the factory's
+`getObject`, `getObjectType` or `isSingleton` methods to obtain one. Uncached products remain unknown.
+Annotations on the factory itself are retained independently of its product's annotations.
+Already-cached native method-security advisor products contribute activation only when supported native creator
+metadata proves their eligibility. The creator must be installed in the observed factory's post-processor inventory
+and bound to that same factory. An exact native infrastructure creator accepts infrastructure-role definitions;
+an exact native default advisor creator accepts application-role advisors too, subject to its optional name prefix.
+Candidates must also occur in that creator's already-held advisor-name snapshot; late or uncached definitions
+do not establish activation. Unknown creator/binding evidence stays incomplete even before any advisor is instantiated.
+Eligible prototype or lazy advisors without a held instance remain unknown; scans do not create them to complete the inventory.
+Unsupported creators, ambiguous bindings and unobserved ancestor inventories stay unknown; no eligibility callback
+is invoked. Proxy-local method advice does not establish global family activation or its absence.
+Exact native `DefaultPointcutAdvisor` and `DefaultBeanFactoryPointcutAdvisor` wrappers are inspected only through
+already-held advice, retaining the outer advisor's identity and eligibility. Only unconditional outer scopes and
+supported canonical interceptor annotation scopes qualify; narrower or custom pointcuts stay unknown without being
+executed. Custom wrapper subclasses and unresolved lazy advice stay unknown; their advice getters are not invoked.
+An installed mutable pointcut wrapper also leaves completeness unknown: its current advice cannot prove what an
+already-cached invocation chain retained. Current declaration facts remain visible without certifying that cached state.
+For supported Spring JDK proxies, and class-based proxies on JVM, backed by an exact `SingletonTargetSource`,
+the collector reads already-held target fields and retains both implementation annotations and every inspected
+proxy layer's interface annotations.
+Each target chain is cycle-checked and limited to eight objects. Custom invocation handlers, dynamic or subclassed target
+sources and unresolved/deeper targets remain unknown; their observable interface families are still retained.
+JVM class-based recovery also requires consistent held unadvised/dispatcher targets and excludes additional frozen
+callback chains; callback zero alone does not prove which target a generated method invokes.
+Only the supported native class-based callback shape is read on JVM; GraalVM class-based targets remain unassessed.
+No target-source method, invocation handler or application getter is invoked to resolve them.
 For uncreated factory products, support is limited to already-held Java-reflection `StandardMethodMetadata` bound
 to the actual direct, non-enhanced declaring owner and an unambiguous method across its bounded class/interface
 hierarchy. ASM factory metadata and enhanced configuration owners (`proxyBeanMethods=true`) remain unknown.
@@ -233,6 +260,8 @@ This observes declarations, not proxying or endpoint enforcement, and does not p
 
 An opaque product can also hide method-security activation. Retained annotation-family facts alone therefore do not
 prove that a family is unactivated: `SEC-METHOD-001` remains incomplete while aggregate metadata is unknown.
+This does not invalidate independently observed legacy-configuration facts for `SEC-METHOD-002`: that rule uses its
+own bounded configuration-definition inventory, not the completeness of arbitrary method annotation products.
 
 Assessment eligibility can change. Positively bound native products, such as the standard prototype `HttpSecurity`,
 can remove a false missing-type gap. Conversely, unsupported factory products and suppliers now remain incomplete
@@ -460,7 +489,7 @@ Raw origins and origin patterns are not copied into findings.
 ### SEC-METHOD-002 - Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity
 
 - **Severity**: LOW
-- **Detects**: Detects the legacy @EnableGlobalMethodSecurity configuration, deprecated since Spring Security 6 and still present in Spring Security 7.
+- **Detects**: Observed or natively declared legacy @EnableGlobalMethodSecurity configuration, deprecated since Spring Security 6 and still present in Spring Security 7. Uses bounded, non-initializing configuration-class metadata independently of the method-annotation inventory; ordinary `@Bean` products are not configuration-class candidates. A proven legacy declaration remains a finding even when other definitions are unreadable. Unknown configuration metadata still prevents an absence conclusion; no lazy configuration is instantiated.
 - **Recommendation**: Migrate to @EnableMethodSecurity, which enables @PreAuthorize/@PostAuthorize by default and uses the modern AuthorizationManager API.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html>
 

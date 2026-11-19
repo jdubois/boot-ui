@@ -121,6 +121,7 @@ record SecurityContext(
             Set<String> enabledMethodFamilies,
             Set<String> usedMethodFamilies,
             boolean methodFamiliesKnown,
+            boolean legacyMethodConfigurationKnown,
             SecurityEvaluation evaluation) {
         Evidence(
                 List<Operation> operations,
@@ -136,6 +137,26 @@ record SecurityContext(
                     enabledMethodFamilies,
                     usedMethodFamilies,
                     methodFamiliesKnown,
+                    methodFamiliesKnown,
+                    new SecurityEvaluation());
+        }
+
+        Evidence(
+                List<Operation> operations,
+                boolean operationsKnown,
+                boolean bootManagedJwt,
+                Set<String> enabledMethodFamilies,
+                Set<String> usedMethodFamilies,
+                boolean methodFamiliesKnown,
+                boolean legacyMethodConfigurationKnown) {
+            this(
+                    operations,
+                    operationsKnown,
+                    bootManagedJwt,
+                    enabledMethodFamilies,
+                    usedMethodFamilies,
+                    methodFamiliesKnown,
+                    legacyMethodConfigurationKnown,
                     new SecurityEvaluation());
         }
 

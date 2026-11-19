@@ -1247,10 +1247,12 @@ final class LegacyGlobalMethodSecurityRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         context.applies(context.methodSecurityEnabled() || context.globalMethodSecurityLegacyPresent());
-        context.required(context.evidence().methodFamiliesKnown());
         if (context.globalMethodSecurityLegacyPresent()) {
             return violation(
                     context, List.of("@EnableGlobalMethodSecurity is in use; migrate to @EnableMethodSecurity."));
+        }
+        if (!context.required(context.evidence().legacyMethodConfigurationKnown())) {
+            return skipped("Method-security configuration metadata is incomplete.");
         }
         return pass();
     }
