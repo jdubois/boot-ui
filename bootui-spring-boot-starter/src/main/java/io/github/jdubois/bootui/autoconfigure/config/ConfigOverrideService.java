@@ -41,9 +41,14 @@ public class ConfigOverrideService {
 
     public ConfigOverrideService(
             ConfigurableEnvironment environment, BootUiProperties properties, BootUiExposure exposure) {
+        this(environment, exposure, new ConfigOverridesFileStore(resolveFile(properties)));
+    }
+
+    ConfigOverrideService(
+            ConfigurableEnvironment environment, BootUiExposure exposure, ConfigOverridesFileStore store) {
         this.environment = environment;
         this.exposure = exposure;
-        this.store = new ConfigOverridesFileStore(resolveFile(properties));
+        this.store = store;
     }
 
     private static Path resolveFile(BootUiProperties properties) {
@@ -63,7 +68,7 @@ public class ConfigOverrideService {
         return source().containsProperty(name);
     }
 
-    public ConfigOverrideResult put(String name, String value) {
+    public synchronized ConfigOverrideResult put(String name, String value) {
         validateName(name);
         BootUiOverridesPropertySource src = source();
         Object previous = src.getProperty(name);
@@ -79,7 +84,7 @@ public class ConfigOverrideService {
                 name, displayValue(name, value, valueExposure, maskSecrets), previousDisplay, true, message);
     }
 
-    public ConfigOverrideResult remove(String name) {
+    public synchronized ConfigOverrideResult remove(String name) {
         validateName(name);
         BootUiOverridesPropertySource src = source();
         ValueExposure valueExposure = exposure.valueExposure();
