@@ -512,6 +512,64 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void cachedReactiveFactoryBeanProductsSupplyMethodFamiliesWithoutExecutingCallbacks() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("securedService", new RootBeanDefinition(MethodSecurityFactory.class));
+        factory.registerSingleton("chain0", chain());
+        Object product = factory.getBean("securedService");
+        MethodSecurityFactory producer = (MethodSecurityFactory) factory.getBean("&securedService");
+        assertThat(product).isInstanceOf(PreAuthorizedReactiveService.class);
+        producer.callbacks.set(0);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isTrue();
+        assertThat(observation.usedMethodFamilies()).contains("pre-post");
+        assertThat(report.results()).anyMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
+    void uncachedApplicationFactoryBeanProductsKeepMethodFamiliesIncomplete() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        MethodSecurityFactory producer = new MethodSecurityFactory();
+        factory.registerSingleton("securedService", producer);
+        factory.registerSingleton("chain0", chain());
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(report.evidence().limitations())
+                .contains("SEC-RXF-METHOD-001: Method-security family metadata is incomplete.");
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
+    void cachedReactiveAdvisorFactoryBeanProductsParticipateInActivationEvidence() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        factory.registerBeanDefinition("advisorFactory", new RootBeanDefinition(ReactiveAdvisorFactory.class));
+        factory.getBean("advisorFactory");
+        ReactiveAdvisorFactory producer = (ReactiveAdvisorFactory) factory.getBean("&advisorFactory");
+        producer.callbacks.set(0);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isTrue();
+        assertThat(observation.enabledMethodFamilies()).contains("pre-post");
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
     void initializedFactoryBeanProductTypeCallbacksNeverExecuteForEitherInventory() {
         AtomicInteger callbacks = new AtomicInteger();
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
@@ -1201,6 +1259,47 @@ class SpringReactiveSecurityObservationCollectorTests {
         @Override
         public Class<?> getObjectType() {
             return SecurityWebFilterChain.class;
+        }
+    }
+
+    public static final class MethodSecurityFactory implements FactoryBean<PreAuthorizedReactiveService> {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public PreAuthorizedReactiveService getObject() {
+            callbacks.incrementAndGet();
+            return new PreAuthorizedReactiveService();
+        }
+
+        @Override
+        public Class<PreAuthorizedReactiveService> getObjectType() {
+            callbacks.incrementAndGet();
+            return PreAuthorizedReactiveService.class;
+        }
+    }
+
+    public static final class ReactiveAdvisorFactory
+            implements FactoryBean<
+                    org.springframework.security.authorization.method
+                            .AuthorizationManagerBeforeReactiveMethodInterceptor> {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor
+                getObject() {
+            callbacks.incrementAndGet();
+            return org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor
+                    .preAuthorize();
+        }
+
+        @Override
+        public Class<
+                        org.springframework.security.authorization.method
+                                .AuthorizationManagerBeforeReactiveMethodInterceptor>
+                getObjectType() {
+            callbacks.incrementAndGet();
+            return org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor
+                    .class;
         }
     }
 
