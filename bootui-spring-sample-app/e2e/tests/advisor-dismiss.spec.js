@@ -81,8 +81,8 @@ test.describe('Advisor rule dismiss/restore', () => {
 
     // Wait for the rule-results list to populate with at least one dismissible finding.
     const activeItems = page
-      .locator('.list-group-item')
-      .filter({has: page.getByRole('button', {name: /^Dismiss rule /})})
+      .locator('.advisor-rule-result')
+      .filter({has: page.locator('button[aria-label^="Dismiss rule "]')})
     await expect(activeItems.first()).toBeVisible({timeout: 30_000})
 
     const findingsCard = page.locator('.advisor-summary__metric', {hasText: 'Advisor findings'})
@@ -96,8 +96,9 @@ test.describe('Advisor rule dismiss/restore', () => {
 
     // Capture the rule id of the first active finding so we can target it precisely.
     const firstActive = activeItems.first()
-    const ruleId = (await firstActive.locator('span.text-muted.small').first().innerText()).trim()
+    const ruleId = await firstActive.getAttribute('data-rule-id')
     expect(ruleId).not.toEqual('')
+    await firstActive.locator('.advisor-rule-toggle').click()
 
     // Match the rule by its id badge exactly: some rule descriptions cross-reference
     // other rule ids in prose, so a substring match on the whole item is not reliable.
@@ -114,7 +115,9 @@ test.describe('Advisor rule dismiss/restore', () => {
     // Dismissal removes penalties but preserves observed evidence and partial qualification.
     const dismissedItem = dismissedItemFor(ruleId)
     await expect(dismissedItem).toBeVisible()
-    await expect(page.getByText('— not counted in score')).toBeVisible()
+    await expect(page.locator('.card-header').filter({hasText: 'Dismissed rules ('})).toContainText(
+      '— not counted in score'
+    )
     await expect(page.locator('.advisor-summary__dismissed')).toContainText(
       '1 dismissed rule(s) excluded from active findings'
     )
@@ -154,6 +157,7 @@ test.describe('Advisor rule dismiss/restore', () => {
       .filter({has: page.getByText(rule.id, {exact: true})})
       .first()
     await expect(ruleCard).toBeVisible({timeout: 30_000})
+    await ruleCard.locator('.advisor-rule-toggle').click()
     const findingsMetric = page.locator('.advisor-summary__metric', {hasText: 'Advisor findings'})
     const rulesBefore = await findingsCount(findingsMetric)
 
@@ -215,6 +219,7 @@ test.describe('Advisor rule dismiss/restore', () => {
       .locator('.list-group-item')
       .filter({has: page.getByText(rule.id, {exact: true})})
       .first()
+    await ruleCard.locator('.advisor-rule-toggle').click()
     await ruleCard.getByRole('button', {name: `View violations for ${rule.id}`}).click()
     await ruleCard
       .getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)})

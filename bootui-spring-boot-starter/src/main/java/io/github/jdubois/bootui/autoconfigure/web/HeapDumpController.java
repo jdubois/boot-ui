@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.core.dto.HeapDumpCaptureRequest;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import java.nio.file.Path;
@@ -10,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,8 +42,10 @@ public class HeapDumpController {
     }
 
     @PostMapping("/capture")
-    public HeapDumpReport capture(@RequestParam(name = "live", defaultValue = "true") boolean live) {
-        return service.capture(live);
+    public HeapDumpReport capture(
+            @RequestParam(name = "live", defaultValue = "true") boolean live,
+            @RequestBody(required = false) HeapDumpCaptureRequest request) {
+        return service.capture(live, request == null ? null : request.confirm());
     }
 
     @PostMapping("/analyze")
@@ -52,6 +56,12 @@ public class HeapDumpController {
     @PostMapping("/delete")
     public HeapDumpReport delete(@RequestParam(name = "name") String name) {
         return service.delete(name);
+    }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<java.util.Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest()
+                .body(java.util.Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
     }
 
     @GetMapping("/download")

@@ -728,6 +728,7 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
         await page.getByRole('button', {name: 'Pause', exact: true}).click()
         const resume = page.getByRole('button', {name: 'Resume', exact: true})
         await expect(resume).toBeVisible()
+        await expect(page.locator('.alert-success')).toBeVisible()
         await stale.fulfill({json: initial})
         await expect.poll(() => Boolean(fresh)).toBe(true)
         await expect(resume).toBeVisible()

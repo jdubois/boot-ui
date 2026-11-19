@@ -1,5 +1,5 @@
 <script setup>
-import {nextTick, ref} from 'vue'
+import {nextTick, ref, useId} from 'vue'
 import {useCopyToClipboard} from '../../utils/useCopyToClipboard.js'
 
 // The "Copy for AI" preview: the exact Markdown document the clipboard receives, what it leaves out,
@@ -19,6 +19,7 @@ const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 const copyFailed = ref(false)
 const status = ref('')
 const textareaEl = ref(null)
+const previewId = `ai-export-${useId()}`
 
 async function copy() {
   if (!props.markdown) return
@@ -37,9 +38,9 @@ async function copy() {
 </script>
 
 <template>
-  <section class="ai-export" aria-labelledby="ai-export-heading">
+  <section class="ai-export" :aria-labelledby="`${previewId}-heading`">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-      <h3 id="ai-export-heading" class="h6 mb-0">{{ heading }}</h3>
+      <h3 :id="`${previewId}-heading`" tabindex="-1" class="h6 mb-0">{{ heading }}</h3>
       <div class="d-flex align-items-center gap-2">
         <button
           :disabled="loading || !markdown"
@@ -73,9 +74,9 @@ async function copy() {
       <div v-if="copyFailed" class="alert alert-danger small py-2 mb-2" role="alert">
         The browser blocked clipboard access, so nothing was copied. The document below is selected; copy it manually.
       </div>
-      <label class="visually-hidden" for="ai-export-markdown">Markdown export preview</label>
+      <label class="visually-hidden" :for="`${previewId}-markdown`">Markdown export preview</label>
       <textarea
-        id="ai-export-markdown"
+        :id="`${previewId}-markdown`"
         ref="textareaEl"
         :value="markdown"
         class="form-control font-monospace ai-export-markdown"
@@ -98,5 +99,10 @@ async function copy() {
 
 .ai-export-omissions li + li {
   margin-top: 0.15rem;
+}
+
+.ai-export h3:focus-visible {
+  outline: 2px solid var(--bootui-blue);
+  outline-offset: 2px;
 }
 </style>

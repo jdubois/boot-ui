@@ -75,7 +75,7 @@ class CentralBundleTests(unittest.TestCase):
             names = [f"{prefix}.jar", f"{prefix}-sources.jar", f"{prefix}-javadoc.jar"]
             names += [f"{prefix}-{c}.jar" for c in bundle.EXTRA_FILES.get(artifact, ())]
         for name in names + [f"{prefix}.pom"]:
-            for suffix in ("", ".md5", ".sha1"):
+            for suffix in ("", ".md5", ".sha1", ".sha256"):
                 (artifact_dir / (name + suffix)).write_text("x", encoding="utf-8")
         (artifact_dir / f"{prefix}.pom").write_text(content, encoding="utf-8")
 

@@ -9,7 +9,7 @@ destinations in a new tab. BootUI does not send application diagnostics with eit
 
 | Group | Panels | What it answers |
 | ----- | ------ | --------------- |
-| [Home](./scorecard.md) | Scorecard · Live Activity · Runtime Insights | What should I fix first, what did my application just do, and what did this run do that no single panel shows? Each panel has its own page: [Scorecard](./scorecard.md), [Live Activity](./live-activity.md), [Runtime Insights](./runtime-insights.md). |
+| [Home](./README.md) | Home · Scorecard · Live Activity · Runtime Insights | Find a panel through the Home guides, compare [Scorecard](./scorecard.md) assessments, follow [Live Activity](./live-activity.md), or inspect [Runtime Insights](./runtime-insights.md). |
 | [Advisors](./advisors.md) | Architecture · REST API · Spring · Quarkus · Database · Hibernate · Memory · Security · Pentesting · Vulnerabilities | What is wrong with my app, and how do I fix it? |
 | [Runtime](./runtime.md) | Health · HTTP Sessions · Metrics · Live Memory · JVM Tuning · Heap Dump · Threads · Startup Timeline · GraalVM · CRaC | How is the JVM behaving right now? |
 | [Configuration](./configuration.md) | Configuration · Profile Diff · Loggers · Beans · Conditions · Mappings | What configuration and wiring is actually effective? |
@@ -19,6 +19,38 @@ destinations in a new tab. BootUI does not send application diagnostics with eit
 | [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe | Why did that request fail? |
 | [Instrumentation](./java-agent.md) | Java Agent · Code Paths · Code Inventory · Side Effects | Did my change run? Where does the handler's time go? What did my route start? |
 | [Developer tools](./developer-tools.md) | MCP Server · Command Line · Spring DevTools · Dev Services · Copilot · Claude Code · GitHub | What is my toolchain doing locally? |
+
+## Home
+
+The Home guide below is an **unreleased source preview**; see [setup](../SETUP.md#open-the-console).
+
+![BootUI Home offers three diagnostic guides and help from a coding agent](../images/bootui-home.webp)
+
+Home (`#/home`) starts with **Understand this application**, **Follow its behavior**, **Review the code**, and **Let your agent
+help**. Choose a guide, then a topic, then a panel. Only one level appears at a time; sliding transitions follow your
+direction, and breadcrumbs take you back. Reduced-motion preferences are respected.
+The Home icon and title return to the initial four choices.
+
+Panel destinations have a plain title and a right-hand arrow. Unavailable destinations show their status instead;
+agent skill and playbook choices first open a local explanation. Its documentation link has a link icon and a
+new-tab indicator; only that link leaves BootUI. Each installation command block has a top-right copy button;
+if clipboard access is blocked, select its text to copy manually. Opening the explanation or copying commands
+never executes them.
+
+Every panel has a place in the three diagnostic guides; useful destinations can appear more than once. Under
+**Follow its behavior**, find Threads and Heap Dump in **Memory, CPU or concurrency**, and Startup Timeline in
+**Startup or executed code**. Short explanations distinguish live memory usage from the Memory advisor.
+
+**Let your agent help** explains the [BootUI skill and investigation playbooks](../AI-AGENTS.md) locally and routes to
+the MCP Server and Command Line panels. Give an agent a goal and agree on what it may run or change; opening this
+guide does not enable tools or start an agent.
+
+Choosing a branch only reveals navigation. It does not open panels, collect diagnostics, run health checks or
+assessments, or contact external services. Unavailable and disabled destinations explain why; read-only destinations
+remain navigable. Framework labels and availability follow the running application's panel manifest.
+
+Home has no refresh widget or polling. Your chosen level survives navigating to a panel and returning.
+The [Scorecard](./scorecard.md) stays separate at `#/scorecard`; existing `#/overview` links still redirect there.
 
 ## Rules that apply to every panel
 

@@ -86,7 +86,7 @@ describe('Architecture', () => {
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('3 violations found for this rule.')
     expect(wrapper.text()).not.toContain('Passing informational rule')
-    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
       'High severity violation',
       'Medium severity violation',
       'Low severity violation'

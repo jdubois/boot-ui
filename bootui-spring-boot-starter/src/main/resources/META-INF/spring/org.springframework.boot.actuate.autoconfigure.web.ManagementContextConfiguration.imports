@@ -1,0 +1,2 @@
+io.github.jdubois.bootui.autoconfigure.BootUiActuatorGuardConfiguration
+io.github.jdubois.bootui.autoconfigure.BootUiTomcatPeerAutoConfiguration

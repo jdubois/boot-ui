@@ -113,7 +113,7 @@ async function loadReport(options = {}) {
   }
 }
 
-async function runAction(path, body) {
+async function runAction(path, body, contentType = 'application/x-www-form-urlencoded') {
   if (readOnly.value) {
     showReadOnlyMessage()
     return
@@ -123,7 +123,7 @@ async function runAction(path, body) {
   try {
     const init = {method: 'POST'}
     if (body) {
-      init.headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+      init.headers = {'Content-Type': contentType}
       init.body = body
     }
     await getJson(path, init)
@@ -153,7 +153,11 @@ async function captureDump() {
     danger: true
   })
   if (!ok) return
-  runAction(`api/heap-dump/capture?live=${live.value ? 'true' : 'false'}`)
+  runAction(
+    `api/heap-dump/capture?live=${live.value ? 'true' : 'false'}`,
+    JSON.stringify({confirm: true}),
+    'application/json'
+  )
 }
 
 function analyzeHeap() {

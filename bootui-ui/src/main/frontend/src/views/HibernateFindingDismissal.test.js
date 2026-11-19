@@ -111,6 +111,9 @@ async function mountPanel(fake, props = {}) {
   const wrapper = mount(Hibernate, {attachTo: document.body, props})
   wrappers.push(wrapper)
   await flushPromises()
+  // These mutation journeys act on visible rows, not programmatically clicked v-show-hidden controls.
+  const toggle = wrapper.find('.advisor-rule-toggle')
+  if (toggle.exists()) await toggle.trigger('click')
   return wrapper
 }
 

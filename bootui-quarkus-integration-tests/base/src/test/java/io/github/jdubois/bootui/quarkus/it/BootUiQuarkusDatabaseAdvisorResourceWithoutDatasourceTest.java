@@ -12,8 +12,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Pins the Database Advisor's behavior on a Quarkus app that has <strong>no</strong> JDBC datasource on its
- * classpath (this base integration-test module deliberately omits one).
+ * Pins the Database Advisor's behavior on a Quarkus app that has <strong>no</strong> JDBC datasource bean.
+ * The base module's plain H2 producer is an alternative enabled only by the API conformance profile, not here.
  *
  * <p>Unlike the Hibernate advisor (gated behind {@code @ConditionalOnClass}/a capability exclusion) or the
  * Database Connection Pools panel (gated on {@code Capability.AGROAL}), the Database Advisor's only hard
@@ -22,8 +22,8 @@ import org.junit.jupiter.api.Test;
  * report-shape guarantee instead: {@code GET /bootui/api/database-advisor} answers with valid JSON reporting
  * {@code NOT_SCANNED} before any scan, and {@code POST /scan} renders a stable, empty {@code DISABLED} report
  * (not an error) when {@code QuarkusDatabaseAdvisorDataSourceProvider} finds no {@code DataSource} bean at all —
- * the datasource-present light-up path lives in the JDK-gated
- * {@code bootui-quarkus-hibernate-integration-tests} module (which also happens to add an H2 datasource).</p>
+ * the datasource-present path runs in the API conformance profile, and the JDK-gated
+ * {@code bootui-quarkus-hibernate-integration-tests} module also covers Hibernate cross-reference rules.</p>
  */
 @QuarkusTest
 class BootUiQuarkusDatabaseAdvisorResourceWithoutDatasourceTest {

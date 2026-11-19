@@ -4,11 +4,13 @@ import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
 import {registerThreadAnalysisTests} from '../scenarios/thread-analysis.js'
 import {registerActionPolicyTests} from '../scenarios/action-policy.js'
 import {registerButtonLinkTests} from '../scenarios/button-links.js'
+import {registerHomeGuideTests} from '../scenarios/home-guide.js'
 import {registerFeedbackPopoverTests} from '../scenarios/feedback-popover.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
 registerActionPolicyTests(test, expect)
 registerButtonLinkTests(test, expect)
+registerHomeGuideTests(test, expect)
 registerFeedbackPopoverTests(test, expect)
 
 async function expandAllSidebarGroups(page) {
@@ -89,9 +91,9 @@ test.describe('BootUI on Spring WebFlux', () => {
     })
   })
 
-  test('redirects the root path to /scorecard', async ({page}) => {
+  test('redirects the root path to /home', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/home$/)
   })
 
   test('turns off low-footprint mode from the AI Framework banner', async ({page}) => {

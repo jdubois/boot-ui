@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.conformance.SqlTraceInsightsContract;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -37,6 +39,9 @@ class BootUiQuarkusSqlTraceCaptureTest {
 
     @Inject
     DataSource dataSource;
+
+    @Inject
+    HttpExchangeBuffer exchanges;
 
     private BootUiHttpProbe probe() {
         return new BootUiHttpProbe(baseUrl.toExternalForm());
@@ -136,6 +141,41 @@ class BootUiQuarkusSqlTraceCaptureTest {
         assertThat(attribution.path("unattributed").path("reason").asText(""))
                 .as("the unattributed bucket explains itself")
                 .isNotBlank();
+    }
+
+    @Test
+    void sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers() {
+        exchanges.offloadRetainedData();
+        try {
+            Response request = probe().get("/it/sql-trace/4711?access_token=synthetic-route-secret");
+            assertThat(request.status()).isEqualTo(200);
+            assertThat(request.body()).isEqualTo("4711");
+
+            JsonNode root = SqlTraceInsightsContract.read(probe(), "/bootui/api");
+            assertThat(root.path("available").asBoolean())
+                    .as("the native Agroal fixture must execute, never skip, the shared SQL insights contract")
+                    .isTrue();
+            assertThat(root.path("window").path("retainedStatements").asInt()).isPositive();
+            assertThat(root.path("statements")).isNotEmpty();
+            JsonNode routes = root.path("attribution").path("routes");
+            assertThat(routes)
+                    .as("the native HTTP request must attribute its JDBC work")
+                    .hasSize(1);
+            JsonNode route = routes.get(0);
+            assertThat(route.path("method").asText()).isEqualTo("GET");
+            assertThat(route.path("routeSource").asText()).isEqualTo("ROUTE_TEMPLATE");
+            assertThat(route.path("route").asText()).isEqualTo("/it/sql-trace/{id}");
+            assertThat(route.path("executions").asLong()).isPositive();
+            assertThat(route.path("timeWindowCorrelated").asLong()).isPositive();
+            assertThat(route.path("topStatements")).isNotEmpty();
+            assertThat(route.path("topStatements").toString()).containsIgnoringCase("bootui_http_marker");
+            assertThat(route.path("id").asText()).doesNotContain("4711", "synthetic-route-secret", "access_token");
+            assertThat(routes.toString()).doesNotContain("synthetic-route-secret", "access_token");
+            SqlTraceInsightsContract.sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers(root);
+        } finally {
+            // A completed request window must not claim a later test's unrelated test-thread query.
+            exchanges.offloadRetainedData();
+        }
     }
 
     @Test

@@ -40,7 +40,7 @@ test.describe('Security Advisor view', () => {
     await expect(scanStatusCard.locator('.badge').first()).toBeVisible()
 
     // The rule-results section renders once the scan completes.
-    await expect(page.getByText('Rule results')).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'Rule results', exact: true})).toBeVisible()
     for (const retiredId of ['SEC-HEAD-010', 'SEC-SESSION-007', 'SEC-CONFIG-005', 'SEC-ACT-004']) {
       await expect(page.locator('.list-group-item', {hasText: retiredId})).toHaveCount(0)
     }

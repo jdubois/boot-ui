@@ -6,8 +6,8 @@
 #
 # It downloads the runnable `bootui` jar from Maven Central, checks it against the
 # checksum Maven Central publishes beside it, and writes a small launcher on your PATH.
-# It never uses sudo, never edits your shell profile, and talks to nothing but the
-# Maven repository.
+# It never uses sudo or edits your shell profile. With GnuPG installed, it also
+# verifies the pinned release signature using the key served by the BootUI site.
 
 set -eu
 
@@ -20,10 +20,19 @@ install_dir="${BOOTUI_INSTALL_DIR:-$HOME/.bootui}"
 bin_dir="${BOOTUI_BIN_DIR:-$HOME/.local/bin}"
 repo="${BOOTUI_MAVEN_REPO:-$DEFAULT_REPO}"
 uninstall=no
+allow_unverified=no
+RELEASE_KEY_FINGERPRINT="7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9"
+RELEASE_KEY_URL="https://www.julien-dubois.com/boot-ui/bootui-release-key.asc"
 
 tmp_dir=""
+keyring_alias_dir=""
 
 cleanup() {
+  if [ -n "$keyring_alias_dir" ] && [ -d "$keyring_alias_dir" ]; then
+    rm -f "$keyring_alias_dir/keyring"
+    rmdir "$keyring_alias_dir" ||
+      printf 'bootui install: could not remove private keyring alias directory %s\n' "$keyring_alias_dir" >&2
+  fi
   if [ -n "$tmp_dir" ] && [ -d "$tmp_dir" ]; then
     rm -rf "$tmp_dir"
   fi
@@ -52,6 +61,7 @@ Options, which go after `sh -s --` when the script is piped:
   --bin-dir <path>  Where the launcher goes.  Default: ~/.local/bin
   --repo <url>      Maven repository base.    Default: https://repo1.maven.org/maven2
   --uninstall       Remove what this script installed.
+  --allow-unverified  Explicitly permit a missing/uncomputable checksum (not a mismatch).
   -h, --help        Show this message.
 
 The same settings are read from BOOTUI_VERSION, BOOTUI_INSTALL_DIR, BOOTUI_BIN_DIR
@@ -76,6 +86,7 @@ while [ $# -gt 0 ]; do
     --bin-dir) need_value "$1" $#; bin_dir="$2"; shift 2 ;;
     --repo) need_value "$1" $#; repo="${2%/}"; shift 2 ;;
     --uninstall) uninstall=yes; shift ;;
+    --allow-unverified) allow_unverified=yes; shift ;;
     -h | --help) usage ;;
     *) die "unknown option '$1'. Try --help." ;;
   esac
@@ -162,11 +173,14 @@ fetch "$jar_url" "$tmp_jar" || die "could not download
 hash_of() {
   # $1 = 512, 256 or 1; $2 = file. Prints the lowercase hex digest.
   if command -v "sha$1sum" >/dev/null 2>&1; then
-    "sha$1sum" "$2" | awk '{print $1}'
+    digest="$("sha$1sum" "$2")" || return 1
+    printf '%s\n' "$digest" | awk '{print $1}'
   elif command -v shasum >/dev/null 2>&1; then
-    shasum -a "$1" "$2" | awk '{print $1}'
+    digest="$(shasum -a "$1" "$2")" || return 1
+    printf '%s\n' "$digest" | awk '{print $1}'
   elif command -v openssl >/dev/null 2>&1; then
-    openssl dgst "-sha$1" "$2" | sed 's/.*= *//'
+    digest="$(openssl dgst "-sha$1" "$2")" || return 1
+    printf '%s\n' "$digest" | sed 's/.*= *//'
   else
     return 1
   fi
@@ -181,20 +195,52 @@ for algo in 512 256 1; do
   published="$(fetch_stdout "$jar_url.sha$algo" 2>/dev/null)" || continue
   # A Maven checksum file holds a bare digest, sometimes followed by a file name.
   expected="$(printf '%s\n' "$published" | awk 'NR==1{print $1}' | tr -d '\015' | lower)"
-  [ -n "$expected" ] || continue
-  actual="$(hash_of "$algo" "$tmp_jar" | lower)" || break
+  case "$algo" in
+    512) length=128 ;;
+    256) length=64 ;;
+    1) length=40 ;;
+  esac
+  case "$expected" in
+    *[!0-9a-f]* | "") die "malformed published SHA-$algo checksum. Nothing was installed." ;;
+  esac
+  [ "${#expected}" -eq "$length" ] || die "malformed published SHA-$algo checksum. Nothing was installed."
+  actual="$(hash_of "$algo" "$tmp_jar")" || continue
+  actual="$(printf '%s' "$actual" | lower)"
   if [ "$actual" != "$expected" ]; then
     die "the download does not match the SHA-$algo checksum published beside it.
   expected $expected
   got      $actual
   Nothing was installed."
   fi
-  say "Checked the download against its published SHA-$algo checksum."
+  say "Verification: published SHA-$algo checksum matched (repository integrity, not signer authentication)."
+  if [ "$algo" = 1 ]; then
+    say "Warning: this older release supplies only the legacy SHA-1 checksum."
+  fi
   verified=yes
   break
 done
 if [ "$verified" = no ]; then
-  say "Note: no checksum was available to check this download against."
+  [ "$allow_unverified" = yes ] || die "no checksum could be verified. Nothing was installed. Use --allow-unverified only after independent verification."
+  say "Warning: checksum verification was explicitly bypassed with --allow-unverified."
+fi
+
+if command -v gpg >/dev/null 2>&1; then
+  keyring_alias_dir="$(mktemp -d /tmp/bootui-install-gpg.XXXXXXXX)" || die "could not create a private keyring."
+  keyring="$keyring_alias_dir/keyring"
+  mkdir -m 700 "$tmp_dir/keyring"
+  # Keep the short socket alias inside its original owner-only directory.
+  ln -s "$tmp_dir/keyring" "$keyring"
+  fetch "$RELEASE_KEY_URL" "$tmp_dir/release-key.asc" || die "could not download the pinned release key."
+  fetch "$jar_url.asc" "$tmp_dir/cli.asc" || die "could not download the release signature."
+  gpg --homedir "$keyring" --batch --import "$tmp_dir/release-key.asc" >/dev/null 2>&1 ||
+    die "could not import the release key."
+  verification="$(gpg --homedir "$keyring" --batch --status-fd 1 --verify "$tmp_dir/cli.asc" "$tmp_jar" 2>/dev/null)" ||
+    die "invalid release signature. Nothing was installed."
+  printf '%s\n' "$verification" | grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" ||
+    die "release signature is not from the pinned BootUI key. Nothing was installed."
+  say "Verification: OpenPGP signature matched pinned BootUI key $RELEASE_KEY_FINGERPRINT."
+else
+  say "Verification: signer not authenticated (GnuPG unavailable)."
 fi
 
 # ---------------------------------------------------------------- install

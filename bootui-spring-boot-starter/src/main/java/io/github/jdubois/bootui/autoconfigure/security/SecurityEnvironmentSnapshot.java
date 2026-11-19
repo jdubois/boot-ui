@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
+import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorContributions;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -128,6 +129,7 @@ final class SecurityEnvironmentSnapshot extends StandardEnvironment {
     }
 
     private void copy(PropertySource<?> source, int index) {
+        if (source instanceof BootUiActuatorContributions) return;
         String type = source.getClass().getName();
         if (type.equals("org.springframework.boot.context.properties.source.ConfigurationPropertySourcesPropertySource")
                 || type.equals("org.springframework.core.env.PropertySource$StubPropertySource")) return;

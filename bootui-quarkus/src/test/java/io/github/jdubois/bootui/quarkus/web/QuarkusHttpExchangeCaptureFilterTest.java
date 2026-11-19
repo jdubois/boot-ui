@@ -620,6 +620,9 @@ class QuarkusHttpExchangeCaptureFilterTest {
             io.vertx.core.net.SocketAddress remoteAddress = mock(io.vertx.core.net.SocketAddress.class);
             when(remoteAddress.hostAddress()).thenReturn(remoteHost);
             when(request.remoteAddress()).thenReturn(remoteAddress);
+            io.vertx.core.http.HttpConnection connection = mock(io.vertx.core.http.HttpConnection.class);
+            when(request.connection()).thenReturn(connection);
+            when(connection.remoteAddress()).thenReturn(remoteAddress);
         }
         RoutingContext rc = mock(RoutingContext.class);
         when(rc.normalizedPath()).thenReturn(path);

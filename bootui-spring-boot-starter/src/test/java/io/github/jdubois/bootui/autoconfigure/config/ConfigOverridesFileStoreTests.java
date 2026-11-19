@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.autoconfigure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -86,5 +88,24 @@ class ConfigOverridesFileStoreTests {
     void filePathIsExposed(@TempDir Path tmp) {
         Path file = tmp.resolve("overrides.properties");
         assertThat(new ConfigOverridesFileStore(file).file()).isEqualTo(file);
+    }
+
+    @Test
+    void writesOwnerOnlyFilesAndIgnoreRulesWithoutHidingTeamDismissals(@TempDir Path tmp) throws Exception {
+        assumeTrue(Files.getFileStore(tmp).supportsFileAttributeView("posix"));
+        Path file = tmp.resolve(".bootui/application-bootui.properties");
+        ConfigOverridesFileStore store = new ConfigOverridesFileStore(file);
+        store.save(Map.of("sample.greeting", "hello"));
+
+        assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
+        Path ignore = file.getParent().resolve(".gitignore");
+        assertThat(Files.readString(ignore))
+                .contains("/application-bootui.properties", "*.hprof")
+                .doesNotContain("boot-ui.yml");
+        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-r--r--"));
+        Files.writeString(ignore, "local-rule\n");
+        store.save(Map.of("sample.greeting", "again"));
+        assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
+        assertThat(Files.readString(ignore)).isEqualTo("local-rule\n");
     }
 }

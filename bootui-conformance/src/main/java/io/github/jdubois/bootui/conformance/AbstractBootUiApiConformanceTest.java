@@ -493,6 +493,48 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void independentOriginAndFetchMetadataHeadersEachEnforceTheWriteBoundary() {
+        for (Map<String, String> headers : List.of(
+                Map.of("Origin", "http://foreign.invalid"),
+                Map.of("Origin", "http://localhost:1"),
+                Map.of("Sec-Fetch-Site", "cross-site"),
+                Map.of("Sec-Fetch-Site", "same-site"),
+                Map.of("Origin", "null"),
+                Map.of("Origin", "http://localhost/path", "Sec-Fetch-Site", "same-origin"))) {
+            Response response = probe().post(api("/overview"), headers);
+            assertThat(response.status())
+                    .as("independent guard headers %s", headers)
+                    .isEqualTo(403);
+            assertThat(response.json().path("error").asText())
+                    .isEqualTo("BootUI rejected a cross-site request to a state-changing endpoint.");
+        }
+    }
+
+    @Test
+    void rawHostAndForwardedHeadersCannotDisarmTheHostBoundary() {
+        var raw = new BootUiRawHttpProbe(baseUrl());
+        for (Map<String, String> headers : List.of(
+                Map.of("Host", "foreign.invalid"),
+                Map.of("Host", "foreign.invalid", "X-Forwarded-Host", "localhost", "X-Forwarded-For", "127.0.0.1"),
+                Map.of("Host", "foreign.invalid", "Forwarded", "for=127.0.0.1;host=localhost"))) {
+            Response response = raw.request("GET", api("/overview"), headers, null, null);
+            assertThat(response.status()).isEqualTo(403);
+            assertThat(response.json().path("error").asText())
+                    .isEqualTo(
+                            "BootUI rejected an unrecognized Host header. Add it to bootui.allowed-hosts to allow this hostname.");
+        }
+        Response malformed = raw.request("GET", api("/overview"), Map.of("Host", "[::1]junk"), null, null);
+        assertThat(malformed.status())
+                .as("malformed Host is refused by the HTTP parser or BootUI guard")
+                .isIn(400, 403);
+        if (malformed.status() == 403) {
+            assertThat(malformed.json().path("error").asText())
+                    .isEqualTo(
+                            "BootUI rejected an unrecognized Host header. Add it to bootui.allowed-hosts to allow this hostname.");
+        }
+    }
+
+    @Test
     void securityHeadersCoverShellAndHashedAssets() {
         Response shell = probe().get(ui("/"));
         assertThat(shell.status()).as("GET %s/ status", uiPath()).isEqualTo(200);
@@ -3030,17 +3072,8 @@ public abstract class AbstractBootUiApiConformanceTest {
         assumeTrue(isPanelUsableInLiveManifest("flyway"), "flyway panel is not available in this environment");
 
         BootUiHttpProbe probe = probe();
-        Response response = probe.request(
-                "POST",
-                api("/flyway/migrate"),
-                stateChangingHeaders(probe),
-                "{\"beanName\":\"conformance-missing-flyway\",\"confirm\":true}");
-
-        assertThat(response.status()).as("unknown Flyway target status").isEqualTo(404);
-        assertThat(response.isJson()).as("unknown Flyway target content type").isTrue();
-        assertThat(response.json().path("status").asText()).isEqualTo("unavailable");
-        assertThat(response.json().path("message").asText())
-                .isEqualTo("No Flyway bean matched the requested datasource.");
+        FlywayActionContract.unavailableActionTargetReturnsCanonicalNotFound(
+                probe, apiPath(), stateChangingHeaders(probe));
     }
 
     @Test
@@ -3355,114 +3388,10 @@ public abstract class AbstractBootUiApiConformanceTest {
     void sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers() {
         assumeTrue(isPanelUsableInLiveManifest("sql-trace"), "sql-trace panel is not available in this environment");
 
-        Response response = probe().get(api("/sql-trace/insights"));
-        assertThat(response.status()).as("GET /sql-trace/insights status").isEqualTo(200);
-        assertThat(response.isJson())
-                .as("GET /sql-trace/insights content-type (%s)", response.contentType())
-                .isTrue();
-
-        JsonNode root = response.json();
-        assertThat(root.path("available").isBoolean()).as("insights.available").isTrue();
-        assertThat(root.path("capturing").isBoolean()).as("insights.capturing").isTrue();
-        assertThat(root.path("notes").isArray()).as("insights.notes").isTrue();
+        JsonNode root = SqlTraceInsightsContract.read(probe(), apiPath());
         assumeTrue(root.path("available").asBoolean(false), "SQL tracing is not active in this environment");
 
-        JsonNode window = root.path("window");
-        assertThat(window.isObject()).as("insights.window").isTrue();
-        for (String field :
-                List.of("retainedStatements", "bufferSize", "evicted", "totalCaptured", "totalDurationMillis")) {
-            assertThat(window.path(field).isNumber())
-                    .as("insights.window.%s must be numeric", field)
-                    .isTrue();
-        }
-
-        int topPerCriterion = root.path("topPerCriterion").asInt(-1);
-        assertThat(topPerCriterion).as("insights.topPerCriterion").isPositive();
-        JsonNode statements = root.path("statements");
-        assertThat(statements.isArray()).as("insights.statements").isTrue();
-        assertThat(statements.size())
-                .as("ranked statements must stay bounded by the seven ranking criteria")
-                .isLessThanOrEqualTo(7 * topPerCriterion);
-        for (JsonNode statement : statements) {
-            for (String field : List.of(
-                    "executions",
-                    "totalDurationMillis",
-                    "maxDurationMillis",
-                    "avgDurationMillis",
-                    "errorCount",
-                    "p50DurationMillis",
-                    "p95DurationMillis",
-                    "p99DurationMillis",
-                    "shareOfRetainedTimePercent")) {
-                assertThat(statement.path(field).isNumber())
-                        .as("ranked statement field '%s'", field)
-                        .isTrue();
-            }
-            assertThat(statement.path("sql").isTextual())
-                    .as("ranked statement sql")
-                    .isTrue();
-            assertThat(statement.path("entryIds").isArray())
-                    .as("ranked statement must deep-link to retained executions")
-                    .isTrue();
-            assertThat(statement.path("entryIdsTruncated").isBoolean())
-                    .as("a ranked statement must say when its deep link covers only part of the group")
-                    .isTrue();
-            JsonNode topFor = statement.path("topFor");
-            assertThat(topFor.isArray())
-                    .as("a ranked statement must say which criteria earned it its place")
-                    .isTrue();
-            assertThat(topFor.size())
-                    .as("a ranked statement cannot lead more criteria than exist")
-                    .isBetween(1, 7);
-            topFor.forEach(criterion -> assertThat(criterion.asText())
-                    .as("ranking criterion")
-                    .isIn(
-                            "TOTAL_DURATION",
-                            "MAX_DURATION",
-                            "EXECUTIONS",
-                            "AVG_DURATION",
-                            "ERROR_COUNT",
-                            "P95_DURATION",
-                            "P99_DURATION"));
-        }
-
-        JsonNode attribution = root.path("attribution");
-        assertThat(attribution.path("available").isBoolean())
-                .as("attribution.available")
-                .isTrue();
-        List<String> tiers = new ArrayList<>();
-        attribution.path("supportedCorrelations").forEach(tier -> tiers.add(tier.asText()));
-        assertThat(tiers)
-                .as("every runtime must offer trace-id correlation and disclose the tiers it uses")
-                .contains("TRACE_ID");
-        assertThat(tiers).isSubsetOf("TRACE_ID", "SERVING_THREAD", "TIME_WINDOW");
-        for (String bucket : List.of("unattributed", "ambiguous")) {
-            JsonNode node = attribution.path(bucket);
-            assertThat(node.path("executions").isNumber())
-                    .as("attribution.%s.executions", bucket)
-                    .isTrue();
-            assertThat(node.path("reason").isTextual())
-                    .as("attribution.%s must explain itself rather than showing a bare number", bucket)
-                    .isTrue();
-        }
-
-        JsonNode routes = attribution.path("routes");
-        assertThat(routes.isArray()).as("attribution.routes").isTrue();
-        assertThat(routes.size()).as("route ranking must stay bounded").isLessThanOrEqualTo(20);
-        for (JsonNode route : routes) {
-            assertThat(route.path("routeSource").asText())
-                    .as("route grouping key must declare its provenance")
-                    .isIn("ROUTE_TEMPLATE", "MASKED_PATH");
-            assertThat(route.path("route").asText())
-                    .as("a route grouping key must never carry a query string")
-                    .doesNotContain("?");
-            assertThat(route.path("topStatements").isArray())
-                    .as("route.topStatements")
-                    .isTrue();
-            assertThat(route.path("topStatements").size())
-                    .as("route-by-statement cross product must stay bounded")
-                    .isLessThanOrEqualTo(5);
-        }
+        SqlTraceInsightsContract.sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers(root);
     }
 
     /**
@@ -3657,7 +3586,7 @@ public abstract class AbstractBootUiApiConformanceTest {
     private Map<String, String> stateChangingHeaders(BootUiHttpProbe probe) {
         Map<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("Origin", baseUrl());
+        headers.put("Origin", probe.origin());
         probe.get(api("/overview"));
         probe.cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
         return headers;

@@ -58,7 +58,7 @@ public final class ReactiveApiAuthenticationFilter extends AbstractReactiveBootU
     @Override
     protected Mono<Void> doFilterInternal(ServerWebExchange exchange, WebFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        boolean trustedSource = localhostOnlyFilter.isTrustedSource(remoteAddress(request));
+        boolean trustedSource = localhostOnlyFilter.isTrustedSource(localhostOnlyFilter.remoteAddress(request));
         boolean authorized = authenticator.isAuthorized(
                 trustedSource,
                 request.getHeaders().getFirst("Authorization"),

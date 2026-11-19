@@ -199,9 +199,9 @@ test.describe('BootUI app shell (Quarkus)', () => {
     }
   })
 
-  test('redirects the root path to /scorecard', async ({page}) => {
+  test('redirects the root path to /home', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/home$/)
   })
 
   test('redirects the former /overview route to /scorecard', async ({page}) => {
@@ -230,6 +230,7 @@ test.describe('BootUI app shell (Quarkus)', () => {
     await page.goto('/bootui/')
 
     await expect(page.getByRole('group', {name: 'Home panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Home',
       'Scorecard',
       'Live Activity',
       'Runtime Insights'

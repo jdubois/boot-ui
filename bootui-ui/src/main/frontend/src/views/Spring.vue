@@ -4,6 +4,7 @@ import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
+import AdvisorRuleResults from './components/AdvisorRuleResults.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -160,51 +161,51 @@ const panel = useAdvisorPanel(props, {
           <div class="fw-semibold text-body">{{ panel.emptyRuleResultsTitle }}</div>
           <div>These checks complement, but do not replace, project-specific review and testing.</div>
         </div>
-        <div v-else class="list-group list-group-flush">
-          <div v-for="result in panel.visibleResults" :key="result.id" class="list-group-item">
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <span :class="panel.statusClass(result.status)" class="badge">{{ result.status }}</span>
-              <span :class="panel.severityClass(result.severity)" class="badge">{{ result.severity }}</span>
-              <span class="badge text-bg-light border font-monospace">{{ result.category }}</span>
-              <span class="text-muted small font-monospace">{{ result.id }}</span>
-              <button
-                class="btn btn-sm btn-outline-secondary ms-auto"
-                type="button"
-                :disabled="panel.actionsDisabled"
-                :aria-label="`Dismiss rule ${result.id}`"
-                @click="panel.dismiss(result.id)"
-                title="Dismiss this whole rule: none of its findings count towards the score"
-              >
-                <i class="bi bi-eye-slash me-1"></i>Dismiss rule
-              </button>
+        <AdvisorRuleResults :panel="panel" api-path="api/spring">
+          <template #default="{result}">
+            <div>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <span :class="panel.statusClass(result.status)" class="badge">{{ result.status }}</span>
+                <span :class="panel.severityClass(result.severity)" class="badge">{{ result.severity }}</span>
+                <span class="badge text-bg-light border font-monospace">{{ result.category }}</span>
+                <button
+                  class="btn btn-sm btn-outline-secondary ms-auto"
+                  type="button"
+                  :disabled="panel.actionsDisabled"
+                  :aria-label="`Dismiss rule ${result.id}`"
+                  @click="panel.dismiss(result.id)"
+                  title="Dismiss this whole rule: none of its findings count towards the score"
+                >
+                  <i class="bi bi-eye-slash me-1"></i>Dismiss rule
+                </button>
+              </div>
+              <div class="small text-muted mb-2">{{ result.description }}</div>
+              <div class="small mb-2">
+                <strong>What happened:</strong>
+                {{ panel.violationCountLabel(result.violationCount) }} for this rule.
+              </div>
+              <AdvisorRuleViolations
+                api-path="api/spring"
+                :rule="result"
+                :details="panel.report.violationDetails"
+                :refresh-report="panel.loadReport"
+              />
+              <div class="small">
+                <strong>Recommendation:</strong>
+                {{ result.recommendation }}
+                <a
+                  v-if="result.learnMoreUrl"
+                  :href="result.learnMoreUrl"
+                  class="btn btn-outline-secondary btn-sm ms-1"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  Learn more
+                </a>
+              </div>
             </div>
-            <h3 class="h6 mb-1">{{ result.name }}</h3>
-            <div class="small text-muted mb-2">{{ result.description }}</div>
-            <div class="small mb-2">
-              <strong>What happened:</strong>
-              {{ panel.violationCountLabel(result.violationCount) }} for this rule.
-            </div>
-            <AdvisorRuleViolations
-              api-path="api/spring"
-              :rule="result"
-              :details="panel.report.violationDetails"
-              :refresh-report="panel.loadReport"
-            />
-            <div class="small">
-              <strong>Recommendation:</strong>
-              {{ result.recommendation }}
-              <a
-                v-if="result.learnMoreUrl"
-                :href="result.learnMoreUrl"
-                class="btn btn-outline-secondary btn-sm ms-1"
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                Learn more
-              </a>
-            </div>
-          </div>
-        </div>
+          </template>
+        </AdvisorRuleResults>
         <template v-if="panel.report.analysisErrors && panel.report.analysisErrors.length > 0">
           <div class="card-header text-muted small">
             <i class="bi bi-exclamation-triangle me-1"></i>Analysis errors ({{ panel.report.analysisErrors.length }}) —

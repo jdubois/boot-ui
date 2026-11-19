@@ -165,6 +165,13 @@ public class HeapDumpService {
         return config.allowRawDownload();
     }
 
+    public HeapDumpReport capture(boolean live, Boolean confirm) {
+        if (!Boolean.TRUE.equals(confirm)) {
+            throw new IllegalArgumentException("Heap dump capture requires explicit confirmation.");
+        }
+        return capture(live);
+    }
+
     public HeapDumpReport capture(boolean live) {
         if (!hotspotAvailable) {
             return errorReport("Heap dumps are not supported on this JVM");

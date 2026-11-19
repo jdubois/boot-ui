@@ -1,7 +1,9 @@
-import {flushPromises, mount} from '@vue/test-utils'
+import {enableAutoUnmount, flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {defineComponent, h, KeepAlive, nextTick, ref} from 'vue'
 
-import GitHub from './GitHub.vue'
+let GitHub
+enableAutoUnmount(afterEach)
 
 function githubReport(overrides = {}) {
   return {
@@ -329,19 +331,34 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
+function control(wrapper, name) {
+  return wrapper.findAll('button').find((button) => button.text() === name)
+}
+
+function deferredResponse() {
+  let resolve
+  const promise = new Promise((complete) => (resolve = complete))
+  return {promise, resolve}
+}
+
 describe('GitHub', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // A fresh module models a browser page reload; route remounts within a test reuse it.
+    vi.resetModules()
+    GitHub = (await import('./GitHub.vue')).default
     vi.useFakeTimers()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     document.cookie = 'XSRF-TOKEN=test-token'
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     document.cookie = 'XSRF-TOKEN=; Max-Age=0'
   })
 
-  it('refreshes GitHub metrics automatically every minute', async () => {
+  it('reads only cache until Connect, regardless of cached connected state', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -349,9 +366,11 @@ describe('GitHub', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenCalledWith('api/github', {})
     expect(wrapper.text()).toContain('jdubois/boot-ui')
-    expect(wrapper.text()).toContain('Auto-refresh')
+    expect(wrapper.text()).toContain('Cached data only.')
+    expect(wrapper.text()).toContain('every minute while this panel is active and visible')
+    expect(wrapper.text()).not.toContain('Auto-refresh')
     expect(wrapper.text()).not.toContain('Refresh now')
     expect(wrapper.find('button[title="Refresh"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('GitHub dashboard refreshed.')
@@ -360,12 +379,503 @@ describe('GitHub', () => {
     expect(repositoryLink.classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline-secondary', 'btn-sm']))
     expect(repositoryLink.find('.bi-box-arrow-up-right').exists()).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(59_000)
+    await vi.advanceTimersByTimeAsync(180_000)
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    await vi.advanceTimersByTimeAsync(1_000)
+    await control(wrapper, 'Connect').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(control(wrapper, 'Stop')).toBeDefined()
+    expect(control(wrapper, 'Connect')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    await control(wrapper, 'Stop').trigger('click')
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
+      ['api/github', 'GET'],
+      ['api/github/refresh', 'POST'],
+      ['api/github/refresh', 'POST']
+    ])
+  })
+
+  it('neither reads nor writes browser storage to grant or retain consent', async () => {
+    const readStorage = vi.spyOn(Storage.prototype, 'getItem')
+    const writeStorage = vi.spyOn(Storage.prototype, 'setItem')
+    const removeStorage = vi.spyOn(Storage.prototype, 'removeItem')
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+    await control(wrapper, 'Stop').trigger('click')
+    expect(readStorage).not.toHaveBeenCalled()
+    expect(writeStorage).not.toHaveBeenCalled()
+    expect(removeStorage).not.toHaveBeenCalled()
+  })
+
+  it('retains the focused connection control when Connect changes to Stop and back', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub, {attachTo: document.body})
+    await flushPromises()
+    const button = control(wrapper, 'Connect').element
+    button.focus()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(button)
+    expect(control(wrapper, 'Stop').element).toBe(button)
+    await control(wrapper, 'Stop').trigger('click')
+    expect(document.activeElement).toBe(button)
+    expect(control(wrapper, 'Connect').element).toBe(button)
+  })
+
+  it('keeps the header refresh cache-only without consent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['api/github', 'api/github'])
+  })
+
+  it('retains consent across route unmounts, returns cache-first, and clears consent on reload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const returned = mount(GitHub)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+    expect(control(returned, 'Stop')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    returned.unmount()
+
+    vi.resetModules()
+    const ReloadedGitHub = (await import('./GitHub.vue')).default
+    const reloaded = mount(ReloadedGitHub)
+    await flushPromises()
+    expect(control(reloaded, 'Connect')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+  })
+
+  it('pauses while hidden and resumes on the next full interval without a visibility POST', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('pauses a kept-alive inactive panel and reactivates cache-first', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const show = ref(true)
+    const wrapper = mount(
+      defineComponent({
+        setup: () => () => h(KeepAlive, null, {default: () => (show.value ? h(GitHub) : null)})
+      })
+    )
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+    show.value = false
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    show.value = true
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('never overlaps refreshes or queues missed ticks, including across route remounts', async () => {
+    let finish
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await control(wrapper, 'Connect').trigger('click')
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('button[title="Refresh"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+
+    const returned = mount(GitHub)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    finish(jsonResponse(connectedReport()))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    await control(returned, 'Stop').trigger('click')
+  })
+
+  it.each(['BLOCKED', 'DISABLED', 'HTTP 403'])(
+    'revokes page consent when an unmounted refresh finishes with %s and no replacement is mounted yet',
+    async (status) => {
+      const pending = deferredResponse()
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(GitHub)
+      await flushPromises()
+      fetchMock.mockReturnValueOnce(pending.promise)
+      await control(wrapper, 'Connect').trigger('click')
+      wrapper.unmount()
+
+      pending.resolve(
+        status === 'HTTP 403'
+          ? jsonResponse({}, false, 403)
+          : jsonResponse(githubReport({status, message: 'GitHub refresh is prohibited'}))
+      )
+      await flushPromises()
+      const returned = mount(GitHub)
+      await flushPromises()
+      expect(control(returned, 'Stop')).toBeUndefined()
+      expect(control(returned, 'Connect')).toBeDefined()
+      await vi.advanceTimersByTimeAsync(180_000)
+      // Even a still-CONNECTED cache cannot restore permission after the late denial.
+      expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
+        ['api/github', 'GET'],
+        ['api/github/refresh', 'POST'],
+        ['api/github', 'GET']
+      ])
+    }
+  )
+
+  it.each(['BLOCKED', 'DISABLED', 'HTTP 403'])(
+    'revokes page consent before a mounted replacement can finish its cached GET after late %s',
+    async (status) => {
+      const pendingPost = deferredResponse()
+      const pendingGet = deferredResponse()
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(GitHub)
+      await flushPromises()
+      fetchMock.mockReturnValueOnce(pendingPost.promise)
+      await control(wrapper, 'Connect').trigger('click')
+      wrapper.unmount()
+      fetchMock.mockReturnValueOnce(pendingGet.promise)
+      const returned = mount(GitHub)
+      await flushPromises()
+      expect(control(returned, 'Stop')).toBeDefined()
+
+      pendingPost.resolve(
+        status === 'HTTP 403'
+          ? jsonResponse({}, false, 403)
+          : jsonResponse(githubReport({status, message: 'GitHub refresh is prohibited'}))
+      )
+      await flushPromises()
+      expect(control(returned, 'Stop')).toBeUndefined()
+      expect(control(returned, 'Connect')).toBeDefined()
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      pendingGet.resolve(jsonResponse(connectedReport()))
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(180_000)
+      expect(control(returned, 'Stop')).toBeUndefined()
+      expect(fetchMock.mock.calls.filter(([url]) => url === 'api/github/refresh')).toHaveLength(1)
+    }
+  )
+
+  it('updates the active replacement from cache when the previous instance finishes its POST', async () => {
+    const pending = deferredResponse()
+    let cached = connectedReport()
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(cached)))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    fetchMock.mockReturnValueOnce(pending.promise)
+    await control(wrapper, 'Connect').trigger('click')
+    wrapper.unmount()
+    const returned = mount(GitHub)
+    await flushPromises()
+    expect(metricButton(returned, 'Open pull requests').text()).toContain('1')
+    cached = {
+      ...connectedReport(),
+      refreshedAt: connectedReport().refreshedAt + 60_000,
+      metrics: [{label: 'Open pull requests', value: '99', tone: 'primary'}]
+    }
+    pending.resolve(jsonResponse(cached))
+    await flushPromises()
+
+    expect(metricButton(returned, 'Open pull requests').text()).toContain('99')
+    expect(returned.get('time').attributes('datetime')).toBe(new Date(cached.refreshedAt).toISOString())
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'api/github',
+      'api/github/refresh',
+      'api/github',
+      'api/github'
+    ])
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('coalesces the completion read behind a replacement cached GET already in flight', async () => {
+    const pendingPost = deferredResponse()
+    const pendingGet = deferredResponse()
+    const oldCache = connectedReport()
+    const newCache = {...connectedReport(), metrics: [{label: 'Open pull requests', value: '99', tone: 'primary'}]}
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(oldCache))
+      .mockReturnValueOnce(pendingPost.promise)
+      .mockReturnValueOnce(pendingGet.promise)
+      .mockResolvedValue(jsonResponse(newCache))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    wrapper.unmount()
+    const returned = mount(GitHub)
+    await flushPromises()
+
+    pendingPost.resolve(jsonResponse(newCache))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    pendingGet.resolve(jsonResponse(oldCache))
+    await flushPromises()
+    expect(metricButton(returned, 'Open pull requests').text()).toContain('99')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'api/github',
+      'api/github/refresh',
+      'api/github',
+      'api/github'
+    ])
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('uses its own completed POST report without adding a redundant cached GET', async () => {
+    const pending = deferredResponse()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(connectedReport()))
+      .mockReturnValueOnce(pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    pending.resolve(
+      jsonResponse({...connectedReport(), metrics: [{label: 'Open pull requests', value: '99', tone: 'primary'}]})
+    )
+    await flushPromises()
+    expect(metricButton(wrapper, 'Open pull requests').text()).toContain('99')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['api/github', 'api/github/refresh'])
+    await control(wrapper, 'Stop').trigger('click')
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('defers a replacement completion read while hidden and resumes with GET only', async () => {
+    const pending = deferredResponse()
+    let cached = connectedReport()
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(cached)))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    fetchMock.mockReturnValueOnce(pending.promise)
+    await control(wrapper, 'Connect').trigger('click')
+    wrapper.unmount()
+    const returned = mount(GitHub)
+    await flushPromises()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    cached = {...connectedReport(), metrics: [{label: 'Open pull requests', value: '99', tone: 'primary'}]}
+    pending.resolve(jsonResponse(cached))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(metricButton(returned, 'Open pull requests').text()).toContain('99')
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+  })
+
+  it('lets Stop revoke consent while a request is in progress', async () => {
+    let finish
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await control(wrapper, 'Connect').trigger('click')
+    await control(wrapper, 'Stop').trigger('click')
+    finish(jsonResponse(connectedReport()))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(control(wrapper, 'Connect')).toBeDefined()
+  })
+
+  it('revokes consent when read-only or panel disablement arrives, with no silent reconnection', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub, {props: {panel: {id: 'github', readOnly: false}}})
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+
+    await wrapper.setProps({panel: {id: 'github', readOnly: true, readOnlyReason: 'GitHub actions are read-only'}})
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(control(wrapper, 'Stop')).toBeUndefined()
+    expect(control(wrapper, 'Connect')).toBeUndefined()
+    expect(wrapper.text()).toContain('GitHub actions are read-only')
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith('api/github', {})
+
+    await wrapper.setProps({panel: {id: 'github', readOnly: false}})
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({panel: {id: 'github', enabled: false}})
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(wrapper.text()).toContain('Panel is disabled')
+    await wrapper.setProps({panel: {id: 'github', enabled: true}})
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(control(wrapper, 'Connect')).toBeDefined()
+  })
+
+  it.each([{readOnly: true}, {enabled: false}, {available: false}])(
+    'does not authorize external calls for restrictive manifest %o',
+    async (panel) => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(connectedReport()))
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(GitHub, {props: {panel}})
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(fetchMock).toHaveBeenCalledTimes(panel.readOnly ? 1 : 0)
+      expect(control(wrapper, 'Connect')).toBeUndefined()
+      expect(control(wrapper, 'Stop')).toBeUndefined()
+    }
+  )
+
+  it.each(['ERROR', 'BLOCKED', 'DISABLED', 'HTTP', 'NETWORK'])(
+    'preserves the cached snapshot and its timestamp when refresh fails with %s',
+    async (status) => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(connectedReport()))
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(GitHub)
+      await flushPromises()
+      const timestamp = wrapper.get('time').attributes('datetime')
+      if (status === 'HTTP') {
+        fetchMock.mockResolvedValueOnce(jsonResponse({}, false, 403))
+      } else if (status === 'NETWORK') {
+        fetchMock.mockRejectedValueOnce(new Error('Offline'))
+      } else {
+        fetchMock.mockResolvedValueOnce(
+          jsonResponse(githubReport({status, message: 'GitHub refresh was denied', refreshedAt: Date.now()}))
+        )
+      }
+
+      await control(wrapper, 'Connect').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[role="alert"]').exists()).toBe(true)
+      expect(wrapper.get('time').attributes('datetime')).toBe(timestamp)
+      expect(wrapper.text()).toContain('The previous snapshot is still shown')
+      expect(metricButton(wrapper, 'Open pull requests')).toBeDefined()
+      if (['BLOCKED', 'DISABLED', 'HTTP'].includes(status)) {
+        await vi.advanceTimersByTimeAsync(120_000)
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        expect(control(wrapper, 'Stop')).toBeUndefined()
+      }
+      if (status === 'DISABLED') expect(control(wrapper, 'Connect').attributes('disabled')).toBeDefined()
+    }
+  )
+
+  it('does not invent a successful timestamp for an unconnected report', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(githubReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    expect(wrapper.find('time').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Cached snapshot:')
+    expect(control(wrapper, 'Connect')).toBeDefined()
+  })
+
+  it('retains quota protection, partial results, and missing-credential warnings from the server', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(githubReport()))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    const quotaReport = {
+      ...connectedReport(),
+      status: 'QUOTA_PROTECTED',
+      message: 'Live repository calls were skipped to preserve remaining quota.',
+      warnings: ['Optional GitHub calls were skipped because the core API quota is near its safety threshold.']
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse(quotaReport))
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('QUOTA_PROTECTED')
+    expect(wrapper.text()).toContain('Optional GitHub calls were skipped')
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ...connectedReport(),
+        status: 'PARTIAL',
+        credential: {source: 'none', authenticated: false},
+        warnings: ['No GitHub token found; private repository data is unavailable.']
+      })
+    )
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(wrapper.text()).toContain('PARTIAL')
+    expect(wrapper.text()).toContain('Unauthenticated')
+    expect(wrapper.text()).toContain('No GitHub token found')
   })
 
   it('opens one replacing details drawer from each metric card', async () => {
@@ -446,6 +956,8 @@ describe('GitHub', () => {
     expect(wrapper.find('.details-drawer a.github-link-chip').attributes('href')).toBe(
       'https://github.com/jdubois/boot-ui/security/secret-scanning'
     )
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledWith('api/github', {})
   })
 
   it('does not warn when a quota has all of its allowance remaining', async () => {
@@ -622,8 +1134,11 @@ describe('GitHub', () => {
     const wrapper = mount(GitHub)
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenCalledWith('api/github', {})
     expect(wrapper.text()).toContain('GitHub repository unavailable')
     expect(wrapper.text()).toContain('No local git repository was detected')
+    expect(control(wrapper, 'Connect').attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -119,6 +119,9 @@ class BootUiQuarkusAuthenticationFilterTest {
         when(context.response()).thenReturn(response);
         when(request.method()).thenReturn(method);
         when(request.remoteAddress()).thenReturn(socketAddress);
+        io.vertx.core.http.HttpConnection connection = mock(io.vertx.core.http.HttpConnection.class);
+        when(request.connection()).thenReturn(connection);
+        when(connection.remoteAddress()).thenReturn(socketAddress);
         when(socketAddress.hostAddress()).thenReturn(remoteAddress);
         when(request.getHeader("Authorization")).thenReturn(authorization);
         when(request.getHeader("Cookie")).thenReturn(cookie);

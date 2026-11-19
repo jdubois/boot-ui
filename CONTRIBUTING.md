@@ -354,6 +354,22 @@ installing the reactor dependencies, run the affected conformance class:
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
 ```
 
+The Quarkus base API profile supplies a test-only, plain H2 datasource: the shared activity-persistence
+confirmation and keyed-finding dismissal/restore assertions execute against a real database and HTTP backend.
+Other base profiles still have no datasource or optional extensions. SQL Trace and Flyway intentionally remain
+unavailable there; their exact shared contract assertions run without assumptions in the existing capability fixtures:
+
+```bash
+./mvnw -B -ntp -pl bootui-quarkus-integration-tests/datasource,bootui-quarkus-integration-tests/flyway test \
+  -Dtest=BootUiQuarkusSqlTraceCaptureTest,BootUiQuarkusFlywayCaptureTest
+```
+
+`sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers` runs in the datasource fixture, including
+nonempty attribution from a native HTTP SQL request with a sanitized route template and statement breakdown;
+`unavailableActionTargetReturnsCanonicalNotFound` runs in the Flyway fixture. Together with the base runner these
+cover the four capability-dependent assertions; the Spring DevTools restart assertion remains not applicable on Quarkus.
+Use the same absolute isolated Maven repository for dependency installation and each command.
+
 The correlation coverage scenario (`AbstractCorrelationCoverageTest`, [PLAN-v2.md](docs/PLAN-v2.md) §5.1) measures
 how much request-thread work Live Activity nests under its request when identical requests are paced, sent
 back-to-back, or sent simultaneously. It fails when a floor is missed, when a child is nested under a request that was
@@ -607,6 +623,10 @@ UI, browser-facing API responses, or sample-app behavior:
 Playwright starts the relevant sample app automatically and reuses an existing
 server on port `8080` (Spring MVC), `8081` (Spring WebFlux), or `8082`
 (Quarkus).
+
+After the frontend dependencies and Spring Playwright Chromium are installed, run the manual Vite proxy contract with
+`(cd bootui-spring-sample-app/e2e && npm run test:proxy)`. It uses real Chromium and the repository's Vite configuration
+against an ephemeral local backend; this manual gate is not part of the default browser suite.
 
 The agent suites start their sample with `-javaagent:` and the jar `./mvnw install` built in `bootui-agent/target`, or
 `BOOTUI_AGENT_JAR`, and set the `agentAttached` fixture option, so the Java Agent, Code Inventory, and Code Paths specs

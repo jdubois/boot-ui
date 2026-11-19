@@ -4,6 +4,8 @@ import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Allow;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Reason;
 import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Reject;
 import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Locale;
 import java.util.Set;
@@ -30,10 +32,10 @@ import java.util.Set;
  *       example {@code :}, {@code [::1]junk}, or {@code http://localhost:8080}) is rejected exactly
  *       like a disallowed hostname; only a genuinely missing or blank {@code Host} header is allowed
  *       (browsers always set it).</li>
- *   <li><strong>Cross-site write protection (CSRF defense)</strong> — for state-changing methods the
- *       request is rejected when {@code Sec-Fetch-Site: cross-site} is present, or when an
- *       {@code Origin} header is present and its host does not match the request host (host-only
- *       comparison, so the supported {@code :5173}&#8594;{@code :8080} Vite proxy still works).</li>
+ *   <li><strong>Cross-site write protection (CSRF defense)</strong> — for state-changing methods a
+ *       present {@code Sec-Fetch-Site} must be {@code same-origin} or {@code none}. A present
+ *       {@code Origin} must be a serialized HTTP(S) origin with the same host; without the browser's
+ *       {@code same-origin} assertion, scheme and effective port must also match.</li>
  * </ol>
  *
  * <p>The guard is stateless and performs no logging. It does call {@link InetAddress#getByName} on
@@ -100,7 +102,9 @@ public final class LocalhostGuard {
         // rejected rather than falling through to the intentional missing-Host allowance, which only
         // applies when the header is genuinely absent or blank.
         String requestHost = extractRequestHost(request.hostAuthority());
-        if (isHostPresent(request.hostAuthority()) && (requestHost == null || !isAllowedHost(requestHost, config))) {
+        if (!request.rawHostAvailable()
+                || (isHostPresent(request.hostAuthority())
+                        && (requestHost == null || !isAllowedHost(requestHost, config)))) {
             return new Reject(Reason.DISALLOWED_HOST, MESSAGE_DISALLOWED_HOST);
         }
 
@@ -182,18 +186,34 @@ public final class LocalhostGuard {
 
     private static boolean isCrossSiteWrite(LocalhostGuardRequest request, String requestHost) {
         String fetchSite = request.secFetchSite();
-        if (fetchSite != null && fetchSite.equalsIgnoreCase("cross-site")) {
+        if (fetchSite != null && !fetchSite.equalsIgnoreCase("same-origin") && !fetchSite.equalsIgnoreCase("none")) {
             return true;
         }
         String origin = request.origin();
-        if (origin == null || origin.isBlank()) {
+        if (origin == null) {
             return false;
         }
-        // Compare host only (not scheme/port) on purpose: the remote cross-site threat is already blocked by the Host
-        // allow-list, and a stricter port match would break the supported Vite dev-server proxy (browser Origin
-        // localhost:5173 proxied to a Host of localhost:8080) for state-changing actions.
         String originHost = extractOriginHost(origin);
-        return originHost == null || !originHost.equalsIgnoreCase(requestHost);
+        if (originHost == null || !originHost.equalsIgnoreCase(requestHost)) {
+            return true;
+        }
+        // A browser's same-origin assertion survives a development proxy changing the upstream port.
+        // Origin-only clients must match the complete origin; same-site is never sufficient.
+        if ("same-origin".equalsIgnoreCase(fetchSite)) {
+            return false;
+        }
+        try {
+            URI originUri = new URI(origin);
+            URI target = new URI(request.scheme() + "://" + request.hostAuthority());
+            return !originUri.getScheme().equalsIgnoreCase(target.getScheme())
+                    || effectivePort(originUri) != effectivePort(target);
+        } catch (URISyntaxException ex) {
+            return true;
+        }
+    }
+
+    private static int effectivePort(URI uri) {
+        return uri.getPort() >= 0 ? uri.getPort() : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     private static boolean isAllowedHost(String host, LocalhostGuardConfig config) {
@@ -234,31 +254,32 @@ public final class LocalhostGuard {
     }
 
     /**
-     * Parses an {@code Origin} header value into its lowercased host. Unlike a {@code Host} header an
-     * Origin is a serialized origin, so the {@code scheme://} prefix is expected and a trailing path
-     * (sent by some non-browser clients) is tolerated; the remaining authority is then parsed by the
-     * same strict {@link #parseAuthority} used for {@code Host}, so both defenses share one parser
-     * across all adapters. Returns {@code null} when no authority can be read — including for the
-     * opaque {@code null} origin, which is a sentinel for "no origin to compare" rather than a host
-     * named {@code null} — which the cross-site check treats as "not same-site".
+     * Parses a serialized HTTP(S) origin, rejecting paths, credentials, query, fragments and opaque origins.
      */
     static String extractOriginHost(String value) {
-        if (value == null) {
+        if (value == null || value.isBlank()) {
             return null;
         }
-        String candidate = value.trim();
-        if (candidate.equalsIgnoreCase(OPAQUE_ORIGIN)) {
+        if (value.equalsIgnoreCase(OPAQUE_ORIGIN)) {
             return null;
         }
-        int scheme = candidate.indexOf("://");
-        if (scheme >= 0) {
-            candidate = candidate.substring(scheme + 3);
+        try {
+            URI uri = new URI(value);
+            if ((!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getRawAuthority() == null
+                    || uri.getHost() == null
+                    || uri.getRawAuthority().endsWith(":")
+                    || uri.getRawUserInfo() != null
+                    || (uri.getRawPath() != null && !uri.getRawPath().isEmpty())
+                    || uri.getRawQuery() != null
+                    || uri.getRawFragment() != null
+                    || uri.getPort() > 65535) {
+                return null;
+            }
+            return parseAuthority(uri.getRawAuthority());
+        } catch (URISyntaxException ex) {
+            return null;
         }
-        int slash = candidate.indexOf('/');
-        if (slash >= 0) {
-            candidate = candidate.substring(0, slash);
-        }
-        return candidate.isEmpty() ? null : parseAuthority(candidate);
     }
 
     /**

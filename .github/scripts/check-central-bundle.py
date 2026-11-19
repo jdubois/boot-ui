@@ -7,7 +7,7 @@ The directory is the unzipped bundle assemble_central_bundle.py writes (a Maven 
 release.yml before it uploads it, unsigned by stage-release-candidate.sh. The check fails unless:
 
 - the bundle holds exactly the published coordinates, each with its POM, jar, sources and javadoc jars and their
-  md5 and sha1 checksums, plus the runnable bootui-cli "all" jar, and no other file but their .asc signatures:
+  md5, sha1 and sha256 checksums, plus the runnable bootui-cli "all" jar, and no other file but their .asc signatures:
   no resolver bookkeeping such as _remote.repositories or maven-metadata-local.xml, which Central rejects;
 - every POM is flattened: no <parent>, explicit coordinates, no unresolved property, no dependency management,
   repositories, profiles or build, and the metadata Maven Central requires, identical to the root POM's;
@@ -166,10 +166,10 @@ def check_bundle(directory, version):
         expected += [f"{prefix}-{classifier}.jar" for classifier in EXTRA_FILES.get(artifact, ())]
         for name in expected:
             payloads.append(artifact_dir / name)
-            for suffix in ("", ".md5", ".sha1"):
+            for suffix in ("", ".md5", ".sha1", ".sha256"):
                 if not (artifact_dir / (name + suffix)).is_file():
                     errors.append(f"{artifact}: missing {name + suffix}")
-            allowed.update(artifact_dir / (name + suffix) for suffix in ("", ".md5", ".sha1", ".asc"))
+            allowed.update(artifact_dir / (name + suffix) for suffix in ("", ".md5", ".sha1", ".sha256", ".asc"))
         pom = artifact_dir / f"{prefix}.pom"
         if pom.is_file():
             check_pom(artifact, version, pom, errors)

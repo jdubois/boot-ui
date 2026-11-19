@@ -126,6 +126,10 @@ routes there. Republishing BootUI's classpath directory under a URL of the host'
 When BootUI is active, the starter should contribute low-precedence Actuator defaults for the local panels, including
 `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
 applications can override those `management.*` settings explicitly.
+Only BootUI-contributed HTTP exposure and health details receive BootUI's raw-source, Host and write guard, including
+separate management listeners, mapped paths and health aliases. Host-owned settings remain native; ownership is
+independent per property. `bootui.actuator.expose-defaults=false` opts out without removing endpoint beans.
+Raw added Actuator URLs require source trust even when remote token access to BootUI's in-process panels is enabled.
 
 On Spring, BootUI's panels are served by the application's own Spring MVC or Spring WebFlux stack; the starter brings
 neither. BootUI also supports non-web (command-line) applications that have Spring MVC and an embedded servlet container
@@ -250,16 +254,12 @@ This should integrate with the project's startup banner convention.
 
 ### 4.4 First-run experience
 
-The first screen should show:
+The unreleased first screen is the Home guide: understand the application, follow its behavior, review its code, or
+delegate to an agent. It guides users to the existing panels for application details, runtime state, configuration
+and assessments rather than duplicating their data. Unavailable destinations explain their status.
 
-- Application name.
-- Framework name and version (Spring Boot or Quarkus).
-- Java version.
-- Active profiles.
-- Server port and management port.
-- BootUI safety status: local-only, dev mode, enabled reason.
-- Quick links to the main panels.
-- Warnings for missing recommended data sources, such as Actuator endpoints not available.
+Opening Home or choosing a guide never collects diagnostics, starts an assessment or contacts an external service.
+Application details and safety information remain available through the existing shell and panels.
 
 ### 4.5 Expensive action admission
 
@@ -290,6 +290,28 @@ performing network work. The shared UI treats this conflict as a warning, retain
 and stops only the duplicate caller's spinner.
 
 ## 5. Functional specification
+
+### Home guide
+
+The default `#/home` route is a frontend-only guide, not another backend panel id. Initially it shows only
+**Understand this application**, **Follow its behavior**, **Review the code**, and **Let your agent help**, each with a short
+explanation. The three diagnostic guides progressively reveal topics, then destinations, covering every panel with
+intentional duplicates. The agent guide explains the existing consumer skill and six investigation playbooks locally,
+with separate, explicit documentation links. Its installation blocks have top-right copy controls; copying never
+executes commands, and clipboard denial leaves the text selectable with manual-copy guidance. It also routes to
+MCP Server and Command Line without starting an agent or installing or enabling tools.
+
+Only the selected level is shown. Forward and back navigation slide in opposite directions, with reduced-motion
+support, inert transitioning views, unique semantic ids and focus transfer/restoration. Breadcrumbs lead back;
+the Home icon and title return to the initial four choices.
+Menu choices reveal navigation without mounting destination panels or collecting their diagnostics. Disabled,
+unavailable, missing and not-yet-reported capabilities remain explained rather than falsely usable. Read-only
+destinations remain navigable. Labels and policy come from the existing route catalogue and panel manifest.
+
+Home consumes the shell's existing panel manifest and owns no fetch, polling or refresh control. The chosen level
+survives return navigation, and manifest updates do not reset it. Home never fetches advisor reports, runs Health,
+acquires stacks, starts capture, scans or external work. Destination panels keep their existing behavior after
+explicit navigation.
 
 ### 5.1 Scorecard panel
 
@@ -330,7 +352,7 @@ group.
 Data sources:
 
 - Local `.git` metadata for repository detection and branch/upstream information.
-- GitHub REST API during the panel's one-minute auto-refresh/manual refresh cycle.
+- GitHub REST API during explicitly authorized manual/one-minute refreshes.
 - Local credentials from `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`, never persisted or returned to the browser.
 
 Features:
@@ -345,6 +367,10 @@ Features:
 Acceptance criteria:
 
 - Initial page load and `/bootui/api/panels` do not spawn subprocesses or call GitHub.
+- Entering GitHub reads only the cached GET. Connect authorizes refresh for the current page lifetime, held only
+  in memory and never inferred from cached connection state. Stop or read-only policy revokes permission.
+- External timers pause while the panel/page is inactive or hidden. Returning reads cache first without an
+  activation-triggered POST; subsequent scheduled refreshes may use existing consent. Reload/new tab clears consent.
 - Outbound GitHub calls happen only through `POST /bootui/api/github/refresh` and are blocked by read-only settings.
 - Scorecard's GitHub controls, including GitHub-only run-all, honor that same target policy without hiding cached data.
 - The quotas/rate-limits drawer is hidden by default and highlights resources at quota or with 10% or less remaining.
@@ -486,6 +512,10 @@ Features:
 - Clearly label modified values as local, runtime-only, and not persisted to `application.properties`, environment
   variables, or config server.
 - Persist overrides to BootUI's override file by default so they can be reapplied on restart.
+- Load application overrides before ConfigData even while inactive, with resolved-activation INFO/WARN and no values.
+  Exclude operator-owned BootUI safety, Spring profile/config-source selectors and management HTTP security/listener
+  settings before any bootstrap consumer can see them, and reject those writes. Use owner-only atomic replacement
+  and first-write ignore rules for overrides/heap dumps, without ignoring team dismissals.
 - Explain when a modified property may not affect already-created beans or already-bound `@ConfigurationProperties`
   without restart or explicit rebind support.
 
@@ -3644,6 +3674,11 @@ Rules:
   DNS-rebinding attacks, rejecting a present but malformed authority the same way as a disallowed hostname (only a
   genuinely missing or blank `Host` is allowed), and reject cross-site state-changing requests (via
   `Origin`/`Sec-Fetch-Site`) so mutating endpoints stay protected even when Spring Security is absent.
+- Present Fetch Metadata on writes must be `same-origin` or `none`. Present Origin must be a serialized HTTP(S) origin
+  with the same host, and must match scheme/effective port unless the browser asserts `same-origin` (the Vite proxy
+  case). Header-absent local tooling remains supported. Heap capture additionally requires JSON `{"confirm":true}`.
+- Source trust and authentication use raw connection peers, not substituted forwarded addresses. Unsupported native
+  forwarding on Spring fails closed when raw provenance is unavailable.
 - If Spring Security is present while BootUI is active, contribute a highest-precedence `/bootui/**` permit-all security
   chain and log a warning so the developer console stays directly reachable. This must not weaken the localhost-only
   servlet filter unless `bootui.allow-non-localhost=true` is explicitly set.
@@ -3972,6 +4007,7 @@ Top-level navigation. Home is pinned at the top of the sidebar without a group h
 collapsible:
 
 - Home:
+  - Home.
   - Scorecard.
   - Live Activity.
   - Runtime Insights.

@@ -18,7 +18,8 @@
     "screenshots": "node scripts/capture-docs-screenshots.mjs",
     "report": "playwright show-report",
     "format": "prettier --config ../../prettier.config.cjs --ignore-path ../../.prettierignore --write .",
-    "format:check": "prettier --config ../../prettier.config.cjs --ignore-path ../../.prettierignore --check ."
+    "format:check": "prettier --config ../../prettier.config.cjs --ignore-path ../../.prettierignore --check .",
+    "test:proxy": "node ../../.github/scripts/test_vite_proxy.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",

@@ -68,4 +68,36 @@ class BootUiOverridesEnvironmentPostProcessorTests {
     void orderIsBeforeConfigData() {
         assertThat(processor.getOrder()).isEqualTo(BootUiOverridesEnvironmentPostProcessor.ORDER);
     }
+
+    @Test
+    void excludesSafetyAliasesBeforeAnyBootstrapConsumerSeesTheSource(@TempDir Path tmp) throws Exception {
+        Path file = tmp.resolve("overrides.properties");
+        Files.writeString(
+                file,
+                "bootui.enabled=ON\nBOOTUI_ALLOW_NON_LOCALHOST=true\n"
+                        + "bootui.authentication.token=not-for-logs\nbootui.expose-values=FULL\nsample.greeting=hello\n");
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.overrides-file", file.toString());
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+
+        BootUiOverridesPropertySource source =
+                (BootUiOverridesPropertySource) env.getPropertySources().get(BootUiOverridesPropertySource.NAME);
+        assertThat(source.getSource()).containsOnlyKeys("sample.greeting");
+        assertThat(source.protectedKeys()).isEqualTo(4);
+        assertThat(env.getProperty("bootui.enabled")).isNull();
+    }
+
+    @Test
+    void unreadableOrMalformedFileDoesNotPreventApplicationStartup(@TempDir Path tmp) throws Exception {
+        Path file = tmp.resolve("overrides.properties");
+        Files.writeString(file, "key=\\uZZZZ\n");
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.overrides-file", file.toString());
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+
+        BootUiOverridesPropertySource source =
+                (BootUiOverridesPropertySource) env.getPropertySources().get(BootUiOverridesPropertySource.NAME);
+        assertThat(source.getSource()).isEmpty();
+        assertThat(source.unreadable()).isTrue();
+    }
 }

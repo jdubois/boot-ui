@@ -97,6 +97,52 @@ describe('CommandPalette', () => {
     expect(titles.indexOf('Spring')).toBeLessThan(titles.indexOf('Beans'))
   })
 
+  it('matches every word across titles and keyword prefixes without matching unrelated words', async () => {
+    const {wrapper} = await mountPalette()
+    const titlesFor = async (value) => {
+      await setQuery(wrapper, value)
+      return wrapper.findAll('.cp-item-title').map((item) => item.text())
+    }
+
+    expect(await titlesFor('  GARBAGE   coll ')).toContain('Memory')
+    expect(await titlesFor('memory gc')).toContain('Memory')
+    expect(await titlesFor('gc nonexistent')).toEqual([])
+    expect(await titlesFor('gc')).not.toContain('AI Framework')
+  })
+
+  it.each([
+    ['virtual threads', 'Threads'],
+    ['postgres indexes', 'PostgreSQL'],
+    ['mysql jdbc', 'MySQL'],
+    ['database sql', 'SQL Trace'],
+    ['  VIRTUAL   threads  ', 'Threads'],
+    ['sql trace', 'SQL Trace']
+  ])('ranks the strongest destination first for "%s" without searching the network', async (query, expected) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const {wrapper, router} = await mountPalette()
+    const initialPath = router.currentRoute.value.path
+    await setQuery(wrapper, query)
+    expect(wrapper.findAll('.cp-item-title')[0].text()).toBe(expected)
+    expect(router.currentRoute.value.path).toBe(initialPath)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('preserves route order for equally relevant multi-word matches and selects the ranked result by keyboard', async () => {
+    const {wrapper, router} = await mountPalette()
+    const input = await setQuery(wrapper, 'virtual threads')
+    const titles = wrapper.findAll('.cp-item-title').map((item) => item.text())
+    expect(titles.indexOf('Spring')).toBeLessThan(titles.indexOf('JVM Tuning'))
+    expect(titles[0]).toBe('Threads')
+    expect(input.attributes('aria-activedescendant')).toBe('bootui-command-palette-option-threads')
+    await input.trigger('keydown', {key: 'Enter'})
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/threads')
+    expect(wrapper.emitted('close')).toEqual([['content']])
+    wrapper.unmount()
+  })
+
   it('uses the manifest platform for the shared application-advisor label and search', async () => {
     const {wrapper} = await mountPalette({
       panels: {

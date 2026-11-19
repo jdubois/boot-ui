@@ -49,7 +49,7 @@
 #
 # Build and run:
 #   docker build -f Dockerfile-webflux -t bootui-sample-app-webflux .
-#   docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-webflux
+#   docker run --rm -p 127.0.0.1:8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-webflux
 #   # then open http://localhost:8081/bootui
 #
 # Optional corporate npm registry (requires an existing ~/.npmrc):
@@ -58,7 +58,7 @@
 # Without it, npm keeps its default registry configuration.
 #
 # Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
-#   docker run --rm -p 8081:8081 \
+#   docker run --rm -p 127.0.0.1:8081:8081 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
 #     bootui-sample-app-webflux

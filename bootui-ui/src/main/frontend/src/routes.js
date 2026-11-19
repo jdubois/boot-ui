@@ -1,3 +1,5 @@
+import Home from './views/Home.vue'
+
 const Overview = () => import('./views/Overview.vue')
 const GitHub = () => import('./views/GitHub.vue')
 const Beans = () => import('./views/Beans.vue')
@@ -79,7 +81,20 @@ export const groups = {
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 export const routes = [
-  {path: '/', redirect: '/scorecard'},
+  {path: '/', redirect: '/home'},
+  {
+    path: '/home',
+    name: 'home',
+    component: Home,
+    meta: {
+      group: groups.home,
+      icon: 'bi-house',
+      title: 'Home',
+      uiOnly: true,
+      shortcut: 'ho',
+      keywords: ['start', 'guide', 'explore', 'help', 'understand', 'find a panel']
+    }
+  },
   {
     path: '/scorecard',
     name: 'overview',
@@ -89,7 +104,7 @@ export const routes = [
       icon: 'bi-speedometer2',
       title: 'Scorecard',
       shortcut: 'sco',
-      keywords: ['overview', 'home', 'dashboard', 'summary', 'score', 'findings', 'advisors', 'start']
+      keywords: ['overview', 'dashboard', 'summary', 'score', 'findings', 'advisors']
     }
   },
   {

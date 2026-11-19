@@ -2,7 +2,7 @@
 
 ![BootUI Scorecard panel](../images/bootui-overview.webp)
 
-The Scorecard panel is BootUI's landing page. It opens with the standard panel header and a link to the running
+The Scorecard is BootUI's assessment summary, separate from the [Home guides](./README.md#home). It opens with the standard panel header and a link to the running
 application's homepage, and its centrepiece is an on-demand findings and coverage summary. It lives at `#/scorecard`,
 and the former `#/overview` route redirects there. Its panel id stays `overview`, so `bootui.panels.overview.enabled`
 still controls it.

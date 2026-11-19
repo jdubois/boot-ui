@@ -24,7 +24,7 @@ report_error() {
 
 # Every advertised download must be present in the static assets and, when available, the built site.
 referenced="$(
-  grep -rhoE "${SITE_URL}/[A-Za-z0-9._/-]+\.(sh|ps1|zip)" \
+  grep -rhoE "${SITE_URL}/[A-Za-z0-9._/-]+\.(sh|ps1|zip|asc)" \
     "$REPO_ROOT/README.md" "$REPO_ROOT/docs" --include='*.md' 2>/dev/null |
     sort -u || true
 )"

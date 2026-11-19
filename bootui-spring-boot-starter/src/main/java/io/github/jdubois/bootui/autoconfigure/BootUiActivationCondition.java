@@ -39,7 +39,12 @@ public class BootUiActivationCondition implements Condition {
                 listProperty(environment, "bootui.enabled-profiles", BootUiDefaults.ENABLED_PROFILES);
 
         if (!List.of("AUTO", "ON", "OFF").contains(mode)) {
-            return new BootUiActivation(false, "Disabled: invalid bootui.enabled value '" + rawMode + "'", warnings);
+            return new BootUiActivation(
+                    false,
+                    "Disabled: invalid bootui.enabled value '" + rawMode + "'",
+                    warnings,
+                    null,
+                    BootUiActivation.Inactivity.INVALID_CONFIGURATION);
         }
 
         for (String profile : disabledProfiles) {
@@ -56,12 +61,15 @@ public class BootUiActivationCondition implements Condition {
                 return new BootUiActivation(
                         false,
                         "Disabled because active profile '" + profile + "' is in bootui.disabled-profiles",
-                        warnings);
+                        warnings,
+                        null,
+                        BootUiActivation.Inactivity.DISABLED_PROFILE);
             }
         }
 
         if ("OFF".equals(mode)) {
-            return new BootUiActivation(false, "Disabled by bootui.enabled=OFF", warnings);
+            return new BootUiActivation(
+                    false, "Disabled by bootui.enabled=OFF", warnings, null, BootUiActivation.Inactivity.EXPLICIT_OFF);
         }
         if ("ON".equals(mode)) {
             return new BootUiActivation(true, "Enabled by bootui.enabled=ON", warnings);
@@ -78,7 +86,11 @@ public class BootUiActivationCondition implements Condition {
         }
 
         return new BootUiActivation(
-                false, "Disabled: no enabled profile and devtools is not on the classpath", warnings);
+                false,
+                "Disabled: no enabled profile and devtools is not on the classpath",
+                warnings,
+                null,
+                BootUiActivation.Inactivity.AUTO);
     }
 
     /**

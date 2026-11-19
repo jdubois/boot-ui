@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
  * nuances a clean rewrite could silently flip:
  *
  * <ul>
- *   <li>host-only (port-ignoring) cross-site Origin comparison — the supported Vite
+ *   <li>same-origin browser metadata — the supported Vite
  *       {@code :5173}&#8594;{@code :8080} proxy must pass a state-changing request;</li>
  *   <li>a present Origin with a missing/blank Host on a write is cross-site (rejected);</li>
  *   <li>a present but <em>malformed</em> Host is rejected rather than treated as absent, while the
@@ -98,6 +98,15 @@ class LocalhostGuardTests {
     @Test
     void rejectsNonLoopbackSource() {
         assertRejected(guard.decide(get("192.168.65.1", "localhost:8080"), defaults()), Reason.NON_LOOPBACK_SOURCE);
+    }
+
+    @Test
+    void unavailableOriginalAuthorityFailsClosedWithoutChangingSourcePrecedence() {
+        var local = new LocalhostGuardRequest("GET", "127.0.0.1", "localhost", null, null, "http", false);
+        assertRejected(guard.decide(local, defaults()), Reason.DISALLOWED_HOST);
+        assertRejected(guard.decide(local, allowNonLocalhost()), Reason.DISALLOWED_HOST);
+        var remote = new LocalhostGuardRequest("GET", "192.0.2.10", "localhost", null, null, "http", false);
+        assertRejected(guard.decide(remote, defaults()), Reason.NON_LOOPBACK_SOURCE);
     }
 
     @Test
@@ -352,8 +361,8 @@ class LocalhostGuardTests {
     @Test
     void parsesOriginHeadersThroughTheSameAuthorityParser() {
         assertThat(LocalhostGuard.extractOriginHost("http://localhost:8080")).isEqualTo("localhost");
-        assertThat(LocalhostGuard.extractOriginHost("https://localhost:8080/")).isEqualTo("localhost");
-        assertThat(LocalhostGuard.extractOriginHost("http://[::1]:8080/api")).isEqualTo("::1");
+        assertThat(LocalhostGuard.extractOriginHost("https://localhost:8080/")).isNull();
+        assertThat(LocalhostGuard.extractOriginHost("http://[::1]:8080/api")).isNull();
         assertThat(LocalhostGuard.extractOriginHost("http://localhost:5173")).isEqualTo("localhost");
         assertThat(LocalhostGuard.extractOriginHost(null)).isNull();
         assertThat(LocalhostGuard.extractOriginHost("   ")).isNull();
@@ -382,8 +391,10 @@ class LocalhostGuardTests {
     }
 
     @Test
-    void allowsSameOriginStateChangingRequestWithTrailingSlashOrigin() {
-        assertAllowed(guard.decide(post("127.0.0.1", "localhost:8080", "http://localhost:8080/", null), defaults()));
+    void rejectsNonSerializedOriginWithTrailingSlash() {
+        assertRejected(
+                guard.decide(post("127.0.0.1", "localhost:8080", "http://localhost:8080/", null), defaults()),
+                Reason.CROSS_SITE_WRITE);
     }
 
     @Test
@@ -531,7 +542,49 @@ class LocalhostGuardTests {
     void allowsViteProxyStateChangingRequestAcrossPorts() {
         // Browser Origin localhost:5173 (Vite) proxied to a Host of localhost:8080: same host, different
         // port -> the host-only comparison must treat this as same-site and allow the write.
-        assertAllowed(guard.decide(post("127.0.0.1", "localhost:8080", "http://localhost:5173", null), defaults()));
+        assertAllowed(
+                guard.decide(post("127.0.0.1", "localhost:8080", "http://localhost:5173", "same-origin"), defaults()));
+    }
+
+    @Test
+    void rejectsSameSiteWritesAndUnknownFetchMetadataWithoutAnOrigin() {
+        for (String site : List.of("same-site", "cross-site", "", "unexpected")) {
+            assertRejected(
+                    guard.decide(post("127.0.0.1", "localhost:8080", null, site), defaults()), Reason.CROSS_SITE_WRITE);
+        }
+        assertAllowed(guard.decide(post("127.0.0.1", "localhost:8080", null, "none"), defaults()));
+    }
+
+    @Test
+    void originOnlyWritesMustMatchSchemeAndEffectivePort() {
+        assertRejected(
+                guard.decide(post("127.0.0.1", "localhost:8080", "http://localhost:5173", null), defaults()),
+                Reason.CROSS_SITE_WRITE);
+        assertRejected(
+                guard.decide(post("127.0.0.1", "localhost:8080", "https://localhost:8080", null), defaults()),
+                Reason.CROSS_SITE_WRITE);
+        assertAllowed(guard.decide(post("127.0.0.1", "localhost:80", "http://localhost", null), defaults()));
+        assertAllowed(guard.decide(
+                new LocalhostGuardRequest("POST", "127.0.0.1", "localhost", "https://localhost:443", null, "https"),
+                defaults()));
+    }
+
+    @Test
+    void browserMetadataNeverMakesMalformedOrForeignOriginsAcceptable() {
+        for (String origin : List.of(
+                "",
+                "localhost:8080",
+                "null",
+                "http://localhost:8080/",
+                "http://localhost:8080?x",
+                "http://user@localhost:8080",
+                "ftp://localhost:8080",
+                "http://localhost:999999",
+                "http://foreign.invalid:8080")) {
+            assertRejected(
+                    guard.decide(post("127.0.0.1", "localhost:8080", origin, "same-origin"), defaults()),
+                    Reason.CROSS_SITE_WRITE);
+        }
     }
 
     @Test

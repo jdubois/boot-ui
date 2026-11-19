@@ -14,10 +14,33 @@ activates only in local development.
 
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
-> **BootUI 2.0 is available on Maven Central**, with exact correlation, a runtime journal, Runtime Insights, run comparison,
+> **BootUI is available on Maven Central**, with exact correlation, a runtime journal, Runtime Insights, run comparison,
 > and optional Java-agent instrumentation. Follow the [setup guide](docs/SETUP.md), read its
 > [known limitations](docs/KNOWN-LIMITATIONS.md), and share feedback in
 > [GitHub Discussions](https://github.com/jdubois/boot-ui/discussions).
+
+## Try it locally
+
+With Docker or Podman running:
+
+```bash
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
+```
+
+Open <http://localhost:8080/bootui> on the same machine. The sample image follows `main`, not a pinned release.
+The [sample guide](docs/TRY-SAMPLE-APP.md) includes WebFlux and Quarkus images.
+To use your own application, follow [Spring Boot setup](docs/SETUP.md) or [Quarkus setup](docs/setup/quarkus.md).
+
+The Home and findings workflow below is an **unreleased source preview**, not part of the published dependency
+or an assurance about the current sample image. [Build from source](CONTRIBUTING.md#build) to preview these changes.
+
+![BootUI Home guides users to the right panel](docs/images/bootui-home.webp)
+
+Choose a Home guide to understand the app, investigate its behavior, review the code, or delegate to your coding agent.
+BootUI includes an [agent skill and investigation playbooks](docs/AI-AGENTS.md). To start an assessment yourself,
+open an advisor, run its scan explicitly, and open a named rule. The regular advisors offer filters, source
+locations where available, and previewed Markdown to copy into an editor or agent. Nothing is scanned on page load.
 
 ## Quick links
 

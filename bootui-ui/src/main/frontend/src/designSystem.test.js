@@ -213,6 +213,7 @@ describe('BootUI design system contracts', () => {
     const exempt = new Set([
       'BeanGraph.vue', // canvas rendered by BeansGraphMode, which owns the state
       'BeansGraphMode.vue', // sub-mode of Beans.vue, which owns the PanelHeader
+      'Home.vue', // static navigation guide: owns no data fetch
       'HttpProbe.vue', // request builder: nothing loads until the user probes
       'LiveFlowMode.vue', // sub-mode of Live Activity
       'LogTail.vue', // streams over EventSource and reports its connection state

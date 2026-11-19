@@ -293,6 +293,7 @@ describe('routes', () => {
 
   it('keeps the sidebar order aligned with the documented feature order', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
+      'Home',
       'Scorecard',
       'Live Activity',
       'Runtime Insights',
@@ -363,7 +364,9 @@ describe('routes', () => {
 
   it('keeps the UI routes aligned with the backend panel catalog', () => {
     const backendPanels = parseBackendPanels()
-    const routeMetadata = Object.fromEntries(namedRoutes.map((route) => [route.name, {title: route.meta.title}]))
+    const routeMetadata = Object.fromEntries(
+      namedRoutes.filter((route) => !route.meta.uiOnly).map((route) => [route.name, {title: route.meta.title}])
+    )
     const backendMetadata = Object.fromEntries(backendPanels.map((panel) => [panel.id, {title: panel.title}]))
 
     expect(routeMetadata).toEqual(backendMetadata)
@@ -551,6 +554,7 @@ describe('routes', () => {
       groups.home,
       groups.home,
       groups.home,
+      groups.home,
       groups.advisors,
       groups.advisors,
       groups.advisors,
@@ -632,7 +636,7 @@ describe('routes', () => {
 
   it('keeps redirect aliases out of sidebar navigation', () => {
     expect(routes.filter((route) => route.redirect)).toEqual([
-      {path: '/', redirect: '/scorecard'},
+      {path: '/', redirect: '/home'},
       {path: '/overview', redirect: '/scorecard'},
       {path: '/tuning-advisor', redirect: '/jvm-tuning'},
       {path: '/pentest', redirect: '/pentesting'},

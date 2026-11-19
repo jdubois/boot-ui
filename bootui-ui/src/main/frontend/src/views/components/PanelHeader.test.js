@@ -13,6 +13,23 @@ describe('PanelHeader', () => {
     vi.useRealTimers()
   })
 
+  it('makes the icon and title one native action only when requested', async () => {
+    const onTitleAction = vi.fn()
+    const wrapper = mount(PanelHeader, {
+      props: {title: 'Home', icon: 'bi-house', onTitleAction}
+    })
+
+    const action = wrapper.get('h2 button')
+    expect(action.attributes('type')).toBe('button')
+    expect(action.text()).toBe('Home')
+    await action.get('.bi-house').trigger('click')
+    expect(onTitleAction).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({loading: true})
+    expect(action.attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('emits refresh from the header refresh button', async () => {
     const onRefresh = vi.fn()
     const wrapper = mount(PanelHeader, {
@@ -97,6 +114,7 @@ describe('PanelHeader', () => {
     })
 
     expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+    expect(wrapper.find('.panel-header__title-action').exists()).toBe(false)
 
     wrapper.unmount()
   })

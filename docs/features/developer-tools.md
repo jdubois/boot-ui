@@ -302,11 +302,20 @@ the panel when no projects directory is found. Data is read-only: BootUI never m
 
 ![BootUI GitHub panel](../images/bootui-github.webp)
 
-Summarizes the current project's GitHub state, read from the local `origin` remote. It auto-refreshes every minute while
-the tab is visible. `GET /bootui/api/github` never contacts GitHub; it returns the cached report. Only
-`POST /bootui/api/github/refresh` reaches the API, gated by `bootui.github.api-enabled` and the host allow-list. Opening
-the panel and each auto-refresh tick issue that refresh unless the panel is read-only, in which case the panel falls
-back to the cached `GET`.
+_Source preview with illustrative sample data._
+
+The Connect/Stop behavior below is an **unreleased source preview**; see [setup](../SETUP.md#open-the-console).
+
+Summarizes the current project's GitHub state, read from the local `origin` remote. Opening the panel reads only
+`GET /bootui/api/github`, which never contacts GitHub. **Connect** explicitly starts an external refresh and permits
+the existing one-minute refresh while this panel is active and the browser page is visible. **Stop** ends that
+permission. Cached server connection state alone never authorizes external access.
+
+Consent is held in memory until the BootUI page reloads, not in browser storage. Leaving the panel pauses external
+refresh; returning reads the cache first, with later scheduled refreshes allowed by the same consent. A reload or new
+tab requires Connect again. Only `POST /bootui/api/github/refresh` reaches GitHub, gated by panel read-only policy,
+`bootui.github.api-enabled`, and the host allow-list. Failed refreshes keep the last cached report and its timestamp
+with a clear error.
 
 The panel shows repository metadata and an eight-card summary grid, each card opening a detail drawer:
 

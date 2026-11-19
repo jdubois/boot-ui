@@ -595,6 +595,16 @@ advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is s
 
 ## 6. Activation & safety on Quarkus
 
+Source trust and token admission read the Vert.x connection peer, not the request peer rewritten by proxy forwarding.
+Writes reject `Sec-Fetch-Site: same-site`; Origin-only requests must match scheme/host/effective port. Browser
+`same-origin` metadata preserves Vite's upstream port rewrite. Heap capture requires JSON `{"confirm":true}` before
+JVM work, at parity with both Spring stacks.
+
+Quarkus native host forwarding replaces the original Host metadata before BootUI runs. BootUI therefore rejects
+requests carrying effective forwarded-host metadata instead of trusting the rewritten authority. Use a proxy that
+preserves Host and omits `Forwarded` host parameters and the configured forwarded-host header for BootUI requests.
+Address/protocol forwarding without host metadata remains supported; other application routes are unchanged.
+
 - **Dev-mode-only extension.** The `bootui-quarkus-deployment` module registers BootUI's routes and beans **only in dev
   and test mode** via `@BuildStep` (never in `LaunchMode.NORMAL`). This is the natural Quarkus analogue of BootUI's "active only in `dev`/`local`, fail closed"
   rule, and it means BootUI is simply absent from production/native builds.

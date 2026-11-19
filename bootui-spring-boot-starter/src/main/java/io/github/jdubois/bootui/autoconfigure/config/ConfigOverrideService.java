@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
+import io.github.jdubois.bootui.engine.safety.ConfigurationOverridePolicy;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
@@ -40,9 +41,14 @@ public class ConfigOverrideService {
 
     public ConfigOverrideService(
             ConfigurableEnvironment environment, BootUiProperties properties, BootUiExposure exposure) {
+        this(environment, exposure, new ConfigOverridesFileStore(resolveFile(properties)));
+    }
+
+    ConfigOverrideService(
+            ConfigurableEnvironment environment, BootUiExposure exposure, ConfigOverridesFileStore store) {
         this.environment = environment;
         this.exposure = exposure;
-        this.store = new ConfigOverridesFileStore(resolveFile(properties));
+        this.store = store;
     }
 
     private static Path resolveFile(BootUiProperties properties) {
@@ -62,27 +68,32 @@ public class ConfigOverrideService {
         return source().containsProperty(name);
     }
 
-    public ConfigOverrideResult put(String name, String value) {
+    public synchronized ConfigOverrideResult put(String name, String value) {
         validateName(name);
-        BootUiOverridesPropertySource src = source();
+        BootUiOverridesPropertySource src = writableSource();
         Object previous = src.getProperty(name);
         ValueExposure valueExposure = exposure.valueExposure();
         boolean maskSecrets = exposure.maskSecrets();
         String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
+        Map<String, Object> updated = new LinkedHashMap<>(src.mutableSource());
+        updated.put(name, value);
+        store.save(updated);
         src.put(name, value);
-        store.save(src.mutableSource());
         String message = describeRebindCaveat();
         return new ConfigOverrideResult(
                 name, displayValue(name, value, valueExposure, maskSecrets), previousDisplay, true, message);
     }
 
-    public ConfigOverrideResult remove(String name) {
+    public synchronized ConfigOverrideResult remove(String name) {
         validateName(name);
-        BootUiOverridesPropertySource src = source();
+        BootUiOverridesPropertySource src = writableSource();
         ValueExposure valueExposure = exposure.valueExposure();
         boolean maskSecrets = exposure.maskSecrets();
-        Object previous = src.remove(name);
-        store.save(src.mutableSource());
+        Object previous = src.getProperty(name);
+        Map<String, Object> updated = new LinkedHashMap<>(src.mutableSource());
+        updated.remove(name);
+        store.save(updated);
+        src.remove(name);
         String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
         return new ConfigOverrideResult(name, null, previousDisplay, true, describeRebindCaveat());
     }
@@ -97,10 +108,20 @@ public class ConfigOverrideService {
         return created;
     }
 
+    private BootUiOverridesPropertySource writableSource() {
+        BootUiOverridesPropertySource source = source();
+        if (source.unreadable()) {
+            throw new IllegalStateException(
+                    "BootUI overrides file was unreadable at startup; repair it and restart before changing overrides.");
+        }
+        return source;
+    }
+
     private void validateName(String name) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Property name must not be blank");
         }
+        ConfigurationOverridePolicy.requireWritable(name);
     }
 
     private String displayValue(String name, Object value, ValueExposure valueExposure, boolean maskSecrets) {

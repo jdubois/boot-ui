@@ -6249,6 +6249,14 @@ const postgresql = {
 
 const screenshots = [
   [
+    'home',
+    'Home',
+    'bootui-home.webp',
+    async (page) => {
+      await page.getByRole('button', {name: 'Let your agent help', exact: true}).waitFor()
+    }
+  ],
+  [
     'scorecard',
     'Scorecard',
     'bootui-overview.webp',
@@ -6258,8 +6266,8 @@ const screenshots = [
       await page.getByText('Code scanning alerts: 1 open').waitFor()
       await page.getByRole('img', {name: /Overall score: \d+ out of 100 — Average of 10 scores/}).waitFor()
       await page.locator('.overall-gauge').waitFor()
-      await page.getByText('Points deducted per score', {exact: true}).waitFor()
-      await page.locator('.overall-contributions li').nth(9).waitFor()
+      await page.getByText('Where the points went', {exact: true}).waitFor()
+      await page.locator('.overall-deductions > li').first().waitFor()
       await page.getByRole('img', {name: 'GitHub security-alert score: 90 out of 100', exact: true}).waitFor()
     }
   ],
@@ -6698,7 +6706,17 @@ const screenshots = [
       await page.locator('.badge.text-bg-danger').waitFor()
     }
   ],
-  ['architecture', 'Architecture', 'bootui-architecture.webp', waitForText('Packages should be free of cycles')],
+  [
+    'architecture',
+    'Architecture',
+    'bootui-architecture.webp',
+    async (page) => {
+      const results = page.locator('.advisor-rule-results')
+      await results.getByRole('button', {name: /Packages should be free of cycles/}).click()
+      await results.evaluate((section) => section.closest('.card').scrollIntoView({block: 'start'}))
+      await page.evaluate(() => (window.__bootuiKeepWorkspaceScroll = true))
+    }
+  ],
   ['rest-api', 'REST API', 'bootui-rest-api.webp', waitForText("Don't expose JPA entities in responses")],
   ['spring', 'Spring', 'bootui-spring.webp', waitForText('Review RestTemplate migration')],
   ['memory', 'Memory', 'bootui-memory.webp', waitForText('Old generation is near its maximum')],
