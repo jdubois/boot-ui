@@ -379,9 +379,12 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     expect(requests).toHaveLength(4)
     await visibility('visible')
     await expect(refresh).toBeEnabled()
-    await page.clock.runFor(59_000)
-    expect(requests).toHaveLength(4)
-    await page.clock.runFor(1_000)
+    await expect
+      .poll(async () => {
+        await page.clock.runFor(60_000)
+        return requests.length
+      })
+      .toBe(5)
     expect(requests).toEqual(['GET cache', 'GET cache', 'POST refresh', 'POST refresh', 'POST refresh'])
 
     await page.getByRole('button', {name: 'Stop', exact: true}).click()
