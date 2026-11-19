@@ -67,7 +67,7 @@ const GROUP_SUMMARIES = {
   'paged-without-order': 'Paged database reads without an explicit ORDER BY.',
   'event-loop-blocking': 'JDBC statements started on an event-loop thread.',
   'transaction-across-remote-call': 'Transactions and their connections span outbound calls.',
-  'split-transaction-writes': 'A request committed its writes in separate transactions.',
+  'split-transaction-writes': 'Captured write groups whose atomicity needs verification.',
   'repeated-selects': 'The same SELECT repeated after another statement.',
   'unbatched-write-loop': 'Repeated database writes without JDBC batching.',
   'lazy-sql-after-handler': 'SQL executed after the request handler returned.',

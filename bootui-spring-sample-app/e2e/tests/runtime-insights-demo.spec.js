@@ -67,7 +67,7 @@ test.describe('Runtime Insights demo', () => {
       ['Repeated SELECTs', '/api/insights/orders'],
       ['Connections held together', '/api/insights/orders/{id}/confirm'],
       ['Connections re-acquired in a session', '/api/insights/tags/reacquire'],
-      ['Writes split across transactions', '/api/insights/orders/{id}/confirm'],
+      ['Write atomicity to verify', '/api/insights/orders/{id}/confirm'],
       ['Unbatched write loops', '/api/insights/audit/one-by-one'],
       ['Read-write transactions that only read', 'InsightTagService.summary'],
       ['Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page'],
@@ -82,6 +82,11 @@ test.describe('Runtime Insights demo', () => {
       await expect(page.locator('.insight-detail')).not.toContainText('Not listed by default')
       await expect(page.locator('.insight-detail')).not.toContainText(/validat/i)
     }
+    await expect(
+      page
+        .locator('.insight-group-summary')
+        .filter({hasText: 'Captured write groups whose atomicity needs verification.'})
+    ).toBeVisible()
 
     await openInsightObservation(page, expect, 'Route time breakdown', 'GET /api/secure/products')
     const detail = page.locator('.insight-detail')

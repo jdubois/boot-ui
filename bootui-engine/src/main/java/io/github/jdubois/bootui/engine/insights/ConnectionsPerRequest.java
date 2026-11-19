@@ -68,13 +68,6 @@ public final class ConnectionsPerRequest implements Observation {
                 int held = mostHeld.get(dataSource);
                 int requests = eligibleByDataSource.get(dataSource);
                 Integer pool = snapshot.poolSize(dataSource).orElse(null);
-                String estimate = pool == null
-                        ? "With a pool of P connections, floor((P - 1) / " + (held - 1)
-                                + ") + 1 concurrent requests can exhaust the pool while waiting for another connection."
-                        : "With a pool of " + pool + " connections and the observed maximum of " + held
-                                + " held per request, " + ((pool - 1) / (held - 1) + 1)
-                                + " concurrent " + (pool <= held - 1 ? "request can" : "requests can")
-                                + " exhaust the pool while waiting for another connection.";
                 rows.sort(Comparator.comparingInt((String[] row) -> Integer.parseInt(row[1]))
                         .reversed());
                 findings.add(new Finding(
@@ -87,20 +80,26 @@ public final class ConnectionsPerRequest implements Observation {
                         requests,
                         rows.size(),
                         List.of(
-                                "Check for a REQUIRES_NEW transaction, or a second call to the data source, inside"
-                                        + " an open transaction (Transactions).",
-                                estimate + " This is a hold-and-wait estimate, not proof of a deadlock"
-                                        + " (Database Connection Pools)."),
+                                "Check whether these checkouts were nested, such as REQUIRES_NEW inside an open"
+                                        + " transaction, or parallel independent work (Transactions).",
+                                (pool == null
+                                                ? "Check the pool's maximum size"
+                                                : "Compare the pool's current maximum of "
+                                                        + InsightText.counted(pool, "connection"))
+                                        + " against the work that uses it. If checkouts are nested, could a request"
+                                        + " need another connection while holding one (Database Connection Pools)?"),
                         rows.stream().limit(3).map(row -> row[0]).toList(),
                         List.of("Request", "Connections held together"),
                         rows.stream().map(List::of).toList(),
                         List.of(
-                                "Counts logical connections the application obtained. The estimate assumes nested"
-                                        + " checkouts, not parallel independent work; other pool users can exhaust it"
-                                        + " at lower concurrency.",
+                                "Counts logical connections the application obtained, not physical connections."
+                                        + " Overlap does not establish waiting or deadlock.",
+                                "Captured checkout thread names and execution ids do not establish serial ownership"
+                                        + " or nesting, so no hold-and-wait concurrency estimate is inferred.",
                                 pool == null
-                                        ? "The pool's maximum size is unavailable; the estimate uses P."
-                                        : "The estimate uses the pool's current maximum size.")));
+                                        ? "The pool's maximum size is unavailable."
+                                        : "The current pool maximum may differ from when these connections were"
+                                                + " recorded.")));
             });
         }
         long uncounted = snapshot.requests().size() - eligible;

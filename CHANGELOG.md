@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Resource attribution** keeps observed connection overlap without inferring nested waiting or an exhaustion
+  estimate, and asks about write atomicity across captured data sources and boundaries without claiming physical
+  ownership or independent commits ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Authorization target evidence** distinguishes request-route restrictions from object-level method decisions.
   Genuine request findings retain exposure-controlled paths and separately labeled method context without
   exposing method rules ([Runtime Insights](docs/features/runtime-insights.md)).

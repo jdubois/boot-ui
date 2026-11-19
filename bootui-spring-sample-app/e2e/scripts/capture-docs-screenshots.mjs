@@ -4156,7 +4156,7 @@ const runtimeInsightsReport = {
     insightCheck('repeated-selects', 'Repeated SELECTs', 1240, 1),
     insightCheck('connections-per-request', 'Connections per request', 1240, 1),
     insightCheck('safe-method-dml', 'Writes in GET requests', 980, 0),
-    insightCheck('split-transaction-writes', 'Writes split across transactions', 210, 0),
+    insightCheck('split-transaction-writes', 'Write atomicity to verify', 210, 0),
     insightCheck('transaction-across-remote-call', 'Transactions open across remote calls', 96, 1),
     insightCheck('lazy-sql-after-handler', 'SQL after the handler returned', 1240, 0),
     insightCheck(
