@@ -52,6 +52,9 @@ public final class CiAssessmentRunner {
     private static final Pattern ASSESSMENT_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
     private static final Pattern SAFE_VERSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,63}");
     private static final Pattern SAFE_RULE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,79}");
+    private static final Pattern HIBERNATE_DIAGNOSTIC_RULE =
+            Pattern.compile("HIB-(?:CACHE|CONFIG|ENTITY|FETCH|ID|MAP|QUERY)-[0-9]{3}");
+    private static final int MAX_DIAGNOSTIC_RULES = 10;
     private static final Pattern SAFE_RUNTIME_KIND = Pattern.compile("[a-z][a-z0-9-]{0,63}");
     private static final Pattern SAFE_RUNTIME_SOURCE = Pattern.compile("[a-z][a-z0-9.-]{0,63}");
     private static final Duration MAX_RUNTIME_CONTEXT_BUDGET = Duration.ofSeconds(10);
@@ -1507,6 +1510,41 @@ public final class CiAssessmentRunner {
             if (evidence.get("limitations").isArray()) {
                 notes.add("reported coverage limitations="
                         + evidence.get("limitations").size());
+            }
+            JsonValue diagnostics = report.get("diagnostics");
+            if (diagnostics.isArray() && diagnostics.size() > 0) {
+                notes.add("reported diagnostic entries=" + diagnostics.size());
+                for (String level : List.of("ERROR", "WARNING", "INFO")) {
+                    long count = diagnostics.values().stream()
+                            .filter(entry -> level.equals(entry.get("level").asString(null)))
+                            .count();
+                    notes.add("reported diagnostic " + level + "=" + count);
+                }
+                if (advisor == CiPolicy.Advisor.HIBERNATE) {
+                    long otherEntries = diagnostics.values().stream()
+                            .filter(entry -> !HIBERNATE_DIAGNOSTIC_RULE
+                                    .matcher(entry.get("source").asString(""))
+                                    .matches())
+                            .count();
+                    if (otherEntries > 0) {
+                        notes.add("reported other diagnostic entries=" + otherEntries);
+                    }
+                    List<String> rules = diagnostics.values().stream()
+                            .map(entry -> entry.get("source").asString(""))
+                            .filter(source ->
+                                    HIBERNATE_DIAGNOSTIC_RULE.matcher(source).matches())
+                            .distinct()
+                            .sorted()
+                            .toList();
+                    if (!rules.isEmpty()) {
+                        notes.add("reported Hibernate diagnostic rules="
+                                + String.join(", ", rules.subList(0, Math.min(rules.size(), MAX_DIAGNOSTIC_RULES))));
+                        if (rules.size() > MAX_DIAGNOSTIC_RULES) {
+                            notes.add("reported diagnostic rule identifiers omitted="
+                                    + (rules.size() - MAX_DIAGNOSTIC_RULES));
+                        }
+                    }
+                }
             }
             return List.copyOf(notes);
         }

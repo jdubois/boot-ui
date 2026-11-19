@@ -172,12 +172,20 @@ jobs:
       - name: Pre-pull the Docker Compose images
         run: bash .github/scripts/retry.sh 2 30 docker compose -f bootui-spring-sample-app/compose.yaml pull
 
+      - name: Prepare the Ollama model with bounded retries
+        timeout-minutes: 15
+        run: |
+          docker compose -f bootui-spring-sample-app/compose.yaml up -d --wait --wait-timeout 120 ollama
+          bash .github/scripts/retry.sh 3 15 python3 .github/scripts/prepare-ollama-model.py
+          # Keep the downloaded model, but let Spring Boot start the complete stack.
+          docker compose -f bootui-spring-sample-app/compose.yaml stop --timeout 10 ollama
+
       - name: Run the end-to-end suite against the Docker profile
         working-directory: bootui-spring-sample-app/e2e
         env:
           # Boot the sample app with the full Docker stack instead of the Docker-free default.
           BOOTUI_SAMPLE_PROFILES: docker
-          # Allow extra time for Docker Compose to start and for Ollama to pull the chat model.
+          # Allow extra time for Docker Compose to start; the chat model is already verified.
           BOOTUI_WEBSERVER_TIMEOUT: '600000'
         run: npm test
 

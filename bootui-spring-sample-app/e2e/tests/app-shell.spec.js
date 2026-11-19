@@ -1,8 +1,10 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {registerButtonLinkTests} from '../scenarios/button-links.js'
+import {registerFeedbackPopoverTests} from '../scenarios/feedback-popover.js'
 
 registerButtonLinkTests(test, expect)
+registerFeedbackPopoverTests(test, expect)
 
 const allPanelLinks = [
   {id: 'overview', path: 'scorecard', title: 'Scorecard', heading: /^Scorecard/},
@@ -114,11 +116,17 @@ test.describe('BootUI app shell', () => {
     await expect(subtitle).toContainText(/Java /)
   })
 
-  test('sidebar links to the BootUI GitHub project', async ({page}) => {
+  test('sidebar feedback popover links to the BootUI GitHub project', async ({page}) => {
     await page.goto('/bootui/')
 
-    const contributeLink = page.getByRole('link', {name: /Contribute to the project/})
+    const feedback = page.getByRole('region', {name: 'Feedback & contributions', exact: true})
+    await expect(feedback).toBeHidden()
+    await page.getByRole('button', {name: 'Help improve BootUI', exact: true}).click()
+    await expect(feedback).toBeVisible()
+    const contributeLink = feedback.getByRole('link', {name: /Contribute on GitHub.*opens in a new tab/})
     await expect(contributeLink).toHaveAttribute('href', 'https://github.com/jdubois/boot-ui')
+    await expect(contributeLink).toHaveAttribute('target', '_blank')
+    await expect(contributeLink).toHaveAttribute('rel', 'noopener noreferrer')
     await expect(contributeLink.locator('.bi-github')).toBeVisible()
   })
 

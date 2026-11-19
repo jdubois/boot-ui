@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hibernate CI coverage** no longer treats verified fetch-free SELECT entity joins as unknown collection-fetch
+  evidence, or inherited `JpaRepository.saveAll` compiler bridges as custom entity-newness strategies.
+- **CI failure explanations** include bounded diagnostic-level counts and syntax-checked Hibernate rule identifiers
+  without exposing diagnostic messages, persistence-unit names, or raw limitation text. Strict coverage gates and
+  saved JSON bundle contracts remain unchanged.
+
 ## [2.5.0] - 2026-11-17
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.

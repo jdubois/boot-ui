@@ -41,6 +41,7 @@ import {recordRecentPanel} from './utils/recentPanels.js'
 import {safeLocalStorage} from './utils/safeStorage.js'
 import {routeAssetRecoveryKey} from './utils/routeAssetRecovery.js'
 import CommandPalette from './views/components/CommandPalette.vue'
+import FeedbackPopover from './views/components/FeedbackPopover.vue'
 const ConfirmDialog = defineAsyncComponent(() => import('./views/components/ConfirmDialog.vue'))
 
 const router = useRouter()
@@ -84,6 +85,7 @@ const mobileNavOpen = ref(false)
 const mobileNavRef = ref(null)
 const mobileNavCloseRef = ref(null)
 const mobileNavToggleRef = ref(null)
+const feedbackPopoverRef = ref(null)
 const mainContentRef = ref(null)
 const mobileDrawerOpen = computed(() => isNarrow.value && mobileNavOpen.value)
 const mobileDrawerClosed = computed(() => isNarrow.value && !mobileNavOpen.value)
@@ -163,6 +165,7 @@ watch(sidebarCollapsed, (value) => safeLocalStorage.setItem(SIDEBAR_COLLAPSED_ST
 watch(
   () => route.name,
   async (name) => {
+    feedbackPopoverRef.value?.close()
     if (name) recordRecentPanel(name)
     if (mobileDrawerOpen.value) {
       await closeMobileNav('content')
@@ -233,8 +236,16 @@ function onMobileNavKeydown(event) {
   }
   if (event.key !== 'Tab') return
 
-  const focusable = mobileNavRef.value?.querySelectorAll(
-    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  const focusable = [
+    ...mobileNavRef.value.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ].filter(
+    (element) =>
+      element instanceof HTMLElement &&
+      element.tabIndex >= 0 &&
+      element.getClientRects().length > 0 &&
+      !element.closest('[inert]')
   )
   if (!focusable?.length) return
   const first = focusable[0]
@@ -829,19 +840,11 @@ function onGlobalKeydown(e) {
         </nav>
 
         <div class="sidebar-bottom mt-auto">
-          <a
-            :href="githubProjectUrl"
-            class="contribute-card text-decoration-none"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            <span class="contribute-icon">
-              <i class="bi bi-github"></i>
-            </span>
-            <span>
-              <strong>Contribute to the project</strong>
-            </span>
-          </a>
+          <FeedbackPopover
+            ref="feedbackPopoverRef"
+            :collapsed="collapsedRail"
+            :disabled="commandPaletteOpen || mobileDrawerClosed"
+          />
           <div v-if="overview?.activation && !overview.activation.enabled" class="alert alert-warning mt-3 mb-0 small">
             BootUI is disabled: {{ overview.activation.reason }}
           </div>
@@ -1263,7 +1266,6 @@ function onGlobalKeydown(e) {
    otherwise fall back to the UA default outline. Visible in both themes via
    --bootui-blue (#0d6efd light / #60a5fa dark). */
 .brand-card:focus-visible,
-.contribute-card:focus-visible,
 .sidebar-toggle:focus-visible,
 .bootui-nav-group__toggle:focus-visible,
 .nav-hamburger:focus-visible,
@@ -1675,7 +1677,6 @@ function onGlobalKeydown(e) {
 .bootui-sidebar--collapsed .bootui-nav-group__count,
 .bootui-sidebar--collapsed .bootui-nav-group__chevron,
 .bootui-sidebar--collapsed .bootui-nav-link__status,
-.bootui-sidebar--collapsed .contribute-card > span:last-child,
 .bootui-sidebar--collapsed .sidebar-bottom .alert {
   display: none;
 }
@@ -1720,11 +1721,6 @@ function onGlobalKeydown(e) {
   padding: 0.6rem 0.5rem;
 }
 
-.bootui-sidebar--collapsed .contribute-card {
-  justify-content: center;
-  padding: 0.7rem 0.5rem;
-}
-
 .brand-card {
   align-items: center;
   background: var(--bootui-surface);
@@ -1745,8 +1741,7 @@ function onGlobalKeydown(e) {
 }
 
 .brand-mark,
-.page-icon,
-.contribute-icon {
+.page-icon {
   align-items: center;
   border-radius: var(--bootui-radius-lg);
   display: inline-flex;
@@ -1929,38 +1924,6 @@ function onGlobalKeydown(e) {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-}
-
-.contribute-card {
-  align-items: center;
-  background: var(--bootui-surface);
-  border: 1px solid var(--bootui-border);
-  border-radius: 1.1rem;
-  color: inherit;
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.9rem;
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
-}
-
-.contribute-card:hover {
-  border-color: rgba(13, 110, 253, 0.25);
-  box-shadow: 0 0.9rem 1.8rem rgba(15, 23, 42, 0.09);
-  transform: translateY(-2px);
-}
-
-.contribute-card strong {
-  display: block;
-}
-
-.contribute-icon {
-  background: #24292f;
-  color: #fff;
-  height: 2.25rem;
-  width: 2.25rem;
 }
 
 .bootui-workspace {
@@ -2277,7 +2240,6 @@ function onGlobalKeydown(e) {
   .page-slide-enter-active,
   .page-slide-leave-active,
   .brand-card,
-  .contribute-card,
   .bootui-nav-link,
   .bootui-nav-group__toggle,
   .sidebar-toggle,
@@ -2299,7 +2261,6 @@ function onGlobalKeydown(e) {
   .flyout-fade-enter-from,
   .flyout-fade-leave-to,
   .brand-card:hover,
-  .contribute-card:hover,
   .bootui-nav-link:hover,
   .bootui-nav-group__toggle:hover,
   .bootui-nav-group__toggle.active {
