@@ -63,12 +63,22 @@ public record CacheCapture(Map<String, Long> continuousSince, String defaultMana
     /** Why this request cannot establish absence for the selected manager, or null when continuously observed. */
     public String unavailable(String manager, long requestStartMillis) {
         if (reason != null) return reason;
-        String selected = manager == null || manager.isBlank() ? defaultManager : manager;
+        String selected = selectedManager(manager);
         Long since = selected == null ? null : continuousSince.get(selected);
         if (since == null) return UNPROVEN_MANAGER;
         if (since == Long.MAX_VALUE) return OBSERVATION_FAILED;
         // A request in the installation/resume millisecond cannot be ordered reliably against that transition.
         return requestStartMillis > since ? null : BEFORE_WINDOW;
+    }
+
+    /** Resolves the manager used by a boundary against the adapter's proven default. */
+    String selectedManager(String manager) {
+        return manager == null || manager.isBlank() ? defaultManager : manager;
+    }
+
+    /** Keeps known routing identity while withholding absence inference after a read-time change. */
+    CacheCapture withReason(String reason) {
+        return new CacheCapture(continuousSince, defaultManager, epoch, reason);
     }
 
     /** Missing, failed, or ambiguous adapter evidence never proves that capture was installed. */

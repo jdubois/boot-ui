@@ -85,11 +85,13 @@ public final class ProxyBypass implements Observation {
             Map<String, Bypass> bypasses = new LinkedHashMap<>();
             for (ProjectedRequest request : route.getValue()) {
                 TransactionWindows windows = new TransactionWindows(request);
-                Set<String> cachesSeen = new LinkedHashSet<>();
+                Set<CacheAccess> cachesSeen = new LinkedHashSet<>();
                 boolean ranAnnotated = false;
                 for (RuntimeEvent child : request.children()) {
-                    if (child.payload() instanceof CachePayload cache && cache.cacheName() != null) {
-                        cachesSeen.add(cache.cacheName());
+                    if (child.payload() instanceof CachePayload cache
+                            && cache.managerName() != null
+                            && cache.cacheName() != null) {
+                        cachesSeen.add(new CacheAccess(cache.managerName(), cache.cacheName()));
                         continue;
                     }
                     if (!(child.payload() instanceof SqlPayload sql) || !sql.executed() || sql.frames() == null) {
@@ -116,7 +118,10 @@ public final class ProxyBypass implements Observation {
                             cacheReasons.add(boundary.cacheUnobservable());
                         } else if (!boundary.cacheNames().isEmpty()
                                 && caches
-                                && boundary.cacheNames().stream().noneMatch(cachesSeen::contains)) {
+                                && boundary.cacheNames().stream()
+                                        .map(name -> new CacheAccess(
+                                                snapshot.cacheCapture().selectedManager(boundary.cacheManager()), name))
+                                        .noneMatch(cachesSeen::contains)) {
                             String unavailable =
                                     snapshot.cacheCapture().unavailable(boundary.cacheManager(), request.startMillis());
                             if (unavailable == null) {
@@ -173,6 +178,8 @@ public final class ProxyBypass implements Observation {
             return null;
         }
     }
+
+    private record CacheAccess(String managerName, String cacheName) {}
 
     private static String record(
             Map<String, Bypass> bypasses, String frame, String annotation, String caller, ProjectedRequest request) {

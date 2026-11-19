@@ -113,6 +113,23 @@ class ProxyBypassTests {
                 });
     }
 
+    @Test
+    void theSameCacheNameOnAnotherManagerDoesNotProveCacheableProxyExecution() {
+        ProxyBoundaries boundaries = frame -> frame.equals(PRICE)
+                ? new ProxyBoundaries.Boundary(false, Set.of("prices"), false, "primary", null)
+                : ProxyBoundaries.Boundary.NONE;
+        request("GET", "/api/prices", "http-1", List.of(cache("secondary", "prices"), sql(1_000, "http-1", PRICE)));
+        request("GET", "/api/prices", "http-1", List.of(cache("primary", "prices"), sql(1_000, "http-1", PRICE)));
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        service.setProxyBoundaries(boundaries);
+        service.setCacheCapture(() -> new CacheCapture(Map.of("primary", 0L, "secondary", 0L), null, 0, null));
+
+        RuntimeInsightsReportDto report = service.report();
+        assertThat(single(report).sentence()).contains("without its `@Cacheable(prices)` proxy in 1 of 2 requests");
+        assertThat(single(report).exemplarRequestIds()).containsExactly("r1");
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "http-1", "reactor-http-nio-1", "reused-worker"})
@@ -617,7 +634,11 @@ class ProxyBypassTests {
     }
 
     private static Child cache(String name) {
-        return new Child(JournalSource.CACHE, "http-1", 0, new CachePayload(name, "MISS", null));
+        return cache("", name);
+    }
+
+    private static Child cache(String managerName, String cacheName) {
+        return new Child(JournalSource.CACHE, "http-1", 0, new CachePayload(cacheName, "MISS", null, 0L, managerName));
     }
 
     private void request(String method, String template, String thread, List<Child> children) {

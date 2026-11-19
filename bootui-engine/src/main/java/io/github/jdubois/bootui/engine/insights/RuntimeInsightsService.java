@@ -701,7 +701,7 @@ public final class RuntimeInsightsService {
         // Entries can be newer than status; their absence proof must remain stable while they are copied.
         CacheCapture afterEntries = CacheCapture.read(cacheCapture);
         CacheCapture stableCaches =
-                caches.equals(afterEntries) ? caches : CacheCapture.notRecorded(CacheCapture.CHANGED_DURING_READ);
+                caches.equals(afterEntries) ? caches : caches.withReason(CacheCapture.CHANGED_DURING_READ);
         cached = project(
                         status,
                         retained,

@@ -225,7 +225,7 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
                     event.thread(),
                     null,
                     false,
-                    new CachePayload(cacheName, operation.name(), frames, codePathStamp)));
+                    new CachePayload(cacheName, operation.name(), frames, codePathStamp, managerName)));
             notifyListeners();
         } catch (RuntimeException ex) {
             invalidateCapture(managerName);
