@@ -23,6 +23,7 @@ class BootUiActivationConditionTests {
 
         assertThat(activation.enabled()).isTrue();
         assertThat(activation.reason()).contains("dev");
+        assertThat(activation.inactivity()).isNull();
     }
 
     @Test
@@ -34,6 +35,7 @@ class BootUiActivationConditionTests {
 
         assertThat(activation.enabled()).isFalse();
         assertThat(activation.reason()).contains("no enabled profile");
+        assertThat(activation.inactivity()).isEqualTo(BootUiActivation.Inactivity.AUTO);
     }
 
     @Test
@@ -45,6 +47,7 @@ class BootUiActivationConditionTests {
 
         assertThat(activation.enabled()).isFalse();
         assertThat(activation.reason()).contains("prod");
+        assertThat(activation.inactivity()).isEqualTo(BootUiActivation.Inactivity.DISABLED_PROFILE);
     }
 
     @Test
@@ -58,6 +61,7 @@ class BootUiActivationConditionTests {
         assertThat(activation.enabled()).isTrue();
         assertThat(activation.warnings()).isNotEmpty();
         assertThat(activation.warnings().get(0)).contains("prod");
+        assertThat(activation.inactivity()).isNull();
     }
 
     @Test
@@ -70,6 +74,7 @@ class BootUiActivationConditionTests {
 
         assertThat(activation.enabled()).isFalse();
         assertThat(activation.reason()).contains("OFF");
+        assertThat(activation.inactivity()).isEqualTo(BootUiActivation.Inactivity.EXPLICIT_OFF);
     }
 
     @Test
@@ -82,6 +87,7 @@ class BootUiActivationConditionTests {
 
         assertThat(activation.enabled()).isFalse();
         assertThat(activation.reason()).contains("invalid bootui.enabled");
+        assertThat(activation.inactivity()).isEqualTo(BootUiActivation.Inactivity.INVALID_CONFIGURATION);
     }
 
     @Test
@@ -116,6 +122,7 @@ class BootUiActivationConditionTests {
 
         assertThat(activation.enabled()).isFalse();
         assertThat(activation.reason()).contains("sandbox");
+        assertThat(activation.inactivity()).isEqualTo(BootUiActivation.Inactivity.DISABLED_PROFILE);
     }
 
     @Test
@@ -150,6 +157,7 @@ class BootUiActivationConditionTests {
 
             assertThat(activation.enabled()).isTrue();
             assertThat(activation.reason()).contains("devtools");
+            assertThat(activation.inactivity()).isNull();
         }
     }
 }

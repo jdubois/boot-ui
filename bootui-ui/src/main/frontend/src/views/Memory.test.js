@@ -116,7 +116,7 @@ describe('Memory', () => {
     expect(wrapper.text()).toContain('Learn more')
     expect(wrapper.text()).toContain('Runtime snapshot')
     expect(wrapper.text()).not.toContain('Passing old gen rule')
-    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
       'Deadlock detected',
       'Medium blocked finding',
       'Informational big objects'

@@ -92,6 +92,23 @@ In `application.yml`, `ON`, `OFF`, `yes`, `no`, `true`, and `false` are booleans
 
 BootUI is now available at <http://localhost:8080/bootui>.
 
+::: tip Unreleased source preview
+The Home guides, compact findings, copy previews and startup diagnostic below are unreleased. The published
+dependency above does not include them.
+[Build from source](https://github.com/jdubois/boot-ui/blob/main/CONTRIBUTING.md#build) to preview these changes.
+:::
+
+The [Home guides](features/README.md#home) help you choose a panel: understand the app, follow its behavior, or review
+the code. To start an assessment, follow **Review the code**, open an available advisor and choose its run action
+(for example **Run architecture checks**).
+Regular advisor rows start collapsed; search or
+filter by severity, open a row for its cached samples, and preview **Copy for AI** to share qualified evidence.
+Source locations appear only when that advisor can establish them. See [Advisors](features/advisors.md).
+
+If the console returns 404, check the startup diagnostic and the [symptom-first troubleshooting guide](setup/troubleshooting.md).
+An ordinary inactive Spring AUTO installation explains how to activate it; deliberate OFF and disabled profiles remain
+quiet at INFO. Do not enable BootUI in production just to remove the 404.
+
 ### Use a custom path
 
 To move the console, set `bootui.path`:

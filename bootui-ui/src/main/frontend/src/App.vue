@@ -45,6 +45,22 @@ const ConfirmDialog = defineAsyncComponent(() => import('./views/components/Conf
 
 const router = useRouter()
 const route = useRoute()
+// These panels interpret query changes in place over already-loaded local state.
+// Other panels retain their existing full-path identity.
+const queryStableAdvisorNames = new Set([
+  'architecture',
+  'rest-api',
+  'spring',
+  'hibernate',
+  'database-advisor',
+  'memory',
+  'security'
+])
+const panelComponentKey = computed(() => {
+  // Vue Router preserves typed casing/trailing slashes, but the canonical name identifies the same advisor.
+  if (typeof route.name === 'string' && queryStableAdvisorNames.has(route.name)) return route.name
+  return route.path === '/http-exchanges' ? route.path : route.fullPath
+})
 const routeAssetRecovery = inject(routeAssetRecoveryKey, null)
 const failedPanelTitle = computed(() =>
   routeAssetRecovery?.failure.value ? resolveRouteTitle(routeAssetRecovery.failure.value, panels.value?.platform) : null
@@ -713,7 +729,7 @@ function onGlobalKeydown(e) {
         @keydown="onMobileNavKeydown"
       >
         <div class="brand-area">
-          <router-link v-slot="{href, navigate}" custom to="/scorecard">
+          <router-link v-slot="{href, navigate}" custom to="/home">
             <a :href="href" class="brand-card text-decoration-none" @click="onSidebarLinkClick(navigate, $event)">
               <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
               <span class="brand-text">
@@ -1008,13 +1024,8 @@ function onGlobalKeydown(e) {
 
           <router-view v-slot="{Component}">
             <transition mode="out-in" name="page-slide">
-              <keep-alive include="Overview">
-                <component
-                  :is="Component"
-                  :key="route.path === '/http-exchanges' ? route.path : route.fullPath"
-                  :panel="activePanel"
-                  class="page-panel"
-                />
+              <keep-alive include="Home,Overview">
+                <component :is="Component" :key="panelComponentKey" :panel="activePanel" class="page-panel" />
               </keep-alive>
             </transition>
           </router-view>

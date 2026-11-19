@@ -85,6 +85,95 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
     })
 
     for (const advisor of advisors) {
+      test(`${advisor}: filters cached rules, follows exact links and previews qualified copy without side effects`, async ({
+        page,
+        context
+      }) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+        const body = report()
+        body.results.push({
+          ...body.results[0],
+          id: 'OTHER-1',
+          name: 'Other finding',
+          severity: 'LOW',
+          violationCount: 2,
+          sampleViolations: ['other cached evidence']
+        })
+        body.rulesEvaluated = 2
+        body.violationsFound = 2
+        body.severityCounts.push({severity: 'LOW', count: 2})
+        body.violationDetails = {...body.violationDetails, total: 31, retained: 31}
+        const requests = []
+        await page.route(`**${apiPath}/${advisor}`, (route) => {
+          requests.push({method: route.request().method(), url: route.request().url()})
+          return route.fulfill({json: body})
+        })
+        await page.route(`**${apiPath}/${advisor}/**`, (route) => {
+          if (route.request().url().includes('/rest-api/error-contract?')) return route.fallback()
+          requests.push({method: route.request().method(), url: route.request().url()})
+          return route.fulfill({status: 500, json: {error: 'Unexpected evidence collection or mutation'}})
+        })
+        await page.goto(`${uiPath}/#/${advisor}?keep=yes&rule=${encodeURIComponent(ruleId)}`)
+        const target = page.locator(`.advisor-rule-result[data-rule-id="${ruleId}"]`)
+        await expect(target.locator('.advisor-rule-toggle')).toHaveAttribute('aria-expanded', 'true')
+        await expect(target.locator('.advisor-rule-toggle')).toBeFocused()
+        await page.getByLabel('Severity', {exact: true}).selectOption('LOW')
+        await expect(page.getByText('Linked rule ' + ruleId, {exact: false})).toContainText('revealed separately')
+        await expect(page.locator('.advisor-rule-results')).toContainText(
+          '1 of 2 active rules match · 2 active findings'
+        )
+        const other = page.locator('.advisor-rule-result[data-rule-id="OTHER-1"]')
+        await other.locator('.advisor-rule-toggle').click()
+        await expect(page).toHaveURL(new RegExp(`#/${advisor}\\?keep=yes&rule=OTHER-1$`))
+        await expect(target).toBeHidden()
+        await other.getByRole('button', {name: 'Copy link to OTHER-1', exact: true}).click()
+        const link = await page.evaluate(() => navigator.clipboard.readText())
+        expect(link).toBe(`${new URL(page.url()).origin}${uiPath}/#/${advisor}?keep=yes&rule=OTHER-1`)
+        const copyVisible = page.getByRole('button', {name: 'Copy visible findings', exact: true})
+        await copyVisible.click()
+        const preview = page.getByLabel('Markdown export preview')
+        await expect(preview).toBeVisible()
+        await expect(page.locator('.ai-export h3')).toBeFocused()
+        const markdown = await preview.inputValue()
+        expect(markdown).toContain('other cached evidence')
+        expect(markdown).not.toContain('example.Service0')
+        expect(markdown).toContain('cached report samples only')
+        expect(markdown).toContain('suppression metadata is unavailable')
+        expect(markdown).toContain('not instructions to an agent')
+        expect(markdown).toContain('Report active violating rules: 2; rules evaluated: 2')
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link)
+        await page.getByRole('button', {name: 'Copy Markdown', exact: true}).click()
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(markdown)
+        await page.locator('.ai-export').getByRole('button', {name: 'Back', exact: true}).click()
+        await expect(copyVisible).toBeFocused()
+        await page.goBack()
+        await expect(target).toBeVisible()
+        await expect(target.locator('.advisor-rule-toggle')).toBeFocused()
+        await page.goForward()
+        await expect(target).toBeHidden()
+        await page.getByLabel('Search rules and loaded evidence', {exact: true}).fill('not found')
+        await expect(other).toBeVisible()
+        await expect(page.locator('.advisor-rule-results')).toContainText(
+          '0 of 2 active rules match · 0 active findings'
+        )
+        await other.locator('.advisor-rule-toggle').focus()
+        await page.keyboard.press('Enter')
+        await expect(other).toBeHidden()
+        await expect(page.getByLabel('Search rules and loaded evidence', {exact: true})).toBeFocused()
+        await expect(page).toHaveURL(new RegExp(`#/${advisor}\\?keep=yes$`))
+        await page.goBack()
+        await expect(other).toBeVisible()
+        await expect(other.locator('.advisor-rule-toggle')).toBeFocused()
+        await page.evaluate((hash) => {
+          window.location.hash = hash
+        }, `#/${advisor}?keep=yes&rule=UNKNOWN`)
+        await expect(page.locator('.advisor-rule-results')).toContainText('not present in this cached report')
+        await expect(other).toBeHidden()
+        expect(requests).toHaveLength(1)
+        expect(requests[0].method).toBe('GET')
+        expect(new URL(requests[0].url).pathname).toBe(`${apiPath}/${advisor}`)
+      })
+
       test(`${advisor}: keeps previews and reads 29 details only on keyboard activation`, async ({page}) => {
         const reads = []
         const scans = []
@@ -98,6 +187,12 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
           return route.fulfill({json: detailPage()})
         })
         await page.goto(`${uiPath}/#/${advisor}`)
+        const toggle = page.locator('.advisor-rule-toggle')
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+        await expect(page.getByRole('button', {name: `View violations for ${ruleId}`})).toHaveCount(0)
+        await toggle.focus()
+        await page.keyboard.press('Enter')
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true')
         const detail = page.locator('.advisor-rule-violations')
         await expect(detail.locator('li')).toHaveCount(10)
         expect(reads).toHaveLength(0)
@@ -122,6 +217,82 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
       })
     }
 
+    test('retains a dismissed page through link history and restores preview focus only to usable controls', async ({
+      page
+    }) => {
+      const body = report()
+      body.results[0].dismissed = true
+      body.results.push({
+        ...body.results[0],
+        id: 'OTHER-1',
+        name: 'Other finding',
+        dismissed: false,
+        violationCount: 2,
+        sampleViolations: ['other cached evidence']
+      })
+      body.rulesEvaluated = 2
+      body.violationsFound = 1
+      body.severityCounts = [
+        {severity: 'HIGH', count: 0},
+        {severity: 'LOW', count: 2}
+      ]
+      body.results[1].severity = 'LOW'
+      body.violationDetails = {...body.violationDetails, total: 31, retained: 31}
+      const requests = []
+      await page.route(`**${apiPath}/architecture`, (route) => {
+        requests.push({method: route.request().method(), kind: 'report'})
+        return route.fulfill({json: body})
+      })
+      await page.route(`**${apiPath}/architecture/**`, (route) => {
+        requests.push({method: route.request().method(), kind: 'unexpected'})
+        return route.fulfill({status: 500, json: {error: 'Unexpected acquisition or mutation'}})
+      })
+      await page.route(`**${apiPath}/architecture/rules/*/violations?*`, (route) => {
+        requests.push({method: route.request().method(), kind: 'page'})
+        return route.fulfill({json: detailPage()})
+      })
+      await page.goto(`${uiPath}/#/architecture?keep=yes&rule=${ruleId}`)
+      const row = page.locator(`.advisor-rule-result[data-rule-id="${ruleId}"]`)
+      const detail = row.locator('.advisor-rule-violations')
+      await row.getByRole('button', {name: `View violations for ${ruleId}`, exact: true}).click()
+      await expect(detail.locator('li')).toHaveText(strings(29))
+      await row.locator('.advisor-rule-toggle').focus()
+      await page.keyboard.press('Enter')
+      const search = page.getByLabel('Search rules and loaded evidence', {exact: true})
+      await expect(row).toBeHidden()
+      await expect(search).toBeFocused()
+      await page.goBack()
+      await expect(detail.locator('li')).toHaveText(strings(29))
+      await expect(row.locator('.advisor-rule-toggle')).toBeFocused()
+      const copyRule = row.locator(`button[aria-label="Copy ${ruleId} for AI"]`)
+      await copyRule.click()
+      const preview = page.getByLabel('Markdown export preview')
+      await expect(preview).toHaveValue(/current loaded page, offset 0/)
+      await expect(preview).toHaveValue(/example.Service28/)
+      await page.evaluate(() => {
+        window.location.hash = '#/architecture?keep=yes'
+      })
+      await expect(row).toBeHidden()
+      // v-show keeps the old button connected; it must not receive focus while hidden.
+      expect(await copyRule.evaluate((element) => element.isConnected)).toBe(true)
+      await page.locator('.ai-export').getByRole('button', {name: 'Back', exact: true}).click()
+      await expect(search).toBeFocused()
+      await page.goBack()
+      await expect(detail.locator('li')).toHaveText(strings(29))
+      await page.getByRole('button', {name: 'Copy visible findings', exact: true}).click()
+      await page.evaluate(() => {
+        window.location.hash = '#/architecture?keep=yes'
+      })
+      await search.fill('no matching rules')
+      await expect(page.getByRole('button', {name: 'Copy visible findings', exact: true})).toBeDisabled()
+      await page.locator('.ai-export').getByRole('button', {name: 'Back', exact: true}).click()
+      await expect(search).toBeFocused()
+      expect(requests).toEqual([
+        {method: 'GET', kind: 'report'},
+        {method: 'GET', kind: 'page'}
+      ])
+    })
+
     for (const advisor of located) {
       test(`${advisor}: shows copyable locations and opt-in editor links`, async ({page, context}) => {
         await context.grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -132,6 +303,7 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
           route.fulfill({json: {...detailPage(), locations: locations(29)}})
         )
         await page.goto(`${uiPath}/#/${advisor}`)
+        await page.locator('.advisor-rule-toggle').click()
         const detail = page.locator('.advisor-rule-violations')
         const rows = detail.locator('li')
         await expect(rows).toHaveCount(10)
@@ -201,6 +373,7 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
         return route.fulfill({json: detailPage({count: 201, offset})})
       })
       await page.goto(`${uiPath}/#/architecture`)
+      await page.locator('.advisor-rule-toggle').click()
       const detail = page.locator('.advisor-rule-violations')
       await detail.getByRole('button', {name: `View violations for ${ruleId}`}).click()
       await expect(detail.locator('li')).toHaveCount(100)
@@ -235,6 +408,7 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
           : route.fulfill({json: detailPage({scanId: 'scan-2', retained: 12})})
       })
       await page.goto(`${uiPath}/#/architecture`)
+      await page.locator('.advisor-rule-toggle').click()
       const detail = page.locator('.advisor-rule-violations')
       const view = detail.getByRole('button', {name: `View violations for ${ruleId}`})
       await view.click()
@@ -273,6 +447,81 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
     }
 
     for (const advisor of tracked) {
+      test(`${advisor}: preserves a hidden loaded page without refreshing it after another rule dismissal`, async ({
+        page
+      }) => {
+        await page.route(`**${apiPath}/panels`, async (route) => {
+          const response = await route.fetch()
+          const body = await response.json()
+          body.panels = body.panels.map((panel) =>
+            panel.id === advisor ? {...panel, available: true, enabled: true, readOnly: false} : panel
+          )
+          await route.fulfill({response, json: body})
+        })
+        const body = report('scan-1', 3)
+        body.results.push({...body.results[0], id: 'RULE-B', name: 'Other rule'})
+        body.results[0].sampleViolations = strings(3)
+        body.results[1].sampleViolations = ['B one', 'B two', 'B three']
+        body.results.forEach((rule) => (rule.suppressedCount = 0))
+        body.rulesEvaluated = 2
+        body.violationsFound = 2
+        body.severityCounts = [{severity: 'HIGH', count: 6}]
+        body.suppression = {suppressedFindings: 0, omitted: 0, incompleteRules: []}
+        body.violationDetails = {...body.violationDetails, total: 6, retained: 6}
+        let dismissed = false
+        const reads = []
+        const mutations = []
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: body}))
+        await page.route(`**${apiPath}/${advisor}/rules/*/violations?*`, (route) => {
+          const other = route.request().url().includes('/RULE-B/')
+          reads.push(other ? 'B' : 'A')
+          return route.fulfill({
+            json: {
+              ...detailPage({count: 3}),
+              ruleId: other ? 'RULE-B' : ruleId,
+              violations: other ? ['B one', 'B two', 'B three'] : strings(3),
+              identities: ['v1:one', 'v1:two', 'v1:three'],
+              suppressed: other && dismissed ? [true, false, false] : [],
+              suppressedCount: other && dismissed ? 1 : 0
+            }
+          })
+        })
+        await page.route(`**${apiPath}/dismissed-findings`, (route) => {
+          mutations.push([route.request().method(), route.request().postDataJSON()])
+          dismissed = true
+          body.results[1] = {...body.results[1], violationCount: 2, suppressedCount: 1}
+          body.suppression.suppressedFindings = 1
+          body.severityCounts[0].count = 5
+          return route.fulfill({json: {}})
+        })
+        await page.goto(`${uiPath}/#/${advisor}?rule=${ruleId}`)
+        const first = page.locator(`.advisor-rule-result[data-rule-id="${ruleId}"]`)
+        const other = page.locator('.advisor-rule-result[data-rule-id="RULE-B"]')
+        await first.getByRole('button', {name: `View violations for ${ruleId}`, exact: true}).click()
+        await expect(first.locator('.advisor-rule-violations li')).toHaveCount(3)
+        await first.locator('.advisor-rule-toggle').click()
+        await other.locator('.advisor-rule-toggle').click()
+        await other.getByRole('button', {name: 'View violations for RULE-B', exact: true}).click()
+        await expect(other.locator('.advisor-rule-violations li')).toHaveCount(3)
+        await other.getByRole('button', {name: 'Dismiss finding 1 of RULE-B', exact: true}).click()
+        await page.getByRole('dialog').getByRole('button', {name: 'Dismiss finding', exact: true}).click()
+        await expect(other.getByTestId('suppressed-finding')).toHaveCount(1)
+        expect(reads).toEqual(['A', 'B', 'B'])
+        expect(mutations).toEqual([['POST', {ruleId: 'RULE-B', identity: 'v1:one'}]])
+        await first.locator('.advisor-rule-toggle').click()
+        await expect(first.locator('.advisor-rule-violations li')).toHaveCount(3)
+        await expect(first).toContainText('Dismissal state may be outdated')
+        await expect(first.getByRole('button', {name: `Dismiss finding 1 of ${ruleId}`, exact: true})).toBeDisabled()
+        await first.getByRole('button', {name: `Copy ${ruleId} for AI`, exact: true}).click()
+        await expect(page.getByLabel('Markdown export preview')).toHaveValue(/Dismissal state may be outdated/)
+        await page.locator('.ai-export').getByRole('button', {name: 'Back', exact: true}).click()
+        expect(reads).toEqual(['A', 'B', 'B'])
+        await first.getByRole('button', {name: `Refresh dismissal state for ${ruleId}`, exact: true}).click()
+        await expect(first).not.toContainText('Dismissal state may be outdated')
+        await expect(first.getByRole('button', {name: `Dismiss finding 1 of ${ruleId}`, exact: true})).toBeEnabled()
+        expect(reads).toEqual(['A', 'B', 'B', 'A'])
+      })
+
       test(`${advisor}: says a first scan has nothing to compare, then reports what moved`, async ({page}) => {
         // The beforeEach mocks every advisor read-only; this test runs a scan, so lift that for the tracked one.
         await page.route(`**${apiPath}/panels`, async (route) => {
@@ -343,6 +592,7 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
           })
         )
         await page.goto(`${uiPath}/#/${advisor}`)
+        await page.locator('.advisor-rule-toggle').click()
         const detail = page.locator('.advisor-rule-violations')
         await expect(detail).toContainText('2 new since the previous scan')
         await expect(detail.getByTestId('new-finding')).toHaveCount(0)

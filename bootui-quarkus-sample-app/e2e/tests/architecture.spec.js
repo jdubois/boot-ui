@@ -38,6 +38,7 @@ test.describe('Architecture advisor (Quarkus)', () => {
 
     const codeStreamsRow = page.locator('.list-group-item', {hasText: 'ARCH-CODE-001'})
     await expect(codeStreamsRow).toBeVisible({timeout: 20_000})
+    await codeStreamsRow.locator('.advisor-rule-toggle').click()
 
     await codeStreamsRow.getByRole('button', {name: /^Dismiss rule /}).click()
 
@@ -46,7 +47,9 @@ test.describe('Architecture advisor (Quarkus)', () => {
     await expect(dismissedSection).toBeVisible()
     const dismissedRow = page.locator('.list-group-item.opacity-50', {hasText: 'ARCH-CODE-001'})
     await expect(dismissedRow).toBeVisible()
-    await expect(page.locator('.list-group-item:not(.opacity-50)', {hasText: 'ARCH-CODE-001'})).toHaveCount(0)
+    const linkedTarget = page.locator('.advisor-rule-result[data-rule-id="ARCH-CODE-001"]')
+    await expect(linkedTarget).toContainText('Dismissed — not counted in score')
+    await expect(linkedTarget.getByRole('button', {name: /^Dismiss rule /})).toHaveCount(0)
 
     await dismissedRow.getByRole('button', {name: 'Restore'}).click()
 

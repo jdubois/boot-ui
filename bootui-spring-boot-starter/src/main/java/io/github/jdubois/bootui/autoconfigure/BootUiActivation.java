@@ -7,8 +7,22 @@ import java.util.List;
  *
  * @param forcedDespiteProfile the active {@code bootui.disabled-profiles} entry, such as {@code prod}, that
  *     {@code bootui.enabled=ON} overrode to turn BootUI on, or {@code null} when BootUI was not forced on despite one
+ * @param inactivity a value-free category for startup diagnostics, or {@code null} for active or
+ *     externally constructed decisions
  */
-public record BootUiActivation(boolean enabled, String reason, List<String> warnings, String forcedDespiteProfile) {
+public record BootUiActivation(
+        boolean enabled, String reason, List<String> warnings, String forcedDespiteProfile, Inactivity inactivity) {
+
+    public enum Inactivity {
+        AUTO,
+        EXPLICIT_OFF,
+        DISABLED_PROFILE,
+        INVALID_CONFIGURATION
+    }
+
+    public BootUiActivation(boolean enabled, String reason, List<String> warnings, String forcedDespiteProfile) {
+        this(enabled, reason, warnings, forcedDespiteProfile, null);
+    }
 
     public BootUiActivation(boolean enabled, String reason, List<String> warnings) {
         this(enabled, reason, warnings, null);

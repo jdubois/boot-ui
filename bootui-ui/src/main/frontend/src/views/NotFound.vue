@@ -13,12 +13,10 @@ function openSearch(event) {
     <span class="not-found-icon fs-5" aria-hidden="true"><i class="bi bi-signpost-split"></i></span>
     <div>
       <h2 id="not-found-title">Page not found</h2>
-      <p class="text-muted mb-0">
-        This BootUI panel does not exist. Return to the overview or search for another panel.
-      </p>
+      <p class="text-muted mb-0">This BootUI panel does not exist. Return to Home or search for another panel.</p>
     </div>
     <div class="not-found-actions">
-      <router-link class="btn btn-primary" to="/scorecard">Go to Scorecard</router-link>
+      <router-link class="btn btn-primary" to="/home">Go to Home</router-link>
       <button class="btn btn-outline-secondary" type="button" @click="openSearch">
         <i class="bi bi-search me-1" aria-hidden="true"></i>
         Search panels

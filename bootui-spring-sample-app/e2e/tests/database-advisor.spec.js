@@ -40,6 +40,10 @@ test.describe('Database view', () => {
     // sample_app_preferences_enabled_features) have no primary key, a real, deterministic finding from
     // plain JDBC DatabaseMetaData introspection.
     await expect(page.getByText('Tables without a primary key')).toBeVisible()
+    await page
+      .locator('.advisor-rule-result', {hasText: 'Tables without a primary key'})
+      .locator('.advisor-rule-toggle')
+      .click()
     await expect(page.getByText(/has no primary key/).first()).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
     await page.locator('a[href$="#/scorecard"]').first().click()

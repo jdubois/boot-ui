@@ -146,14 +146,13 @@ function connectedDashboard() {
 test.describe('GitHub view (Quarkus)', () => {
   test('renders the connected dashboard and opens the pull-request drawer', async ({openView, page}) => {
     const payload = JSON.stringify(connectedDashboard())
-    let refreshMethod = null
-    // Trusted localhost sessions refresh via POST on mount; the GET endpoint is the read-only
-    // fallback. Both are mocked, and the refresh method is captured so the spec can confirm the
-    // panel used the POST refresh path.
+    let refreshCount = 0
+    // A cached CONNECTED report is not this browser page's consent.
     await page.route(
       (url) => url.pathname === '/bootui/api/github/refresh',
       async (route) => {
-        refreshMethod = route.request().method()
+        expect(route.request().method()).toBe('POST')
+        refreshCount += 1
         await route.fulfill({contentType: 'application/json', body: payload})
       }
     )
@@ -165,6 +164,10 @@ test.describe('GitHub view (Quarkus)', () => {
     )
 
     await openView('github', 'GitHub')
+    const connect = page.getByRole('button', {name: 'Connect', exact: true})
+    await expect(connect).toBeVisible()
+    await expect(page.getByText('Cached data only.', {exact: true})).toBeVisible()
+    expect(refreshCount).toBe(0)
 
     // Repository summary card.
     await expect(page.getByRole('link', {name: 'jdubois/boot-ui'})).toBeVisible()
@@ -212,7 +215,109 @@ test.describe('GitHub view (Quarkus)', () => {
     await page.getByRole('button', {name: /Secret scanning alerts/}).click()
     await expect(drawer).toContainText('does not expose secret values')
 
-    // The trusted panel reached the live data through the POST refresh endpoint.
-    expect(refreshMethod).toBe('POST')
+    // Reading cached drawers never authorizes external access.
+    expect(refreshCount).toBe(0)
+    await connect.focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => refreshCount).toBe(1)
+    await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
+    await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeFocused()
+  })
+
+  test('keeps page consent through navigation, pauses while hidden, and resets it on reload', async ({
+    openView,
+    page
+  }) => {
+    await page.clock.install()
+    const payload = JSON.stringify(connectedDashboard())
+    let refreshCount = 0
+    let cacheReads = 0
+    await page.route('**/bootui/api/github', async (route) => {
+      expect(route.request().method()).toBe('GET')
+      cacheReads += 1
+      await route.fulfill({contentType: 'application/json', body: payload})
+    })
+    await page.route('**/bootui/api/github/refresh', async (route) => {
+      expect(route.request().method()).toBe('POST')
+      refreshCount += 1
+      await route.fulfill({contentType: 'application/json', body: payload})
+    })
+
+    await openView('github', 'GitHub')
+    await expect(page.getByRole('button', {name: 'Connect', exact: true})).toBeEnabled()
+    await page.clock.fastForward(61_000)
+    expect(refreshCount).toBe(0)
+    await page.getByRole('button', {name: 'Connect', exact: true}).click()
+    await expect.poll(() => refreshCount).toBe(1)
+    await expect(page.getByRole('button', {name: 'Refresh panel', exact: true})).toBeEnabled()
+    await page.clock.fastForward(61_000)
+    await expect.poll(() => refreshCount).toBe(2)
+
+    await page.evaluate(() => (window.location.hash = '#/beans'))
+    await expect(page.locator('main h2').filter({hasText: /Beans/})).toBeVisible()
+    await page.clock.fastForward(180_000)
+    expect(refreshCount).toBe(2)
+    await page.evaluate(() => (window.location.hash = '#/github'))
+    await expect(page.getByRole('button', {name: 'Stop', exact: true})).toBeVisible()
+    await expect.poll(() => cacheReads).toBe(2)
+    expect(refreshCount).toBe(2)
+    await page.clock.fastForward(30_000)
+    expect(refreshCount).toBe(2)
+    await page.clock.fastForward(31_000)
+    await expect.poll(() => refreshCount).toBe(3)
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'})
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await page.clock.fastForward(180_000)
+    expect(refreshCount).toBe(3)
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'visible'})
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(refreshCount).toBe(3)
+    await page.clock.fastForward(30_000)
+    expect(refreshCount).toBe(3)
+    await page.clock.fastForward(31_000)
+    await expect.poll(() => refreshCount).toBe(4)
+
+    await page.getByRole('button', {name: 'Stop', exact: true}).click()
+    await page.clock.fastForward(120_000)
+    expect(refreshCount).toBe(4)
+    await page.getByRole('button', {name: 'Connect', exact: true}).click()
+    await expect.poll(() => refreshCount).toBe(5)
+    await page.reload()
+    await expect(page.getByRole('button', {name: 'Connect', exact: true})).toBeEnabled()
+    await page.clock.fastForward(120_000)
+    expect(refreshCount).toBe(5)
+  })
+
+  test('retains the cached snapshot and timestamp after an unsuccessful refresh', async ({openView, page}) => {
+    const dashboard = connectedDashboard()
+    await page.route('**/bootui/api/github', (route) =>
+      route.fulfill({contentType: 'application/json', body: JSON.stringify(dashboard)})
+    )
+    await page.route('**/bootui/api/github/refresh', (route) =>
+      route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          available: true,
+          connected: false,
+          status: 'ERROR',
+          message: 'GitHub credentials were rejected.',
+          refreshedAt: Date.now(),
+          repository: dashboard.repository
+        })
+      })
+    )
+    await openView('github', 'GitHub')
+    const snapshot = page.locator('main time')
+    await expect(snapshot).toHaveAttribute('datetime', new Date(dashboard.refreshedAt).toISOString())
+    await page.getByRole('button', {name: 'Connect', exact: true}).click()
+    await expect(page.getByRole('alert')).toContainText('GitHub credentials were rejected.')
+    await expect(snapshot).toHaveAttribute('datetime', new Date(dashboard.refreshedAt).toISOString())
+    await expect(page.getByRole('button', {name: /Open pull requests/})).toContainText('2')
+    await expect(page.getByText('The previous snapshot is still shown; the refresh did not succeed.')).toBeVisible()
   })
 })

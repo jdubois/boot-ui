@@ -48,6 +48,7 @@ test.describe('Hibernate Advisor view', () => {
     // After the scan the findings render and the empty state disappears.
     await expect(page.getByText('No Hibernate Advisor data yet')).toHaveCount(0, {timeout: 30_000})
     await expect(page.getByText('Eager fetching should stay explicit and bounded')).toBeVisible()
+    for (const toggle of await page.locator('.advisor-rule-toggle').all()) await toggle.click()
 
     const diagnosticsToggle = page.getByRole('button', {name: 'Show diagnostics'})
     await expect(page.getByText('Scan diagnostics')).toBeVisible()

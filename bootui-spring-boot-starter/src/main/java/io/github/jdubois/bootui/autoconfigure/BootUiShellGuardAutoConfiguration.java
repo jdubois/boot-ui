@@ -2,11 +2,15 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiShellGuardFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.BootUiShellGuardFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnResource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
@@ -30,9 +34,12 @@ import org.springframework.core.env.Environment;
  * activation condition and delegates to the same {@code resolve} call, so the guard exists precisely
  * when the console does not and the two polarities cannot drift apart.</p>
  *
- * <p>{@link ConditionalOnResource} keeps the guard honest: it only claims the mount when the packaged
+ * <p>{@link ConditionalOnResource} on each binding keeps the guard honest: it only claims the mount when the packaged
  * shell it is guarding is actually on the classpath, so an application that depends on
  * the auto-configuration without {@code bootui-ui} keeps {@code /bootui} for itself.</p>
+ *
+ * <p>A startup diagnostic also explains inactivity without requiring the shell, any engine service,
+ * or a web stack. Only ordinary AUTO inactivity is logged at INFO; deliberate disablement stays at DEBUG.</p>
  *
  * <p>Scope is the reserved {@code /bootui} namespace, plus the same namespace under whatever prefixes
  * {@link BootUiShellGuardMounts} derives from the host's static-resource configuration. Everything
@@ -40,8 +47,35 @@ import org.springframework.core.env.Environment;
  */
 @AutoConfiguration
 @Conditional(BootUiInactiveCondition.class)
-@ConditionalOnResource(resources = "classpath:/META-INF/resources/bootui/index.html")
 public class BootUiShellGuardAutoConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(BootUiShellGuardAutoConfiguration.class);
+
+    @Bean
+    SmartInitializingSingleton bootUiInactiveStartupDiagnostic(ApplicationContext context) {
+        // Spring calls this once after singleton initialization, not for each condition evaluation
+        // or refresh/ready event. Never log the decision's reason or warnings: they can contain
+        // arbitrary configured values, including profile names.
+        return () -> {
+            BootUiActivation activation =
+                    BootUiActivationCondition.resolve(context.getEnvironment(), context.getClassLoader());
+            if (activation.enabled() || activation.inactivity() == null) {
+                return;
+            }
+            switch (activation.inactivity()) {
+                case AUTO ->
+                    log.info(
+                            "BootUI is inactive in AUTO mode: no enabled profile is active and Spring Boot DevTools is absent."
+                                    + " For local development, activate a bootui.enabled-profiles profile or set bootui.enabled=ON.");
+                case EXPLICIT_OFF -> log.debug("BootUI is inactive: bootui.enabled=OFF.");
+                case DISABLED_PROFILE ->
+                    log.debug("BootUI is inactive: an active profile matches bootui.disabled-profiles.");
+                case INVALID_CONFIGURATION ->
+                    log.warn(
+                            "BootUI is inactive: invalid bootui.enabled configuration (fail-closed). Use AUTO, ON, or OFF.");
+            }
+        };
+    }
 
     /**
      * Servlet binding. Registered at {@link Integer#MIN_VALUE} so the guard runs before any host filter
@@ -51,6 +85,7 @@ public class BootUiShellGuardAutoConfiguration {
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
+    @ConditionalOnResource(resources = "classpath:/META-INF/resources/bootui/index.html")
     static class ServletShellGuardConfiguration {
 
         @Bean
@@ -75,6 +110,7 @@ public class BootUiShellGuardAutoConfiguration {
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
     @ConditionalOnClass(name = "org.springframework.web.reactive.DispatcherHandler")
+    @ConditionalOnResource(resources = "classpath:/META-INF/resources/bootui/index.html")
     static class ReactiveShellGuardConfiguration {
 
         @Bean

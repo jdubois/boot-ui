@@ -123,7 +123,7 @@ test.describe('BootUI app shell', () => {
   })
 
   test('picks any registered theme from the topbar menu', async ({page}) => {
-    await page.goto('/bootui/')
+    await page.goto('/bootui/#/scorecard')
     await page.evaluate(() => localStorage.setItem('bootui.theme', 'light'))
     await page.reload()
 
@@ -156,6 +156,7 @@ test.describe('BootUI app shell', () => {
 
     // The skin re-skins chrome without touching structure: silver surfaces, square
     // corners, and the era's bevel instead of a soft shadow.
+    await expect(page.locator('.card').first()).toBeVisible()
     const chrome = await page.locator('aside.bootui-sidebar').evaluate((sidebar) => {
       const card = document.querySelector('.card')
       return {
@@ -326,9 +327,9 @@ test.describe('BootUI app shell', () => {
     await expect(palette.getByRole('combobox', {name: 'Search panels'})).toBeFocused()
     await page.keyboard.press('Escape')
 
-    await page.getByRole('link', {name: 'Go to Scorecard'}).click()
-    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
-    await expect(page).toHaveTitle('Scorecard · bootui-sample · BootUI')
+    await page.getByRole('link', {name: 'Go to Home'}).click()
+    await expect(page).toHaveURL(/\/bootui\/#\/home$/)
+    await expect(page).toHaveTitle('Home · bootui-sample · BootUI')
   })
 
   test('mobile command palette restores shortcut focus on cancel', async ({page}) => {
@@ -529,7 +530,7 @@ test.describe('BootUI app shell', () => {
         })
       }
     )
-    await page.goto('/bootui/')
+    await page.goto('/bootui/#/scorecard')
 
     const overviewLink = page.locator('aside .nav-link', {hasText: 'Scorecard'})
     await expect(overviewLink).toHaveClass(/bootui-nav-link--unavailable/)
@@ -613,9 +614,9 @@ test.describe('BootUI app shell', () => {
     }
   })
 
-  test('redirects the root path to /scorecard', async ({page}) => {
+  test('redirects the root path to /home', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/home$/)
   })
 
   test('redirects the former /overview route to /scorecard', async ({page}) => {
@@ -629,6 +630,7 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     await expect(page.getByRole('group', {name: 'Home panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Home',
       'Scorecard',
       'Live Activity',
       'Runtime Insights'

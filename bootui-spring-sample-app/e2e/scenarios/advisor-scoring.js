@@ -1030,7 +1030,9 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       }
       await page.goto(`${uiPath}/#/architecture`)
       const scan = page.locator('main .panel-header__actions button')
-      const actions = page.locator('main .panel-header__actions button, main .list-group-item button')
+      const actions = page.locator(
+        'main .panel-header__actions button, main button[aria-label^="Dismiss rule "], main .list-group-item.opacity-50 button'
+      )
       await expect(actions).toHaveCount(4)
       for (const button of await actions.all()) await expect(button).toBeEnabled()
       for (const [action, id] of [
@@ -1043,6 +1045,8 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         actionGate = new Promise((resolve) => (finishAction = resolve))
         if (action !== 'scan') refreshGate = new Promise((resolve) => (finishRefresh = resolve))
         const previousReads = reads
+        if (action === 'Dismiss')
+          await page.locator(`.advisor-rule-result[data-rule-id="${id}"] .advisor-rule-toggle`).click()
         const button =
           action === 'scan'
             ? scan
@@ -1088,6 +1092,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card.locator('.scanner-score')).toHaveText('90')
         await card.getByRole('link', {name: 'Open panel'}).click()
+        await page.locator('.advisor-rule-toggle').click()
         await page.getByRole('button', {name: /^Dismiss rule /}).click()
         await expect(page.locator('.list-group-item.opacity-50')).toContainText('ARCH-TEST-1')
         await expect(page.locator('.advisor-summary__dismissed')).toContainText(

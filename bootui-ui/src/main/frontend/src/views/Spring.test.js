@@ -105,7 +105,7 @@ describe('Spring', () => {
     expect(wrapper.text()).toContain('Learn more')
     expect(wrapper.text()).toContain('Beans analysed')
     expect(wrapper.text()).not.toContain('Passing config rule')
-    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
       'High severity finding',
       'Medium severity finding',
       'Informational ordering finding'

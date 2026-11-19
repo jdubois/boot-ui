@@ -2,12 +2,16 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiShellGuardFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.BootUiShellGuardFilter;
 import java.net.URI;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -93,7 +97,14 @@ class BootUiShellGuardAutoConfigurationTests {
         // the host application's to use.
         servletRunner()
                 .withClassLoader(new FilteredClassLoader(PACKAGED_SHELL))
-                .run(context -> assertThat(context).doesNotHaveBean(BootUiShellGuardFilter.class));
+                .run(context -> assertThat(context)
+                        .hasBean("bootUiInactiveStartupDiagnostic")
+                        .doesNotHaveBean(BootUiShellGuardFilter.class));
+        reactiveRunner()
+                .withClassLoader(new FilteredClassLoader(PACKAGED_SHELL))
+                .run(context -> assertThat(context)
+                        .hasBean("bootUiInactiveStartupDiagnostic")
+                        .doesNotHaveBean(ReactiveBootUiShellGuardFilter.class));
     }
 
     @Test
@@ -119,17 +130,35 @@ class BootUiShellGuardAutoConfigurationTests {
         });
     }
 
-    @Test
-    void guardBlocksTheShellOnSpringMvc() {
-        servletRunner().run(context -> {
-            MockMvc mvc = MockMvcBuilders.webAppContextSetup(
-                            (WebApplicationContext) context.getSourceApplicationContext())
-                    .addFilters(context.getBean(BootUiShellGuardFilter.class))
-                    .build();
-            mvc.perform(get("/bootui/index.html")).andExpect(status().isNotFound());
-            mvc.perform(get("/bootui/assets/index-abc123.js")).andExpect(status().isNotFound());
-            mvc.perform(get("/bootui")).andExpect(status().isNotFound());
-        });
+    @ParameterizedTest
+    @CsvSource({"AUTO,staging", "OFF,dev", "AUTO,prod", "maybe,dev"})
+    void guardBlocksTheShellOnSpringMvcForEveryInactivityCategory(String mode, String profile) {
+        servletRunner()
+                .withPropertyValues("bootui.enabled=" + mode, "spring.profiles.active=" + profile)
+                .run(context -> {
+                    assertThat(context)
+                            .hasBean("bootUiInactiveStartupDiagnostic")
+                            .doesNotHaveBean(BootUiAutoConfiguration.class)
+                            .doesNotHaveBean(BootUiEngineConfiguration.class)
+                            .doesNotHaveBean(BootUiActivation.class);
+                    MockMvc mvc = MockMvcBuilders.webAppContextSetup(
+                                    (WebApplicationContext) context.getSourceApplicationContext())
+                            .addFilters(context.getBean(BootUiShellGuardFilter.class))
+                            .build();
+                    mvc.perform(get("/bootui/index.html")).andExpect(status().isNotFound());
+                    mvc.perform(get("/bootui/assets/index-abc123.js")).andExpect(status().isNotFound());
+                    mvc.perform(get("/bootui")).andExpect(status().isNotFound());
+                    mvc.perform(get("/bootui/api/overview")).andExpect(status().isNotFound());
+                    mvc.perform(get("/bootui/api/architecture/rules/example/violations"))
+                            .andExpect(status().isNotFound());
+                    // Logging inactivity must not make scans, external refresh, or mutations usable.
+                    for (String action : List.of(
+                            "/bootui/api/vulnerabilities/scan",
+                            "/bootui/api/github/refresh",
+                            "/bootui/api/config/overrides")) {
+                        mvc.perform(post(action)).andExpect(status().isNotFound());
+                    }
+                });
     }
 
     @Test
@@ -183,24 +212,52 @@ class BootUiShellGuardAutoConfigurationTests {
                 });
     }
 
-    @Test
-    void guardBlocksTheShellOnWebFlux() {
-        reactiveRunner().run(context -> {
-            WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
-                    .build();
-            client.get().uri("/bootui/index.html").exchange().expectStatus().isNotFound();
-            client.get()
-                    .uri("/bootui/assets/index-abc123.js")
-                    .exchange()
-                    .expectStatus()
-                    .isNotFound();
-            client.get().uri("/bootui").exchange().expectStatus().isNotFound();
-            client.get()
-                    .uri(URI.create("/%62ootui/index.html"))
-                    .exchange()
-                    .expectStatus()
-                    .isNotFound();
-        });
+    @ParameterizedTest
+    @CsvSource({"AUTO,staging", "OFF,dev", "AUTO,prod", "maybe,dev"})
+    void guardBlocksTheShellOnWebFluxForEveryInactivityCategory(String mode, String profile) {
+        reactiveRunner()
+                .withPropertyValues("bootui.enabled=" + mode, "spring.profiles.active=" + profile)
+                .run(context -> {
+                    assertThat(context)
+                            .hasBean("bootUiInactiveStartupDiagnostic")
+                            .doesNotHaveBean(BootUiReactiveAutoConfiguration.class)
+                            .doesNotHaveBean(BootUiEngineConfiguration.class)
+                            .doesNotHaveBean(BootUiActivation.class);
+                    WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
+                            .build();
+                    client.get()
+                            .uri("/bootui/index.html")
+                            .exchange()
+                            .expectStatus()
+                            .isNotFound();
+                    client.get()
+                            .uri("/bootui/assets/index-abc123.js")
+                            .exchange()
+                            .expectStatus()
+                            .isNotFound();
+                    client.get().uri("/bootui").exchange().expectStatus().isNotFound();
+                    client.get()
+                            .uri("/bootui/api/overview")
+                            .exchange()
+                            .expectStatus()
+                            .isNotFound();
+                    client.get()
+                            .uri("/bootui/api/architecture/rules/example/violations")
+                            .exchange()
+                            .expectStatus()
+                            .isNotFound();
+                    for (String action : List.of(
+                            "/bootui/api/vulnerabilities/scan",
+                            "/bootui/api/github/refresh",
+                            "/bootui/api/config/overrides")) {
+                        client.post().uri(action).exchange().expectStatus().isNotFound();
+                    }
+                    client.get()
+                            .uri(URI.create("/%62ootui/index.html"))
+                            .exchange()
+                            .expectStatus()
+                            .isNotFound();
+                });
     }
 
     @Test
@@ -221,6 +278,16 @@ class BootUiShellGuardAutoConfigurationTests {
                             .isNotFound();
                     client.get().uri("/api/orders").exchange().expectStatus().isNotFound();
                 });
+    }
+
+    @Test
+    void servletGuardWorksWithoutWebFluxOnTheClasspath() {
+        servletRunner()
+                .withClassLoader(new FilteredClassLoader("org.springframework.web.reactive"))
+                .run(context -> assertThat(context)
+                        .hasBean("bootUiInactiveStartupDiagnostic")
+                        .hasSingleBean(BootUiShellGuardFilter.class)
+                        .doesNotHaveBean(ReactiveBootUiShellGuardFilter.class));
     }
 
     private static WebApplicationContextRunner servletRunner() {

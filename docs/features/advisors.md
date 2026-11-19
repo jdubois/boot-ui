@@ -8,6 +8,30 @@ A usable assessment shows the same 0–100 **Known-findings score** in its own p
 weighted finding penalty. That number summarizes retained penalties. It is not a measure of application health or
 safety.
 
+### Find and share a rule
+
+This workflow is an **unreleased source preview**; see [setup](../SETUP.md#open-the-console).
+
+Architecture, REST API, Spring (Quarkus on Quarkus), Hibernate, Database, Memory, and Security use compact rule rows.
+Search rule metadata and cached sample text, or filter by severity. Match counts distinguish rules from violations:
+search never reads unloaded detail pages. Open a row for its explanation, recommendation, cached samples, and existing
+dismissal/source actions. **View violations** remains the explicit way to request a bounded page.
+
+Rule links carry `?rule=<rule-id>` within the console route and open the named row, including when a previous filter
+would hide it. Unknown or absent rules receive an explanation; linking never scans or restores a dismissed rule.
+Pentesting, Vulnerabilities, GraalVM, and CRaC retain their specialized presentations.
+
+**Copy for AI** previews one rule. **Copy visible findings** previews the filtered rendered finding set, not every
+retained occurrence and not just the browser viewport. The Markdown identifies sample/page scope, scan metadata when
+available, filters, counts, suppression, truncation, and evidence limitations. Its omissions section qualifies missing
+or unavailable metadata instead of claiming completeness. Copying neither uploads data nor retrieves more evidence
+or unmasks values. If the browser denies clipboard access, the preview remains selectable for manual copying.
+
+Hibernate and Database preserve loaded pages when their rows are collapsed or filtered out. Dismissing a finding
+does not refresh hidden pages, and revealing them again never retrieves details. If dismissal state may have changed,
+the retained page and its export say so; finding actions stay disabled until **Refresh dismissal state** explicitly
+updates that page.
+
 ### Reading every retained violation
 
 Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and Database
@@ -310,6 +334,8 @@ See [Architecture checks](../ARCHITECTURE-CHECKS.md), [REST API checks](../REST-
 ## Architecture
 
 ![BootUI Architecture panel](../images/bootui-architecture.webp)
+
+_Source preview with illustrative sample data._
 
 The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
 application's own compiled classes. It evaluates package cycles, general coding practices, and Spring stereotype and

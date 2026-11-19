@@ -51,8 +51,11 @@ feature documentation. Each release refreshes the date, release baseline, and re
 
 ### Order of work
 
-No next feature or release date is committed by this revision. Maintenance continues on the released surface;
-the candidates below need an explicit scope and scheduling decision before implementation.
+The next focused feature slice is **Findings you can act on**: compact/searchable/deep-linked regular advisor rules,
+previewed qualified exports, a decision-tree Home guiding users to every panel, multi-word palette search, inactive
+Spring diagnostics, and explicit GitHub connection. Implementation is unreleased; no release version or date is
+committed. Larger CI policy changes and compatibility-sensitive security defaults remain separate decisions.
+The candidates below are not prerequisites for this slice.
 
 | Candidate | Status | Decision needed |
 | --------- | ------ | --------------- |

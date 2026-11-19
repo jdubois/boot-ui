@@ -49,11 +49,10 @@ function groupTerms(route) {
     .map((term) => term.toLowerCase())
 }
 
-function score(route, q) {
+function scoreTerm(route, needle) {
   const title = (routeTitle(route) || '').toLowerCase()
   const shortcut = (route.meta.shortcut || '').toLowerCase()
   const keywords = (route.meta.keywords || []).map((k) => k.toLowerCase())
-  const needle = q.toLowerCase()
   if (title.startsWith(needle)) return 6
   if (shortcut.startsWith(needle)) return 6
   if (title.includes(needle)) return 4
@@ -61,6 +60,20 @@ function score(route, q) {
   if (shortcut.includes(needle)) return 2
   if (groupTerms(route).some((term) => term.includes(needle))) return 1
   return 0
+}
+
+function score(route, query) {
+  const normalized = query.toLowerCase().trim().replace(/\s+/g, ' ')
+  const phraseScore = scoreTerm(route, normalized)
+  if (phraseScore) return phraseScore
+  const scores = normalized.split(' ').map((term) => scoreTerm(route, term))
+  const weakestScore = Math.min(...scores)
+  if (!weakestScore) return 0
+  // Keep the weakest-token tier decisive, then reward stronger matches
+  // across the other tokens. This fraction stays below one regardless of query
+  // length, so it only breaks ties within a tier, preserving stable equal ties.
+  const relevance = scores.reduce((sum, score) => sum + score, 0) / (scores.length * 7)
+  return weakestScore + relevance
 }
 
 const showRecent = computed(() => !query.value.trim() && recentRouteList.value.length > 0)

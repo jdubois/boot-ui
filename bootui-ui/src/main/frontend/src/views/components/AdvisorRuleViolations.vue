@@ -1,7 +1,8 @@
 <script setup>
-import {computed, nextTick, ref, useId, watch} from 'vue'
+import {computed, inject, nextTick, onBeforeUnmount, ref, useId, watch} from 'vue'
 import {rangeLabel, useAdvisorRuleViolations} from '../../utils/useAdvisorRuleViolations.js'
-import {formatLocation, openInHref, presetLabel, useOpenInPreference} from '../../utils/sourceLocation.js'
+import {openInHref, presetLabel, useOpenInPreference} from '../../utils/sourceLocation.js'
+import {advisorEvidenceKey, advisorRows} from '../../utils/advisorFindings.js'
 import {useConfirm} from '../../utils/useConfirm.js'
 import {useCopyToClipboard} from '../../utils/useCopyToClipboard.js'
 import SpinnerButton from './SpinnerButton.vue'
@@ -14,15 +15,19 @@ const props = defineProps({
   // Findings of this advisor can be dismissed one by one. The actions come from the owning panel, which also guards
   // them (read-only, busy, unavailable), so this component never mutates anything on its own.
   suppressible: {type: Boolean, default: false},
+  // The compact rule owner supplies visibility, including collapse and local filters, without inspecting the DOM.
+  active: {type: Boolean, default: true},
   disabled: {type: Boolean, default: false},
-  // Changes after every dismissal or restore, so a page on display rereads which of its findings are dismissed.
+  // Only a visible page rereads after dismissal; hidden pages keep evidence and require an explicit refresh.
   revision: {type: Number, default: 0},
   dismissFinding: {type: Function, default: null},
   restoreFinding: {type: Function, default: null}
 })
 
-const {page, loading, error, stale, announcement, available, load, retry, refresh, backToSamples} =
+const {page, loading, error, stale, announcement, available, load, retry, refresh, cancelPending, backToSamples} =
   useAdvisorRuleViolations(props)
+const dismissalsStale = ref(false)
+watch(page, () => (dismissalsStale.value = false), {flush: 'sync'})
 const {confirm} = useConfirm()
 const samples = computed(() => props.rule.sampleViolations || [])
 // What moved for this rule since the previous scan; only the paged view can say which finding is new.
@@ -33,30 +38,27 @@ const ruleChange = computed(() => {
 const newCount = computed(() => ruleChange.value?.newCount || 0)
 const suppressedCount = computed(() => props.rule.suppressedCount || 0)
 // Locations are aligned index-for-index with their texts, or absent altogether.
-const rows = computed(() => {
-  const texts = page.value ? page.value.violations || [] : samples.value
-  const locations = page.value ? page.value.locations : props.rule.sampleLocations
-  const aligned = Array.isArray(locations) && locations.length === texts.length ? locations : []
-  const changes = page.value ? page.value.changes : null
-  const markers = Array.isArray(changes) && changes.length === texts.length ? changes : []
-  const identities = page.value?.identities
-  const keyed = Array.isArray(identities) && identities.length === texts.length ? identities : []
-  const flags = page.value?.suppressed
-  const dismissedFlags = Array.isArray(flags) && flags.length === texts.length ? flags : []
-  return texts.map((text, index) => {
-    const location = aligned[index] || null
-    const label = formatLocation(location)
-    return {
-      text,
-      location: label ? location : null,
-      label,
-      isNew: markers[index] === 'NEW',
-      // Only a finding with a canonical identity can be dismissed; an unkeyed one is counted but never suppressible.
-      identity: keyed[index] || null,
-      dismissed: dismissedFlags[index] === true
-    }
-  })
-})
+const rows = computed(() => advisorRows(props.rule, page.value))
+const publishEvidence = inject(advisorEvidenceKey, null)
+const evidenceOwner = Symbol('advisor-evidence-owner')
+watch(
+  [rows, page, stale, error, loading, dismissalsStale],
+  () =>
+    publishEvidence?.(
+      props.rule.id,
+      {
+        rows: rows.value,
+        page: page.value,
+        stale: stale.value,
+        dismissalsStale: dismissalsStale.value,
+        error: error.value,
+        loading: loading.value
+      },
+      evidenceOwner
+    ),
+  {immediate: true}
+)
+onBeforeUnmount(() => publishEvidence?.(props.rule.id, null, evidenceOwner))
 const {openIn} = useOpenInPreference()
 const {copiedKey, copyToClipboard} = useCopyToClipboard()
 const openInLabel = computed(() => presetLabel(openIn.value))
@@ -68,7 +70,15 @@ const canViewViolations = computed(
     newCount.value > 0 ||
     (props.suppressible && suppressedCount.value + samples.value.length > 0)
 )
-const canAct = computed(() => props.suppressible && !!page.value && !props.disabled && !!props.dismissFinding)
+const canAct = computed(
+  () =>
+    props.suppressible &&
+    !!page.value &&
+    !props.disabled &&
+    !loading.value &&
+    !dismissalsStale.value &&
+    !!props.dismissFinding
+)
 const regionId = `advisor-violations-${useId()}`
 const heading = ref(null)
 const viewButton = ref(null)
@@ -83,6 +93,13 @@ async function showPage(offset = 0) {
 
 async function retryPage() {
   if (await retry()) {
+    await nextTick()
+    heading.value?.focus()
+  }
+}
+
+async function refreshDismissals() {
+  if (await refresh()) {
     await nextTick()
     heading.value?.focus()
   }
@@ -134,6 +151,14 @@ watch(
   async () => {
     const focusIndex = pendingFocusIndex
     pendingFocusIndex = null
+    if (!props.active) {
+      // Do not turn another rule's mutation into a hidden GET, now or when this rule is revealed again.
+      // Cancel an older in-flight response as well, but retain the accepted page and qualify its markers.
+      cancelPending()
+      if (page.value) dismissalsStale.value = true
+      announcement.value = page.value ? 'Dismissal state may be outdated. Refresh this page explicitly.' : ''
+      return
+    }
     if (!page.value) return
     const reloaded = await refresh()
     if (!reloaded || focusIndex === null) return
@@ -195,6 +220,21 @@ async function refreshCachedReport() {
       >
         Back to samples
       </button>
+    </div>
+    <div v-if="page && dismissalsStale" class="small mb-2">
+      <p class="mb-1">
+        Dismissal state may be outdated. A finding changed while this page was hidden. Loaded evidence is preserved;
+        refresh explicitly before acting on its findings.
+      </p>
+      <SpinnerButton
+        class="btn btn-sm btn-outline-secondary"
+        :loading="loading"
+        :disabled="loading || refreshing || stale"
+        :aria-label="`Refresh dismissal state for ${rule.id}`"
+        :aria-controls="regionId"
+        label="Refresh dismissal state"
+        @click="refreshDismissals"
+      />
     </div>
     <div :id="regionId" :aria-labelledby="`${regionId}-label`">
       <ul v-if="rows.length" class="small mb-0 advisor-findings">
