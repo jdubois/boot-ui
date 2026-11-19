@@ -349,7 +349,8 @@ unavailable there; their exact shared contract assertions run without assumption
   -Dtest=BootUiQuarkusSqlTraceCaptureTest,BootUiQuarkusFlywayCaptureTest
 ```
 
-`sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers` runs in the datasource fixture;
+`sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers` runs in the datasource fixture, including
+nonempty attribution from a native HTTP SQL request with a sanitized route template and statement breakdown;
 `unavailableActionTargetReturnsCanonicalNotFound` runs in the Flyway fixture. Together with the base runner these
 cover the four capability-dependent assertions; the Spring DevTools restart assertion remains not applicable on Quarkus.
 Use the same absolute isolated Maven repository for dependency installation and each command.
