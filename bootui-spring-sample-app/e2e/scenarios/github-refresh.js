@@ -401,12 +401,9 @@ export function registerGitHubRefreshTests(test, expect, {uiPath = '/bootui', ap
     expect(requests).toHaveLength(5)
     await visibility('visible')
     await expect(refresh).toBeEnabled()
-    await expect
-      .poll(async () => {
-        await page.clock.runFor(60_000)
-        return requests.length
-      })
-      .toBe(7)
+    const beforeResumeTick = requests.length
+    await page.clock.runFor(60_000)
+    await expect.poll(() => requests.length).toBe(beforeResumeTick + 2)
     expect(requests).toEqual([
       'GET cache',
       'GET cache',

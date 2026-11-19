@@ -67,7 +67,7 @@ const connectionConsent = computed(() => {
   return (
     target !== null &&
     target.remote === selectedRemote.value &&
-    target.host === repository.value?.host &&
+    target.host === (repository.value?.host || repositoryHost(repository.value?.htmlUrl)) &&
     target.fullName === repository.value?.fullName
   )
 })
