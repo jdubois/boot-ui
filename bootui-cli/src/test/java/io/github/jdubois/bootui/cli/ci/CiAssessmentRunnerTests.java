@@ -2021,11 +2021,16 @@ class CiAssessmentRunnerTests {
         Path output = temp.resolve("gated");
         CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
 
-        assertThat(runner.attach()).isZero();
+        attachBeforeWorkload(runner);
         assertThat(runner.assess()).isEqualTo(3);
 
         assertThat(runtimeInsightsQueries)
-                .containsExactly("", "anonymous-success-on-restricted-route", "anonymous-data-reach");
+                .containsExactly(
+                        "anonymous-success-on-restricted-route",
+                        "anonymous-data-reach",
+                        "",
+                        "anonymous-success-on-restricted-route",
+                        "anonymous-data-reach");
         JsonValue gate = JsonValue.parseStrict(Files.readString(output.resolve("bundle.json")))
                 .get("runtimeContext")
                 .get("gate");
@@ -2056,7 +2061,7 @@ class CiAssessmentRunnerTests {
         Path output = temp.resolve("gated");
         CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
 
-        assertThat(runner.attach()).isZero();
+        attachBeforeWorkload(runner);
         assertThat(runner.assess()).isZero();
         assertThat(Files.readString(output.resolve("summary.md"))).contains("| anonymous-data-reach | PASS | - | 0 |");
         assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
@@ -2077,7 +2082,7 @@ class CiAssessmentRunnerTests {
         Path output = temp.resolve("gated");
         CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
 
-        assertThat(runner.attach()).isZero();
+        attachBeforeWorkload(runner);
         assertThat(runner.assess()).isEqualTo(1);
         assertThat(Files.readString(output.resolve("bundle.json")))
                 .contains("\"code\": \"RUNTIME_GATE_INCOMPLETE\"", "\"reason\": \"" + problem + "\"")
@@ -2125,9 +2130,9 @@ class CiAssessmentRunnerTests {
         Path output = temp.resolve("sinks");
         CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
 
-        assertThat(runner.attach()).isZero();
+        attachBeforeWorkload(runner);
         assertThat(runner.assess()).isEqualTo(3);
-        assertThat(sideEffectsQueries).containsExactly("security-sinks");
+        assertThat(sideEffectsQueries).containsExactly("security-sinks", "security-sinks");
         assertThat(runtimeInsightsRequests).isZero();
         assertThat(Files.readString(output.resolve("summary.md")))
                 .contains("| request-input-in-sink | VIOLATION | - | 2 |");
@@ -2150,8 +2155,61 @@ class CiAssessmentRunnerTests {
         sideEffectsBody = sinksReport(true, 0, "");
         Path clean = temp.resolve("sinks-clean");
         CiAssessmentRunner cleanRunner = runner(policy, temp.resolve("witness-clean.json"), clean);
-        assertThat(cleanRunner.attach()).isZero();
+        attachBeforeWorkload(cleanRunner);
         assertThat(cleanRunner.assess()).isZero();
+    }
+
+    @Test
+    void trafficBeforeAttachmentCannotSatisfyTheRuntimeGate() throws Exception {
+        sideEffectsBody = sinksReport(true, 0, "");
+        runtimeInsightsByQuery.put("anonymous-data-reach", gateReport("anonymous-data-reach", null, 0, null));
+        startServer();
+        Path policy = writePolicyWithRuntimeGate("anonymous-data-reach", "request-input-in-sink");
+        Path output = temp.resolve("stale");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"reason\": \"PREEXISTING_EVIDENCE\"")
+                .doesNotContain("\"result\": \"PASS\"");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void aRuntimeGateWithoutItsAttachTimeEvidenceFloorIsRejected() throws Exception {
+        runtimeInsightsByQuery.put("anonymous-data-reach", gateReport("anonymous-data-reach", null, 0, null));
+        startServer();
+        Path policy = writePolicyWithRuntimeGate("anonymous-data-reach");
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("missing-floor");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+        attachBeforeWorkload(runner);
+        replaceJsonField(witness, "runtimeGateStart", JsonValue.NULL);
+
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json"))).contains("WITNESS_MISMATCH");
+    }
+
+    private void attachBeforeWorkload(CiAssessmentRunner runner) {
+        Map<String, String> after = new LinkedHashMap<>(runtimeInsightsByQuery);
+        String sinksAfter = sideEffectsBody;
+        runtimeInsightsByQuery.replaceAll(
+                (kind, body) -> gateReport(kind, null, 0, "INSUFFICIENT").replace("\"requests\":3", "\"requests\":0"));
+        if (sideEffectsBody != null) {
+            sideEffectsBody = sinksReport(true, 0, "")
+                    .replace("\"requestValuesHeld\":3", "\"requestValuesHeld\":0")
+                    .replace("\"requestValueChecks\":1", "\"requestValueChecks\":0");
+        }
+        try {
+            assertThat(runner.attach()).isZero();
+        } finally {
+            runtimeInsightsByQuery.clear();
+            runtimeInsightsByQuery.putAll(after);
+            sideEffectsBody = sinksAfter;
+        }
     }
 
     private static String sinksReport(boolean matching, long unconfirmed, String rows) {
@@ -2159,7 +2217,8 @@ class CiAssessmentRunnerTests {
                 {"available":true,"unavailableReason":null,"query":"security-sinks",
                  "sensors":[{"id":"security-sinks","state":"recording","dropped":0}],
                  "matched":%d,"rows":[%s],"omitted":0,"limitations":["private limitation"],
-                 "requestValueMatching":%s,"unconfirmedSinkMatches":%d,"requestValuesHeld":3,"requestValueChecksSkipped":0}
+                 "requestValueMatching":%s,"unconfirmedSinkMatches":%d,"requestValuesHeld":3,"requestValueChecksSkipped":0,
+                 "requestValueChecks":1}
                 """.formatted(rows.isEmpty() ? 0 : 1, rows, matching, unconfirmed);
     }
 
@@ -2213,9 +2272,10 @@ class CiAssessmentRunnerTests {
         String notRun = checkNotRun == null ? "" : "\"" + kind + ": " + checkNotRun + "\"";
         return """
                 {"available":true,"unavailableReason":null,"query":"%s","requests":3,"coverage":[],
+                 "evaluatedChecks":["%s"],"completeWindow":true,
                  "checksNotRun":[%s],"observations":[%s],"omitted":0,"notExercised":[],"notExercisedOmitted":0,
                  "limitations":["private limitation"],"next":[]}
-                """.formatted(kind, notRun, rows);
+                """.formatted(kind, kind, notRun, rows);
     }
 
     private Path writePolicyWithRuntimeInsights() throws IOException {

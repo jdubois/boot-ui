@@ -449,7 +449,9 @@ public final class CiBundleEvaluator {
                 }
             }
             boolean passed = CiRuntimeGate.PASS.equals(result) && affected == 0 && callSites.size() == 0;
-            boolean violated = CiRuntimeGate.VIOLATION.equals(result);
+            boolean violated = CiRuntimeGate.VIOLATION.equals(result)
+                    && affected > 0
+                    && (CiRuntimeGate.SINK_KIND.equals(kinds.get(index)) || callSites.size() == 0);
             if (!kinds.get(index).equals(row.get("kind").asString(null))
                     || !"-".equals(row.get("reason").asString(null))
                     || !passed && !violated) {

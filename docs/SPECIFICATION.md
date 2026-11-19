@@ -3946,8 +3946,12 @@ Design rules:
   score. The `prepare-cli` phase exports a
   signature-verified CLI for later workflow steps by default; an explicit trusted local `cli-jar` input supports
   source-build testing without release download or signature verification. Its `offline` phase revalidates a saved bundle without
-  contacting an application. An opt-in Runtime Insights projection is bounded and report-only; it omits application
-  prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. Offline
+  contacting an application. An opt-in Runtime Insights projection omits application prose and request identifiers
+  and does not prove workload attribution. It is report-only unless `runtimeContext.failOnObservations` explicitly
+  selects supported observation-policy gates. Those gates require an empty attach-time evidence floor and positive,
+  complete post-attachment check evidence; pre-existing activity and unknown capture never pass. Sink matching needs
+  the opt-in Java agent and does not prove exploitability. Reports include location-independent SARIF without
+  fabricated file/line locations or an automatic GitHub code-scanning upload. Offline
   checks have no application URL or network fallback. Bundles remain self-reported evidence, not cryptographic
   attestation; aggregate exits are `0` pass, `1` invalid/incomplete, and `3` threshold violation, with errors taking
   precedence. The Markdown summary shows at most 50 sanitized rule summaries, prioritizes threshold-meeting findings,

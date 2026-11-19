@@ -36,7 +36,7 @@ final class CiCommands {
                         "Preflight a local Spring Boot or Quarkus development application and atomically create an identity witness; runs no scans.")
                 .footer(
                         "",
-                        "The witness records the application identity before the workload. It does not prove that tests exercise this process.");
+                        "Attach before the workload. Runtime gates require a fresh evidence floor. The witness does not prove that tests exercise this process.");
         configure(spec);
         spec.addOption(url(command.url));
         spec.addOption(apiPath(command.apiPath));
@@ -89,7 +89,7 @@ final class CiCommands {
         CommandSpec spec = CommandSpec.wrapWithoutInspection(command).name("assess");
         spec.usageMessage()
                 .description(
-                        "Verify the pre-workload witness, run selected advisor scans and optional report-only Runtime Insights, page retained findings, and write bounded JSON, Markdown, and JUnit.")
+                        "Verify the pre-workload witness, run selected advisor scans and opt-in runtime observation gates, and write bounded JSON, Markdown, JUnit, and location-independent SARIF.")
                 .footer(
                         "",
                         "Exit codes: 0 pass, 1 not assessed/error, 3 proven threshold violation. Errors take precedence.");

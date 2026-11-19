@@ -70,9 +70,101 @@ class CiRuntimeGateTests {
     }
 
     @Test
+    void cleanEvidenceMustPositivelyNameTheEvaluatedCheck() {
+        String clean = report(List.of(), null, 0, 0, false).toJson();
+        assertThat(CiRuntimeGate.evaluate(
+                                KIND,
+                                JsonValue.parseStrict(clean.replace(
+                                        "\"evaluatedChecks\":[\"" + KIND + "\"]", "\"evaluatedChecks\":[]")))
+                        .reason())
+                .isEqualTo("CHECK_NOT_EVALUATED");
+        assertThat(CiRuntimeGate.evaluate(
+                                KIND,
+                                JsonValue.parseStrict(clean.replace(
+                                        "\"evaluatedChecks\":[\"" + KIND + "\"]", "\"evaluatedChecks\":null")))
+                        .reason())
+                .isEqualTo("UNSUPPORTED");
+        assertThat(CiRuntimeGate.evaluate(
+                                KIND, JsonValue.parseStrict(clean.replace("\"requests\":3", "\"requests\":0")))
+                        .reason())
+                .isEqualTo("NO_REQUESTS");
+    }
+
+    @Test
+    void lostOrMalformedEvidenceCannotBecomeACleanGate() {
+        String clean = report(List.of(), null, 0, 0, false).toJson();
+        JsonValue lost = JsonValue.parseStrict(clean.replace("\"completeWindow\":true", "\"completeWindow\":false"));
+        assertThat(CiRuntimeGate.evaluate(KIND, lost).reason()).isEqualTo("PARTIAL_CAPTURE");
+        assertThat(CiRuntimeGate.start(KIND, lost).result()).isEqualTo("NOT_ASSESSED");
+        assertThat(CiRuntimeGate.evaluate(
+                                KIND,
+                                JsonValue.parseStrict(
+                                        clean.replace("\"completeWindow\":true", "\"completeWindow\":null")))
+                        .reason())
+                .isEqualTo("UNSUPPORTED");
+        assertThat(CiRuntimeGate.evaluate(
+                                KIND,
+                                JsonValue.parseStrict(
+                                        clean.replace("\"coverage\":[]", "\"coverage\":[{\"dropped\":1}]")))
+                        .reason())
+                .isEqualTo("PARTIAL_CAPTURE");
+        assertThatThrownBy(() -> CiRuntimeGate.evaluate(
+                        KIND, JsonValue.parseStrict(clean.replace("\"omitted\":0", "\"omitted\":0.5"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> CiRuntimeGate.evaluate(
+                        KIND, JsonValue.parseStrict(clean.replace("\"checksNotRun\":[]", "\"checksNotRun\":[null]"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> CiRuntimeGate.evaluate(
+                        KIND,
+                        JsonValue.parseStrict(clean.replace("\"query\":\"" + KIND + "\"", "\"query\":\"other\""))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void holdingValuesWithoutCheckingASinkIsNotCoverage() {
+        String clean = sinks(true, "recording", 0, 0, 0).toJson();
+        assertThat(CiRuntimeGate.evaluate(
+                                SINK,
+                                JsonValue.parseStrict(
+                                        clean.replace("\"requestValueChecks\":1", "\"requestValueChecks\":0")))
+                        .reason())
+                .isEqualTo("NO_SINK_CHECKS");
+    }
+
+    @Test
+    void theEvidenceWindowMustStartBeforeAnyEligibleTraffic() {
+        assertThat(CiRuntimeGate.start(SINK, sinks(true, "recording", 0, 0, 0)).reason())
+                .isEqualTo("PREEXISTING_EVIDENCE");
+        assertThat(CiRuntimeGate.start(
+                                SINK,
+                                JsonValue.parseStrict(sinks(true, "recording", 0, 0, 0)
+                                        .toJson()
+                                        .replace("\"requestValueChecks\":1", "\"requestValueChecks\":0")))
+                        .reason())
+                .isEqualTo("PREEXISTING_EVIDENCE");
+        assertThat(CiRuntimeGate.start(KIND, report(List.of(), null, 0, 0, false))
+                        .reason())
+                .isEqualTo("PREEXISTING_EVIDENCE");
+        JsonValue empty = JsonValue.parseStrict(sinks(0, 0, true, "recording", 0, 0, 0)
+                .toJson()
+                .replace("\"requestValueChecks\":1", "\"requestValueChecks\":0"));
+        assertThat(CiRuntimeGate.start(SINK, empty).result()).isEqualTo("PASS");
+    }
+
+    @Test
+    void anOmittedBaselineCannotMasqueradeAsAnEmptyWindow() {
+        JsonValue empty = JsonValue.parseStrict(report(List.of(KIND + ": NOT_APPLICABLE"), null, 0, 1, false)
+                .toJson()
+                .replace("\"requests\":3", "\"requests\":0"));
+
+        assertThat(CiRuntimeGate.start(KIND, empty).result()).isEqualTo("NOT_ASSESSED");
+    }
+
+    @Test
     void rowsOfAnotherKindAreIgnored() {
         JsonValue other = report(List.of(), "OBSERVED", 5, 0, false);
-        String text = io.github.jdubois.bootui.client.JsonWriter.pretty(other).replace(KIND, "repeated-selects");
+        String text = io.github.jdubois.bootui.client.JsonWriter.pretty(other)
+                .replace("\"kind\": \"" + KIND + "\"", "\"kind\": \"repeated-selects\"");
 
         assertThat(CiRuntimeGate.evaluate(KIND, JsonValue.parseStrict(text)).result())
                 .isEqualTo("PASS");
@@ -180,7 +272,7 @@ class CiRuntimeGateTests {
                  "sensors":[{"id":"processes","state":"disabled","dropped":7},
                             {"id":"security-sinks","state":"%s","dropped":%d}],
                  "matched":%d,"rows":[%s],"omitted":%d,"limitations":["private limitation"]%s,
-                 "unconfirmedSinkMatches":%d,"requestValuesHeld":%d,"requestValueChecksSkipped":%d}
+                 "unconfirmedSinkMatches":%d,"requestValuesHeld":%d,"requestValueChecksSkipped":%d,"requestValueChecks":1}
                 """.formatted(
                         state,
                         dropped,
@@ -258,7 +350,8 @@ class CiRuntimeGateTests {
         String lowFootprint = paused ? ",\"lowFootprint\":{\"active\":true,\"paused\":true}" : "";
         return JsonValue.parseStrict("""
                 {"available":true,"unavailableReason":null,"query":"%s","requests":3,"coverage":[],
+                 "evaluatedChecks":["%s"],"completeWindow":true,
                  "checksNotRun":[%s],"observations":[%s],"omitted":%d,"limitations":["private limitation"]%s}
-                """.formatted(KIND, notRun, observations, omitted, lowFootprint));
+                """.formatted(KIND, KIND, notRun, observations, omitted, lowFootprint));
     }
 }

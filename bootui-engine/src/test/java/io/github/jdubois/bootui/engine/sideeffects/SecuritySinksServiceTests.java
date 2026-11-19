@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import sideeffectsapp.Launcher;
 
 /**
@@ -143,6 +145,7 @@ class SecuritySinksServiceTests {
         assertThat(pending.unconfirmedSinkMatches()).isEqualTo(1);
         assertThat(pending.requestValuesHeld()).isEqualTo(before.requestValuesHeld() + 1);
         assertThat(pending.requestValueChecksSkipped()).isEqualTo(before.requestValueChecksSkipped());
+        assertThat(pending.requestValueChecks()).isGreaterThan(before.requestValueChecks());
 
         inRequest(
                 SECOND,
@@ -159,6 +162,94 @@ class SecuritySinksServiceTests {
         assertThat(service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null)
                         .requestValueMatching())
                 .isFalse();
+    }
+
+    @Test
+    void theAgentReportCountsTruncatedChecksAndExcludedValuesAsIncomplete() {
+        start();
+        var before = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        inRequest(
+                FIRST,
+                "name",
+                seeded("alice-smith"),
+                () -> Launcher.sql("select '" + "x".repeat(RequestValues.MAX_SCAN) + "' from users", context.get()));
+        inRequest(SECOND, "name", "x".repeat(RequestValues.MAX_LENGTH + 1), () -> {});
+
+        var after = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(after.rows()).isEmpty();
+        assertThat(after.requestValueChecksSkipped()).isGreaterThanOrEqualTo(before.requestValueChecksSkipped() + 2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void clearingRecordedOrPendingSinkMatchesCannotRestoreCompleteCapture(boolean confirmed) {
+        start();
+        String value = confirmed ? "alice-smith" : "created_at";
+        inRequest(
+                FIRST,
+                "name",
+                seeded(value),
+                () -> Launcher.sql(
+                        confirmed
+                                ? "select * from users where name = '" + value + "'"
+                                : "select " + value + " from users",
+                        context.get()));
+        var before = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(before.rows().size() + before.unconfirmedSinkMatches()).isGreaterThan(0);
+
+        evidence.clear();
+
+        var after = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(after.rows()).isEmpty();
+        assertThat(after.unconfirmedSinkMatches()).isZero();
+        assertThat(after.requestValueChecks()).isPositive();
+        assertThat(after.requestValueChecksSkipped()).isGreaterThan(before.requestValueChecksSkipped());
+    }
+
+    @Test
+    void switchingTheSinkSensorLeavesAStickyCaptureGap() {
+        start();
+        var before = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+
+        service.sensorSwitched(SideEffectsCatalog.SECURITY_SINKS_ID);
+
+        assertThat(service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null)
+                        .requestValueChecksSkipped())
+                .isGreaterThan(before.requestValueChecksSkipped());
+    }
+
+    @Test
+    void aSinkMatchWaitingForItsRequestRouteCannotLookClean() {
+        start();
+        routes.remove(FIRST);
+        inRequest(
+                FIRST,
+                "name",
+                seeded("alice-smith"),
+                () -> Launcher.sql("select * from users where name = 'alice-smith'", context.get()));
+
+        var waiting = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(waiting.rows()).isEmpty();
+        assertThat(waiting.unconfirmedSinkMatches()).isEqualTo(1);
+        assertThat(waiting.requestValueChecks()).isPositive();
+
+        routes.put(FIRST, "GET /api/sample/search");
+        clock.addAndGet(1_000);
+        var resolved = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+        assertThat(resolved.rows()).hasSize(1);
+        assertThat(resolved.unconfirmedSinkMatches()).isZero();
+    }
+
+    @Test
+    void valuesBelowTheDocumentedMatchingMinimumAreNotCaptureLoss() {
+        start();
+        var before = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
+
+        inRequest(FIRST, "page", "1", () -> Launcher.sql("select * from users where page = ?", context.get()));
+
+        assertThat(service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null)
+                        .requestValueChecksSkipped())
+                .isEqualTo(before.requestValueChecksSkipped());
     }
 
     @Test

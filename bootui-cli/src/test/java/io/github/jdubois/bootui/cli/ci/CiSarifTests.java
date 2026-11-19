@@ -188,6 +188,15 @@ class CiSarifTests {
                         "request-input-in-sink [CWE-74] [A03:2021-Injection]");
         assertThat(tags(rules.get(2)))
                 .containsExactly("security-sinks", "security", "external/cwe/cwe-74", "external/owasp/owasp-a03");
+        assertThat(rules).allSatisfy(rule -> {
+            assertThat(rule.get("properties").get("security-severity").isMissing())
+                    .isTrue();
+            assertThat(rule.get("fullDescription").get("text").asString(""))
+                    .contains("not proof of an exploitable vulnerability");
+        });
+        JsonValue properties = run(CiSarif.from(bundle, null)).get("properties");
+        assertThat(properties.get("sourceLocations").asString(null)).isEqualTo("UNAVAILABLE");
+        assertThat(properties.get("workloadAttribution").asString(null)).isEqualTo("UNVERIFIED");
     }
 
     private static List<String> strings(JsonValue rule, String property) {

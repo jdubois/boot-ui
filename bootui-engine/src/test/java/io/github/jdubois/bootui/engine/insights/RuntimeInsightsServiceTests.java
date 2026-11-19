@@ -674,7 +674,58 @@ class RuntimeInsightsServiceTests {
 
         assertThat(observations(service.report(), RepeatedSelects.KIND)).isEmpty();
         assertThat(service.report().window().retainedEvents()).isZero();
+        assertThat(service.report().window().recordingClears()).isEqualTo(1);
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isFalse();
+        request("GET", "/api/clean");
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isFalse();
         assertThat(service.insight(id).available()).isFalse();
+    }
+
+    @Test
+    void evictingAllViolatingRequestsDoesNotRestoreACompleteWindow() {
+        journal.close();
+        journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 64, 50_000_000, 1_000, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/orders/{id}",
+                    sqls("select 1 from orders", 5, "select * from lines where order_id = ?"));
+        }
+        RuntimeInsightsService service = service();
+        assertThat(observations(service.report(), RepeatedSelects.KIND)).isNotEmpty();
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isTrue();
+
+        for (int i = 0; i < 100; i++) {
+            request("GET", "/api/clean");
+        }
+
+        assertThat(observations(service.report(), RepeatedSelects.KIND)).isEmpty();
+        assertThat(service.report().window().evictedEvents()).isPositive();
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isFalse();
+    }
+
+    @Test
+    void aRecordingPauseStaysIncompleteAfterResumeEvenWithoutNewEvents() {
+        RuntimeInsightsService service = service();
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isTrue();
+
+        journal.suspendForLowFootprint();
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isFalse();
+        journal.resumeFromLowFootprint();
+
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isFalse();
+        request("GET", "/api/clean");
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).completeWindow())
+                .isFalse();
     }
 
     @Test

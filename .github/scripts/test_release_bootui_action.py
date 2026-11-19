@@ -160,6 +160,10 @@ class BootUiActionTests(unittest.TestCase):
         self.assertEqual(bundle["status"], "NOT_ASSESSED")
         self.assertEqual(bundle["errors"], [{"code": "ATTACH_FAILED"}])
         self.assertIn("<error", (report / "junit.xml").read_text())
+        sarif = json.loads((report / "sarif.json").read_text())
+        properties = sarif["runs"][0]["properties"]
+        self.assertEqual(properties["sourceLocations"], "UNAVAILABLE")
+        self.assertEqual(properties["workloadAttribution"], "UNVERIFIED")
         self.assertIn(f"report-dir={report}", self.outputs.read_text())
         second = self.run_script("report-error.sh")
         self.assertNotEqual(second.returncode, 0)

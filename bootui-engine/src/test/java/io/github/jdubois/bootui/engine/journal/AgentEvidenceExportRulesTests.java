@@ -132,7 +132,8 @@ class AgentEvidenceExportRulesTests {
             "SideEffectsAgentReport.matched",
             "SideEffectsAgentReport.omitted",
             "SideEffectsAgentReport.query",
-            // a switch and three counts of the request-value holder, never a value or a parameter name
+            // a switch and request-value holder counts, never a value or a parameter name
+            "SideEffectsAgentReport.requestValueChecks",
             "SideEffectsAgentReport.requestValueChecksSkipped",
             "SideEffectsAgentReport.requestValueMatching",
             "SideEffectsAgentReport.requestValuesHeld",

@@ -115,7 +115,80 @@ final class CiRuntimeGate {
         if (!available.asBoolean(false)) {
             return Result.notAssessed(kind, "UNAVAILABLE");
         }
+        if (!queryFor(kind).equals(report.get("query").asString(null))) {
+            throw new IllegalArgumentException("Report does not match the requested query");
+        }
         return SINK_KIND.equals(kind) ? evaluateSinks(report) : evaluateInsights(kind, report);
+    }
+
+    static Result start(String kind, JsonValue report) {
+        Result result = evaluate(kind, report);
+        if ("UNAVAILABLE".equals(result.reason())) {
+            return result;
+        }
+        if (SINK_KIND.equals(kind)) {
+            if ("NO_SINK_CHECKS".equals(result.reason()) && count(report.get("requestValuesHeld")) > 0) {
+                return Result.notAssessed(kind, "PREEXISTING_EVIDENCE");
+            }
+            if ("NO_REQUEST_VALUES".equals(result.reason())
+                    && count(report.get("requestValueChecks")) == 0
+                    && count(report.get("unconfirmedSinkMatches")) == 0
+                    && count(report.get("omitted")) == 0) {
+                return new Result(kind, PASS, "-", 0);
+            }
+        } else if (count(report.get("requests")) == 0
+                && count(report.get("omitted")) == 0
+                && report.get("observations").isArray()
+                && report.get("observations").values().stream()
+                        .allMatch(row -> "INSUFFICIENT".equals(row.get("status").asString(null))
+                                && count(row.get("eligible")) == 0
+                                && count(row.get("affected")) == 0)
+                && Set.of("NO_REQUESTS", "CHECK_NOT_RUN", "CHECK_NOT_EVALUATED", "INSUFFICIENT")
+                        .contains(result.reason())) {
+            return new Result(kind, PASS, "-", 0);
+        }
+        return PASS.equals(result.result()) || VIOLATION.equals(result.result())
+                ? Result.notAssessed(kind, "PREEXISTING_EVIDENCE")
+                : result;
+    }
+
+    static boolean validStart(JsonValue start, List<String> kinds) {
+        if (!start.isArray() || start.size() != kinds.size()) {
+            return false;
+        }
+        Set<String> reasons = Set.of(
+                "UNAVAILABLE",
+                "ERROR",
+                "UNSUPPORTED",
+                "SENSOR_NOT_RECORDING",
+                "REQUEST_VALUES_OFF",
+                "PARTIAL_CAPTURE",
+                "UNCONFIRMED",
+                "OMITTED",
+                "PREEXISTING_EVIDENCE",
+                "CHECK_NOT_RUN",
+                "CHECK_NOT_EVALUATED",
+                "NO_REQUESTS",
+                "NO_REQUEST_VALUES",
+                "NO_SINK_CHECKS",
+                "INSUFFICIENT",
+                "PARTIAL");
+        for (int i = 0; i < kinds.size(); i++) {
+            JsonValue row = start.get(i);
+            String result = row.get("result").asString("");
+            String reason = row.get("reason").asString("");
+            if (!row.isObject()
+                    || !Set.copyOf(row.names()).equals(Set.of("kind", "result", "reason", "affected", "callSites"))
+                    || !kinds.get(i).equals(row.get("kind").asString(null))
+                    || !"0".equals(row.get("affected").toJson())
+                    || !row.get("callSites").isArray()
+                    || row.get("callSites").size() != 0
+                    || !(PASS.equals(result) && "-".equals(reason)
+                            || NOT_ASSESSED.equals(result) && reasons.contains(reason))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Result evaluateSinks(JsonValue report) {
@@ -128,8 +201,8 @@ final class CiRuntimeGate {
         boolean observed = false;
         Set<String> callSites = new LinkedHashSet<>();
         for (JsonValue row : rows.values()) {
-            long count = row.get("count").asLong(-1);
-            if (count < 0) {
+            long count = count(row.get("count"));
+            if (count <= 0) {
                 throw new IllegalArgumentException("Side Effects row has no count");
             }
             if (SINKS_SENSOR.equals(row.get("sensor").asString(null))
@@ -162,17 +235,19 @@ final class CiRuntimeGate {
         if (!matching.asBoolean(false)) {
             return Result.notAssessed(SINK_KIND, "REQUEST_VALUES_OFF");
         }
-        if (sensor.get("dropped").asLong(1) != 0
-                || report.get("requestValueChecksSkipped").asLong(1) != 0) {
+        if (count(sensor.get("dropped")) != 0 || count(report.get("requestValueChecksSkipped")) != 0) {
             return Result.notAssessed(SINK_KIND, "PARTIAL_CAPTURE");
         }
-        if (report.get("requestValuesHeld").asLong(0) <= 0) {
+        if (count(report.get("requestValuesHeld")) == 0) {
             return Result.notAssessed(SINK_KIND, "NO_REQUEST_VALUES");
         }
-        if (report.get("unconfirmedSinkMatches").asLong(1) != 0) {
+        if (count(report.get("requestValueChecks")) == 0) {
+            return Result.notAssessed(SINK_KIND, "NO_SINK_CHECKS");
+        }
+        if (count(report.get("unconfirmedSinkMatches")) != 0) {
             return Result.notAssessed(SINK_KIND, "UNCONFIRMED");
         }
-        if (report.get("omitted").asLong(1) != 0) {
+        if (count(report.get("omitted")) != 0) {
             return Result.notAssessed(SINK_KIND, "OMITTED");
         }
         return new Result(SINK_KIND, PASS, "-", 0);
@@ -189,15 +264,19 @@ final class CiRuntimeGate {
         String incomplete = null;
         for (JsonValue observation : observations.values()) {
             String status = observation.get("status").asString(null);
-            if (!ROW_STATUSES.contains(status) || observation.get("affected").asLong(-1) < 0) {
+            if (status == null || !ROW_STATUSES.contains(status)) {
                 throw new IllegalArgumentException("Runtime Insights observation has an unknown status or count");
             }
+            long count = count(observation.get("affected"));
             if (!kind.equals(observation.get("kind").asString(null))) {
                 continue;
             }
             if ("OBSERVED".equals(status)) {
+                if (count == 0) {
+                    throw new IllegalArgumentException("An observed row has no affected requests");
+                }
                 observed = true;
-                affected = Math.addExact(affected, observation.get("affected").asLong(0));
+                affected = Math.addExact(affected, count);
             } else if (incomplete == null) {
                 incomplete = status;
             }
@@ -205,12 +284,37 @@ final class CiRuntimeGate {
         if (observed) {
             return new Result(kind, VIOLATION, "-", affected);
         }
+        JsonValue completeWindow = report.get("completeWindow");
+        if (!completeWindow.isBoolean()) {
+            return Result.notAssessed(kind, "UNSUPPORTED");
+        }
+        if (!completeWindow.asBoolean(false)) {
+            return Result.notAssessed(kind, "PARTIAL_CAPTURE");
+        }
         JsonValue lowFootprint = report.get("lowFootprint");
+        if (!lowFootprint.isMissing()
+                && (!lowFootprint.isObject()
+                        || !lowFootprint.get("active").isBoolean()
+                        || !lowFootprint.get("paused").isBoolean())) {
+            throw new IllegalArgumentException("Runtime Insights capture state is malformed");
+        }
         if (lowFootprint.get("active").asBoolean(false)
                 || lowFootprint.get("paused").asBoolean(false)) {
             return Result.notAssessed(kind, "PARTIAL_CAPTURE");
         }
+        JsonValue coverage = report.get("coverage");
+        if (!coverage.isArray()) {
+            throw new IllegalArgumentException("Runtime Insights report has no coverage");
+        }
+        for (JsonValue source : coverage.values()) {
+            if (count(source.get("dropped")) != 0) {
+                return Result.notAssessed(kind, "PARTIAL_CAPTURE");
+            }
+        }
         for (JsonValue check : checksNotRun.values()) {
+            if (!check.isString()) {
+                throw new IllegalArgumentException("Runtime Insights check is malformed");
+            }
             if (check.asString("").startsWith(kind + ":")) {
                 return Result.notAssessed(kind, "CHECK_NOT_RUN");
             }
@@ -218,9 +322,27 @@ final class CiRuntimeGate {
         if (incomplete != null) {
             return Result.notAssessed(kind, incomplete);
         }
-        if (report.get("omitted").asLong(0) > 0) {
+        if (count(report.get("omitted")) > 0) {
             return Result.notAssessed(kind, "OMITTED");
         }
+        if (count(report.get("requests")) == 0) {
+            return Result.notAssessed(kind, "NO_REQUESTS");
+        }
+        JsonValue evaluated = report.get("evaluatedChecks");
+        if (!evaluated.isArray() || evaluated.values().stream().anyMatch(value -> !value.isString())) {
+            return Result.notAssessed(kind, "UNSUPPORTED");
+        }
+        if (evaluated.values().stream().noneMatch(value -> kind.equals(value.asString(null)))) {
+            return Result.notAssessed(kind, "CHECK_NOT_EVALUATED");
+        }
         return new Result(kind, PASS, "-", 0);
+    }
+
+    private static long count(JsonValue value) {
+        long number = value.asLong(-1);
+        if (!value.isNumber() || number < 0 || !Long.toString(number).equals(value.asDisplayText())) {
+            throw new IllegalArgumentException("Runtime gate count is missing or not a nonnegative integer");
+        }
+        return number;
     }
 }

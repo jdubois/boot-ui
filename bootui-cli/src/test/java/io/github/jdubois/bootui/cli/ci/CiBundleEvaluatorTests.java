@@ -341,7 +341,7 @@ class CiBundleEvaluatorTests {
                         withRuntimeContext(bundle("PASS", List.of(), policyHash), runtimeContext("CAPTURED")),
                         "test-assessment"))
                 .isEqualTo(1);
-        // call sites: only on a violation, and only as Class#method
+        // Call sites belong only to sink violations, never an anonymous-access check.
         assertThat(check(
                         withGate(
                                 bundle("PASS", List.of(), policyHash),
@@ -359,6 +359,27 @@ class CiBundleEvaluatorTests {
                         withGate(
                                 bundle("VIOLATION", List.of(), policyHash),
                                 withMember(violated, "callSites", JsonValue.array(List.of(JsonValue.of("a.B#c"))))),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("VIOLATION", List.of(), policyHash),
+                                gateRow("anonymous-data-reach", "VIOLATION", "-", 0)),
+                        "test-assessment"))
+                .isEqualTo(1);
+
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":true,"failOnObservations":["request-input-in-sink"]}}
+                """);
+        policyHash = CiPolicy.read(policy).sha256();
+        assertThat(check(
+                        withGate(
+                                bundle("VIOLATION", List.of(), policyHash),
+                                withMember(
+                                        gateRow("request-input-in-sink", "VIOLATION", "-", 2),
+                                        "callSites",
+                                        JsonValue.array(List.of(JsonValue.of("a.B#c"))))),
                         "test-assessment"))
                 .isEqualTo(3);
     }

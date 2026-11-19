@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SARIF 2.1.0 projection of a CI assessment bundle, for code-scanning and SARIF viewers.
+ * SARIF 2.1.0 projection of a CI assessment bundle for location-independent SARIF viewers.
  *
  * <p>It reads only the sanitized bundle, so it carries the same bounded facts as {@code summary.md} and never a raw
  * finding text, value, or route. The bundle retains no source frames, so results have no physical location.</p>
@@ -86,6 +86,8 @@ final class CiSarif {
         properties.put("assessmentId", JsonValue.of(bundle.get("assessmentId").asString("")));
         properties.put("status", JsonValue.of(status));
         properties.put("policySha256", JsonValue.of(bundle.get("policySha256").asString("")));
+        properties.put("sourceLocations", JsonValue.of("UNAVAILABLE"));
+        properties.put("workloadAttribution", JsonValue.of("UNVERIFIED"));
 
         Map<String, JsonValue> run = new LinkedHashMap<>();
         run.put("tool", object("driver", JsonValue.object(driver)));
@@ -173,7 +175,7 @@ final class CiSarif {
                 "external/owasp/owasp-" + classification.owasp().substring(0, 3).toLowerCase(java.util.Locale.ROOT)));
         Map<String, JsonValue> properties = new LinkedHashMap<>();
         properties.put("tags", JsonValue.array(tags));
-        properties.put("security-severity", JsonValue.of(securitySeverity(CiPolicy.Severity.HIGH)));
+        properties.put("evidence", JsonValue.of("runtime-observation"));
         properties.put(
                 "cwe",
                 JsonValue.array(classification.cwe().stream().map(JsonValue::of).toList()));
@@ -190,6 +192,14 @@ final class CiSarif {
                                         ? "BootUI agent security-sinks observation " + kind
                                         : "BootUI Runtime Insights observation " + kind)));
         rule.put("defaultConfiguration", object("level", JsonValue.of("error")));
+        rule.put(
+                "fullDescription",
+                object(
+                        "text",
+                        JsonValue.of(
+                                "A policy-selected runtime observation, not proof of an exploitable vulnerability. "
+                                        + "CWE and OWASP labels identify related weakness categories, not a confirmed diagnosis. "
+                                        + "The error level expresses the CI policy, not a measured security severity.")));
         rule.put("properties", JsonValue.object(properties));
         return JsonValue.object(rule);
     }
@@ -213,7 +223,8 @@ final class CiSarif {
                                                 + " sink unchanged"
                                         : ": Runtime Insights observed this")
                                 + " in the assessed run (affected: " + affected
-                                + "); the policy's runtime gate fails on it.")));
+                                + "); the policy's runtime gate fails on it. "
+                                + "This observation is not proof of an exploitable vulnerability.")));
         List<JsonValue> locations = new ArrayList<>();
         for (JsonValue callSite : callSites.values()) {
             String frame = callSite.asString("");

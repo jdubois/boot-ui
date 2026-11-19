@@ -91,6 +91,14 @@ public final class CiAssessmentRunner {
             "runId",
             "attachedAt",
             "advisors");
+    private static final Set<String> GATED_WITNESS_KEYS;
+
+    static {
+        Set<String> keys = new HashSet<>(WITNESS_KEYS);
+        keys.add("runtimeGateStart");
+        GATED_WITNESS_KEYS = Set.copyOf(keys);
+    }
+
     private static final Set<String> ATTACH_ERRORS = Set.of(
             "POLICY_READ_FAILED",
             "INVALID_POLICY",
@@ -161,6 +169,17 @@ public final class CiAssessmentRunner {
             witness.put("runId", JsonValue.of(identity.runId()));
             witness.put("attachedAt", JsonValue.of(Instant.now().toString()));
             witness.put("advisors", JsonValue.array(advisors));
+            if (!policy.failOnObservations().isEmpty()) {
+                List<CiRuntimeGate.Result> start = collectRuntimeGate(policy, catalog, client, deadline, null);
+                witness.put(
+                        "runtimeGateStart",
+                        JsonValue.array(
+                                start.stream().map(CiRuntimeGate.Result::toJson).toList()));
+                Identity after = identity(client, deadline);
+                if (!identity.equals(after)) {
+                    throw new AssessmentFailure("MISSING_IDENTITY");
+                }
+            }
             writeNewFile(witnessPath, JsonWriter.pretty(JsonValue.object(witness)));
             return 0;
         } catch (AssessmentFailure failure) {
@@ -224,7 +243,8 @@ public final class CiAssessmentRunner {
                 List<AdvisorResult> results = collect(policy, before, current.framework(), client, deadline);
                 RuntimeContext runtimeContext = collectRuntimeInsights(policy, before, client, deadline);
                 state.runtimeContext(runtimeContext);
-                state.runtimeGate(collectRuntimeGate(policy, before, client, deadline));
+                state.runtimeGate(
+                        collectRuntimeGate(policy, before, client, deadline, witness.get("runtimeGateStart")));
                 Identity after = identity(client, deadline);
                 requireSameIdentity(witness, after);
                 if (!policy.sha256().equals(CiPolicy.read(policyPath).sha256())) {
@@ -481,20 +501,28 @@ public final class CiAssessmentRunner {
     }
 
     private List<CiRuntimeGate.Result> collectRuntimeGate(
-            CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline) {
+            CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline, JsonValue start) {
         int limit = Math.min(MAX_RUNTIME_OBSERVATIONS, Math.max(1, catalog.maxResults()));
         List<CiRuntimeGate.Result> gate = new ArrayList<>();
         for (String kind : policy.failOnObservations()) {
+            int index = gate.size();
+            if (start != null
+                    && !CiRuntimeGate.PASS.equals(start.get(index).get("result").asString(null))) {
+                gate.add(CiRuntimeGate.Result.notAssessed(
+                        kind, start.get(index).get("reason").asString("ERROR")));
+                continue;
+            }
             String toolProblem = queryToolProblem(catalog, CiRuntimeGate.toolFor(kind), CiRuntimeGate.panelFor(kind));
             gate.add(
                     toolProblem != null
                             ? CiRuntimeGate.Result.notAssessed(kind, toolProblem)
-                            : readRuntimeGate(kind, limit, client, deadline));
+                            : readRuntimeGate(kind, limit, client, deadline, start == null));
         }
         return gate;
     }
 
-    private CiRuntimeGate.Result readRuntimeGate(String kind, int limit, BootUiClient client, long deadline) {
+    private CiRuntimeGate.Result readRuntimeGate(
+            String kind, int limit, BootUiClient client, long deadline, boolean starting) {
         Duration budget = runtimeReadBudget(deadline);
         if (budget == null) {
             return CiRuntimeGate.Result.notAssessed(kind, "ERROR");
@@ -508,7 +536,9 @@ public final class CiAssessmentRunner {
                 return CiRuntimeGate.Result.notAssessed(
                         kind, result.status() == 403 || result.status() == 404 ? "UNAVAILABLE" : "ERROR");
             }
-            return CiRuntimeGate.evaluate(kind, result.payload());
+            return starting
+                    ? CiRuntimeGate.start(kind, result.payload())
+                    : CiRuntimeGate.evaluate(kind, result.payload());
         } catch (BootUiClientException requestFailure) {
             if (System.nanoTime() >= deadline) {
                 throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
@@ -1030,7 +1060,7 @@ public final class CiAssessmentRunner {
             throw new AssessmentFailure(code);
         }
         int schemaVersion = witnessSchemaVersion(witness);
-        Set<String> allowedKeys = schemaVersion == LEGACY_SCHEMA_VERSION ? LEGACY_WITNESS_KEYS : WITNESS_KEYS;
+        Set<String> allowedKeys = schemaVersion == LEGACY_SCHEMA_VERSION ? LEGACY_WITNESS_KEYS : GATED_WITNESS_KEYS;
         List<String> unknown = new ArrayList<>(witness.names());
         unknown.removeAll(allowedKeys);
         if (!unknown.isEmpty()) {
@@ -1063,6 +1093,14 @@ public final class CiAssessmentRunner {
                         .matches()
                 || !isValidTimestamp(witness.get("attachedAt").asString(null))
                 || !witnessAdvisorsMatch(witness.get("advisors"), policy)) {
+            throw new AssessmentFailure("WITNESS_MISMATCH");
+        }
+        JsonValue start = witness.get("runtimeGateStart");
+        if (policy.failOnObservations().isEmpty()) {
+            if (!start.isMissing()) {
+                throw new AssessmentFailure("WITNESS_MISMATCH");
+            }
+        } else if (!CiRuntimeGate.validStart(start, policy.failOnObservations())) {
             throw new AssessmentFailure("WITNESS_MISMATCH");
         }
     }

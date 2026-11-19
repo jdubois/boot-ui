@@ -15,7 +15,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Opt-in runtime gate for CI assessments**: `runtimeContext.failOnObservations` fails the assessment on the Runtime
   Insights security observations `anonymous-success-on-restricted-route` and `anonymous-data-reach`, and on the BootUI
   agent's confirmed `request-input-in-sink` rows, and reports a check without complete evidence as not assessed rather
-  than passed; `get_side_effects` now states `requestValueMatching` and `unconfirmedSinkMatches`
+  than passed. Gated assessments require a fresh attach-time evidence floor; positive evaluated-check and sink-check
+  metadata prevent stale traffic, unexecuted checks and incomplete matching from passing. Runtime SARIF labels remain
+  observations, not exploit verdicts; source annotations and automatic code-scanning upload are not claimed
   ([Runtime gate](docs/ci/reference.md#runtime-gate); [#1629](https://github.com/jdubois/boot-ui/issues/1629)).
 
 ### Fixed
