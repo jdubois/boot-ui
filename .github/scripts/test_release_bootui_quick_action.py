@@ -136,7 +136,7 @@ class QuickActionTests(unittest.TestCase):
         upload = action.split("    - id: quick_upload\n", 1)[1].split("    - id: quick_gate\n", 1)[0]
         self.assertIn("!cancelled()", upload)
         self.assertIn("steps.quick_validate.outcome == 'success'", upload)
-        for name in ("bundle.json", "summary.md", "junit.xml"):
+        for name in ("bundle.json", "summary.md", "junit.xml", "sarif.json"):
             self.assertIn(f"steps.quick_validate.outputs.report-dir }}}}/{name}", upload)
         self.assertNotIn("witness", upload)
         self.assertEqual(action.count("always()"), 1)
@@ -831,6 +831,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         (report / "bundle.json").write_text('{"status":"PASS"}')
         (report / "summary.md").write_text("# BootUI assessment: PASS\n")
         (report / "junit.xml").write_text("<testsuite/>")
+        (report / "sarif.json").write_text('{"version":"2.1.0"}')
         self.env["BOOTUI_REPORT_DIR"] = str(report)
         return report
 
@@ -846,7 +847,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         outside = self.root / "outside"
         outside.write_text("not a report")
         for name, limit in (("bundle.json", 16 * 1024 * 1024), ("summary.md", 256 * 1024),
-                            ("junit.xml", 256 * 1024)):
+                            ("junit.xml", 256 * 1024), ("sarif.json", 4 * 1024 * 1024)):
             path = report / name
             original = path.read_bytes()
             for problem in ("missing", "symlink", "empty", "at-limit", "oversized"):

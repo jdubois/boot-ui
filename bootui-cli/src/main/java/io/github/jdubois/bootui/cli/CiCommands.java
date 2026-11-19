@@ -118,7 +118,7 @@ final class CiCommands {
         spec.addOption(pathOption(
                 "--output-dir",
                 "<directory>",
-                "Fresh directory for bundle.json, summary.md, and junit.xml.",
+                "Fresh directory for bundle.json, summary.md, junit.xml, and sarif.json.",
                 true,
                 value -> command.outputDirectory = value));
         return spec;

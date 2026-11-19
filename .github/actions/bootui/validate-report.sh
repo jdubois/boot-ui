@@ -11,7 +11,7 @@ while [[ "$report" != / && "$report" == */ ]]; do
   report="${report%/}"
 done
 [[ -n "$report" && -d "$report" && ! -L "$report" ]] || fail "A valid report directory is unavailable."
-for entry in bundle.json:16777216 summary.md:262144 junit.xml:262144; do
+for entry in bundle.json:16777216 summary.md:262144 junit.xml:262144 sarif.json:4194304; do
   name="${entry%:*}"
   limit="${entry#*:}"
   file="$report/$name"

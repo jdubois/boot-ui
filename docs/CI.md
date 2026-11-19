@@ -55,6 +55,7 @@ The Action also uploads these files for seven days:
 - `summary.md` — the Summary shown above.
 - `bundle.json` — bounded sanitized machine-readable evidence.
 - `junit.xml` — standard JUnit XML for CI test reporters.
+- `sarif.json` — the same retained rule summaries as SARIF 2.1.0, for SARIF viewers ([details](ci/reference.md#reports-and-failures)).
 
 ::: details Display BootUI as a JUnit test/check
 
