@@ -73,9 +73,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.base_ref == 'main' || needs.changes.outputs.agent == 'true'
     # The agent integration tests start the Spring sample three times on top of the focused build.
     timeout-minutes: 45
-    # Java 27 is ahead of the frameworks' documented support (Spring Boot 4.1 covers 17-26,
-    # Quarkus 3.33 LTS covers 17/21/25), so it runs as an informational early-warning lane
-    # rather than a gate. Promote it to blocking once both frameworks support it.
+    # Spring Boot 4.2 supports Java 27, but Quarkus 3.33 LTS still officially covers 17/21/25,
+    # so Java 27 remains an informational early-warning lane rather than a gate.
     continue-on-error: ${{ matrix.java == '27' }}
     strategy:
       fail-fast: false

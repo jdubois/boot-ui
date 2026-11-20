@@ -19,7 +19,7 @@ import java.util.Map;
 
 /**
  * The raw bytes of request-scoped MCP event streams, the same on every stack: each stack's own transport (the servlet
- * output stream, WebFlux's {@code ServerSentEvent} encoder, and Quarkus REST's streaming output) must write exactly the
+ * output stream, WebFlux's raw {@code DataBuffer} writer, and Quarkus REST's streaming output) must write exactly the
  * frames below, byte for byte in UTF-8, with Unicode written as is and a carriage return or line feed in a value
  * escaped by JSON, never breaking the {@code data:} line. Keep-alive comments ({@code :} and a blank line) depend on
  * timing, so the contract asserts each one exactly but accepts any number of them between the frames.

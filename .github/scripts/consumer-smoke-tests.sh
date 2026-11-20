@@ -578,11 +578,32 @@ echo "Java agent smoke test passed."
 
 # Separate supported-line evidence from the current build baseline. These are consumer fixtures,
 # not an exact-patch allowlist used by the runtime compatibility policy.
-echo "=== Compatibility: supported Spring Boot 4.0 line ==="
-SPRING_40_DIR="$WORK_DIR/spring-40"
-create_spring_smoke_project "$SPRING_40_DIR" "spring-boot-starter-web" "$MVC_PORT" "4.0.8"
-run_spring_smoke "Spring Boot 4.0" "$SPRING_40_DIR" "$MVC_PORT" "SERVLET" \
+echo "=== Compatibility: supported Spring Boot 4.0 line (MVC) ==="
+SPRING_40_MVC_DIR="$WORK_DIR/spring-40-mvc"
+create_spring_smoke_project "$SPRING_40_MVC_DIR" "spring-boot-starter-web" "$MVC_PORT" "4.0.8"
+run_spring_smoke "Spring Boot 4.0 MVC" "$SPRING_40_MVC_DIR" "$MVC_PORT" "SERVLET" \
   "org.springframework.boot.tomcat.TomcatWebServer"
+stop_app
+
+echo "=== Compatibility: supported Spring Boot 4.0 line (WebFlux) ==="
+SPRING_40_WEBFLUX_DIR="$WORK_DIR/spring-40-webflux"
+create_spring_smoke_project "$SPRING_40_WEBFLUX_DIR" "spring-boot-starter-webflux" "$WEBFLUX_PORT" "4.0.8"
+run_spring_smoke "Spring Boot 4.0 WebFlux" "$SPRING_40_WEBFLUX_DIR" "$WEBFLUX_PORT" "REACTIVE" \
+  "org.springframework.boot.reactor.netty.NettyWebServer"
+stop_app
+
+echo "=== Compatibility: supported Spring Boot 4.1 line (MVC) ==="
+SPRING_41_MVC_DIR="$WORK_DIR/spring-41-mvc"
+create_spring_smoke_project "$SPRING_41_MVC_DIR" "spring-boot-starter-web" "$MVC_PORT" "4.1.3"
+run_spring_smoke "Spring Boot 4.1 MVC" "$SPRING_41_MVC_DIR" "$MVC_PORT" "SERVLET" \
+  "org.springframework.boot.tomcat.TomcatWebServer"
+stop_app
+
+echo "=== Compatibility: supported Spring Boot 4.1 line (WebFlux) ==="
+SPRING_41_WEBFLUX_DIR="$WORK_DIR/spring-41-webflux"
+create_spring_smoke_project "$SPRING_41_WEBFLUX_DIR" "spring-boot-starter-webflux" "$WEBFLUX_PORT" "4.1.3"
+run_spring_smoke "Spring Boot 4.1 WebFlux" "$SPRING_41_WEBFLUX_DIR" "$WEBFLUX_PORT" "REACTIVE" \
+  "org.springframework.boot.reactor.netty.NettyWebServer"
 stop_app
 
 echo "=== Compatibility: rejected Spring Boot 3 generation ==="

@@ -182,6 +182,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Spring baseline alignment** advances to Spring Boot 4.2.0, Spring AI 2.1.0, and Spring Modulith 2.2.0.
 - **JUL advice moves to INFO** on Spring, retaining detection, IDs, and dismissals without score penalties or LOW-gate failures
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-003---classes-should-not-use-javautillogging)).
 - **Hibernate eager-fetch guidance** lowers to-one HIB-FETCH-001 from HIGH to MEDIUM; new HIB-FETCH-010 keeps collections

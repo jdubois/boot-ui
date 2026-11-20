@@ -287,6 +287,32 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void nativeCspNonceFilterIsCompleteAndScopedCspRemainsUnknown() {
+        SecurityWebFilterChain nativeChain = http().headers(headers -> headers.contentSecurityPolicy(csp ->
+                        csp.policyDirectives("script-src 'unsafe-inline' 'nonce-{nonce}'; frame-ancestors 'none'")))
+                .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+                .build();
+        ReactiveSecurityObservation nativeObservation = collect(new MockEnvironment(), nativeChain);
+        assertThat(nativeObservation.chains().get(0).webFilterNames())
+                .contains("ContentSecurityPolicyNonceGeneratingWebFilter", "HttpHeaderWriterWebFilter")
+                .doesNotContain("custom:org.springframework.security.web.server.header."
+                        + "ContentSecurityPolicyNonceGeneratingWebFilter");
+        assertThat(nativeObservation.chains().get(0).headerWritersObserved()).isTrue();
+        assertThat(scan(nativeObservation).scan().status()).isEqualTo("SCANNED");
+        assertThat(scan(nativeObservation).results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-007");
+
+        ContentSecurityPolicyServerHttpHeadersWriter scoped = csp("frame-ancestors 'none'", false);
+        scoped.setExchangeMatcher(new PathPatternParserServerWebExchangeMatcher("/admin/**"));
+        ReactiveSecurityObservation scopedObservation =
+                collect(new MockEnvironment(), chain(new HttpHeaderWriterWebFilter(scoped)));
+        WebFilterChainObservation observed = scopedObservation.chains().get(0);
+        assertThat(observed.headerWritersObserved()).isFalse();
+        assertThat(observed.cspPolicies()).isEmpty();
+    }
+
+    @Test
     void basicCsrfIsPerChainAndFormRuleDoesNotDuplicateIt() {
         SecurityWebFilterChain basic = http().httpBasic(Customizer.withDefaults())
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
@@ -851,6 +877,26 @@ class SpringReactiveSecurityObservationCollectorTests {
                     .doesNotContain("SEC-RXF-HEAD-002", "SEC-RXF-HEAD-003", "SEC-RXF-HEAD-004");
             assertThat(scan(observation).scan().status()).isEqualTo("PARTIAL");
         }
+    }
+
+    @Test
+    void literalStaticNonceTemplateIsWeakEvenWhenANonceFilterExists() {
+        var nonceFilter =
+                new org.springframework.security.web.server.header.ContentSecurityPolicyNonceGeneratingWebFilter();
+        HttpHeaderWriterWebFilter staticHeaders = new HttpHeaderWriterWebFilter(StaticServerHttpHeadersWriter.builder()
+                .header("Content-Security-Policy", "script-src 'unsafe-inline' 'nonce-{nonce}'")
+                .build());
+        SecurityReport report = scan(collect(new MockEnvironment(), chain(nonceFilter, staticHeaders)));
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-HEAD-007");
+    }
+
+    @Test
+    void nativeLiteralNonceTemplateIsWeakWithoutANonceFilter() {
+        ContentSecurityPolicyServerHttpHeadersWriter writer = csp("script-src 'unsafe-inline' 'nonce-{nonce}'", false);
+        SecurityReport report = scan(collect(new MockEnvironment(), chain(new HttpHeaderWriterWebFilter(writer))));
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-HEAD-007");
     }
 
     @Test

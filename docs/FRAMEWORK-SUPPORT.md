@@ -51,7 +51,8 @@ exact-version allowlist. For a dependency upgrade:
 - Keep the declared support range unless changing it is an explicit, reviewed decision. Ordinary supported
   patch/minor upgrades do not require widening the runtime rules.
 - Run the current-baseline conformance checks and retain older supported consumer coverage: the Spring Boot 4.0
-  fixture in `.github/scripts/consumer-smoke-tests.sh` and the older Quarkus LTS lane in `build.yml`.
+  and 4.1 MVC/WebFlux fixtures in `.github/scripts/consumer-smoke-tests.sh` and the older Quarkus LTS lane in
+  `build.yml`.
 - Preserve the rejected-platform consumer cases and their actionable diagnostics. Fix API incompatibilities rather
   than weakening checks or removing assertions to make a bump pass.
 - For an intentional generation or minimum-support change, update `PlatformCompatibility`, the affected adapter API

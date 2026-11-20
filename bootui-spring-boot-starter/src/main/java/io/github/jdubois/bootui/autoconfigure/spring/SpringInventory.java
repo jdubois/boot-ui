@@ -1100,7 +1100,8 @@ final class SpringInventory {
                 .contains(entry.type().getName())) return true;
         if (!MODULITH_STALENESS_CONFIGURER.equals(entry.type().getName())
                 || entry.type() != present(MODULITH_STALENESS_CONFIGURER)
-                || !"2.1.2".equals(entry.type().getPackage().getImplementationVersion())) return false;
+                || !("2.1.2".equals(entry.type().getPackage().getImplementationVersion())
+                        || "2.2.0".equals(entry.type().getPackage().getImplementationVersion()))) return false;
         Object singleton = factory.getSingleton(entry.name());
         return singleton != null && singleton.getClass() == entry.type();
     }

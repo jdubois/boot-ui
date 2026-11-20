@@ -1124,6 +1124,52 @@ class SecurityAuditAccuracyTests {
     }
 
     @Test
+    void scopedCspDoesNotProveChainWideProtection() throws Exception {
+        var csp = new ContentSecurityPolicyHeaderWriter("frame-ancestors 'none'");
+        csp.setRequestMatcher(PathPatternRequestMatcher.pathPattern("/admin/**"));
+        FilterChainModel chain =
+                model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new HeaderWriterFilter(List.of(csp))));
+
+        assertThat(chain.details().headersKnown()).isFalse();
+        assertThat(chain.cspPolicyDirectives()).isNull();
+    }
+
+    @Test
+    void nativeCspNonceFilterIsARecognizedFrameworkFilter() throws Exception {
+        try (var application = new AnnotationConfigApplicationContext(NativeCspConfiguration.class)) {
+            FilterChainModel chain = model(application.getBean("applicationChain", SecurityFilterChain.class));
+            assertThat(chain.hasFilter("ContentSecurityPolicyNonceGeneratingFilter"))
+                    .isTrue();
+            assertThat(chain.details().filtersKnown()).isTrue();
+            assertThat(chain.details().headersKnown()).isTrue();
+            assertThat(chain.hasWeakCsp()).isFalse();
+            assertThat(chain.weakCspObservation()).isFalse();
+        }
+    }
+
+    @Test
+    void literalNonceTemplateIsWeakWithoutSpringNonceFilter() throws Exception {
+        var csp = new ContentSecurityPolicyHeaderWriter("script-src 'unsafe-inline' 'nonce-{nonce}'");
+        FilterChainModel chain =
+                model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new HeaderWriterFilter(List.of(csp))));
+
+        assertThat(chain.details().headersKnown()).isTrue();
+        assertThat(chain.hasWeakCsp()).isTrue();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebSecurity
+    static class NativeCspConfiguration {
+        @Bean
+        SecurityFilterChain applicationChain(HttpSecurity http) throws Exception {
+            return http.headers(headers -> headers.contentSecurityPolicy(csp ->
+                            csp.policyDirectives("script-src 'unsafe-inline' 'nonce-{nonce}'; frame-ancestors 'none'")))
+                    .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
+                    .build();
+        }
+    }
+
+    @Test
     void enforcingFrameAncestorsOverridesXfoAndUnknownCspCannotProveFallback() throws Exception {
         Map<String, String> policies = Map.of(
                 "frame-ancestors *", "VIOLATION",

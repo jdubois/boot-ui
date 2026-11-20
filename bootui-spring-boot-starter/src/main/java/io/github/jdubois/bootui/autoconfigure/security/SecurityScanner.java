@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.security.CspPolicy;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisDetector;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisRule;
@@ -908,6 +909,8 @@ final class SecurityScanner {
             new HeaderWriterInfo(List.of(), null, null, null, null, true);
 
     private static HeaderWriterInfo detectHeaderWriters(List<Filter> filters) {
+        boolean expandsNonceTemplate = filters.stream()
+                .anyMatch(filter -> "ContentSecurityPolicyNonceGeneratingFilter".equals(frameworkTypeName(filter)));
         for (Filter filter : filters) {
             if (!"HeaderWriterFilter".equals(frameworkTypeName(filter))) {
                 continue;
@@ -956,9 +959,17 @@ final class SecurityScanner {
                             hstsIncludeSubdomains = includeSubDomains;
                         }
                     } else if (simpleName.contains("ContentSecurityPolicy")) {
+                        Object condition = readField(writer, "requestMatcher");
+                        if (condition != null && !matcherFacts(condition, 0).unconditional()) {
+                            known = false;
+                            continue;
+                        }
                         if (!(readField(writer, "policyDirectives") instanceof String directives)) {
                             known = false;
                             continue;
+                        }
+                        if (expandsNonceTemplate) {
+                            directives = CspPolicy.expandVerifiedNonceTemplate(directives);
                         }
                         if (readField(writer, "reportOnly") instanceof Boolean reportOnly) {
                             if (reportOnly && Boolean.FALSE.equals(cspReportOnly)) continue;

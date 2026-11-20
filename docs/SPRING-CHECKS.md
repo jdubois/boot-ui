@@ -46,7 +46,7 @@ Bean, member, and hierarchy limits remain enforced; genuine member-budget exhaus
 Incomplete coverage still cannot pass a required CI assessment, even with no HIGH findings. Read
 `bootui spring report --json` for the cached coverage limitations; this command does not rescan.
 
-Scheduling recognizes the exact, initialized, unadvised Spring Modulith 2.1.2 staleness-monitor configurer: its
+Scheduling recognizes the exact, initialized, unadvised Spring Modulith 2.1.2 and 2.2.0 staleness-monitor configurers: their
 verified implementation only adds registrations, never changes scheduler routing. Other versions remain unknown
 until verified. An enabled monitor contributing an unsupported runnable still leaves coverage incomplete.
 

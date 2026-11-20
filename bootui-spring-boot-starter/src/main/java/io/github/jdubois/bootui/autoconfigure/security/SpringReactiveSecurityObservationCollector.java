@@ -81,6 +81,7 @@ public final class SpringReactiveSecurityObservationCollector {
     private static final List<String> FILTER_TYPES = List.of(
             SECURITY + "authorization.AuthorizationWebFilter",
             SECURITY + "csrf.CsrfWebFilter",
+            HEADERS + "ContentSecurityPolicyNonceGeneratingWebFilter",
             HEADERS + "HttpHeaderWriterWebFilter",
             SECURITY + "transport.HttpsRedirectWebFilter",
             SECURITY + "authentication.AuthenticationWebFilter",
@@ -385,6 +386,7 @@ public final class SpringReactiveSecurityObservationCollector {
         boolean authComplete = true;
         boolean csrfMatcherObserved = true;
         boolean redirect = false;
+        boolean expandsNonceTemplate = false;
         for (int i = 0; i < filters.size() && i < MAX_ITEMS; i++) {
             Object filter = filters.get(i);
             if (!(filter instanceof WebFilter)) {
@@ -402,6 +404,7 @@ public final class SpringReactiveSecurityObservationCollector {
                     recognized == null
                             ? "custom:" + filter.getClass().getName()
                             : filter.getClass().getSimpleName());
+            expandsNonceTemplate |= exact(filter, HEADERS + "ContentSecurityPolicyNonceGeneratingWebFilter");
             if (exact(filter, HEADERS + "HttpHeaderWriterWebFilter")) {
                 headerFilters.add(filter);
             }
@@ -446,7 +449,7 @@ public final class SpringReactiveSecurityObservationCollector {
         if (!authComplete) {
             messages.add("Chain " + index + ": custom authentication converter/filter metadata is unsupported.");
         }
-        HeaderInfo headers = headerInfo(headerFilters, index, messages);
+        HeaderInfo headers = headerInfo(headerFilters, index, messages, expandsNonceTemplate);
         CspObservation legacy = headers.policies.size() == 1 ? headers.policies.get(0) : null;
         return new WebFilterChainObservation(
                 index,
@@ -512,10 +515,11 @@ public final class SpringReactiveSecurityObservationCollector {
         int count;
     }
 
-    private static HeaderInfo headerInfo(List<Object> filters, int index, List<String> messages) {
+    private static HeaderInfo headerInfo(
+            List<Object> filters, int index, List<String> messages, boolean expandsNonceTemplate) {
         HeaderInfo info = new HeaderInfo();
         for (Object filter : filters) {
-            inspectWriter(readField(filter, "writer"), 0, info);
+            inspectWriter(readField(filter, "writer"), 0, info, expandsNonceTemplate);
         }
         if (info.occurrences.values().stream().anyMatch(count -> count > 1)) {
             info.complete = false;
@@ -531,7 +535,7 @@ public final class SpringReactiveSecurityObservationCollector {
         return info;
     }
 
-    private static void inspectWriter(Object writer, int depth, HeaderInfo info) {
+    private static void inspectWriter(Object writer, int depth, HeaderInfo info, boolean expandsNonceTemplate) {
         if (writer == null || depth >= MAX_DEPTH || ++info.count > MAX_ITEMS) {
             info.complete = false;
             return;
@@ -542,7 +546,7 @@ public final class SpringReactiveSecurityObservationCollector {
                 return;
             }
             for (int i = 0; i < writers.size() && i < MAX_ITEMS; i++) {
-                inspectWriter(writers.get(i), depth + 1, info);
+                inspectWriter(writers.get(i), depth + 1, info, expandsNonceTemplate);
             }
             info.complete &= writers.size() <= MAX_ITEMS;
             return;
@@ -560,15 +564,20 @@ public final class SpringReactiveSecurityObservationCollector {
         } else if (exact(writer, HEADERS + "ContentSecurityPolicyServerHttpHeadersWriter")) {
             Object policy = readField(writer, "policyDirectives");
             Object report = readField(writer, "reportOnly");
-            // Spring installs this writer by default with no policy/delegate; it emits no CSP header.
-            if (policy == null
-                    && report instanceof Boolean
-                    && observedNullField(writer, "policyDirectives")
-                    && observedNullField(writer, "delegate")) {
+            // Spring installs this writer by default with no policy; it emits no CSP header.
+            if (policy == null && report instanceof Boolean && observedNullField(writer, "policyDirectives")) {
                 return;
             }
             info.names.add("ContentSecurityPolicyServerHttpHeadersWriter");
             if (policy instanceof String text && report instanceof Boolean reportOnly) {
+                Object matcher = readField(writer, "exchangeMatcher");
+                if (declaresField(writer, "exchangeMatcher") && !Boolean.TRUE.equals(unconditionalMatcher(matcher))) {
+                    info.complete = false;
+                    return;
+                }
+                if (expandsNonceTemplate) {
+                    text = CspPolicy.expandVerifiedNonceTemplate(text);
+                }
                 info.policies.add(new CspObservation(text.length() <= MAX_TEXT ? text : null, reportOnly));
                 noteHeader(info, reportOnly ? "content-security-policy-report-only" : "content-security-policy");
                 info.complete &=
@@ -1167,6 +1176,15 @@ public final class SpringReactiveSecurityObservationCollector {
             return false;
         } catch (IllegalAccessException ex) {
             throw new IllegalStateException("Framework metadata is inaccessible", ex);
+        }
+    }
+
+    private static boolean declaresField(Object target, String name) {
+        try {
+            target.getClass().getDeclaredField(name);
+            return true;
+        } catch (NoSuchFieldException ex) {
+            return false;
         }
     }
 
