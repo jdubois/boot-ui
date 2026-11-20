@@ -511,20 +511,24 @@ class AgentOverheadBenchmarkIT {
         private final java.net.ServerSocket server;
 
         Stub() throws java.io.IOException {
-            server = new java.net.ServerSocket(0, 1_024, java.net.InetAddress.getLoopbackAddress());
-            Thread acceptor = new Thread(
-                    () -> {
-                        while (!server.isClosed()) {
-                            try (java.net.Socket accepted = server.accept()) {
-                                accepted.setSoLinger(true, 0);
-                            } catch (java.io.IOException closed) {
-                                // Closed with the test, or a client that went away.
+            server = new java.net.ServerSocket(0, 8_192, java.net.InetAddress.getLoopbackAddress());
+            for (int i = 0; i < 4; i++) {
+                Thread acceptor = new Thread(
+                        () -> {
+                            while (!server.isClosed()) {
+                                try (java.net.Socket accepted = server.accept()) {
+                                    // A normal close lets the client's connect complete before the benchmark stub
+                                    // closes the socket. Resetting an accepted connection can itself make connect fail
+                                    // with SocketException: Connection reset by peer under high load.
+                                } catch (java.io.IOException closed) {
+                                    // Closed with the test, or a client that went away.
+                                }
                             }
-                        }
-                    },
-                    "benchmark-stub");
-            acceptor.setDaemon(true);
-            acceptor.start();
+                        },
+                        "benchmark-stub-" + i);
+                acceptor.setDaemon(true);
+                acceptor.start();
+            }
         }
 
         int port() {
