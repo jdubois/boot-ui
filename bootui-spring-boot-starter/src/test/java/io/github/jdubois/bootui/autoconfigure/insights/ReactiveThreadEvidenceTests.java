@@ -318,7 +318,7 @@ class ReactiveThreadEvidenceTests {
     void r2RealMatrixSecretVariantsShareOneRecurringSiteAcrossExposureChanges() throws Exception {
         AtomicInteger remoteCalls = new AtomicInteger();
         HttpServer remote = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        remote.createContext("/remote", exchange -> {
+        remote.createContext("/", exchange -> {
             remoteCalls.incrementAndGet();
             exchange.sendResponseHeaders(204, -1);
             exchange.close();

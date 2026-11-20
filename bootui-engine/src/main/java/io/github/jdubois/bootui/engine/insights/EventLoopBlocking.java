@@ -94,6 +94,10 @@ public final class EventLoopBlocking implements Observation {
                             }
                             continue;
                         }
+                        if (event.threadKind() == null || event.threadKind() == ThreadKind.OTHER) {
+                            unclassified++;
+                            continue;
+                        }
                         site = sql.callSite() != null ? sql.callSite() : SqlShapes.fingerprint(sql.sql());
                         found = sites.computeIfAbsent(
                                 site,
@@ -104,6 +108,10 @@ public final class EventLoopBlocking implements Observation {
                     } else if (httpAvailable
                             && event.payload() instanceof RestClientPayload call
                             && ("RestClient".equals(call.clientType()) || "RestTemplate".equals(call.clientType()))) {
+                        if (event.threadKind() == null || event.threadKind() == ThreadKind.OTHER) {
+                            unclassified++;
+                            continue;
+                        }
                         work = describe(call, snapshot);
                         String callSite =
                                 call.frames() == null ? null : call.frames().callSite();
@@ -114,10 +122,6 @@ public final class EventLoopBlocking implements Observation {
                         found = sites.computeIfAbsent(
                                 site, s -> new Site(callSite == null ? work : callSite, call.clientType()));
                     } else {
-                        continue;
-                    }
-                    if (event.threadKind() == null || event.threadKind() == ThreadKind.OTHER) {
-                        unclassified++;
                         continue;
                     }
                     boolean onLoop = event.threadKind() == ThreadKind.EVENT_LOOP;

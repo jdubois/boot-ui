@@ -666,7 +666,13 @@ class GitHubApiClientTests {
 
         assertThat(report.status()).isEqualTo("PARTIAL");
         assertThat(report.connected()).isTrue();
-        assertThat(pages.get()).isEqualTo(2);
+        if (failure.equals("truncated")) {
+            assertThat(pages.get())
+                    .as("the JDK may replay an idempotent request after a truncated response")
+                    .isGreaterThanOrEqualTo(2);
+        } else {
+            assertThat(pages.get()).isEqualTo(2);
+        }
         assertThat(report.pullRequests()).extracting("number").containsExactly(42);
         assertThat(report.quotas()).extracting("key").contains("core", "actions-cache", "actions-artifacts");
         assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
