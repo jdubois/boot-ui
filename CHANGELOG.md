@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Spring baseline alignment** advances to Spring Boot 4.2.0, Spring AI 2.1.0, and Spring Modulith 2.2.0.
+
 ### Fixed
 
 - **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,

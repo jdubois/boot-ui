@@ -232,6 +232,7 @@ class SpanEnrichmentTests {
         OtelSpanEnricher enricher = new OtelSpanEnricher(ENABLED);
         SdkTracerProvider provider = SdkTracerProvider.builder()
                 .setResource(Resource.create(Attributes.empty()))
+                .addSpanProcessor(new BootUiIdentitySpanProcessor(ENABLED, "orders-service", "pod-7"))
                 .build();
         java.util.concurrent.atomic.AtomicInteger evaluations = new java.util.concurrent.atomic.AtomicInteger();
         try {

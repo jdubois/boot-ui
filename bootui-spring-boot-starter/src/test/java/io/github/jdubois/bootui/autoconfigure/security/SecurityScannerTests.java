@@ -106,7 +106,6 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 class SecurityScannerTests {
 
@@ -2146,7 +2145,8 @@ class SecurityScannerTests {
         AuthorizationManager<HttpServletRequest> denyAll =
                 (authentication, request) -> new AuthorizationDecision(false);
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
-        beanFactory.registerSingleton("mvcHandlerMappingIntrospector", new HandlerMappingIntrospector());
+        CorsConfigurationSource frameworkCorsSource = request -> null;
+        beanFactory.registerSingleton("mvcHandlerMappingIntrospector", frameworkCorsSource);
 
         SecurityReport report =
                 scannerFor(filterChainProxy(denyAll), beanFactory).scan();

@@ -92,6 +92,17 @@ class BootUiRuntimeHintsTests {
                         .onType(TypeReference.of("org.springframework.security.core.authority.SimpleGrantedAuthority"))
                         .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
                 .accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(
+                                "org.springframework.security.web.header.ContentSecurityPolicyNonceGeneratingFilter"))
+                        .withMemberCategory(MemberCategory.ACCESS_DECLARED_FIELDS))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(
+                                TypeReference.of(
+                                        "org.springframework.security.web.server.header.ContentSecurityPolicyNonceGeneratingWebFilter"))
+                        .withMemberCategory(MemberCategory.ACCESS_DECLARED_FIELDS))
+                .accepts(hints);
     }
 
     @Test
@@ -188,7 +199,7 @@ class BootUiRuntimeHintsTests {
         "org.springframework.security.web.server.csrf.CsrfWebFilter, requireCsrfProtectionMatcher",
         "org.springframework.security.web.server.header.HttpHeaderWriterWebFilter, writer",
         "org.springframework.security.web.server.header.CompositeServerHttpHeadersWriter, writers",
-        "org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter, delegate",
+        "org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter, exchangeMatcher",
         "org.springframework.core.env.AbstractEnvironment, propertySources",
         "org.springframework.core.env.AbstractEnvironment, activeProfiles",
         "org.springframework.core.env.MutablePropertySources, propertySourceList",

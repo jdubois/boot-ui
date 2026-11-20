@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import org.springframework.core.codec.DataBufferEncoder;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.codec.EncoderHttpMessageWriter;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ServerCodecConfigurer;
@@ -28,10 +30,23 @@ public final class BootUiJsonWebFluxConfigurer implements WebFluxConfigurer {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("BootUI requires a Jackson JSON encoder"));
         configurer.customCodecs().register(new BootUiJsonHttpMessageWriter(properties, hostWriter));
+        HttpMessageWriter<DataBuffer> hostBufferWriter = configurer.getWriters().stream()
+                .filter(EncoderHttpMessageWriter.class::isInstance)
+                .map(EncoderHttpMessageWriter.class::cast)
+                .filter(writer -> writer.getEncoder() instanceof DataBufferEncoder)
+                .map(BootUiJsonWebFluxConfigurer::asDataBufferWriter)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("BootUI requires a DataBuffer encoder"));
+        configurer.customCodecs().register(new BootUiMcpSseHttpMessageWriter(properties, hostBufferWriter));
     }
 
     @SuppressWarnings("unchecked")
     private static HttpMessageWriter<Object> asObjectWriter(EncoderHttpMessageWriter<?> writer) {
         return (HttpMessageWriter<Object>) writer;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static HttpMessageWriter<DataBuffer> asDataBufferWriter(EncoderHttpMessageWriter<?> writer) {
+        return (HttpMessageWriter<DataBuffer>) writer;
     }
 }

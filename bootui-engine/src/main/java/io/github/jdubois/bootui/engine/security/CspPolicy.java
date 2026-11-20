@@ -28,6 +28,13 @@ public final class CspPolicy {
     private CspPolicy() {}
 
     /**
+     * Replaces a runtime placeholder only after the caller has verified that its framework expands that exact token.
+     */
+    public static String expandVerifiedNonceTemplate(String policy) {
+        return policy == null ? null : policy.replace("{nonce}", "bootui-verified-nonce");
+    }
+
+    /**
      * An incomplete result must not be used as proof of a missing or weak control. The result
      * deliberately retains no policy text, nonces, hashes, hosts or other configuration values.
      */

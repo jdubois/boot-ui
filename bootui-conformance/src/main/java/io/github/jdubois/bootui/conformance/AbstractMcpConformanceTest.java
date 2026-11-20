@@ -287,6 +287,7 @@ public abstract class AbstractMcpConformanceTest {
                                 "POST", "/bootui/api/mcp", json, "{\"jsonrpc\":\"2.0\"" + id + ",\"method\":\"ping\"}");
                 assertThat(legacy.status()).as(id).isEqualTo(202);
                 assertThat(legacy.body()).isEmpty();
+                assertThat(legacy.headers()).doesNotContainKey("content-type");
                 Response legacyCall = probe().request(
                                 "POST",
                                 "/bootui/api/mcp",
@@ -295,6 +296,7 @@ public abstract class AbstractMcpConformanceTest {
                                         + ",\"method\":\"tools/call\",\"params\":{\"name\":\"get_health\",\"arguments\":{}}}");
                 assertThat(legacyCall.status()).as(id).isEqualTo(202);
                 assertThat(legacyCall.body()).isEmpty();
+                assertThat(legacyCall.headers()).doesNotContainKey("content-type");
             }
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
             while (probe().get("/bootui/api/mcp-server")

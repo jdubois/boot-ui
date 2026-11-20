@@ -113,12 +113,9 @@ class SpringNativeObservationTests {
                     java.time.Duration.class,
                     java.time.Duration.class,
                     java.time.Duration.class,
-                    java.time.Duration.class,
-                    java.time.Duration.class,
                     java.time.Duration.class);
             durations.setAccessible(true);
-            settings = durations.newInstance(
-                    java.time.Duration.ofHours(1), null, null, null, java.time.Duration.ofHours(1), null);
+            settings = durations.newInstance(java.time.Duration.ofHours(1), null, null, java.time.Duration.ofHours(1));
         }
         var constructor = Class.forName("org.springframework.modulith.events.config.StalenessMonitorConfiguration")
                 .getDeclaredConstructor(registry, properties);

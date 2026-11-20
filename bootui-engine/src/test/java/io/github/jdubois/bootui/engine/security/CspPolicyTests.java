@@ -47,6 +47,18 @@ class CspPolicyTests {
         assertThat(CspPolicy.analyze("script-src 'unsafe-inline' 'sha999-YWJjZA=='")
                         .unsafeInlineScript())
                 .isTrue();
+        assertThat(CspPolicy.analyze("script-src 'unsafe-inline' 'nonce-{nonce}'")
+                        .unsafeInlineScript())
+                .isTrue();
+        assertThat(CspPolicy.analyze("script-src 'unsafe-inline' 'nonce-{NONCE}'")
+                        .unsafeInlineScript())
+                .isTrue();
+    }
+
+    @Test
+    void verifiedRuntimeNonceExpansionSuppressesUnsafeInline() {
+        String expanded = CspPolicy.expandVerifiedNonceTemplate("script-src 'unsafe-inline' 'nonce-{nonce}'");
+        assertThat(CspPolicy.analyze(expanded).unsafeInlineScript()).isFalse();
     }
 
     @Test
