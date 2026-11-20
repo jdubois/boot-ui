@@ -52,6 +52,8 @@ import org.jboss.resteasy.reactive.common.model.ResourceClass;
 import org.jboss.resteasy.reactive.server.model.ServerResourceMethod;
 import org.jboss.resteasy.reactive.server.processor.ServerEndpointIndexer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class QuarkusAppMetadataCollectorTest {
 
@@ -408,7 +410,6 @@ class QuarkusAppMetadataCollectorTest {
                 UnproxyableChildBean.class,
                 SealedNormalBean.class,
                 PermittedChildBean.class,
-                JdkProducerBean.class,
                 ReactiveVirtualResource.class);
         Index combined = index(
                 RetainedBean.class,
@@ -416,10 +417,7 @@ class QuarkusAppMetadataCollectorTest {
                 UnproxyableChildBean.class,
                 SealedNormalBean.class,
                 PermittedChildBean.class,
-                JdkProducerBean.class,
                 ReactiveVirtualResource.class,
-                java.time.Clock.class,
-                java.time.InstantSource.class,
                 Object.class);
         var context = arc(combined, false, true);
         var reactiveEntry = endpoint(application, ReactiveVirtualResource.class, "reactiveEndpoint", true);
@@ -433,14 +431,147 @@ class QuarkusAppMetadataCollectorTest {
                 List.of());
 
         assertThat(result.unproxyableNormalScopedBeans())
-                .containsExactlyInAnyOrder(
-                        UnproxyableChildBean.class.getName(),
-                        SealedNormalBean.class.getName(),
-                        JdkProducerBean.class.getName() + "#clock()");
+                .containsExactlyInAnyOrder(UnproxyableChildBean.class.getName(), SealedNormalBean.class.getName());
         assertThat(result.reactiveVirtualThreadMethods())
                 .containsExactly(ReactiveVirtualResource.class.getName() + "#reactiveEndpoint()");
         assertThat(result.virtualThreadMethods())
                 .containsExactly(ReactiveVirtualResource.class.getName() + "#reactiveEndpoint()");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void proxyableJdkProducerTypesAreNotHighFindingsWithDefaultArcSettings(boolean indexedJdkTypes) throws IOException {
+        Index application = index(ProxyableJdkProducers.class);
+        Index combined = index(
+                ProxyableJdkProducers.class,
+                java.time.Clock.class,
+                java.time.InstantSource.class,
+                java.net.http.HttpClient.class,
+                Runnable.class,
+                AtomicInteger.class,
+                Number.class,
+                Object.class);
+        var context = arc(combined, false);
+
+        QuarkusAppMetadata result = collect(
+                application, indexedJdkTypes ? combined : application, context, List.of(), List.of(), List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans()).isEmpty();
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void nativeStrictUnproxyabilityOverridesAnOtherwiseProxyableJdkShape(boolean indexedJdkTypes) throws IOException {
+        Index application = index(ProxyableJdkProducers.class);
+        Index combined = index(
+                ProxyableJdkProducers.class,
+                java.time.Clock.class,
+                java.time.InstantSource.class,
+                java.net.http.HttpClient.class,
+                Runnable.class,
+                AtomicInteger.class,
+                Number.class,
+                Object.class);
+        var context = arc(combined, false, true);
+
+        QuarkusAppMetadata result = collect(
+                application, indexedJdkTypes ? combined : application, context, List.of(), List.of(), List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans())
+                .containsExactly(ProxyableJdkProducers.class.getName() + ".counter");
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void sealedInterfaceProducersRetainNativeErrorsEvenWithoutReturnTypeMetadata(boolean indexedReturnType)
+            throws IOException {
+        Index application = index(SealedInterfaceProducer.class);
+        Index combined =
+                index(SealedInterfaceProducer.class, SealedService.class, PermittedService.class, Object.class);
+        var context = arc(combined, false, true);
+
+        QuarkusAppMetadata result = collect(
+                application, indexedReturnType ? combined : application, context, List.of(), List.of(), List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans())
+                .containsExactly(SealedInterfaceProducer.class.getName() + "#service()");
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void untransformableJdkProducerShapesRemainFindings(boolean indexedJdkTypes) throws IOException {
+        Index application = index(UnproxyableJdkProducers.class);
+        Index combined = index(
+                UnproxyableJdkProducers.class,
+                String.class,
+                Optional.class,
+                java.io.FilterInputStream.class,
+                java.io.InputStream.class,
+                java.io.ObjectStreamClass.class,
+                java.lang.constant.ConstantDesc.class,
+                Object.class);
+        var context = arc(combined, false, true);
+
+        QuarkusAppMetadata result = collect(
+                application, indexedJdkTypes ? combined : application, context, List.of(), List.of(), List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans())
+                .containsExactlyInAnyOrder(
+                        UnproxyableJdkProducers.class.getName() + ".finalClass",
+                        UnproxyableJdkProducers.class.getName() + ".privateConstructor",
+                        UnproxyableJdkProducers.class.getName() + ".missingConstructor",
+                        UnproxyableJdkProducers.class.getName() + ".packagePrivateConstructor",
+                        UnproxyableJdkProducers.class.getName() + ".sealedInterface");
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @Test
+    void missingProducerTypeMetadataIsUnknownRatherThanProofOfProxyability() throws IOException {
+        Index application = index(UnknownProducerBean.class);
+        Index combined = index(UnknownProducerBean.class, ProducedObject.class, Object.class);
+        var context = arc(combined, false);
+
+        QuarkusAppMetadata result = collect(application, application, context, List.of(), List.of(), List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans()).isEmpty();
+        assertThat(result.problems()).singleElement().satisfies(problem -> {
+            assertThat(problem.ruleId()).isEqualTo("QA-CDI-005");
+            assertThat(problem.message()).isEqualTo(QuarkusAppMetadataStore.UNRESOLVED);
+        });
+    }
+
+    @Test
+    void unreadableProducerTypeMetadataOnlyLimitsTheProxyabilityRule() throws IOException {
+        Index application = index(ProxyableJdkProducers.class);
+        Index combined = index(
+                ProxyableJdkProducers.class,
+                java.time.Clock.class,
+                java.time.InstantSource.class,
+                java.net.http.HttpClient.class,
+                Runnable.class,
+                AtomicInteger.class,
+                Number.class,
+                Object.class);
+        var context = arc(combined, false);
+        IndexView unreadable = (IndexView) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IndexView.class}, (proxy, method, arguments) -> {
+                    if (method.getName().equals("getClassByName")
+                            && arguments[0].toString().equals(java.time.Clock.class.getName())) {
+                        throw new IllegalStateException("Producer type metadata is unreadable");
+                    }
+                    return method.invoke(combined, arguments);
+                });
+
+        QuarkusAppMetadata result = collect(application, unreadable, context, List.of(), List.of(), List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans()).isEmpty();
+        assertThat(result.problems()).singleElement().satisfies(problem -> {
+            assertThat(problem.ruleId()).isEqualTo("QA-CDI-005");
+            assertThat(problem.message()).isEqualTo(QuarkusAppMetadataStore.UNRESOLVED);
+        });
     }
 
     @Test
@@ -489,7 +620,7 @@ class QuarkusAppMetadataCollectorTest {
 
     private static QuarkusAppMetadata collect(
             Index application,
-            Index combined,
+            IndexView combined,
             BeanDeploymentValidator.ValidationContext context,
             List<ResteasyReactiveResourceMethodEntriesBuildItem.Entry> entries,
             List<Class<?>> roots,
@@ -936,12 +1067,69 @@ class QuarkusAppMetadataCollectorTest {
 
     static final class PermittedChildBean extends SealedNormalBean {}
 
+    sealed interface SealedService permits PermittedService {}
+
+    static final class PermittedService implements SealedService {}
+
     @Singleton
-    static class JdkProducerBean {
+    static class SealedInterfaceProducer {
+        @Produces
+        @ApplicationScoped
+        SealedService service() {
+            throw new AssertionError("Metadata collection must not invoke a producer");
+        }
+    }
+
+    @Singleton
+    static class ProxyableJdkProducers {
         @Produces
         @ApplicationScoped
         java.time.Clock clock() {
-            return java.time.Clock.systemUTC();
+            throw new AssertionError("Metadata collection must not invoke a producer");
+        }
+
+        @Produces
+        @ApplicationScoped
+        java.net.http.HttpClient client;
+
+        @Produces
+        @ApplicationScoped
+        Runnable task;
+
+        @Produces
+        @ApplicationScoped
+        AtomicInteger counter;
+    }
+
+    @Singleton
+    static class UnproxyableJdkProducers {
+        @Produces
+        @ApplicationScoped
+        String finalClass;
+
+        @Produces
+        @ApplicationScoped
+        Optional<String> privateConstructor;
+
+        @Produces
+        @ApplicationScoped
+        java.io.FilterInputStream missingConstructor;
+
+        @Produces
+        @ApplicationScoped
+        java.io.ObjectStreamClass packagePrivateConstructor;
+
+        @Produces
+        @ApplicationScoped
+        java.lang.constant.ConstantDesc sealedInterface;
+    }
+
+    @Singleton
+    static class UnknownProducerBean {
+        @Produces
+        @ApplicationScoped
+        ProducedObject object() {
+            throw new AssertionError("Metadata collection must not invoke a producer");
         }
     }
 

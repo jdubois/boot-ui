@@ -1,7 +1,7 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**50 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
+**51 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
 analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
 execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
 to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
@@ -58,11 +58,20 @@ provide this access, affected configuration remains unknown rather than being tr
 JDKs may emit deprecation warnings or diagnostic events for the optional internal access.
 Native bootstrap and callback-safety regressions cover Java 17, 21 and 25.
 
+For Spring MVC and WebFlux management-port checks, the exact declaration
+`management.server.port=${server.port}` can use an already captured literal `server.port` when host provenance and
+the captured effective value agree. This is one nonrecursive port reference, not general placeholder resolution:
+missing or uncertain dependencies, defaults, other keys, nested expressions and interpolation remain unknown.
+No live property provider is invoked.
+
 Here, "native" framework objects means the framework's own implementations, not necessarily a GraalVM executable.
 GraalVM additionally requires reflection metadata for the passive readers' private fields. BootUI supplies
 classpath-conditional field hints for supported Spring Security chains, filters, headers, matchers, provider
-metadata, Spring environment sources, Actuator descriptors and the embedded Tomcat context. The hints cover the
-servlet and reactive collectors without making servlet or optional security dependencies mandatory. They do not
+metadata, Spring environment sources, Actuator descriptors, the embedded Tomcat context, native factory-product
+caches, static JDK target fields, advisor inventories and supported proxy-creator bindings.
+Class-based target recovery on GraalVM remains incomplete: generated callback fields are not inspected without
+their generated-class reachability metadata. The hints cover the servlet and reactive collectors without making
+servlet or optional security dependencies mandatory. They do not
 register arbitrary application callbacks or execute them. Without these hints, even a live `FilterChainProxy`
 can lose its readable `filterChains` inventory, yielding zero observed chains and an unusable partial report.
 Public-method hints alone cannot preserve that inventory.
@@ -87,7 +96,10 @@ recognized as non-anonymous restrictions without conflating them with `denyAll()
 parameterized Actuator sub-operations are evaluated against prefix matchers. The real Spring sample regression uses
 embedded Tomcat and the application's actual three filter chains. It retains completed evidence while remaining
 honestly partial because the sample's custom CSRF-cookie filter and ignored CSRF request matchers are not universal
-framework defaults. Missing OAuth2 or remember-me features are not reasons for that partial assessment. The unused demo
+framework defaults, and its method-family inventory includes unsupported lazy factory products, many owned by BootUI
+itself. Supporting the standard `HttpSecurity` declaration alone does not establish a complete method inventory or
+MEDIUM qualification in this shipped sample. Missing OAuth2 or remember-me features are not reasons for that partial
+assessment. The unused demo
 `NoOpPasswordEncoder` bean is not an active-provider finding.
 
 The catalogs were audited against Spring Boot **4.1.1**, which manages Spring Security **7.1.1**.
@@ -182,17 +194,86 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
 
-- **Severity**: HIGH
-- **Detects**: A known chain installs no standard HTTP `AuthorizationFilter`. Custom filters, method controls, and external controls are not observed, so absence does not prove all matched requests are unguarded.
-- **Recommendation**: Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain.
+- **Severity**: HIGH (MEDIUM for the servlet method-authorization coverage review described below)
+- **Detects**: A known chain with installed filters has no standard HTTP `AuthorizationFilter`. Proven supported filterless chains are excluded and reviewed by SEC-AUTHZ-006 instead; an unsupported chain's empty placeholder list is not proof. Custom filters and external controls are not observed, so absence does not prove all matched requests are unguarded. The finding remains when method-security families qualify for MEDIUM.
+- **Recommendation**: Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization is still absent.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
 ### SEC-AUTHZ-002 - Avoid blanket permitAll authorization
 
-- **Severity**: HIGH
+- **Severity**: HIGH (MEDIUM for the servlet method-authorization coverage review described below)
 - **Detects**: A supported structural unconditional grant appears in a chain that also configures authentication. Typed matcher and constant-authorization facts are inspected in order; no finite request samples, application matchers, or authorization callbacks are executed. Unsupported mappings remain unknown.
-- **Recommendation**: Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints.
+- **Recommendation**: Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization still grants broadly.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
+
+For these two **servlet-only** checks, method-family metadata marked known for inspected beans qualifies findings for
+**MEDIUM** only when at least one annotation family is observed used and **every observed used family** has matching
+recognized activation (`pre-post`, `secured`, or `jsr250`). Extra enabled but unused families do not prevent
+qualification. No observed annotations, absent or wrong-family activation, a partly disabled set of used families,
+or unknown method-family metadata keeps **HIGH**. The qualification is global, not an endpoint-to-chain coverage
+claim. Findings, occurrence counts and detail identities remain; unknown chains still limit coverage, and
+`SEC-METHOD-001` still reports unactivated families at HIGH.
+
+"Known" describes bounded, inspectable bean metadata. An unresolved potentially applicable bean-definition type
+clears this flag, retains already observed annotation families, and leaves dependent method checks incomplete.
+Resolved Spring framework types and abstract bean-definition templates without an existing singleton do not create
+this missing-type gap. An already-created ordinary singleton still supplies passive type metadata for an abstract
+definition with no declared type.
+Application definitions use their bean factory's class loader without initializing the class. Already-created
+ordinary singleton types take precedence over declared owners. A raw `FactoryBean` is not its product: the collector
+can inspect an already-created product in Spring's native singleton-product cache, but never calls the factory's
+`getObject`, `getObjectType` or `isSingleton` methods to obtain one. Uncached products remain unknown.
+Annotations on the factory itself are retained independently of its product's annotations.
+Already-cached native method-security advisor products contribute activation only when supported native creator
+metadata proves their eligibility. The creator must be installed in the observed factory's post-processor inventory
+and bound to that same factory. An exact native infrastructure creator accepts infrastructure-role definitions;
+an exact native default advisor creator accepts application-role advisors too, subject to its optional name prefix.
+Candidates must also occur in that creator's already-held advisor-name snapshot; late or uncached definitions
+do not establish activation. Unknown creator/binding evidence stays incomplete even before any advisor is instantiated.
+Eligible prototype or lazy advisors without a held instance remain unknown; scans do not create them to complete the inventory.
+Unsupported creators, ambiguous bindings and unobserved ancestor inventories stay unknown; no eligibility callback
+is invoked. Proxy-local method advice does not establish global family activation or its absence.
+Exact native `DefaultPointcutAdvisor` and `DefaultBeanFactoryPointcutAdvisor` wrappers are inspected only through
+already-held advice, retaining the outer advisor's identity and eligibility. Only unconditional outer scopes and
+supported canonical interceptor annotation scopes qualify; narrower or custom pointcuts stay unknown without being
+executed. Custom wrapper subclasses and unresolved lazy advice stay unknown; their advice getters are not invoked.
+An installed mutable pointcut wrapper also leaves completeness unknown: its current advice cannot prove what an
+already-cached invocation chain retained. Current declaration facts remain visible without certifying that cached state.
+For supported Spring JDK proxies, and class-based proxies on JVM, backed by an exact `SingletonTargetSource`,
+the collector reads already-held target fields and retains both implementation annotations and every inspected
+proxy layer's interface annotations.
+Each target chain is cycle-checked and limited to eight objects. Custom invocation handlers, dynamic or subclassed target
+sources and unresolved/deeper targets remain unknown; their observable interface families are still retained.
+JVM class-based recovery also requires consistent held unadvised/dispatcher targets and excludes additional frozen
+callback chains; callback zero alone does not prove which target a generated method invokes.
+Only the supported native class-based callback shape is read on JVM; GraalVM class-based targets remain unassessed.
+No target-source method, invocation handler or application getter is invoked to resolve them.
+For uncreated factory products, support is limited to already-held Java-reflection `StandardMethodMetadata` bound
+to the actual direct, non-enhanced declaring owner and an unambiguous method across its bounded class/interface
+hierarchy. ASM factory metadata and enhanced configuration owners (`proxyBeanMethods=true`) remain unknown.
+Primitive, array, interface, `Object`, nonfinal and `FactoryBean` returns also remain unknown, as do uncreated
+parent-definition paths and contradictory or arbitrary instance suppliers, including native suppliers with
+unverified generators. Only fully registered singleton references are read; metadata lookup does not create an early
+reference. An application class-loader failure leaves that type unknown without discarding independent chain findings.
+No factory, supplier, type-discovery callback or application method is run.
+This observes declarations, not proxying or endpoint enforcement, and does not prove a complete product inventory.
+
+An opaque product can also hide method-security activation. Retained annotation-family facts alone therefore do not
+prove that a family is unactivated: `SEC-METHOD-001` remains incomplete while aggregate metadata is unknown.
+This does not invalidate independently observed legacy-configuration facts for `SEC-METHOD-002`: that rule uses its
+own bounded configuration-definition inventory, not the completeness of arbitrary method annotation products.
+
+Assessment eligibility can change. Positively bound native products, such as the standard prototype `HttpSecurity`,
+can remove a false missing-type gap. Conversely, unsupported factory products and suppliers now remain incomplete
+rather than borrowing a factory/configuration class as product evidence. A previously assessed optional Security
+report can become skipped, and a required one can be refused; removing the last genuine gap can make existing findings
+eligible for the configured severity gates. The strict CI mechanism is unchanged and never assesses a partial finding
+subset. Other independently valid findings remain usable in the report while coverage is incomplete.
+
+MEDIUM means **annotation-coverage review, not proof of safety**: authorization then depends on annotation placement,
+proxying and invocation paths, while HTTP protection remains absent or broad. BootUI never calls authorization
+managers or application methods to establish this qualification. WebFlux's separate `SEC-RXF-*` policy and Quarkus's
+checks are unchanged.
 
 ### SEC-AUTHZ-003 - Application security should not be effectively disabled
 
@@ -213,6 +294,15 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: INFO (HIGH for a supported unconditional grant shadowing a later constant denial or non-anonymous restriction)
 - **Detects**: An unconditional, method-agnostic matcher precedes later authorization mappings in the same chain. The default is an ordering advisory; unconditional grant (`permitAll`), unconditional denial (`denyAll`), non-anonymous restriction (`authenticated`, `fullyAuthenticated`, `rememberMe`, `hasRole`/`hasAuthority`/`hasAllRoles`/`hasAllAuthorities` excluding `ROLE_ANONYMOUS`), and unknown authorization effects are distinguished. A known unconditional grant hiding a later denial or non-anonymous restriction raises severity to HIGH. Unsupported matcher/manager structure remains unknown.
 - **Recommendation**: Register narrower matchers (e.g. requestMatchers("/admin/**").hasRole("ADMIN")) before the broader catch-all, or replace the catch-all with anyRequest() so later requestMatchers additions are rejected at startup instead of silently ignored.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
+
+### SEC-AUTHZ-006 - Prefer permitAll within a security chain to ignoring requests
+
+- **Severity**: LOW (HIGH if at least one ignored matcher is structurally proven unconditional)
+- **Detects**: Supported native chains with a known empty filter inventory, including Spring's `web.ignoring()` representation. The rule emits **one inventory-scoped finding** listing the observed ignored scopes, not one counted occurrence per matcher or chain. The finding and its retained detail count are both one, even when several patterns are listed; normal detail-text bounds can abbreviate the list. Proven unconditional scopes appear first, retaining their HIGH justification before bounded scopes; original order is preserved within each group. Its single severity is HIGH if any ignored scope is proven unconditional, otherwise LOW.
+- **Recommendation**: Prefer `requestMatchers(...).permitAll()` inside a real security chain so public requests retain its security headers and other applicable protections; do not ignore every request. This does not claim that every public endpoint needs CSRF or authentication.
+- **Bounds**: Only supported, trustworthy filter inventory proves bypass. A positively nonempty supported native chain is not filterless, even when custom filter types are unknown; this discharges only SEC-AUTHZ-006, not discovery or other-rule uncertainty. Unsupported or unreadable chains and unproven empty placeholders remain unknown, and unknown matcher semantics keep coverage incomplete even when a known filterless chain produces a LOW review. Passive typed matcher facts, never text such as `/**`, prove unconditional scope: HTTP method, base path, composite constraints, and unknown branches matter. No matcher or application callback runs. A normal `permitAll` mapping in a nonempty chain is not this finding.
+- **Migration and availability**: Servlet MVC only; WebFlux retains its `SEC-RXF-*` catalogue and Quarkus its native `QS-*` rules. Previously, ignored chains each produced HIGH SEC-AUTHZ-001 advice; they now produce one SEC-AUTHZ-006 review with the severity above. SEC-AUTHZ-001 dismissals still apply to actual filtered-chain findings and are **not copied** to the new ID. Retired SEC-CONFIG-004 remains reserved. Other authentication, header, CSRF, and authorization checks retain their independent evidence and scoring; this is not a generic grouping policy or a change to strict CI eligibility. Partial sample observations remain partial.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html>
 
 ## CSRF
@@ -340,8 +430,9 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-HEAD-009 - Review permissive CSP script execution
 
-- **Severity**: MEDIUM
-- **Detects**: A supported single enforcing CSP permits unsafe effective script execution. The bounded parser observes `script-src-elem`/`script-src-attr` fallback, first duplicate directives, nonce/hash/`strict-dynamic` exceptions, and `unsafe-eval` under `script-src`/`default-src`. Arbitrary schemes/hosts differ from scoped wildcards. Missing unrelated hardening directives do not add penalties; framing is assessed separately by SEC-HEAD-002. Null, oversized, unsupported, comma-separated, or multiple enforcing policies remain unknown. Report-only policies do not change enforcing-policy conclusions.
+- **Severity**: LOW
+- **Detects**: A supported single enforcing CSP permits unsafe effective script execution or omits every script-element restriction (`script-src-elem`, `script-src`, and `default-src`), unless a script-blocking `sandbox` applies. The bounded parser observes `script-src-elem`/`script-src-attr` fallback, first duplicate directives, nonce/hash/`strict-dynamic` exceptions, and `unsafe-eval` under `script-src`/`default-src`. Arbitrary schemes/hosts differ from scoped wildcards. Missing unrelated hardening directives do not add penalties; framing is assessed separately by SEC-HEAD-002. Null, oversized, unsupported, comma-separated, or multiple enforcing policies remain unknown. Report-only policies do not change enforcing-policy conclusions.
+- **Calibration**: LOW matches missing CSP (SEC-HEAD-003); an imperfect script restriction is not worse than no restriction in the same browser/authentication scope. Configured-policy inspection does not prove an exploitable injection.
 - **Recommendation**: Restrict script execution with application-specific nonce/hash or trusted sources and remove unnecessary eval permissions.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp>
 
@@ -398,7 +489,7 @@ Raw origins and origin patterns are not copied into findings.
 ### SEC-METHOD-002 - Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity
 
 - **Severity**: LOW
-- **Detects**: Detects the legacy @EnableGlobalMethodSecurity configuration, deprecated since Spring Security 6 and still present in Spring Security 7.
+- **Detects**: Observed or natively declared legacy @EnableGlobalMethodSecurity configuration, deprecated since Spring Security 6 and still present in Spring Security 7. Uses bounded, non-initializing configuration-class metadata independently of the method-annotation inventory; ordinary `@Bean` products are not configuration-class candidates. A proven legacy declaration remains a finding even when other definitions are unreadable. Unknown configuration metadata still prevents an absence conclusion; no lazy configuration is instantiated.
 - **Recommendation**: Migrate to @EnableMethodSecurity, which enables @PreAuthorize/@PostAuthorize by default and uses the modern AuthorizationManager API.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html>
 
@@ -539,7 +630,7 @@ separate management-context authorization remain unknown. No endpoint discoverer
 ### SEC-CONFIG-008 - StrictHttpFirewall should not relax its default URL protections
 
 - **Severity**: HIGH
-- **Detects**: The actual `FilterChainProxy` uses a supported `StrictHttpFirewall` whose blocklist has been relaxed for recognized default URL tokens. An unused firewall bean does not establish active policy. The finding requests compatibility review rather than proving a downstream matcher bypass.
+- **Detects**: The actual `FilterChainProxy` uses an exact native `StrictHttpFirewall` whose blocklist has been relaxed for recognized default URL tokens. An unused firewall bean does not establish active policy. Custom firewalls, subclasses, unreadable blocklists, and custom blocklist collections remain unknown: the check is skipped with incomplete coverage, not passed, without invoking their callbacks. Independent known findings remain available. The finding requests compatibility review rather than proving a downstream matcher bypass.
 - **Recommendation**: Keep the StrictHttpFirewall defaults; only relax a specific token (e.g. setAllowUrlEncodedSlash(true)) after verifying every downstream matcher and handler safely tolerates it.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/firewall.html>
 
@@ -653,6 +744,13 @@ Custom dynamic ordering remains inconclusive; no matcher or `Ordered.getOrder()`
 - **Recommendation**: Keep CSRF protection for browser-accessible Basic authentication, or establish that clients cannot automatically attach credentials. Statelessness alone is not a defense; bearer-only APIs are not flagged.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html>
 
+For both reactive CSRF checks, an installed filter establishes the supported matcher scope only when its held
+`requireCsrfProtectionMatcher` is Spring's `CsrfWebFilter.DEFAULT_CSRF_MATCHER`. Custom, composed, or unreadable
+matchers leave the applicable check skipped and coverage incomplete, not assessed-safe and not an automatic finding.
+No matcher is executed. Unknown matcher metadata on bearer-only or no-credential chains does not limit these checks;
+a known missing-filter finding on another relevant chain survives. Rule IDs, severities, and dismissal identities
+are unchanged. This is reactive matcher evidence, not servlet firewall or Quarkus CSRF coverage.
+
 ### SEC-RXF-CORS-001 - CORS should not allow wildcard origins in reactive applications
 
 - **Severity**: LOW
@@ -727,8 +825,9 @@ incomplete rather than becoming a scalar last-writer policy or a guessed union.
 
 ### SEC-RXF-HEAD-007 - Review permissive CSP script execution in reactive chains
 
-- **Severity**: MEDIUM
-- **Detects**: A supported single enforcing `Content-Security-Policy` on a reactive chain permits `'unsafe-inline'`, `'unsafe-eval'`, or an unrestricted script source (`*` or scheme-only source) after accounting for `script-src`/`default-src` fallback, `script-src-elem`/`script-src-attr`, first-duplicate-directive precedence, nonce/hash overrides, `'strict-dynamic'`, and `sandbox` without `allow-scripts` via `CspPolicy.analyze`. Report-only policies do not establish enforcement; framing is reviewed separately by `SEC-RXF-HEAD-002`.
+- **Severity**: LOW
+- **Detects**: A supported single enforcing `Content-Security-Policy` on a reactive chain permits `'unsafe-inline'`, `'unsafe-eval'`, an unrestricted script source (`*` or scheme-only source), or has no effective script-element directive after accounting for `script-src`/`default-src` fallback, `script-src-elem`/`script-src-attr`, first-duplicate-directive precedence, nonce/hash overrides, `'strict-dynamic'`, and `sandbox` without `allow-scripts` via `CspPolicy.analyze`. Report-only policies do not establish enforcement; framing is reviewed separately by `SEC-RXF-HEAD-002`. Unsupported or multiple enforcing policies stay unknown, not clean.
+- **Calibration**: LOW matches missing CSP (SEC-RXF-HEAD-004); an imperfect script restriction must not cost more than no restriction in the same browser/authentication scope.
 - **Recommendation**: Restrict script execution with application-specific nonces/hashes or explicit trusted origins and remove unnecessary `'unsafe-eval'` permissions.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp>
 

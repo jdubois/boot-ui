@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -132,6 +133,121 @@ class GitHubControllerTests {
                 .andExpect(jsonPath("$.repository.fullName").value("jdubois/boot-ui"));
 
         assertThat(client.calls).isEqualTo(1);
+    }
+
+    @Test
+    void optionalRemoteSelectionKeepsDefaultOriginAndRejectsArbitraryTargets() throws Exception {
+        Path project = githubProject("https://origin-embedded-credential@github.com/fork/service.git");
+        Files.writeString(project.resolve(".git/config"), """
+                [remote "upstream"]
+                    url = https://user:upstream-embedded-credential@ghe.example.com/team/service.git
+                """, java.nio.file.StandardOpenOption.APPEND);
+        StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
+        var service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("ghe.example.com")), client);
+        MockMvc mvc = mvcFor(service);
+
+        var response = mvc.perform(get("/bootui/api/github").param("remote", "upstream"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.repository.host").value("ghe.example.com"))
+                .andExpect(jsonPath("$.repositoryContext.selectedRemote").value("upstream"))
+                .andReturn();
+        assertThat(response.getResponse().getContentAsString()).doesNotContain("embedded-credential", "user:");
+        assertThat(client.calls).isZero();
+        mvc.perform(post("/bootui/api/github/refresh").param("remote", "upstream"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.repository.fullName").value("team/service"));
+        mvc.perform(get("/bootui/api/github"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.repository.fullName").value("fork/service"))
+                .andExpect(jsonPath("$.status").value("READY"));
+        mvc.perform(get("/bootui/api/github").param("remote", "other")).andExpect(status().isBadRequest());
+        mvc.perform(get("/bootui/api/github").param("remote", "")).andExpect(status().isBadRequest());
+        mvc.perform(post("/bootui/api/github/refresh").param("remote", "https://github.com/other/repo"))
+                .andExpect(status().isBadRequest());
+        assertThat(client.calls).isEqualTo(1);
+    }
+
+    @Test
+    void reactiveTransportBindsExplicitRemoteWithoutCallingTheNetwork() throws Exception {
+        Path project = githubProject("https://github.com/fork/service.git");
+        Files.writeString(project.resolve(".git/config"), """
+                [remote "upstream"]
+                    url = https://ghe.example.com/team/service.git
+                """, java.nio.file.StandardOpenOption.APPEND);
+        StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
+        var service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("ghe.example.com")), client);
+        WebTestClient web =
+                WebTestClient.bindToController(new GitHubController(service)).build();
+
+        web.get()
+                .uri("/bootui/api/github?remote=upstream")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.repositoryContext.selectedRemote")
+                .isEqualTo("upstream")
+                .jsonPath("$.repository.host")
+                .isEqualTo("ghe.example.com");
+        web.get()
+                .uri("/bootui/api/github")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.repositoryContext.selectedRemote")
+                .isEqualTo("origin");
+        web.get()
+                .uri("/bootui/api/github?remote=other")
+                .exchange()
+                .expectStatus()
+                .isBadRequest();
+        web.post()
+                .uri("/bootui/api/github/refresh?remote=other")
+                .exchange()
+                .expectStatus()
+                .isBadRequest();
+        assertThat(client.calls).isZero();
+    }
+
+    @Test
+    void rawQueryRejectionPrecedesIoAndCacheChangesOnBothSpringTransports() throws Exception {
+        StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
+        var service = GitHubDashboardService.using(
+                githubProject("https://github.com/fork/service.git"),
+                new GitHubDashboardConfig(true, List.of("api.github.com")),
+                client);
+        var cached = service.refresh();
+        MockMvc mvc = mvcFor(service);
+        WebTestClient web =
+                WebTestClient.bindToController(new GitHubController(service)).build();
+        for (String query : new String[] {
+            "?remote=",
+            "?remote",
+            "?remote=%20",
+            "?remote=Origin",
+            "?Remote=origin",
+            "?remote=origin&REMOTE=upstream",
+            "?remote=origin&remote=upstream",
+            "?remote=upstream&remote=upstream"
+        }) {
+            mvc.perform(get("/bootui/api/github" + query)).andExpect(status().isBadRequest());
+            mvc.perform(post("/bootui/api/github/refresh" + query)).andExpect(status().isBadRequest());
+            web.get()
+                    .uri("/bootui/api/github" + query)
+                    .exchange()
+                    .expectStatus()
+                    .isBadRequest();
+            web.post()
+                    .uri("/bootui/api/github/refresh" + query)
+                    .exchange()
+                    .expectStatus()
+                    .isBadRequest();
+            assertThat(client.calls).isEqualTo(1);
+            assertThat(service.dashboard()).isSameAs(cached);
+        }
     }
 
     @Test

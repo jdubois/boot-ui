@@ -25,7 +25,8 @@ class StackFramePrefixesTests {
 
     /** Second-level packages that hold the sample applications, which are application code on purpose. */
     /** Sample applications, and the test-only routes the correlation scenario adds to one. */
-    private static final Set<String> SAMPLE_PACKAGES = Set.of("sample", "webfluxsample", "scenario");
+    private static final Set<String> SAMPLE_PACKAGES =
+            Set.of("sample", "webfluxsample", "scenario", "hibernatefixture");
 
     private static final Path BOOTUI_SOURCE_PATH = Path.of("java", "io", "github", "jdubois", "bootui");
 

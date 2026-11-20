@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.library.GeneralCodingRules;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassWriter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.architecture.modulefixtures.moduletwo.ModuleTwoConsumer;
@@ -11,6 +14,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.logging.Logger;
@@ -43,15 +48,67 @@ class ArchitectureRuleAuditTests {
 
     @Test
     void javaUtilLoggingIsReportedOnSpringButNotEvaluatedOnQuarkus() {
-        ArchitectureRuleResultDto spring =
-                evaluate(ArchitecturePlatform.SPRING, new NoJavaUtilLoggingRule(), JulUser.class);
+        JavaClasses classes = new ClassFileImporter().importClasses(JulUser.class);
+        ArchitectureRuleResultDto spring = evaluate(ArchitecturePlatform.SPRING, new NoJavaUtilLoggingRule(), classes);
         ArchitectureRuleResultDto quarkus =
-                evaluate(ArchitecturePlatform.QUARKUS, new NoJavaUtilLoggingRule(), JulUser.class);
+                evaluate(ArchitecturePlatform.QUARKUS, new NoJavaUtilLoggingRule(), classes);
+        List<String> rawDetails = GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING
+                .evaluate(classes)
+                .getFailureReport()
+                .getDetails();
 
         assertThat(spring.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(spring.id()).isEqualTo("ARCH-CODE-003");
+        assertThat(spring.violationCount()).isEqualTo(1);
+        assertThat(spring.sampleViolations())
+                .containsExactlyElementsOf(
+                        rawDetails.stream().map(ArchitectureRuleSupport::detail).toList());
+        assertThat(spring.sampleLocations()).singleElement().satisfies(location -> {
+            assertThat(location.className()).isEqualTo(JulUser.class.getName());
+            assertThat(location.sourceFile()).isEqualTo("ArchitectureRuleAuditTests.java");
+            assertThat(location.line()).isPositive();
+            assertThat(rawDetails)
+                    .singleElement()
+                    .asString()
+                    .endsWith("(ArchitectureRuleAuditTests.java:" + location.line() + ")");
+        });
         assertThat(quarkus.status())
                 .as("JUL is a built-in Quarkus logging API, and @LoggingFilter must implement java.util.logging.Filter")
                 .isEqualTo(ArchitectureRuleSupport.SKIPPED);
+        assertThat(quarkus.violationCount()).isZero();
+        assertThat(quarkus.sampleLocations()).isEmpty();
+        assertThat(spring.severity()).isEqualTo("INFO");
+    }
+
+    @Test
+    void facadeUseAndLibraryLoggerTuningAreNotJulConventionFindings() {
+        assertThat(evaluate(
+                                ArchitecturePlatform.SPRING,
+                                new NoJavaUtilLoggingRule(),
+                                FacadeUser.class,
+                                JulLibraryTuning.class)
+                        .status())
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void informationalJulConventionDoesNotRelaxLoggerFieldModifiers() {
+        ArchitectureRuleResultDto convention =
+                evaluate(ArchitecturePlatform.SPRING, new NoJavaUtilLoggingRule(), MutableJulUser.class);
+        assertThat(convention.violationCount()).isEqualTo(1);
+
+        for (ArchitecturePlatform platform : ArchitecturePlatform.values()) {
+            ArchitectureRuleResultDto modifiers =
+                    evaluate(platform, new LoggersShouldBePrivateStaticFinalRule(), MutableJulUser.class);
+            assertThat(modifiers.id()).isEqualTo("ARCH-CODE-012");
+            assertThat(modifiers.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+            assertThat(modifiers.severity()).isEqualTo("LOW");
+            assertThat(modifiers.violationCount()).isEqualTo(1);
+            assertThat(evaluate(platform, new LoggersShouldBePrivateStaticFinalRule(), JulUser.class, FacadeUser.class)
+                            .status())
+                    .isEqualTo(ArchitectureRuleSupport.PASS);
+        }
+        assertThat(convention.severity()).isEqualTo("INFO");
     }
 
     // ARCH-CODE-013
@@ -87,6 +144,97 @@ class ArchitectureRuleAuditTests {
                 CompiledOutputFixtures.importFrom(tempDir, "out/production/app", JunitHelper.class));
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void additionalTestLibraryDependenciesAreReportedFromMainOutput() throws IOException {
+        int fixture = 0;
+        for (String api : List.of(
+                "org.springframework.mock.web.MockHttpServletRequest",
+                "org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors",
+                "reactor.test.StepVerifier",
+                "reactor.test.publisher.TestPublisher",
+                "org.testng.Assert",
+                "org.testng.annotations.Test",
+                "io.mockk.MockK",
+                "io.mockk.impl.annotations.MockK")) {
+            JavaClasses classes = testApiReference(tempDir.resolve("main-" + fixture++), "target/classes", api);
+            ArchitectureRuleResultDto result =
+                    evaluate(ArchitecturePlatform.SPRING, new NoTestFrameworkDependenciesRule(), classes);
+            assertThat(result.status()).as(api).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+            assertThat(result.violationCount()).as(api).isEqualTo(1);
+            assertThat(result.sampleViolations()).singleElement().asString().contains(api);
+        }
+    }
+
+    @Test
+    void similarProductionPackageNamesAreNotClassifiedAsTestLibraries() throws IOException {
+        int fixture = 0;
+        for (String api : List.of(
+                "org.springframework.mockup.Request",
+                "org.springframework.security.testing.Request",
+                "reactor.testing.Verifier",
+                "org.testngextra.Check",
+                "io.mockking.Check")) {
+            ArchitectureRuleResultDto result = evaluate(
+                    ArchitecturePlatform.SPRING,
+                    new NoTestFrameworkDependenciesRule(),
+                    testApiReference(tempDir.resolve("similar-" + fixture++), "target/classes", api));
+            assertThat(result.status()).as(api).isEqualTo(ArchitectureRuleSupport.PASS);
+            assertThat(result.violationCount()).isZero();
+        }
+    }
+
+    @Test
+    void additionalLibraryDetectionStillExcludesRecognizedLocalTestOutput() throws IOException {
+        int fixture = 0;
+        for (String output : List.of("target/test-classes", "build/classes/java/test", "build/classes/kotlin/test")) {
+            ArchitectureRuleResultDto result = evaluate(
+                    ArchitecturePlatform.SPRING,
+                    new NoTestFrameworkDependenciesRule(),
+                    testApiReference(
+                            tempDir.resolve("test-" + fixture++),
+                            output,
+                            "org.springframework.mock.web.MockHttpServletRequest"));
+            assertThat(result.status()).as(output).isEqualTo(ArchitectureRuleSupport.PASS);
+            assertThat(result.violationCount()).isZero();
+        }
+    }
+
+    private static JavaClasses testApiReference(Path module, String outputDirectory, String api) throws IOException {
+        Path output = module.resolve(outputDirectory);
+        String dependency = api.replace('.', '/');
+        ClassWriter target = new ClassWriter(0);
+        target.visit(
+                Opcodes.V17,
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT,
+                dependency,
+                null,
+                "java/lang/Object",
+                null);
+        target.visitSource(dependency.substring(dependency.lastIndexOf('/') + 1) + ".java", null);
+        target.visitEnd();
+        Path targetFile = output.resolve(dependency + ".class");
+        Files.createDirectories(targetFile.getParent());
+        Files.write(targetFile, target.toByteArray());
+        String application = "io/github/jdubois/bootui/engine/architecture/generated/ApiReference";
+        ClassWriter holder = new ClassWriter(0);
+        holder.visit(
+                Opcodes.V17,
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT,
+                application,
+                null,
+                "java/lang/Object",
+                null);
+        holder.visitSource("ApiReference.java", null);
+        holder.visitMethod(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT, "dependency", "()L" + dependency + ";", null, null)
+                .visitEnd();
+        holder.visitEnd();
+        Path holderFile = output.resolve(application + ".class");
+        Files.createDirectories(holderFile.getParent());
+        Files.write(holderFile, holder.toByteArray());
+        return new ClassFileImporter().importPath(output);
     }
 
     // ARCH-SPRING-008
@@ -425,6 +573,34 @@ class ArchitectureRuleAuditTests {
 
         void log() {
             LOG.info("message");
+        }
+    }
+
+    static class MutableJulUser {
+
+        private Logger log = Logger.getLogger("audit.mutable");
+    }
+
+    static class FacadeUser {
+
+        private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FacadeUser.class);
+
+        void log() {
+            LOG.info("message");
+        }
+    }
+
+    static class JulLibraryTuning {
+
+        void tune() {
+            Logger.getLogger("audit.library").setLevel(java.util.logging.Level.WARNING);
+        }
+    }
+
+    static class AbruptExit {
+
+        void stop() {
+            System.exit(1);
         }
     }
 

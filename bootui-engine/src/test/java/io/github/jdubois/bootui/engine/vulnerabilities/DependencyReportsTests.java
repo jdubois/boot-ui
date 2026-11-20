@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.vulnerabilities;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
@@ -16,6 +17,98 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class DependencyReportsTests {
+
+    @Test
+    void candidateAssessmentCannotUnderstateItsPreviewOrClaimCompleteDetails() {
+        assertThatThrownBy(() -> new DependencyAssessmentDto(true, false, List.of(), -1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new DependencyAssessmentDto(true, false, List.of("UNFETCHED"), 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new DependencyAssessmentDto(true, true, List.of("UNFETCHED"), 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new DependencyAssessmentDto(true, true, List.of(), 1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void candidatePreviewIsBoundedWithoutInventingFindingsOrLosingTheAssociationCount() {
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < 105; i++) {
+            ids.add("CANDIDATE-" + i);
+        }
+        ids.add("CANDIDATE-0");
+        ids.add("x".repeat(241));
+        ids.add("control\nid");
+        var assessment = DependencyReports.assessment(true, false, ids);
+        ids.clear();
+
+        assertThat(assessment.unassessedAdvisoryCount()).isEqualTo(107);
+        assertThat(assessment.unassessedAdvisoryIds()).hasSize(100);
+        assertThat(assessment.unassessedAdvisoryIds()).startsWith("CANDIDATE-0", "CANDIDATE-1");
+        assertThat(assessment.unassessedAdvisoryIds()).allMatch(id -> id.length() <= 240 && !id.contains("\n"));
+        assertThatThrownBy(() -> assessment.unassessedAdvisoryIds().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        var unsafeIds = DependencyReports.assessment(true, false, List.of("x".repeat(241), "control\nid"));
+        assertThat(unsafeIds.unassessedAdvisoryIds()).isEmpty();
+        assertThat(unsafeIds.unassessedAdvisoryCount()).isEqualTo(2);
+    }
+
+    @Test
+    void candidatesAreNotFindingsAndSurviveDismissalEpssAndReachCopies() {
+        var assessment = DependencyReports.assessment(true, false, List.of("MAL-UNFETCHED", "CVE-2026-1234"));
+        var candidate = new DependencyDto("g", "a", "1", "g:a", "test", 0, "NONE", List.of(), assessment);
+        var report = DependencyReports.report(
+                true,
+                "PARTIAL",
+                "Details unavailable",
+                1L,
+                1,
+                0,
+                List.of(candidate),
+                DependencyCoverageDto.of(1, 0, List.of()));
+
+        assertThat(report.vulnerable()).isZero();
+        assertThat(report.scan().vulnerabilitiesFound()).isZero();
+        assertThat(report.severityCounts()).allMatch(count -> count.count() == 0);
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(DependencyReports.cveAliases(report.dependencies())).isEmpty();
+        var dismissed = DependencyReports.applyDismissals(report, Set.of("MAL-UNFETCHED::g:a"));
+        var enriched = DependencyReports.applyEpssScores(
+                        dismissed.dependencies(), Map.of("CVE-2026-1234", new EpssScore(.9, .99)))
+                .get(0);
+        assertThat(enriched.vulnerabilities()).isEmpty();
+        assertThat(enriched.withRuntimeReach(null, List.of()).assessment()).isEqualTo(assessment);
+        assertThat(dismissed.evidence()).isSameAs(report.evidence());
+    }
+
+    @Test
+    void knownFindingsWithCandidatesKeepPreDismissalUsabilityWithoutCompletionCredit() {
+        for (String severity : List.of("HIGH", "NONE")) {
+            var assessment = DependencyReports.assessment(true, false, List.of("UNFETCHED"));
+            var dependency = new DependencyDto(
+                    "g", "a", "1", "g:a", "test", 1, severity, List.of(vulnerability("V-known", severity)), assessment);
+            var report = DependencyReports.report(
+                    true,
+                    "PARTIAL",
+                    "Details unavailable",
+                    1L,
+                    1,
+                    0,
+                    List.of(dependency),
+                    DependencyCoverageDto.of(1, 0, List.of()));
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.evidence().coverageComplete()).isFalse();
+            var dismissed = DependencyReports.applyDismissals(report, Set.of("V-known::g:a", "UNFETCHED::g:a"));
+            assertThat(dismissed.evidence()).isSameAs(report.evidence());
+            assertThat(dismissed.vulnerable()).isZero();
+            assertThat(dismissed.severityCounts()).allMatch(count -> count.count() == 0);
+            assertThat(dismissed.dependencies().get(0).assessment()).isSameAs(assessment);
+            assertThat(dismissed.dependencies().get(0).vulnerabilities())
+                    .singleElement()
+                    .satisfies(v -> assertThat(v.severity()).isEqualTo(severity));
+        }
+    }
 
     @Test
     void unknownAdvisoriesNeverEstablishEligibilityEvenAfterDismissal() {

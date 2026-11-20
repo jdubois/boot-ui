@@ -415,7 +415,7 @@ class VendorSchemaMergeTests {
     }
 
     @Test
-    void postgresForeignKeyEnforcementIsProvenOnlyByACompleteNotValidRead() {
+    void postgresForeignKeyEnforcementRequiresItsOwnObservedTriggerState() {
         ForeignKeyModel validated =
                 new ForeignKeyModel("fk_valid", List.of("a_id"), null, "public", "a", List.of("id"));
         ForeignKeyModel notValid =
@@ -431,20 +431,21 @@ class VendorSchemaMergeTests {
                 List.of(),
                 List.of(validated, notValid, notValidUnknownEnforcement, unnamed),
                 List.of());
-        List<PostgresUnvalidatedConstraint> unvalidated = List.of(
-                new PostgresUnvalidatedConstraint("public", "t", "fk_not_valid", "f", "FOREIGN KEY ...", true),
-                new PostgresUnvalidatedConstraint("public", "t", "fk_unknown", "f", "FOREIGN KEY ...", null));
+        List<PostgresForeignKeyDetail> details = List.of(
+                new PostgresForeignKeyDetail("public", "t", "fk_valid", false, true),
+                new PostgresForeignKeyDetail("public", "t", "fk_not_valid", true, false),
+                new PostgresForeignKeyDetail("public", "t", "fk_unknown", null, false));
 
         List<ForeignKeyModel> complete = VendorSchemaMerge.merge(
                         List.of(table),
                         Dialect.POSTGRESQL,
                         VendorFindings.builder()
                                 .add(VendorAugmentation.available(
-                                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, unvalidated, false))
+                                        VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, details, false))
                                 .build())
                 .get(0)
                 .foreignKeys();
-        assertThat(complete.get(0).enforced()).isTrue();
+        assertThat(complete.get(0).enforced()).isFalse();
         assertThat(complete.get(0).validated()).isTrue();
         assertThat(complete.get(1).enforced()).isTrue();
         assertThat(complete.get(1).validated()).isFalse();
@@ -456,11 +457,15 @@ class VendorSchemaMergeTests {
         for (VendorFindings unproven : List.of(
                 VendorFindings.builder()
                         .add(VendorAugmentation.available(
-                                VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, unvalidated, true))
+                                VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, List.of(), true))
                         .build(),
                 VendorFindings.builder()
                         .add(VendorAugmentation.failed(
-                                VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, "permission denied"))
+                                VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, "permission denied"))
+                        .build(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), false))
                         .build(),
                 VendorFindings.EMPTY)) {
             ForeignKeyModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.POSTGRESQL, unproven)
@@ -477,12 +482,44 @@ class VendorSchemaMergeTests {
                         Dialect.POSTGRESQL,
                         VendorFindings.builder()
                                 .add(VendorAugmentation.available(
-                                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), false))
+                                        VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, details, false))
                                 .build())
                 .get(0)
                 .foreignKeys()
                 .get(0);
         assertThat(unqualified.enforced()).isNull();
+    }
+
+    @Test
+    void postgresForeignKeyStateUsesExactUniqueRowsAndNeverInfersAnAbsentRow() {
+        ForeignKeyModel key = new ForeignKeyModel("FK", List.of("id"), null, "public", "parent", List.of("id"));
+        TableModel table = TableModel.of(null, "a.b", "c", List.of(), List.of(), List.of(key), List.of());
+        PostgresForeignKeyDetail match = new PostgresForeignKeyDetail("a.b", "c", "FK", true, false);
+        for (List<PostgresForeignKeyDetail> rows : List.of(
+                List.<PostgresForeignKeyDetail>of(),
+                List.of(new PostgresForeignKeyDetail("a", "b.c", "FK", true, true)),
+                List.of(new PostgresForeignKeyDetail("a.b", "c", "fk", true, true)),
+                List.of(match, match))) {
+            VendorFindings findings = VendorFindings.builder()
+                    .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, rows, false))
+                    .build();
+            ForeignKeyModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.POSTGRESQL, findings)
+                    .get(0)
+                    .foreignKeys()
+                    .get(0);
+            assertThat(merged.enforced()).isNull();
+            assertThat(merged.validated()).isNull();
+        }
+        VendorFindings truncated = VendorFindings.builder()
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, List.of(match), true))
+                .build();
+        ForeignKeyModel observed = VendorSchemaMerge.merge(List.of(table), Dialect.POSTGRESQL, truncated)
+                .get(0)
+                .foreignKeys()
+                .get(0);
+        assertThat(observed.enforced()).isTrue();
+        assertThat(observed.validated()).isFalse();
     }
 
     @Test
@@ -553,6 +590,10 @@ class VendorSchemaMergeTests {
                 new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", true, true, null, false, true))) {
             VendorFindings findings = VendorFindings.builder()
                     .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, List.of(detail), false))
+                    .add(VendorAugmentation.available(
+                            VendorFindingKinds.MYSQL_TABLES,
+                            List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                            false))
                     .build();
             IndexModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
                     .get(0)
@@ -560,6 +601,106 @@ class VendorSchemaMergeTests {
                     .get(0);
             assertThat(merged.uniquenessKnown()).isFalse();
             assertThat(merged.uniquenessCoverage(List.of("a"))).isEqualTo(IndexModel.UniquenessCoverage.UNKNOWN);
+        }
+    }
+
+    @Test
+    void mysqlComparisonRequiresEveryOrdinaryKeyFactRatherThanJdbcTypeOrAbsentFilter() {
+        IndexModel index = IndexModel.of("ix", List.of("a"), false);
+        TableModel table = TableModel.of("app", null, "t", List.of(), List.of(), List.of(), List.of(index));
+        MySqlIndexDetail positive =
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, true);
+        List<MySqlIndexDetail> definitions = List.of(
+                positive,
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, null, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, null, "BTREE", false, true, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", null, false, true, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, null, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, false),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", 10, "A", "BTREE", false, true, null, false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, null, null, "A", "BTREE", false, true, null, null, true),
+                new MySqlIndexDetail(
+                        "app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, "lower(a)", false, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, true, true),
+                new MySqlIndexDetail("app", "t", "ix", 1, "a", null, "A", "HASH", false, true, null, false, true),
+                new MySqlIndexDetail(
+                        "app", "t", "ix", 1, "different", null, "A", "BTREE", false, true, null, false, true));
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            for (MySqlIndexDetail detail : definitions) {
+                VendorFindings findings = VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_INDEX_DETAILS, List.of(detail), false))
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_TABLES,
+                                List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                                false))
+                        .build();
+                IndexModel merged = VendorSchemaMerge.merge(List.of(table), dialect, findings)
+                        .get(0)
+                        .indexes()
+                        .get(0);
+                assertThat(merged.comparisonComplete())
+                        .as("%s: %s", dialect, detail)
+                        .isEqualTo(detail == positive);
+                assertThat(merged.comparable()).as("%s: %s", dialect, detail).isEqualTo(detail == positive);
+                if (detail.column() != null && detail.column().equals("a") && detail.collation() == null) {
+                    assertThat(merged.supportsLeadingEquality(List.of("a"))).isTrue();
+                    assertThat(merged.uniquenessKnown()).isTrue();
+                }
+            }
+        }
+    }
+
+    @Test
+    void mysqlContradictoryJdbcDirectionCannotProveAnExactDuplicate() {
+        IndexModel index = new IndexModel(
+                "ix",
+                List.of(IndexKeyPart.column("a", false)),
+                false,
+                "btree",
+                null,
+                IndexModel.Visibility.UNKNOWN,
+                IndexModel.Validity.UNKNOWN);
+        TableModel table = TableModel.of("app", null, "t", List.of(), List.of(), List.of(), List.of(index));
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_INDEX_DETAILS,
+                        List.of(new MySqlIndexDetail(
+                                "app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, true)),
+                        false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                        false))
+                .build();
+        assertThat(VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
+                        .get(0)
+                        .indexes()
+                        .get(0)
+                        .comparable())
+                .isFalse();
+    }
+
+    @Test
+    void unknownOrUnmodelledStorageDoesNotPromoteComparisonOrEraseKnownAccessPaths() {
+        TableModel table = TableModel.of(
+                "app", null, "t", List.of(), List.of(), List.of(), List.of(IndexModel.of("ix", List.of("a"), false)));
+        for (List<MySqlTableInfo> definitions :
+                List.of(List.<MySqlTableInfo>of(), List.of(new MySqlTableInfo("app", "t", "MyISAM", null, null)))) {
+            VendorFindings findings = VendorFindings.builder()
+                    .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_TABLES, definitions, false))
+                    .add(VendorAugmentation.available(
+                            VendorFindingKinds.MYSQL_INDEX_DETAILS,
+                            List.of(new MySqlIndexDetail(
+                                    "app", "t", "ix", 1, "a", null, "A", "BTREE", false, true, null, false, true)),
+                            false))
+                    .build();
+            IndexModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
+                    .get(0)
+                    .indexes()
+                    .get(0);
+            assertThat(merged.comparable()).isFalse();
+            assertThat(merged.supportsLeadingEquality(List.of("a"))).isTrue();
         }
     }
 
@@ -653,6 +794,10 @@ class VendorSchemaMergeTests {
                         true));
         VendorFindings findings = VendorFindings.builder()
                 .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, details, false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "users", "InnoDB", null, null)),
+                        false))
                 .build();
 
         TableModel merged =
@@ -661,7 +806,9 @@ class VendorSchemaMergeTests {
         assertThat(merged.metadata().primaryKeyEnforced()).isTrue();
         assertThat(merged.primaryKeyBackingIndex()).isNotNull();
         assertThat(merged.primaryKeyBackingIndex().name()).isEqualTo("PRIMARY");
-        assertThat(merged.indexes())
-                .allSatisfy(index -> assertThat(index.validity()).isEqualTo(IndexModel.Validity.VALID));
+        assertThat(merged.indexes()).allSatisfy(index -> {
+            assertThat(index.validity()).isEqualTo(IndexModel.Validity.VALID);
+            assertThat(index.comparable()).isTrue();
+        });
     }
 }

@@ -3,9 +3,12 @@ package io.github.jdubois.bootui.engine.advisor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
+import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
@@ -14,6 +17,59 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class AdvisorViolationCollectorTests {
+
+    @Test
+    void evaluationGradesSurviveIdentitySanitizationAndLocationCompletionWithoutChangingPublicDetails() {
+        var location = new AdvisorViolationLocationDto("a.B", "m", "METHOD", "B.java", 9, null);
+        String dismissed = "v1:unit=orders|setting=ddl";
+        String active = "v1:unit=archive|setting=ddl";
+        AdvisorViolationCollector collector = new AdvisorViolationCollector(10);
+        collector.record(
+                "rule",
+                2,
+                List.of(
+                        AdvisorViolation.of("destructive", dismissed).withEvaluationSeverity("CRITICAL"),
+                        new AdvisorViolation("update", location)
+                                .withEvaluationSeverity("HIGH")
+                                .withIdentity(active)),
+                String::toUpperCase,
+                2);
+        collector.mapLocations(value -> value.withSourcePath("/work/B.java"));
+        var snapshot = collector.snapshot();
+        var retained = snapshot.rules().get("rule").violations();
+        var suppression = AdvisorSuppression.of(
+                snapshot, Set.of("rule"), Set.of(), List.of(new DismissedFindingDto("rule", dismissed, null)));
+
+        assertThat(suppression.rule("rule").activeSeverity("CRITICAL", 2)).isEqualTo("HIGH");
+        assertThat(retained).extracting(AdvisorViolation::evaluationSeverity).containsExactly("CRITICAL", "HIGH");
+        assertThat(AdvisorViolation.texts(retained)).containsExactly("DESTRUCTIVE", "UPDATE");
+        assertThat(AdvisorViolation.identities(retained)).containsExactly(dismissed, active);
+        assertThat(AdvisorViolation.locations(retained)).containsExactly(null, location.withSourcePath("/work/B.java"));
+    }
+
+    @Test
+    void missingOrUnknownActiveEvaluationGradesKeepTheOriginalGrade() {
+        for (String grade : java.util.Arrays.asList(null, "UNKNOWN")) {
+            AdvisorViolationCollector collector = new AdvisorViolationCollector(10);
+            String dismissed = "v1:unit=orders|setting=ddl";
+            collector.record(
+                    "rule",
+                    2,
+                    List.of(
+                            AdvisorViolation.of("destructive", dismissed).withEvaluationSeverity("CRITICAL"),
+                            AdvisorViolation.of("active", "v1:unit=archive|setting=ddl")
+                                    .withEvaluationSeverity(grade)),
+                    UnaryOperator.identity(),
+                    0);
+            var suppression = AdvisorSuppression.of(
+                    collector.snapshot(),
+                    Set.of("rule"),
+                    Set.of(),
+                    List.of(new DismissedFindingDto("rule", dismissed, null)));
+
+            assertThat(suppression.rule("rule").activeSeverity("CRITICAL", 2)).isEqualTo("CRITICAL");
+        }
+    }
 
     @Test
     void remainingCapacityTracksOnlySuccessfullyRetainedDetailsAcrossRules() {

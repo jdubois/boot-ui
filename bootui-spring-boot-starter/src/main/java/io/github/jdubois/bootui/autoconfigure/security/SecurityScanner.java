@@ -27,6 +27,8 @@ import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -34,15 +36,47 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
+import org.springframework.aop.ClassFilter;
+import org.springframework.aop.MethodMatcher;
+import org.springframework.aop.Pointcut;
+import org.springframework.aop.SpringProxy;
+import org.springframework.aop.framework.AdvisedSupport;
+import org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator;
+import org.springframework.aop.framework.autoproxy.AbstractAutoProxyCreator;
+import org.springframework.aop.framework.autoproxy.BeanFactoryAdvisorRetrievalHelper;
+import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
+import org.springframework.aop.framework.autoproxy.InfrastructureAdvisorAutoProxyCreator;
+import org.springframework.aop.support.AbstractBeanFactoryPointcutAdvisor;
+import org.springframework.aop.support.AbstractGenericPointcutAdvisor;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.aop.support.ComposablePointcut;
+import org.springframework.aop.support.DefaultBeanFactoryPointcutAdvisor;
+import org.springframework.aop.support.DefaultPointcutAdvisor;
+import org.springframework.aop.support.annotation.AnnotationClassFilter;
+import org.springframework.aop.support.annotation.AnnotationMethodMatcher;
+import org.springframework.aop.target.SingletonTargetSource;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
+import org.springframework.beans.factory.annotation.AnnotatedGenericBeanDefinition;
 import org.springframework.beans.factory.aot.BeanInstanceSupplier;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.AbstractBeanFactory;
+import org.springframework.beans.factory.support.FactoryBeanRegistrySupport;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.context.annotation.ScannedGenericBeanDefinition;
+import org.springframework.core.NativeDetector;
 import org.springframework.core.env.Environment;
+import org.springframework.core.type.StandardMethodMetadata;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.SingleResultAuthorizationManager;
@@ -423,7 +457,7 @@ final class SecurityScanner {
         FilterChainProxy proxy = null;
         boolean securityDebugFilterPresent = false;
         if (beanFactory instanceof SingletonBeanRegistry singletons) {
-            Object securityFilter = singletons.getSingleton(SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
+            Object securityFilter = registeredSingleton(singletons, SPRING_SECURITY_FILTER_CHAIN_BEAN_NAME);
             if (securityFilter instanceof FilterChainProxy filterChainProxy) {
                 proxy = nativeFilterChainProxy(filterChainProxy);
             } else if (securityFilter instanceof DebugFilter debugFilter) {
@@ -507,20 +541,9 @@ final class SecurityScanner {
                 beanTypeNames(beanFactory, "org.springframework.security.oauth2.core.OAuth2TokenValidator");
         List<CorsConfigModel> corsConfigs = new ArrayList<>();
         CorsDiscoveryResult corsDiscovery = discoverAttachedCors(chains, chainFilters, corsConfigs, errors);
-        boolean methodSecurityEnabled = !beanTypeNames(
-                                beanFactory,
-                                "org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor")
-                        .isEmpty()
-                || !beanTypeNames(
-                                beanFactory,
-                                "org.springframework.security.access.intercept.aopalliance.MethodSecurityInterceptor")
-                        .isEmpty();
-        boolean globalMethodSecurityLegacy = !beanTypeNames(
-                        beanFactory,
-                        "org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration")
-                .isEmpty();
+        LegacyMethodConfiguration legacyMethodConfiguration = legacyMethodConfiguration(beanFactory);
         boolean methodSecurityAnnotations = false;
-        boolean strictHttpFirewallWeakened = firewallWeakened(readField(proxy, "firewall"));
+        Boolean strictHttpFirewallWeakened = firewallWeakened(readField(proxy, "firewall"));
         boolean hideUserNotFoundExceptionsDisabled = providers.stream()
                 .anyMatch(provider -> provider.getClass()
                                 .getName()
@@ -538,14 +561,16 @@ final class SecurityScanner {
                 .toList();
         boolean generatedUserDetailsManagerPresent = discoverGeneratedUserDetailsManagerPresent(beanFactory, providers);
 
+        SecurityContext.Evidence evidence =
+                discoverEvidence(beanFactory, providers, environment, errors, legacyMethodConfiguration);
         SecurityContext context = new SecurityContext(
                 chains,
                 passwordEncoders,
                 corsConfigs,
                 corsDiscovery.sourcePresent(),
                 jwtDecoderTypes,
-                methodSecurityEnabled,
-                globalMethodSecurityLegacy,
+                !evidence.enabledMethodFamilies().isEmpty(),
+                legacyMethodConfiguration.present(),
                 methodSecurityAnnotations,
                 corsDiscovery.customSourcePresent(),
                 oauth2TokenValidatorTypes,
@@ -555,7 +580,7 @@ final class SecurityScanner {
                 generatedUserDetailsManagerPresent,
                 securityDebugFilterPresent,
                 environment,
-                discoverEvidence(beanFactory, providers, environment, errors));
+                evidence);
         return new SecurityDiscovery(context, errors);
     }
 
@@ -997,8 +1022,8 @@ final class SecurityScanner {
                     || !configurable.containsBeanDefinition("inMemoryUserDetailsManager")) return false;
             var definition = configurable.getBeanDefinition("inMemoryUserDetailsManager");
             String factory = definition.getFactoryBeanName();
-            Object userService = configurable.getSingleton("inMemoryUserDetailsManager");
-            Object factoryBean = factory == null ? null : configurable.getSingleton(factory);
+            Object userService = registeredSingleton(configurable, "inMemoryUserDetailsManager");
+            Object factoryBean = registeredSingleton(configurable, factory);
             return factoryBean != null
                     && factoryBean
                             .getClass()
@@ -1030,6 +1055,17 @@ final class SecurityScanner {
             }
         }
         return null;
+    }
+
+    private static Object readField(Class<?> owner, Object target, String fieldName) {
+        if (target == null || !owner.isInstance(target)) return null;
+        try {
+            Field field = owner.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.get(target);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+            return null;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1129,7 +1165,7 @@ final class SecurityScanner {
         String name = "bootUiSecurityFilterChain";
         if (!(beanFactory instanceof ConfigurableListableBeanFactory configurable)
                 || !configurable.containsBeanDefinition(name)
-                || configurable.getSingleton(name) != chain) return false;
+                || registeredSingleton(configurable, name) != chain) return false;
         var definition = configurable.getBeanDefinition(name);
         String configuration = "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration";
         if (!configuration.equals(definition.getFactoryBeanName())) return false;
@@ -1424,10 +1460,14 @@ final class SecurityScanner {
         List<Object> result = new ArrayList<>();
         String[] names = registry.getSingletonNames();
         for (int i = 0; i < Math.min(names.length, MAX_BEAN_SCAN); i++) {
-            Object bean = registry.getSingleton(names[i]);
+            Object bean = registeredSingleton(registry, names[i]);
             if (type.isInstance(bean)) result.add(bean);
         }
         return result;
+    }
+
+    private static Object registeredSingleton(SingletonBeanRegistry registry, String name) {
+        return name != null && registry.containsSingleton(name) ? registry.getSingleton(name) : null;
     }
 
     private static List<Object> activeProviders(List<Filter> filters) {
@@ -1531,11 +1571,11 @@ final class SecurityScanner {
             "org.springframework.security.crypto.password.Md4PasswordEncoder",
             "org.springframework.security.crypto.password.LdapShaPasswordEncoder");
 
-    private static boolean firewallWeakened(Object firewall) {
-        return firewall != null
-                && firewall.getClass() == StrictHttpFirewall.class
-                && readField(firewall, "encodedUrlBlocklist") instanceof Set<?> blocked
-                && FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token));
+    private static Boolean firewallWeakened(Object firewall) {
+        if (firewall == null || firewall.getClass() != StrictHttpFirewall.class) return null;
+        Object blocklist = readField(firewall, "encodedUrlBlocklist");
+        if (!(blocklist instanceof Set<?> blocked) || blocklist.getClass() != java.util.HashSet.class) return null;
+        return FIREWALL_DEFAULT_BLOCKED_TOKENS.stream().anyMatch(token -> !blocked.contains(token));
     }
 
     private static boolean unconditionalHttpsRedirect(List<Filter> filters) {
@@ -1585,12 +1625,25 @@ final class SecurityScanner {
 
     private static SecurityContext.Evidence discoverEvidence(
             ListableBeanFactory beanFactory, List<Object> providers, Environment environment, List<String> errors) {
+        return discoverEvidence(beanFactory, providers, environment, errors, legacyMethodConfiguration(beanFactory));
+    }
+
+    private static SecurityContext.Evidence discoverEvidence(
+            ListableBeanFactory beanFactory,
+            List<Object> providers,
+            Environment environment,
+            List<String> errors,
+            LegacyMethodConfiguration legacyMethodConfiguration) {
         List<SecurityContext.Operation> operations = new ArrayList<>();
         boolean operationsKnown = false;
         boolean operationInventoryFound = false;
         Set<String> enabled = new java.util.LinkedHashSet<>();
         Set<String> used = new java.util.LinkedHashSet<>();
-        boolean methodKnown = true;
+        Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
+        MethodAdvisorInventory methodAdvisors = eligibleMethodAdvisors(beanFactory, advisorType);
+        Set<Object> eligibleAdvisors = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        methodAdvisors.advisors().forEach(candidate -> eligibleAdvisors.add(candidate.advisor()));
+        boolean methodKnown = methodAdvisors.complete();
         boolean bootJwt = false;
         if (beanFactory instanceof ConfigurableListableBeanFactory configurable) {
             String[] definitions = configurable.getBeanDefinitionNames();
@@ -1598,21 +1651,23 @@ final class SecurityScanner {
                 methodKnown = false;
                 errors.add("Bean metadata inventory limit reached.");
             }
+            if (configurable.getSingletonCount() > MAX_BEAN_SCAN) methodKnown = false;
             for (int index = 0; index < Math.min(definitions.length, MAX_BEAN_SCAN); index++) {
                 String name = definitions[index];
                 var definition = configurable.getBeanDefinition(name);
-                String factory = definition.getFactoryBeanName();
-                String className = definition.getBeanClassName();
-                String configuration = factory != null ? factory : className;
-                if (configuration != null) {
-                    String prefix = "org.springframework.security.config.annotation.method.configuration.";
-                    if (configuration.equals(prefix + "PrePostMethodSecurityConfiguration")) enabled.add("pre-post");
-                    if (configuration.equals(prefix + "SecuredMethodSecurityConfiguration")) enabled.add("secured");
-                    if (configuration.equals(prefix + "Jsr250MethodSecurityConfiguration")) enabled.add("jsr250");
+                if (!(definition instanceof AbstractBeanDefinition nativeDefinition)
+                        || !nativeMethodDefinition(definition)) {
+                    methodKnown = false;
+                    Object singleton = registeredSingleton(configurable, name);
+                    if (singleton != null && !(singleton instanceof FactoryBean<?>)) {
+                        collectMethodFamilies(singleton.getClass(), used, new java.util.HashSet<>(), 0);
+                    }
+                    continue;
                 }
+                String factory = definition.getFactoryBeanName();
                 if (configurable.containsSingleton(name)) {
-                    Object singleton = configurable.getSingleton(name);
-                    Object factoryBean = factory == null ? null : configurable.getSingleton(factory);
+                    Object singleton = registeredSingleton(configurable, name);
+                    Object factoryBean = registeredSingleton(configurable, factory);
                     String factoryMethod = definition.getFactoryMethodName();
                     if (singleton != null
                             && (singleton
@@ -1635,18 +1690,23 @@ final class SecurityScanner {
                             && providers.stream().anyMatch(provider -> readField(provider, "jwtDecoder") == singleton))
                         bootJwt = true;
                 }
-                Class<?> type = className == null ? null : classForName(className);
-                if (type == null && configurable.containsSingleton(name)) {
-                    Object singleton = configurable.getSingleton(name);
-                    if (singleton != null) type = singleton.getClass();
+                if (definition.isAbstract() && !configurable.containsSingleton(name)) continue;
+                Set<Class<?>> types = new java.util.LinkedHashSet<>();
+                methodKnown &= collectBeanMethodTypes(configurable, name, nativeDefinition, types, eligibleAdvisors);
+                for (Class<?> type : types) {
+                    if (type.getName().startsWith("org.springframework.")) continue;
+                    methodKnown &= collectMethodFamilies(type, used, new java.util.HashSet<>(), 0);
                 }
-                if (type == null || type.getName().startsWith("org.springframework.")) continue;
-                methodKnown &= collectMethodFamilies(type, used, new java.util.HashSet<>(), 0);
             }
         } else methodKnown = false;
-        Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
+        if (readField(AbstractBeanFactory.class, beanFactory, "parentBeanFactory") != null) methodKnown = false;
         if (advisorType != null) {
-            for (Object advisor : existingSingletons(beanFactory, advisorType)) {
+            for (NamedMethodAdvisor candidate : methodAdvisors.advisors()) {
+                Object advisor = candidate.authorizationAdvice();
+                if (advisor.getClass().getClassLoader() != advisorType.getClassLoader()) {
+                    methodKnown = false;
+                    continue;
+                }
                 String type = advisor.getClass().getName();
                 if (type.equals(
                                 "org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor")
@@ -1657,27 +1717,43 @@ final class SecurityScanner {
                         methodKnown = false;
                         continue;
                     }
+                    if (manager.getClass().getClassLoader() != advisorType.getClassLoader()) {
+                        methodKnown = false;
+                        continue;
+                    }
                     String name = manager.getClass().getName();
-                    if (name.equals("org.springframework.security.authorization.method.SecuredAuthorizationManager"))
+                    Object pointcut = readField(advisor, "pointcut");
+                    if (name.equals("org.springframework.security.authorization.method.SecuredAuthorizationManager")
+                            && annotationPointcut(pointcut, "org.springframework.security.access.annotation.Secured"))
                         enabled.add("secured");
+                    else if (name.equals("org.springframework.security.authorization.method.Jsr250AuthorizationManager")
+                            && pointcut == Pointcut.TRUE) enabled.add("jsr250");
                     else if (name.equals(
-                            "org.springframework.security.authorization.method.Jsr250AuthorizationManager"))
-                        enabled.add("jsr250");
-                    else if (name.equals(
-                                    "org.springframework.security.authorization.method.PreAuthorizeAuthorizationManager")
+                                            "org.springframework.security.authorization.method.PreAuthorizeAuthorizationManager")
+                                    && annotationPointcut(
+                                            pointcut, "org.springframework.security.access.prepost.PreAuthorize")
                             || name.equals(
-                                    "org.springframework.security.authorization.method.PostAuthorizeAuthorizationManager"))
+                                            "org.springframework.security.authorization.method.PostAuthorizeAuthorizationManager")
+                                    && annotationPointcut(
+                                            pointcut, "org.springframework.security.access.prepost.PostAuthorize"))
                         enabled.add("pre-post");
                     else methodKnown = false;
                 } else if (type.equals(
                                 "org.springframework.security.authorization.method.PreFilterAuthorizationMethodInterceptor")
                         || type.equals(
                                 "org.springframework.security.authorization.method.PostFilterAuthorizationMethodInterceptor")) {
-                    enabled.add("pre-post");
+                    String annotation = type.endsWith(".PreFilterAuthorizationMethodInterceptor")
+                            ? "org.springframework.security.access.prepost.PreFilter"
+                            : "org.springframework.security.access.prepost.PostFilter";
+                    if (annotationPointcut(readField(advisor, "pointcut"), annotation)) enabled.add("pre-post");
+                    else methodKnown = false;
+                } else if (type.equals(
+                        "org.springframework.security.config.annotation.method.configuration.DeferringMethodInterceptor")) {
+                    String family = deferredMethodFamily(beanFactory, candidate);
+                    if (family == null) methodKnown = false;
+                    else enabled.add(family);
                 } else if (!type.equals(
-                                "org.springframework.security.authorization.method.AuthorizeReturnObjectMethodInterceptor")
-                        && !type.equals(
-                                "org.springframework.security.config.annotation.method.configuration.DeferringMethodInterceptor")) {
+                        "org.springframework.security.authorization.method.AuthorizeReturnObjectMethodInterceptor")) {
                     methodKnown = false;
                 }
             }
@@ -1766,7 +1842,492 @@ final class SecurityScanner {
         if (operationInventoryFound && !operationsKnown) {
             errors.add("Actuator operation inventory includes unsupported or parameterized operations.");
         }
-        return new SecurityContext.Evidence(operations, operationsKnown, bootJwt, enabled, used, methodKnown);
+        return new SecurityContext.Evidence(
+                operations, operationsKnown, bootJwt, enabled, used, methodKnown, legacyMethodConfiguration.known());
+    }
+
+    private record LegacyMethodConfiguration(boolean present, boolean known) {}
+
+    private record NamedMethodAdvisor(String name, Object advisor, Object authorizationAdvice) {}
+
+    private record MethodAdviceObservation(Object authorizationAdvice, boolean complete) {}
+
+    private record MethodAdvisorEligibility(boolean infrastructureOnly, String prefix, Set<String> names) {}
+
+    private record MethodAdvisorInventory(List<NamedMethodAdvisor> advisors, boolean complete) {}
+
+    private static MethodAdvisorInventory eligibleMethodAdvisors(
+            ListableBeanFactory beanFactory, Class<?> advisorType) {
+        if (advisorType == null) return new MethodAdvisorInventory(List.of(), false);
+        MethodAdvisorEligibility eligibility = methodAdvisorEligibility(beanFactory);
+        List<NamedMethodAdvisor> result = new ArrayList<>();
+        boolean complete = eligibility != null;
+        if (eligibility != null && beanFactory instanceof SingletonBeanRegistry registry) {
+            for (String name : eligibility.names()) {
+                Boolean eligible = methodAdvisorEligible(beanFactory, name, eligibility);
+                if (eligible == null) complete = false;
+                else if (eligible) {
+                    Object singleton = registeredSingleton(registry, name);
+                    Object held =
+                            singleton instanceof FactoryBean<?> ? cachedFactoryProduct(registry, name) : singleton;
+                    if (held == null) complete = false;
+                }
+            }
+        }
+        for (NamedMethodAdvisor candidate : existingMethodAdvisors(beanFactory, advisorType)) {
+            Boolean eligible = methodAdvisorEligible(beanFactory, candidate.name(), eligibility);
+            if (eligible == null) complete = false;
+            else if (eligible) {
+                MethodAdviceObservation advice = methodAdvice(candidate.advisor(), advisorType);
+                complete &= advice.complete();
+                if (advice.authorizationAdvice() != null) {
+                    result.add(new NamedMethodAdvisor(
+                            candidate.name(), candidate.advisor(), advice.authorizationAdvice()));
+                }
+            }
+        }
+        return new MethodAdvisorInventory(result, complete);
+    }
+
+    private static List<NamedMethodAdvisor> existingMethodAdvisors(
+            ListableBeanFactory beanFactory, Class<?> advisorType) {
+        if (!(beanFactory instanceof SingletonBeanRegistry registry)) return List.of();
+        List<NamedMethodAdvisor> result = new ArrayList<>();
+        String[] names = registry.getSingletonNames();
+        for (int index = 0; index < Math.min(names.length, MAX_BEAN_SCAN); index++) {
+            Object singleton = registeredSingleton(registry, names[index]);
+            if (advisorType.isInstance(singleton)
+                    || nativeMethodAdvisorWrapper(singleton)
+                    || singleton instanceof DefaultPointcutAdvisor
+                    || singleton instanceof DefaultBeanFactoryPointcutAdvisor) {
+                result.add(new NamedMethodAdvisor(names[index], singleton, null));
+            }
+            if (singleton instanceof FactoryBean<?>) {
+                Object product = cachedFactoryProduct(registry, names[index]);
+                if (advisorType.isInstance(product)
+                        || nativeMethodAdvisorWrapper(product)
+                        || product instanceof DefaultPointcutAdvisor
+                        || product instanceof DefaultBeanFactoryPointcutAdvisor) {
+                    result.add(new NamedMethodAdvisor(names[index], product, null));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static MethodAdviceObservation methodAdvice(Object advisor, Class<?> advisorType) {
+        if (advisor == null || advisorType == null) return new MethodAdviceObservation(null, false);
+        if (advisorType.isInstance(advisor)) return new MethodAdviceObservation(advisor, true);
+        if (nativeMethodAdvisorWrapper(advisor)) {
+            Object nested = readField(advisor, "advisor");
+            return advisorType.isInstance(nested)
+                    ? new MethodAdviceObservation(nested, true)
+                    : new MethodAdviceObservation(null, false);
+        }
+        Object advice;
+        Object pointcut;
+        if (advisor instanceof DefaultPointcutAdvisor) {
+            if (advisor.getClass() != DefaultPointcutAdvisor.class) return new MethodAdviceObservation(null, false);
+            advice = readField(AbstractGenericPointcutAdvisor.class, advisor, "advice");
+            pointcut = readField(DefaultPointcutAdvisor.class, advisor, "pointcut");
+        } else if (advisor instanceof DefaultBeanFactoryPointcutAdvisor) {
+            if (advisor.getClass() != DefaultBeanFactoryPointcutAdvisor.class)
+                return new MethodAdviceObservation(null, false);
+            advice = readField(AbstractBeanFactoryPointcutAdvisor.class, advisor, "advice");
+            pointcut = readField(DefaultBeanFactoryPointcutAdvisor.class, advisor, "pointcut");
+        } else return new MethodAdviceObservation(null, true);
+        if (advice == null) return new MethodAdviceObservation(null, false);
+        if (!advisorType.isInstance(advice)) return new MethodAdviceObservation(null, true);
+        return pointcut == Pointcut.TRUE
+                ? new MethodAdviceObservation(advice, true)
+                : new MethodAdviceObservation(null, false);
+    }
+
+    private static boolean nativeMethodAdvisorWrapper(Object value) {
+        return value != null
+                && value.getClass()
+                        == classForName(
+                                "org.springframework.security.config.annotation.method.configuration.MethodSecurityAdvisorRegistrar$AdvisorWrapper");
+    }
+
+    private static boolean annotationPointcut(Object pointcut, String annotationName) {
+        if (pointcut == Pointcut.TRUE) return true;
+        if (pointcut == null || pointcut.getClass() != ComposablePointcut.class) return false;
+        Object filter = readField(pointcut, "classFilter");
+        Object matcher = readField(pointcut, "methodMatcher");
+        if (filter == null
+                || filter.getClass() != classForName("org.springframework.aop.support.ClassFilters$UnionClassFilter")
+                || matcher == null
+                || matcher.getClass()
+                        != classForName(
+                                "org.springframework.aop.support.MethodMatchers$ClassFilterAwareUnionMethodMatcher"))
+            return false;
+        Object values = readField(filter, "filters");
+        if (!(values instanceof ClassFilter[] filters) || filters.length != 2) return false;
+        Object first = readField(matcher, "cf1");
+        Object second = readField(matcher, "cf2");
+        Object methods = readField(matcher, "mm1");
+        if (first == null
+                || first.getClass()
+                        != classForName(
+                                "org.springframework.aop.support.annotation.AnnotationMatchingPointcut$AnnotationCandidateClassFilter")
+                || second == null
+                || second.getClass() != AnnotationClassFilter.class
+                || filters[0] != first
+                || filters[1] != second
+                || methods == null
+                || methods.getClass() != AnnotationMethodMatcher.class
+                || readField(matcher, "mm2") != MethodMatcher.TRUE) return false;
+        Class<?> annotation = classForName(annotationName);
+        return annotation != null
+                && readField(first, "annotationType") == annotation
+                && readField(second, "annotationType") == annotation
+                && Boolean.TRUE.equals(readField(second, "checkInherited"))
+                && readField(methods, "annotationType") == annotation
+                && Boolean.TRUE.equals(readField(methods, "checkInherited"));
+    }
+
+    private static MethodAdvisorEligibility methodAdvisorEligibility(ListableBeanFactory beanFactory) {
+        Object value = readField(AbstractBeanFactory.class, beanFactory, "beanPostProcessors");
+        if (!(value instanceof List<?> processors)
+                || !(value.getClass() == CopyOnWriteArrayList.class
+                        || value.getClass()
+                                == classForName(
+                                        "org.springframework.beans.factory.support.AbstractBeanFactory$BeanPostProcessorCacheAwareList"))
+                || processors.size() > MAX_BEAN_SCAN) return null;
+        Object creator = null;
+        for (Object processor : processors) {
+            if (!(processor instanceof AbstractAutoProxyCreator)) continue;
+            if (creator != null && creator != processor) return null;
+            creator = processor;
+        }
+        if (creator == null) {
+            return existingSingletons(beanFactory, AbstractAutoProxyCreator.class)
+                            .isEmpty()
+                    ? new MethodAdvisorEligibility(false, null, Set.of())
+                    : null;
+        }
+        if (readField(AbstractAutoProxyCreator.class, creator, "beanFactory") != beanFactory) return null;
+        Object retrieval = readField(AbstractAdvisorAutoProxyCreator.class, creator, "advisorRetrievalHelper");
+        if (retrieval == null
+                || retrieval.getClass()
+                        != classForName(
+                                "org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator$BeanFactoryAdvisorRetrievalHelperAdapter")
+                || readField(BeanFactoryAdvisorRetrievalHelper.class, retrieval, "beanFactory") != beanFactory
+                || readField(retrieval, "this$0") != creator) return null;
+        Object snapshot = readField(BeanFactoryAdvisorRetrievalHelper.class, retrieval, "cachedAdvisorBeanNames");
+        if (!(snapshot instanceof String[] names) || names.length > MAX_BEAN_SCAN) return null;
+        Set<String> advisorNames = new java.util.HashSet<>();
+        for (String name : names.clone()) {
+            if (name == null) return null;
+            advisorNames.add(name);
+        }
+        if (creator.getClass() == InfrastructureAdvisorAutoProxyCreator.class) {
+            return readField(InfrastructureAdvisorAutoProxyCreator.class, creator, "beanFactory") == beanFactory
+                    ? new MethodAdvisorEligibility(true, null, advisorNames)
+                    : null;
+        }
+        if (creator.getClass() != DefaultAdvisorAutoProxyCreator.class) return null;
+        Object usePrefix = readField(DefaultAdvisorAutoProxyCreator.class, creator, "usePrefix");
+        if (Boolean.FALSE.equals(usePrefix)) return new MethodAdvisorEligibility(false, null, advisorNames);
+        Object prefix = readField(DefaultAdvisorAutoProxyCreator.class, creator, "advisorBeanNamePrefix");
+        return Boolean.TRUE.equals(usePrefix) && prefix instanceof String text && text.length() <= 2048
+                ? new MethodAdvisorEligibility(false, text, advisorNames)
+                : null;
+    }
+
+    private static Boolean methodAdvisorEligible(
+            ListableBeanFactory beanFactory, String name, MethodAdvisorEligibility eligibility) {
+        if (eligibility == null) return null;
+        if (!eligibility.names().contains(name)) return false;
+        if (!eligibility.infrastructureOnly())
+            return eligibility.prefix() == null || name.startsWith(eligibility.prefix());
+        if (!(beanFactory instanceof ConfigurableListableBeanFactory configurable)) return null;
+        if (!configurable.containsBeanDefinition(name)) return false;
+        BeanDefinition definition = configurable.getBeanDefinition(name);
+        return nativeMethodDefinition(definition) ? definition.getRole() == BeanDefinition.ROLE_INFRASTRUCTURE : null;
+    }
+
+    private static String deferredMethodFamily(ListableBeanFactory beanFactory, NamedMethodAdvisor candidate) {
+        if (candidate.advisor() != candidate.authorizationAdvice()) {
+            if (!nativeMethodAdvisorWrapper(candidate.advisor())
+                    || readField(candidate.advisor(), "advisor") != candidate.authorizationAdvice()
+                    || !(beanFactory instanceof SingletonBeanRegistry registry)) return null;
+            String[] names = registry.getSingletonNames();
+            for (int index = 0; index < Math.min(names.length, MAX_BEAN_SCAN); index++) {
+                if (registeredSingleton(registry, names[index]) == candidate.authorizationAdvice()) {
+                    String family = deferredMethodFamily(
+                            beanFactory,
+                            new NamedMethodAdvisor(
+                                    names[index], candidate.authorizationAdvice(), candidate.authorizationAdvice()));
+                    if (family != null) return family;
+                }
+            }
+            return null;
+        }
+        if (!(beanFactory instanceof ConfigurableListableBeanFactory configurable)
+                || !configurable.containsBeanDefinition(candidate.name())
+                || candidate.advisor() != candidate.authorizationAdvice()
+                || registeredSingleton(configurable, candidate.name()) != candidate.advisor()) return null;
+        BeanDefinition definition = configurable.getBeanDefinition(candidate.name());
+        if (!(definition instanceof AbstractBeanDefinition nativeDefinition)
+                || !nativeMethodDefinition(definition)
+                || definition.getParentName() != null
+                || nativeDefinition.getInstanceSupplier() != null) return null;
+        String factory = definition.getFactoryBeanName();
+        Object owner = registeredSingleton(configurable, factory);
+        Class<?> ownerType = factory == null
+                ? declaredBeanClass(configurable, nativeDefinition)
+                : owner == null ? null : owner.getClass();
+        if (ownerType == null) return null;
+        String prefix = "org.springframework.security.config.annotation.method.configuration.";
+        String method = definition.getFactoryMethodName();
+        if (method == null) return null;
+        if (ownerType == classForName(prefix + "PrePostMethodSecurityConfiguration")
+                && Set.of(
+                                "preAuthorizeAuthorizationMethodInterceptor",
+                                "postAuthorizeAuthorizationMethodInterceptor",
+                                "preFilterAuthorizationMethodInterceptor",
+                                "postFilterAuthorizationMethodInterceptor")
+                        .contains(method)) {
+            return "pre-post";
+        }
+        if (ownerType == classForName(prefix + "SecuredMethodSecurityConfiguration")
+                && "securedAuthorizationMethodInterceptor".equals(method)) return "secured";
+        if (ownerType == classForName(prefix + "Jsr250MethodSecurityConfiguration")
+                && "jsr250AuthorizationMethodInterceptor".equals(method)) return "jsr250";
+        return null;
+    }
+
+    private static Object cachedFactoryProduct(SingletonBeanRegistry registry, String name) {
+        Object cache = readField(FactoryBeanRegistrySupport.class, registry, "factoryBeanObjectCache");
+        return cache != null && cache.getClass() == ConcurrentHashMap.class ? ((Map<?, ?>) cache).get(name) : null;
+    }
+
+    private static LegacyMethodConfiguration legacyMethodConfiguration(ListableBeanFactory beanFactory) {
+        Class<?> legacyType = classForName(
+                "org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration");
+        if (legacyType == null || !(beanFactory instanceof ConfigurableListableBeanFactory configurable)) {
+            return new LegacyMethodConfiguration(false, false);
+        }
+        boolean present = !existingSingletons(beanFactory, legacyType).isEmpty();
+        String[] names = configurable.getBeanDefinitionNames();
+        boolean known = names.length <= MAX_BEAN_SCAN && configurable.getSingletonCount() <= MAX_BEAN_SCAN;
+        for (int index = 0; index < Math.min(names.length, MAX_BEAN_SCAN); index++) {
+            BeanDefinition definition = configurable.getBeanDefinition(names[index]);
+            if (!(definition instanceof AbstractBeanDefinition nativeDefinition)
+                    || !nativeMethodDefinition(definition)) {
+                known = false;
+                continue;
+            }
+            // @Bean products are not configuration-class candidates processed for @EnableGlobalMethodSecurity.
+            if (definition.getFactoryMethodName() != null || definition.isAbstract()) continue;
+            Class<?> type = declaredBeanClass(configurable, nativeDefinition);
+            if (type == null) {
+                Object singleton = registeredSingleton(configurable, names[index]);
+                type = singleton == null ? null : singleton.getClass();
+            }
+            if (type == null) known = false;
+            else present |= legacyType.isAssignableFrom(type);
+        }
+        return new LegacyMethodConfiguration(present, known);
+    }
+
+    private static boolean nativeMethodDefinition(BeanDefinition definition) {
+        Class<?> type = definition.getClass();
+        return type == RootBeanDefinition.class
+                || type == GenericBeanDefinition.class
+                || type == AnnotatedGenericBeanDefinition.class
+                || type == ScannedGenericBeanDefinition.class
+                || (type.getClassLoader() == AnnotatedGenericBeanDefinition.class.getClassLoader()
+                        && type.getName()
+                                .equals(
+                                        "org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader$ConfigurationClassBeanDefinition"));
+    }
+
+    private static boolean collectBeanMethodTypes(
+            ConfigurableListableBeanFactory factory,
+            String name,
+            AbstractBeanDefinition definition,
+            Set<Class<?>> types,
+            Set<Object> eligibleAdvisors) {
+        Object singleton = registeredSingleton(factory, name);
+        if (singleton != null) {
+            if (singleton instanceof FactoryBean<?>) {
+                boolean producerKnown = collectSingletonMethodTypes(singleton, types, eligibleAdvisors);
+                Object product = cachedFactoryProduct(factory, name);
+                return collectSingletonMethodTypes(product, types, eligibleAdvisors) && producerKnown;
+            }
+            return collectSingletonMethodTypes(singleton, types, eligibleAdvisors);
+        }
+        if (definition.getParentName() != null || definition.getInstanceSupplier() != null) return false;
+        Class<?> type;
+        if (definition.getFactoryMethodName() != null || definition.getFactoryBeanName() != null) {
+            type = declaredMethodProduct(factory, definition);
+        } else {
+            type = declaredBeanClass(factory, definition);
+            if (type != null
+                    && (type.isInterface()
+                            || Modifier.isAbstract(type.getModifiers())
+                            || type.isArray()
+                            || type.isPrimitive()
+                            || FactoryBean.class.isAssignableFrom(type))) return false;
+        }
+        if (type == null) return false;
+        types.add(type);
+        return true;
+    }
+
+    private static boolean collectSingletonMethodTypes(
+            Object singleton, Set<Class<?>> types, Set<Object> eligibleAdvisors) {
+        Set<Object> visited = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        boolean complete = true;
+        for (int depth = 0; depth < 8 && singleton != null && visited.add(singleton); depth++) {
+            Class<?> type = singleton.getClass();
+            if (NativeDetector.inNativeImage() && AopUtils.isCglibProxy(singleton)) return false;
+            types.add(type);
+            Object interceptor;
+            if (Proxy.isProxyClass(type)) {
+                interceptor = Proxy.getInvocationHandler(singleton);
+                if (interceptor.getClass() != classForName("org.springframework.aop.framework.JdkDynamicAopProxy"))
+                    return false;
+            } else if (AopUtils.isCglibProxy(singleton)) {
+                interceptor = readField(singleton, "CGLIB$CALLBACK_0");
+                if (interceptor == null
+                        || interceptor.getClass()
+                                != classForName(
+                                        "org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor"))
+                    return false;
+            } else {
+                return complete && !(singleton instanceof SpringProxy);
+            }
+            Object advised = readField(interceptor, "advised");
+            Object value = readField(AdvisedSupport.class, advised, "advisors");
+            if (value != null && value.getClass() == ArrayList.class && ((List<?>) value).size() <= 512) {
+                Class<?> advisorType =
+                        classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
+                for (Object advisor : ((List<?>) value).toArray()) {
+                    if (advisor instanceof DefaultPointcutAdvisor
+                            || advisor instanceof DefaultBeanFactoryPointcutAdvisor) {
+                        complete = false;
+                    }
+                    MethodAdviceObservation observation = methodAdvice(advisor, advisorType);
+                    complete &= observation.complete();
+                    if (observation.authorizationAdvice() != null && !eligibleAdvisors.contains(advisor))
+                        complete = false;
+                }
+            } else complete = false;
+            Object source = readField(AdvisedSupport.class, advised, "targetSource");
+            if (source == null || source.getClass() != SingletonTargetSource.class) return false;
+            Object target = readField(SingletonTargetSource.class, source, "target");
+            if (AopUtils.isCglibProxy(singleton) && !classProxyDispatchMatches(singleton, advised, target))
+                return false;
+            singleton = target;
+        }
+        return false;
+    }
+
+    private static boolean classProxyDispatchMatches(Object proxy, Object advised, Object target) {
+        if (target == null) return false;
+        try {
+            Field[] fields = proxy.getClass().getDeclaredFields();
+            if (fields.length > 4096) return false;
+            int callbacks = 0;
+            for (Field field : fields) {
+                String name = field.getName();
+                String prefix = "CGLIB$CALLBACK_";
+                if (!name.startsWith(prefix)) continue;
+                String suffix = name.substring(prefix.length());
+                if (suffix.isEmpty() || suffix.charAt(0) < '0' || suffix.charAt(0) > '9') continue;
+                if (suffix.length() != 1 || suffix.charAt(0) > '6') return false;
+                callbacks++;
+            }
+            if (callbacks != 7) return false;
+            Object unadvised = readField(proxy, "CGLIB$CALLBACK_1");
+            Object dispatcher = readField(proxy, "CGLIB$CALLBACK_3");
+            Object metadata = readField(proxy, "CGLIB$CALLBACK_4");
+            return unadvised != null
+                    && (unadvised.getClass()
+                                    == classForName(
+                                            "org.springframework.aop.framework.CglibAopProxy$StaticUnadvisedInterceptor")
+                            || unadvised.getClass()
+                                    == classForName(
+                                            "org.springframework.aop.framework.CglibAopProxy$StaticUnadvisedExposedInterceptor"))
+                    && readField(unadvised, "target") == target
+                    && dispatcher != null
+                    && dispatcher.getClass()
+                            == classForName("org.springframework.aop.framework.CglibAopProxy$StaticDispatcher")
+                    && readField(dispatcher, "target") == target
+                    && metadata != null
+                    && metadata.getClass()
+                            == classForName("org.springframework.aop.framework.CglibAopProxy$AdvisedDispatcher")
+                    && readField(metadata, "advised") == advised;
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static Class<?> declaredBeanClass(
+            ConfigurableListableBeanFactory factory, AbstractBeanDefinition definition) {
+        if (definition.hasBeanClass()) return definition.getBeanClass();
+        String name = definition.getBeanClassName();
+        if (name == null) return null;
+        try {
+            return Class.forName(name, false, factory.getBeanClassLoader());
+        } catch (ClassNotFoundException | RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static Class<?> declaredMethodProduct(
+            ConfigurableListableBeanFactory factory, AbstractBeanDefinition definition) {
+        if (!(definition instanceof AnnotatedBeanDefinition annotated)
+                || !(annotated.getFactoryMethodMetadata() instanceof StandardMethodMetadata metadata)
+                || metadata.getClass() != StandardMethodMetadata.class) return null;
+        Method method = metadata.getIntrospectedMethod();
+        if (!method.getName().equals(definition.getFactoryMethodName()) || method.isBridge() || method.isSynthetic())
+            return null;
+        String factoryName = definition.getFactoryBeanName();
+        Class<?> owner;
+        if (Modifier.isStatic(method.getModifiers())) {
+            if (factoryName != null) return null;
+            owner = declaredBeanClass(factory, definition);
+        } else {
+            if (factoryName == null) return null;
+            Object instance = registeredSingleton(factory, factoryName);
+            if (instance == null || instance instanceof FactoryBean<?>) return null;
+            owner = instance.getClass();
+        }
+        if (owner != method.getDeclaringClass()) return null;
+        try {
+            if (!unambiguousFactoryMethod(owner, method, new java.util.HashSet<>(), 0)) return null;
+            Class<?> product = method.getReturnType();
+            return Modifier.isFinal(product.getModifiers())
+                            && !Modifier.isAbstract(product.getModifiers())
+                            && !product.isArray()
+                            && !product.isPrimitive()
+                            && !product.isInterface()
+                            && product != Object.class
+                            && !FactoryBean.class.isAssignableFrom(product)
+                    ? product
+                    : null;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static boolean unambiguousFactoryMethod(Class<?> type, Method expected, Set<Class<?>> visited, int depth) {
+        if (type == null || !visited.add(type)) return true;
+        if (depth > 8 || visited.size() > 128) return false;
+        Method[] methods = type.getDeclaredMethods();
+        if (methods.length > 2000) return false;
+        for (Method method : methods) {
+            if (method.getName().equals(expected.getName()) && !method.equals(expected)) return false;
+        }
+        for (Class<?> contract : type.getInterfaces()) {
+            if (!unambiguousFactoryMethod(contract, expected, visited, depth + 1)) return false;
+        }
+        return unambiguousFactoryMethod(type.getSuperclass(), expected, visited, depth + 1);
     }
 
     private static boolean hasUnsupportedOperationPath(String base, String operationPath) {

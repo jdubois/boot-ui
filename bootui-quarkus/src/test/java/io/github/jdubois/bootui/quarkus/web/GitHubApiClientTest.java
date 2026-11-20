@@ -3,18 +3,27 @@ package io.github.jdubois.bootui.quarkus.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.core.dto.GitHubDashboardReport;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.github.GitHubTokenProvider;
+import io.github.jdubois.bootui.engine.web.BoundedBodyReader;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Ground-truth parity check that the Quarkus Jackson 2 ({@code com.fasterxml.jackson.*})
@@ -29,6 +38,8 @@ import org.junit.jupiter.api.Test;
 class GitHubApiClientTest {
 
     private HttpServer server;
+
+    private final List<String> requestPaths = new CopyOnWriteArrayList<>();
 
     @AfterEach
     void stopServer() {
@@ -266,37 +277,928 @@ class GitHubApiClientTest {
                 .allSatisfy(signal -> assertThat(signal.alerts()).isEmpty());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"github.com", "ghe-one.example", "ghe-two.example"})
+    void refreshResolvesCredentialsForTheRepositoryHostWithoutExposingThem(String host) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        AtomicReference<String> authorization = new AtomicReference<>();
+        server.createContext("/rate_limit", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] body = """
+                    {"resources":{"core":{"limit":60,"remaining":1}}}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        AtomicReference<String> requestedHost = new AtomicReference<>();
+        GitHubTokenProvider provider = new GitHubTokenProvider() {
+            @Override
+            public Token token(Duration timeout) {
+                throw new AssertionError("Hostless lookup must not be used");
+            }
+
+            @Override
+            public Token token(String repositoryHost, Duration timeout) {
+                requestedHost.set(repositoryHost);
+                assertThat(timeout).isEqualTo(Duration.ofSeconds(2));
+                return new Token("fixture-token-for-" + repositoryHost, "host-specific fixture");
+            }
+        };
+
+        GitHubApiClient client = clientWithProvider(provider);
+        for (String selectedHost : List.of("github.com", host, "github.com")) {
+            GitHubDashboardReport report = client.refresh(repository(selectedHost));
+
+            assertThat(requestedHost.get()).isEqualTo(selectedHost);
+            assertThat(authorization.get()).isEqualTo("Bearer fixture-token-for-" + selectedHost);
+            assertThat(report.credential().authenticated()).isTrue();
+            assertThat(report.credential().source()).isEqualTo("host-specific fixture");
+            assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("fixture-token-for-");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ghe-one.example", "ghe-two.example"})
+    void legacyCredentialIsNeverSentToEnterprise(String host) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        AtomicReference<String> authorization = new AtomicReference<>("not requested");
+        server.createContext("/rate_limit", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.sendResponseHeaders(401, -1);
+            exchange.close();
+        });
+        server.start();
+
+        GitHubDashboardReport report = client("public-only-token").refresh(repository(host));
+
+        assertThat(authorization.get()).isNull();
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.credential().authenticated()).isFalse();
+        assertThat(report.credential().source()).isEqualTo("unauthenticated");
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("public-only-token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "",
+                " \n\t",
+                "null",
+                "{}",
+                "{\"message\":\"local-token\"}",
+                "\"local-token\"",
+                "42",
+                "true",
+                "{\"token\":\"local-token\",",
+                "<html>local-token</html>",
+                "[] trailing",
+                "[] {}"
+            })
+    void invalidAlertResponsesRemainUnavailableWithoutDiscardingOtherSections(String body) throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        response("/repos/jdubois/boot-ui/dependabot/alerts", 200, body);
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.connected()).isTrue();
+        assertThat(report.repository().defaultBranch()).isEqualTo("main");
+        assertThat(report.pullRequests()).extracting("number").containsExactly(42);
+        assertThat(report.issues()).extracting("number").containsExactly(7);
+        assertThat(report.quotas()).extracting("key").contains("core", "actions-cache", "actions-artifacts");
+        assertThat(report.securitySignals())
+                .filteredOn(signal -> signal.label().equals("Dependabot alerts"))
+                .singleElement()
+                .satisfies(signal -> {
+                    assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+                    assertThat(signal.count()).isNull();
+                    assertThat(signal.alerts()).isEmpty();
+                    assertThat(signal.unavailableReason()).contains("Dependabot alerts");
+                    assertThat(report.warnings()).containsExactly(signal.unavailableReason());
+                });
+        assertThat(report.securitySignals())
+                .filteredOn(signal -> signal.label().equals("Code scanning alerts"))
+                .singleElement()
+                .satisfies(signal -> {
+                    assertThat(signal.status()).isEqualTo("AVAILABLE");
+                    assertThat(signal.count()).isEqualTo(1);
+                });
+        assertThat(report.securitySignals())
+                .filteredOn(signal -> signal.label().equals("Secret scanning alerts"))
+                .singleElement()
+                .satisfies(signal -> {
+                    assertThat(signal.status()).isEqualTo("AVAILABLE");
+                    assertThat(signal.count()).isZero();
+                });
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("local-token", "<html>", "\"token\"");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 404, 429, 502})
+    void failedAlertResponsesKeepHttpStatusRegardlessOfBody(int status) throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        response("/repos/jdubois/boot-ui/dependabot/alerts", status, "<html>local-token</html>");
+        server.removeContext("/repos/jdubois/boot-ui/code-scanning/alerts");
+        response("/repos/jdubois/boot-ui/code-scanning/alerts", status, "{\"message\":\"local-token\"}");
+        server.removeContext("/repos/jdubois/boot-ui/secret-scanning/alerts");
+        response("/repos/jdubois/boot-ui/secret-scanning/alerts", status, "");
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.connected()).isTrue();
+        assertThat(report.pullRequests()).extracting("number").containsExactly(42);
+        assertThat(report.workflowRuns()).extracting("id").containsExactly(9L);
+        assertThat(report.securitySignals()).hasSize(3).allSatisfy(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.alerts()).isEmpty();
+            assertThat(signal.unavailableReason())
+                    .isEqualTo("GitHub returned HTTP " + status + " for " + signal.label() + ".");
+        });
+        assertThat(report.warnings())
+                .containsExactly(
+                        "GitHub returned HTTP " + status + " for Dependabot alerts.",
+                        "GitHub returned HTTP " + status + " for Code scanning alerts.",
+                        "GitHub returned HTTP " + status + " for Secret scanning alerts.");
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("local-token", "<html>");
+    }
+
+    @Test
+    void malformedOptionalResponsePreservesIndependentSections() throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/pulls");
+        response("/repos/jdubois/boot-ui/pulls", 200, "<html>local-token</html>");
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.connected()).isTrue();
+        assertThat(report.pullRequests()).isEmpty();
+        assertThat(report.issues()).extracting("number").containsExactly(7);
+        assertThat(report.workflowRuns()).extracting("id").containsExactly(9L);
+        assertThat(report.repository().defaultBranch()).isEqualTo("main");
+        assertThat(report.securitySignals())
+                .allSatisfy(signal -> assertThat(signal.status()).isEqualTo("AVAILABLE"));
+        assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+        assertThat(report.copilotUsage().downloadLinkCount()).isZero();
+        assertThat(report.copilotUsage().unavailableReason()).isNull();
+        assertThat(report.warnings()).containsExactly("GitHub returned invalid JSON for pull requests.");
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("local-token", "<html>");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "null", "{\"resources\":", "<html>local-token</html>"})
+    void malformedRateLimitResponseReturnsSafeError(String body) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        response("/rate_limit", 200, body);
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.connected()).isFalse();
+        assertThat(report.message()).isEqualTo("GitHub returned invalid JSON for rate limits.");
+        assertThat(report.credential().scopes()).isEqualTo("repo, workflow");
+        assertThat(report.securitySignals()).isEmpty();
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("local-token", "<html>");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 404, 429, 502})
+    void failedRateLimitResponseKeepsHttpStatus(int status) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        response("/rate_limit", status, "<html>local-token</html>");
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.connected()).isFalse();
+        assertThat(report.message()).isEqualTo("GitHub returned HTTP " + status + " for rate limits.");
+        assertThat(report.credential().scopes()).isEqualTo("repo, workflow");
+        assertThat(new ObjectMapper().writeValueAsString(report)).doesNotContain("local-token", "<html>");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "null", "<html>copilot-response-payload local-token</html>"})
+    void malformedCopilotResponseIsUnavailableWithoutDiscardingOtherSections(String body) throws Exception {
+        successfulResponses();
+        server.removeContext("/orgs/jdubois/copilot/metrics/reports/organization-28-day/latest");
+        response("/orgs/jdubois/copilot/metrics/reports/organization-28-day/latest", 200, body);
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.connected()).isTrue();
+        assertThat(report.copilotUsage().status()).isEqualTo("UNAVAILABLE");
+        assertThat(report.copilotUsage().downloadLinkCount()).isNull();
+        assertThat(report.copilotUsage().unavailableReason())
+                .isEqualTo("GitHub returned invalid JSON for Copilot usage metrics.");
+        assertThat(report.repository().defaultBranch()).isEqualTo("main");
+        assertThat(report.pullRequests()).extracting("number").containsExactly(42);
+        assertThat(report.issues()).extracting("number").containsExactly(7);
+        assertThat(report.workflowRuns()).extracting("id").containsExactly(9L);
+        assertThat(report.securitySignals())
+                .allSatisfy(signal -> assertThat(signal.status()).isEqualTo("AVAILABLE"));
+        assertThat(new ObjectMapper().writeValueAsString(report))
+                .doesNotContain("local-token", "<html>", "copilot-response-payload");
+    }
+
+    @Test
+    void copilotNoContentRemainsNoData() throws Exception {
+        successfulResponses();
+        server.removeContext("/orgs/jdubois/copilot/metrics/reports/organization-28-day/latest");
+        response("/orgs/jdubois/copilot/metrics/reports/organization-28-day/latest", 204, "");
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        assertThat(report.status()).isEqualTo("CONNECTED");
+        assertThat(report.warnings()).isEmpty();
+        assertThat(report.copilotUsage().status()).isEqualTo("NO_DATA");
+        assertThat(report.copilotUsage().downloadLinkCount()).isZero();
+        assertThat(report.securitySignals())
+                .filteredOn(signal -> !signal.label().equals("Code scanning alerts"))
+                .hasSize(2)
+                .allSatisfy(signal -> {
+                    assertThat(signal.status()).isEqualTo("AVAILABLE");
+                    assertThat(signal.count()).isZero();
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "next-and-last",
+                "next-only",
+                "cursor",
+                "last-only",
+                "canonical-public-numbered",
+                "canonical-public-cursor",
+                "canonical-enterprise-numbered",
+                "canonical-enterprise-cursor"
+            })
+    void alertTraversalCountsEveryPageAtTheEnterpriseRepositoryEndpoint(String mode) throws Exception {
+        boolean canonical = mode.startsWith("canonical-");
+        boolean publicApi = mode.startsWith("canonical-public");
+        boolean cursor = mode.endsWith("cursor");
+        String prefix = publicApi ? "" : "/api/v3";
+        successfulResponses(prefix);
+        AtomicInteger canonicalRequests = new AtomicInteger();
+        server.createContext(prefix + "/repositories/", exchange -> {
+            canonicalRequests.incrementAndGet();
+            sendResponse(exchange, 404, "{}");
+        });
+        for (String endpoint : List.of("dependabot/alerts", "code-scanning/alerts", "secret-scanning/alerts")) {
+            String alertPath = prefix + "/repos/jdubois/boot-ui/" + endpoint;
+            server.removeContext(alertPath);
+            AtomicInteger pages = new AtomicInteger();
+            server.createContext(alertPath, exchange -> {
+                if (!"Bearer local-token".equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                    sendResponse(exchange, 401, "{}");
+                } else if (pages.getAndIncrement() == 0) {
+                    String target = "http://localhost:" + server.getAddress().getPort()
+                            + (canonical ? prefix + "/repositories/1300192/" + endpoint : alertPath)
+                            + "?state=open&per_page=100&" + (cursor ? "after=private-cursor" : "page=2");
+                    String link = "<" + target + ">; rel=\"" + (mode.equals("last-only") ? "last" : "next") + "\"";
+                    if (mode.equals("next-and-last") || canonical) {
+                        link += ", <" + target + ">; rel=\"last\"";
+                    }
+                    sendResponse(exchange, 200, alertArray(1, 100), link);
+                } else {
+                    sendResponse(exchange, 200, alertArray(101, 51));
+                }
+            });
+        }
+        server.start();
+
+        GitHubDashboardReport report =
+                paginationClient(17, 3).refresh(repository(publicApi ? "github.com" : "ghe.example", prefix + "/"));
+
+        assertThat(canonicalRequests.get()).isZero();
+        assertThat(report.status()).isEqualTo("CONNECTED");
+        assertThat(report.warnings()).isEmpty();
+        assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+        assertThat(report.securitySignals()).hasSize(3).allSatisfy(signal -> {
+            assertThat(signal.status()).isEqualTo("AVAILABLE");
+            assertThat(signal.count()).isEqualTo(151);
+        });
+        assertThat(report.securitySignals().get(0).alerts())
+                .extracting("number")
+                .containsExactly(1, 2, 3);
+        assertThat(report.securitySignals().subList(1, 3))
+                .allSatisfy(signal -> assertThat(signal.alerts()).isEmpty());
+        for (String endpoint : List.of("dependabot/alerts", "code-scanning/alerts", "secret-scanning/alerts")) {
+            String alertPath = prefix + "/repos/jdubois/boot-ui/" + endpoint;
+            assertThat(requestPaths)
+                    .filteredOn(path -> path.startsWith(alertPath + "?"))
+                    .containsExactly(
+                            alertPath + "?state=open&per_page=100",
+                            alertPath + "?state=open&per_page=100&" + (cursor ? "after=private-cursor" : "page=2"));
+        }
+        assertThat(new ObjectMapper().writeValueAsString(report))
+                .doesNotContain("local-token", "private-cursor", "alert-payload-private");
+    }
+
+    @Test
+    void lastPageHintsDoNotSkipIntermediatePagesOrAssumeFullPages() throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext("/repos/jdubois/boot-ui/dependabot/alerts", exchange -> {
+            switch (pages.getAndIncrement()) {
+                case 0 -> sendResponse(exchange, 200, alertArray(1, 40), "<?page=3>; rel=\"last\"");
+                case 1 -> sendResponse(exchange, 200, alertArray(41, 60));
+                default -> sendResponse(exchange, 200, alertArray(101, 51));
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        assertThat(report.status()).isEqualTo("CONNECTED");
+        assertThat(report.securitySignals().get(0).count()).isEqualTo(151);
+        assertThat(requestPaths)
+                .filteredOn(path -> path.contains("/dependabot/alerts"))
+                .containsExactly(
+                        "/repos/jdubois/boot-ui/dependabot/alerts?state=open&per_page=100",
+                        "/repos/jdubois/boot-ui/dependabot/alerts?state=open&per_page=100&page=2",
+                        "/repos/jdubois/boot-ui/dependabot/alerts?state=open&per_page=100&page=3");
+    }
+
+    @Test
+    void dependabotDetailsAreCollectedAcrossPagesButStayWithinTheConfiguredCap() throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext("/repos/jdubois/boot-ui/dependabot/alerts", exchange -> {
+            if (pages.getAndIncrement() == 0) {
+                sendResponse(exchange, 200, alertArray(1, 3), "<?page=2>; rel=\"next\"");
+            } else {
+                sendResponse(exchange, 200, alertArray(4, 4));
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 5).refresh(repository());
+
+        assertThat(report.status()).isEqualTo("CONNECTED");
+        assertThat(report.securitySignals().get(0).count()).isEqualTo(7);
+        assertThat(report.securitySignals().get(0).alerts())
+                .extracting("number")
+                .containsExactly(1, 2, 3, 4, 5);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"status", "invalid", "object", "truncated", "oversized", "repeat", "cycle", "duplicate"})
+    void failedLaterAlertPageRetainsOnlyLowerBoundEvidence(String failure) throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext("/repos/jdubois/boot-ui/dependabot/alerts", exchange -> {
+            if (pages.getAndIncrement() == 0) {
+                sendResponse(exchange, 200, alertArray(1, 100), "<?after=private-cursor>; rel=\"next\"");
+                return;
+            }
+            switch (failure) {
+                case "status" -> sendResponse(exchange, 502, "<html>local-token private-response</html>");
+                case "invalid" -> sendResponse(exchange, 200, "[{\"secret\":\"private-response\"},");
+                case "object" -> sendResponse(exchange, 200, "{\"secret\":\"private-response\"}");
+                case "oversized" ->
+                    sendResponse(exchange, 200, "[" + " ".repeat(BoundedBodyReader.GITHUB_MAX_BYTES) + "]");
+                case "truncated" -> {
+                    requestPaths.add(exchange.getRequestURI().toString());
+                    byte[] body = alertArray(101, 51).getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, body.length + 10);
+                    exchange.getResponseBody().write(body);
+                    exchange.close();
+                }
+                case "repeat" -> sendResponse(exchange, 200, alertArray(1, 100));
+                case "cycle" ->
+                    sendResponse(exchange, 200, alertArray(101, 51), "<?after=private-cursor>; rel=\"next\"");
+                case "duplicate" ->
+                    sendResponse(
+                            exchange,
+                            200,
+                            alertArray(101, 51),
+                            "<?after=private-cursor>; rel=\"next\"",
+                            "<?after=private-cursor>; rel=\"next\"");
+                default -> throw new AssertionError(failure);
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.connected()).isTrue();
+        if (failure.equals("truncated")) {
+            assertThat(pages.get())
+                    .as("the JDK may replay an idempotent request after a truncated response")
+                    .isGreaterThanOrEqualTo(2);
+        } else {
+            assertThat(pages.get()).isEqualTo(2);
+        }
+        assertThat(report.pullRequests()).extracting("number").containsExactly(42);
+        assertThat(report.quotas()).extracting("key").contains("core", "actions-cache", "actions-artifacts");
+        assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+        assertThat(report.securitySignals().get(0)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.alerts()).extracting("number").containsExactly(1, 2, 3);
+            int observed = failure.equals("cycle") || failure.equals("duplicate") ? 151 : 100;
+            assertThat(signal.unavailableReason()).contains("At least " + observed, "total is unknown");
+            if (failure.equals("status")) {
+                assertThat(signal.unavailableReason()).contains("HTTP 502");
+            }
+            assertThat(report.warnings()).containsExactly(signal.unavailableReason());
+        });
+        assertThat(report.securitySignals().subList(1, 3))
+                .allSatisfy(signal -> assertThat(signal.status()).isEqualTo("AVAILABLE"));
+        assertThat(new ObjectMapper().writeValueAsString(report))
+                .doesNotContain("local-token", "private-response", "private-cursor", "alert-payload-private");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "malformed",
+                "foreign-host",
+                "foreign-repo",
+                "wrong-endpoint",
+                "state",
+                "overflow",
+                "canonical-other-id",
+                "canonical-non-numeric",
+                "canonical-wrong-suffix",
+                "canonical-foreign-host",
+                "canonical-wrong-prefix",
+                "foreign-first",
+                "foreign-prev",
+                "state-first",
+                "implicit-next"
+            })
+    void unsafeAlertLinksNeverReceiveCredentials(String variant) throws Exception {
+        successfulResponses();
+        AtomicInteger unsafeRequests = new AtomicInteger();
+        AtomicReference<String> leakedAuthorization = new AtomicReference<>();
+        server.createContext("/", exchange -> {
+            unsafeRequests.incrementAndGet();
+            leakedAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            sendResponse(exchange, 404, "{}");
+        });
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        String target =
+                switch (variant) {
+                    case "malformed" -> "http://[invalid?after=private-cursor";
+                    case "foreign-host" ->
+                        "http://127.0.0.1:" + server.getAddress().getPort() + "/credential-trap?after=private-cursor";
+                    case "foreign-first", "foreign-prev" ->
+                        "http://127.0.0.1:" + server.getAddress().getPort()
+                                + "/credential-trap?state=open&per_page=100";
+                    case "foreign-repo" -> "/repos/another/project/dependabot/alerts?page=2";
+                    case "wrong-endpoint" -> "/repos/jdubois/boot-ui/code-scanning/alerts?page=2";
+                    case "state" -> "?page=2&state=closed&per_page=100";
+                    case "overflow" -> "?page=999999999999999999999999";
+                    case "canonical-other-id" -> "/repositories/1300193/dependabot/alerts?page=2";
+                    case "canonical-non-numeric" -> "/repositories/not-numeric/dependabot/alerts?page=2";
+                    case "canonical-wrong-suffix" -> "/repositories/1300192/code-scanning/alerts?page=2";
+                    case "canonical-foreign-host" ->
+                        "http://127.0.0.1:" + server.getAddress().getPort()
+                                + "/repositories/1300192/dependabot/alerts?page=2";
+                    case "canonical-wrong-prefix" -> "/api/v3/repositories/1300192/dependabot/alerts?page=2";
+                    case "state-first" -> "?state=closed&per_page=100";
+                    case "implicit-next" -> "?state=open&per_page=100";
+                    default -> throw new AssertionError(variant);
+                };
+        String relation = variant.endsWith("first") ? "first" : variant.equals("foreign-prev") ? "prev" : "next";
+        server.createContext(
+                "/repos/jdubois/boot-ui/dependabot/alerts",
+                exchange ->
+                        sendResponse(exchange, 200, alertArray(1, 100), "<" + target + ">; rel=\"" + relation + "\""));
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.securitySignals().get(0)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.alerts()).hasSize(3);
+            assertThat(signal.unavailableReason()).contains("pagination", "At least 100");
+        });
+        assertThat(unsafeRequests.get()).isZero();
+        assertThat(leakedAuthorization.get()).isNull();
+        assertThat(requestPaths)
+                .filteredOn(path -> path.contains("/code-scanning/alerts"))
+                .hasSize(1);
+        assertThat(requestPaths)
+                .filteredOn(path -> path.contains("/dependabot/alerts"))
+                .hasSize(1);
+        assertThat(new ObjectMapper().writeValueAsString(report))
+                .doesNotContain("local-token", "private-cursor", "credential-trap", "another/project");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "null", "0", "-1", "1.5", "\"1300192\"", "9223372036854775808"})
+    void unresolvedRepositoryIdsRejectCanonicalLinksButNamedLinksStillWork(String rawId) throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui");
+        String idField = rawId.equals("missing") ? "" : "\"id\":" + rawId + ",";
+        json(
+                "/repos/jdubois/boot-ui",
+                "{" + idField + "\"default_branch\":\"main\",\"owner\":{\"type\":\"Organization\"}}");
+        AtomicInteger canonicalRequests = new AtomicInteger();
+        server.createContext("/repositories/", exchange -> {
+            canonicalRequests.incrementAndGet();
+            sendResponse(exchange, 404, "{}");
+        });
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        server.createContext(
+                "/repos/jdubois/boot-ui/dependabot/alerts",
+                exchange -> sendResponse(
+                        exchange,
+                        200,
+                        alertArray(1, 100),
+                        "</repositories/1300192/dependabot/alerts?page=2>; rel=\"next\""));
+        server.removeContext("/repos/jdubois/boot-ui/code-scanning/alerts");
+        AtomicInteger namedPages = new AtomicInteger();
+        server.createContext("/repos/jdubois/boot-ui/code-scanning/alerts", exchange -> {
+            if (namedPages.getAndIncrement() == 0) {
+                sendResponse(exchange, 200, alertArray(1, 1), "<?page=2>; rel=\"next\"");
+            } else {
+                sendResponse(exchange, 200, alertArray(2, 1));
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        assertThat(canonicalRequests.get()).isZero();
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.securitySignals().get(0)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.unavailableReason()).contains("pagination", "At least 100");
+        });
+        assertThat(requestPaths)
+                .filteredOn(path -> path.contains("/dependabot/alerts"))
+                .hasSize(1);
+        assertThat(report.securitySignals().get(1)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("AVAILABLE");
+            assertThat(signal.count()).isEqualTo(2);
+            assertThat(signal.alerts()).isEmpty();
+        });
+        assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"numbered", "cursor", "terminal"})
+    void implicitInitialFirstAndPreviousLinksRemainValid(String mode) throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext("/repos/jdubois/boot-ui/dependabot/alerts", exchange -> {
+            int current = pages.incrementAndGet();
+            String initial = "<?state=open&per_page=100>; rel=\"first\", " + "<?state=open&per_page=100>; rel=\"prev\"";
+            if (current == 1 && !mode.equals("terminal")) {
+                String next = mode.equals("cursor") ? "after=private-cursor" : "page=2";
+                sendResponse(exchange, 200, alertArray(current, 1), initial, "<?" + next + ">; rel=\"next\"");
+            } else {
+                sendResponse(exchange, 200, alertArray(current, 1), initial);
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        int expected = mode.equals("terminal") ? 1 : 2;
+        assertThat(report.status()).isEqualTo("CONNECTED");
+        assertThat(pages.get()).isEqualTo(expected);
+        assertThat(report.securitySignals().get(0).count()).isEqualTo(expected);
+        assertThat(report.securitySignals().get(0).status()).isEqualTo("AVAILABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "numbered-to-cursor", "cursor-to-number", "cursor-last-numbered-next", "next-beyond-last",
+                "next-after-terminal", "decreasing-last", "last-behind-current", "cursor-last-changed"
+            })
+    void incoherentPaginationStopsBeforeAnyContradictoryRequest(String variant) throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        String first =
+                switch (variant) {
+                    case "cursor-to-number" -> "<?after=private-a>; rel=\"next\"";
+                    case "cursor-last-numbered-next" -> "<?page=2>; rel=\"next\", <?after=private-z>; rel=\"last\"";
+                    case "next-beyond-last" -> "<?page=2>; rel=\"next\", <?page=1>; rel=\"last\"";
+                    case "next-after-terminal" -> "<?page=2>; rel=\"next\", <?page=2>; rel=\"last\"";
+                    case "decreasing-last" -> "<?page=2>; rel=\"next\", <?page=3>; rel=\"last\"";
+                    case "cursor-last-changed" -> "<?after=private-a>; rel=\"next\", <?after=private-z>; rel=\"last\"";
+                    default -> "<?page=2>; rel=\"next\"";
+                };
+        String second =
+                switch (variant) {
+                    case "numbered-to-cursor" -> "<?after=private-b>; rel=\"next\"";
+                    case "cursor-to-number" -> "<?page=2>; rel=\"next\"";
+                    case "decreasing-last" -> "<?page=3>; rel=\"next\", <?page=2>; rel=\"last\"";
+                    case "last-behind-current" -> "<?page=1>; rel=\"last\"";
+                    case "cursor-last-changed" -> "<?after=private-b>; rel=\"next\", <?after=private-y>; rel=\"last\"";
+                    default -> "<?page=3>; rel=\"next\"";
+                };
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext("/repos/jdubois/boot-ui/dependabot/alerts", exchange -> {
+            switch (pages.incrementAndGet()) {
+                case 1 -> sendResponse(exchange, 200, alertArray(1, 100), first);
+                case 2 -> sendResponse(exchange, 200, alertArray(101, 100), second);
+                default -> sendResponse(exchange, 200, alertArray(201, 51));
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        int expectedPages = variant.equals("cursor-last-numbered-next") || variant.equals("next-beyond-last") ? 1 : 2;
+        assertThat(pages.get()).isEqualTo(expectedPages);
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.securitySignals().get(0)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.alerts()).hasSize(3);
+            assertThat(signal.unavailableReason())
+                    .contains("pagination", "At least " + (expectedPages * 100))
+                    .doesNotContain("private-");
+        });
+        assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "dependabot/alerts, Organization",
+        "dependabot/alerts, User",
+        "code-scanning/alerts, Organization",
+        "code-scanning/alerts, User",
+        "secret-scanning/alerts, Organization",
+        "secret-scanning/alerts, User"
+    })
+    void optionalContinuationPreservesRemainingBaselineCallsWithinTheDefaultBudget(
+            String selectedEndpoint, String ownerType) throws Exception {
+        successfulResponses();
+        List<String> endpoints = List.of("dependabot/alerts", "code-scanning/alerts", "secret-scanning/alerts");
+        int selectedSignal = endpoints.indexOf(selectedEndpoint);
+        if (ownerType.equals("User")) {
+            server.removeContext("/repos/jdubois/boot-ui");
+            json("/repos/jdubois/boot-ui", "{\"id\":1300192,\"owner\":{\"type\":\"User\"}}");
+            json("/users/jdubois/settings/billing/actions", "{\"included_minutes\":2000,\"total_minutes_used\":125}");
+        }
+        String alertPath = "/repos/jdubois/boot-ui/" + selectedEndpoint;
+        server.removeContext(alertPath);
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext(alertPath, exchange -> {
+            int current = pages.incrementAndGet();
+            String body = alertArray((current - 1) * 100 + 1, 100);
+            if (current < 7) {
+                sendResponse(
+                        exchange, 200, body, "<?page=" + (current + 1) + ">; rel=\"next\", <?page=7>; rel=\"last\"");
+            } else {
+                sendResponse(exchange, 200, body);
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = client("local-token").refresh(repository());
+
+        int expectedPages = ownerType.equals("Organization") ? 5 : 6;
+        assertThat(requestPaths).hasSize(17);
+        assertThat(pages.get()).isEqualTo(expectedPages);
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.securitySignals().get(selectedSignal)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            if (selectedSignal == 0) {
+                assertThat(signal.alerts()).hasSize(50);
+            } else {
+                assertThat(signal.alerts()).isEmpty();
+            }
+            assertThat(signal.unavailableReason())
+                    .contains("traversal budget", "baseline", "At least " + expectedPages * 100)
+                    .doesNotContain("configured GitHub API call budget was reached");
+            assertThat(report.warnings()).containsExactly(signal.unavailableReason());
+        });
+        for (int i = 0; i < endpoints.size(); i++) {
+            if (i == selectedSignal) {
+                continue;
+            }
+            assertThat(report.securitySignals().get(i).status()).isEqualTo("AVAILABLE");
+            assertThat(report.securitySignals().get(i).count()).isEqualTo(i == 1 ? 1 : 0);
+            assertThat(report.securitySignals().get(i).alerts()).isEmpty();
+            String baselinePath = "/repos/jdubois/boot-ui/" + endpoints.get(i);
+            assertThat(requestPaths)
+                    .filteredOn(path -> path.startsWith(baselinePath + "?"))
+                    .hasSize(1);
+        }
+        assertThat(requestPaths)
+                .contains(
+                        "/repos/jdubois/boot-ui/dependabot/alerts?state=open&per_page=100",
+                        "/repos/jdubois/boot-ui/code-scanning/alerts?state=open&per_page=100",
+                        "/repos/jdubois/boot-ui/secret-scanning/alerts?state=open&per_page=100",
+                        "/repos/jdubois/boot-ui/actions/cache/usage",
+                        "/repos/jdubois/boot-ui/actions/artifacts?per_page=1",
+                        (ownerType.equals("Organization") ? "/orgs/" : "/users/") + "jdubois/settings/billing/actions");
+        assertThat(report.quotas()).extracting("key").contains("actions-cache", "actions-artifacts", "actions-minutes");
+        if (ownerType.equals("Organization")) {
+            assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+            assertThat(requestPaths).contains("/orgs/jdubois/copilot/metrics/reports/organization-28-day/latest");
+        } else {
+            assertThat(report.copilotUsage().status()).isEqualTo("UNAVAILABLE");
+            assertThat(requestPaths).noneMatch(path -> path.contains("/copilot/"));
+        }
+        assertThat(new ObjectMapper().writeValueAsString(report))
+                .doesNotContain("local-token", "alert-payload-private");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"oversized", "truncated"})
+    void firstAlertPageIoFailureRemainsSectionUnavailableWithoutInventingObservedEvidence(String failure)
+            throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        server.createContext("/repos/jdubois/boot-ui/dependabot/alerts", exchange -> {
+            if (failure.equals("oversized")) {
+                sendResponse(exchange, 200, "[" + " ".repeat(BoundedBodyReader.GITHUB_MAX_BYTES) + "]");
+            } else {
+                requestPaths.add(exchange.getRequestURI().toString());
+                byte[] body = alertArray(1, 2).getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, body.length + 10);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            }
+        });
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(17, 3).refresh(repository());
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.connected()).isTrue();
+        assertThat(report.securitySignals().get(0)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.alerts()).isEmpty();
+            assertThat(signal.unavailableReason())
+                    .contains("Dependabot alerts", "response-size limit")
+                    .doesNotContain("At least");
+            assertThat(report.warnings()).containsExactly(signal.unavailableReason());
+        });
+        assertThat(report.repository().defaultBranch()).isEqualTo("main");
+        assertThat(report.pullRequests()).extracting("number").containsExactly(42);
+        assertThat(report.workflowRuns()).extracting("id").containsExactly(9L);
+        assertThat(report.quotas())
+                .extracting("key")
+                .contains("core", "actions-cache", "actions-artifacts", "actions-minutes");
+        assertThat(report.copilotUsage().status()).isEqualTo("AVAILABLE");
+        assertThat(report.securitySignals().subList(1, 3))
+                .allSatisfy(signal -> assertThat(signal.status()).isEqualTo("AVAILABLE"));
+        assertThat(new ObjectMapper().writeValueAsString(report))
+                .doesNotContain("local-token", "alert-payload-private");
+    }
+
+    @Test
+    void exhaustedRefreshBudgetDoesNotTurnTheFirstPageIntoATotal() throws Exception {
+        successfulResponses();
+        server.removeContext("/repos/jdubois/boot-ui/dependabot/alerts");
+        server.createContext(
+                "/repos/jdubois/boot-ui/dependabot/alerts",
+                exchange -> sendResponse(exchange, 200, alertArray(1, 100), "<?page=2>; rel=\"next\""));
+        server.start();
+
+        GitHubDashboardReport report = paginationClient(7, 3).refresh(repository());
+
+        assertThat(requestPaths).hasSize(7);
+        assertThat(requestPaths)
+                .filteredOn(path -> path.contains("/dependabot/alerts"))
+                .containsExactly("/repos/jdubois/boot-ui/dependabot/alerts?state=open&per_page=100");
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.securitySignals().get(0)).satisfies(signal -> {
+            assertThat(signal.status()).isEqualTo("UNAVAILABLE");
+            assertThat(signal.count()).isNull();
+            assertThat(signal.alerts()).hasSize(3);
+            assertThat(signal.unavailableReason()).contains("budget", "At least 100", "total is unknown");
+        });
+    }
+
+    private void successfulResponses() throws Exception {
+        successfulResponses("");
+    }
+
+    private void successfulResponses(String prefix) throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        json(prefix + "/rate_limit", "{\"resources\":{\"core\":{\"limit\":5000,\"remaining\":4950}}}");
+        json(
+                prefix + "/repos/jdubois/boot-ui",
+                "{\"id\":1300192,\"default_branch\":\"main\",\"owner\":{\"type\":\"Organization\"}}");
+        json(prefix + "/repos/jdubois/boot-ui/pulls", "[{\"number\":42}]");
+        json(prefix + "/repos/jdubois/boot-ui/issues", "[{\"number\":7}]");
+        json(prefix + "/repos/jdubois/boot-ui/actions/runs", "{\"workflow_runs\":[{\"id\":9}]}");
+        json(prefix + "/repos/jdubois/boot-ui/actions/workflows", "{\"workflows\":[]}");
+        json(prefix + "/repos/jdubois/boot-ui/dependabot/alerts", "[]");
+        json(prefix + "/repos/jdubois/boot-ui/code-scanning/alerts", "[{}]");
+        json(prefix + "/repos/jdubois/boot-ui/secret-scanning/alerts", "[]");
+        json(prefix + "/repos/jdubois/boot-ui/actions/cache/usage", "{\"active_caches_size_in_bytes\":2048}");
+        json(prefix + "/repos/jdubois/boot-ui/actions/artifacts", "{\"total_count\":5}");
+        json(
+                prefix + "/orgs/jdubois/settings/billing/actions",
+                "{\"included_minutes\":2000,\"total_minutes_used\":125}");
+        json(prefix + "/orgs/jdubois/copilot/metrics/reports/organization-28-day/latest", "{\"download_links\":[]}");
+    }
+
+    private GitHubApiClient paginationClient(int maxCalls, int maxDetails) {
+        QuarkusGitHubSettings settings = new QuarkusGitHubSettings(
+                Duration.ofSeconds(2), 10, 25, 20, 10, maxCalls, maxDetails, List.of("localhost"));
+        GitHubTokenProvider provider = new GitHubTokenProvider() {
+            @Override
+            public Token token(Duration timeout) {
+                throw new AssertionError("Hostless lookup must not be used");
+            }
+
+            @Override
+            public Token token(String host, Duration timeout) {
+                return new Token("local-token", "test-token");
+            }
+        };
+        return new GitHubApiClient(settings, HttpClient.newHttpClient(), new ObjectMapper(), provider);
+    }
+
     private GitHubApiClient client(String token) {
+        return clientWithProvider(timeout -> token == null ? null : new GitHubTokenProvider.Token(token, "test-token"));
+    }
+
+    private GitHubApiClient clientWithProvider(GitHubTokenProvider provider) {
         QuarkusGitHubSettings settings =
                 new QuarkusGitHubSettings(Duration.ofSeconds(2), 10, 25, 20, 10, 17, 50, List.of("localhost"));
-        return new GitHubApiClient(
-                settings,
-                HttpClient.newHttpClient(),
-                new ObjectMapper(),
-                timeout -> token == null ? null : new GitHubTokenProvider.Token(token, "test-token"));
+        return new GitHubApiClient(settings, HttpClient.newHttpClient(), new ObjectMapper(), provider);
     }
 
     private GitHubRepositoryDetector.Repository repository() {
+        return repository("github.com");
+    }
+
+    private GitHubRepositoryDetector.Repository repository(String host) {
+        return repository(host, "/");
+    }
+
+    private GitHubRepositoryDetector.Repository repository(String host, String apiPrefix) {
         return new GitHubRepositoryDetector.Repository(
                 "jdubois",
                 "boot-ui",
                 "jdubois/boot-ui",
-                "github.com",
-                URI.create("http://localhost:" + server.getAddress().getPort() + "/"),
+                host,
+                URI.create("http://localhost:" + server.getAddress().getPort() + apiPrefix),
                 "https://github.com/jdubois/boot-ui",
                 "main",
                 "main");
     }
 
     private void json(String path, String body) {
-        server.createContext(path, exchange -> {
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.getResponseHeaders().add("X-OAuth-Scopes", "repo, workflow");
-            exchange.sendResponseHeaders(200, bytes.length);
+        response(path, 200, body);
+    }
+
+    private void response(String path, int status, String body) {
+        server.createContext(path, exchange -> sendResponse(exchange, status, body));
+    }
+
+    private void sendResponse(HttpExchange exchange, int status, String body, String... links) throws IOException {
+        requestPaths.add(exchange.getRequestURI().toString());
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.getResponseHeaders().add("X-OAuth-Scopes", "repo, workflow");
+        for (String link : links) {
+            exchange.getResponseHeaders().add("Link", link);
+        }
+        exchange.sendResponseHeaders(status, status == 204 ? -1 : bytes.length);
+        if (status != 204) {
             exchange.getResponseBody().write(bytes);
-            exchange.close();
-        });
+        }
+        exchange.close();
+    }
+
+    private String alertArray(int first, int count) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = first; i < first + count; i++) {
+            if (i > first) {
+                json.append(',');
+            }
+            json.append("{\"number\":").append(i).append(",\"secret\":\"alert-payload-private\"}");
+        }
+        return json.append(']').toString();
     }
 
     private String jsonArray(int count) {

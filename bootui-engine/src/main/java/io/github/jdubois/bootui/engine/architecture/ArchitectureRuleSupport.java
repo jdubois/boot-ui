@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMember;
@@ -11,8 +12,13 @@ import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitViolations;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
+import io.github.jdubois.bootui.engine.source.LocalSourceModule;
 import io.github.jdubois.bootui.engine.support.DetailText;
+import java.util.ArrayDeque;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Helpers shared by architecture rules for building the per-rule result DTO and for evaluating an
@@ -31,6 +37,34 @@ final class ArchitectureRuleSupport {
     private static final int MAX_SAMPLE_VIOLATIONS = 10;
 
     private ArchitectureRuleSupport() {}
+
+    static boolean isTestOutput(JavaClass type) {
+        return type.getSource()
+                .flatMap(source -> LocalSourceModule.of(type.getName(), source.getUri()))
+                .filter(module -> module.sourceSet().equals("test"))
+                .isPresent();
+    }
+
+    static boolean isObservedOrigin(JavaClass type, JavaClasses view) {
+        return view.contain(type.getName()) || !isTestOutput(type);
+    }
+
+    /** Project through excluded test intermediates without dropping production or unresolved relationships. */
+    static Set<JavaClass> observedSubclasses(JavaClass type, JavaClasses view) {
+        Set<JavaClass> result = new LinkedHashSet<>();
+        Set<JavaClass> visited = new HashSet<>();
+        var pending = new ArrayDeque<>(type.getSubclasses());
+        while (!pending.isEmpty()) {
+            JavaClass subclass = pending.removeFirst();
+            if (!visited.add(subclass)) continue;
+            if (isObservedOrigin(subclass, view)) {
+                result.add(subclass);
+            } else {
+                pending.addAll(subclass.getSubclasses());
+            }
+        }
+        return result;
+    }
 
     static <T> com.tngtech.archunit.base.DescribedPredicate<T> observed(
             com.tngtech.archunit.base.DescribedPredicate<T> predicate, ArchitectureContext context) {

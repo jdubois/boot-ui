@@ -13,7 +13,10 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
                 DatabaseAdvisorCategory.SCHEMA,
                 DatabaseAdvisorRuleSupport.LOW,
                 "Compares fully known ordinary index keys, payload, ordering, collation, method and state. "
-                        + "Prefixes, expressions, predicates, special indexes and unknown definitions are not compared.",
+                        + "Prefixes, expressions, predicates, special indexes and unknown definitions are not compared. "
+                        + "Uses PostgreSQL or fully observed ordinary InnoDB indexes on MySQL/MariaDB. "
+                        + "MariaDB unique keys with unresolved temporal semantics, other storage engines, "
+                        + "Oracle and generic JDBC remain unsupported for full comparison.",
                 "Review both definitions, constraint dependencies, index hints and workload before considering "
                         + "removal. Even an exact structural duplicate does not prove workload-neutral removal.",
                 "https://use-the-index-luke.com/sql/dml"));
@@ -57,7 +60,7 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
                 }
             }
         }
-        return assessed(context, eligible, details);
+        return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
     /**

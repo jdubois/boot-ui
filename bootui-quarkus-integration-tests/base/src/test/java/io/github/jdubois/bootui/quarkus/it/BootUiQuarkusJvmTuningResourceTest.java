@@ -45,15 +45,39 @@ class BootUiQuarkusJvmTuningResourceTest {
                 .as("GET /bootui/api/jvm-tuning content-type (%s)", response.contentType())
                 .isTrue();
 
-        JsonNode virtualThreadsProperty = response.json().path("calculation").path("virtualThreadsProperty");
+        JsonNode report = response.json();
+        JsonNode calculation = report.path("calculation");
+        JsonNode virtualThreadsProperty = calculation.path("virtualThreadsProperty");
         assertThat(virtualThreadsProperty.isTextual())
                 .as("Quarkus has no application-wide virtual-threads property, so it must not be a string")
                 .isFalse();
+        assertThat(calculation.path("valid").isBoolean()).isTrue();
+        assertThat(report.path("kubernetes").path("healthProbesEnabled").asBoolean(true))
+                .isFalse();
+        if (calculation.path("valid").asBoolean()) {
+            assertThat(calculation.path("error").isNull()).isTrue();
+            assertThat(report.path("suggestedJvmOptions").asText()).contains("-Xms", "-Xmx");
+            assertThat(report.path("kubernetes").path("yaml").asText()).contains("JAVA_TOOL_OPTIONS");
+        } else {
+            assertThat(calculation.path("error").asText()).isNotBlank();
+            assertThat(calculation.path("heapBytes").asLong()).isZero();
+            assertThat(calculation.path("jvmOptions").asText()).isEmpty();
+            assertThat(report.path("suggestedJvmOptions").asText()).isEmpty();
+            assertThat(report.path("kubernetes").path("javaToolOptions").asText())
+                    .isEmpty();
+            assertThat(report.path("kubernetes").path("yaml").asText()).isEmpty();
+            assertThat(report.path("kubernetes").path("qosClass").asText()).isEqualTo("Unavailable");
+            assertThat(report.path("kubernetes").path("warnings")).contains(calculation.path("error"));
+        }
     }
 
     @Test
     void kubernetesSnippetOmitsProbesByDefaultWithTheNeutralWarning() {
-        JsonNode kubernetes = probe().get("/bootui/api/jvm-tuning").json().path("kubernetes");
+        Response response = probe().get("/bootui/api/jvm-tuning?totalMemoryMb=65536");
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().path("calculation").path("valid").asBoolean())
+                .isTrue();
+        JsonNode kubernetes = response.json().path("kubernetes");
 
         assertThat(kubernetes.path("healthProbesEnabled").asBoolean(true))
                 .as("SmallRye Health is absent from the IT classpath, so probes default off")
@@ -77,9 +101,11 @@ class BootUiQuarkusJvmTuningResourceTest {
 
     @Test
     void kubernetesSnippetUsesSmallRyePathsWhenProbesAreForcedOn() {
-        JsonNode kubernetes = probe().get("/bootui/api/jvm-tuning?kubernetesActuatorEnabled=true")
-                .json()
-                .path("kubernetes");
+        Response response = probe().get("/bootui/api/jvm-tuning?totalMemoryMb=65536&kubernetesActuatorEnabled=true");
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().path("calculation").path("valid").asBoolean())
+                .isTrue();
+        JsonNode kubernetes = response.json().path("kubernetes");
 
         assertThat(kubernetes.path("healthProbesEnabled").asBoolean(false)).isTrue();
         String yaml = kubernetes.path("yaml").asText();

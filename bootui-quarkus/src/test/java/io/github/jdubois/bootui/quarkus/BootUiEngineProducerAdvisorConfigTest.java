@@ -15,6 +15,24 @@ import org.junit.jupiter.api.Test;
 class BootUiEngineProducerAdvisorConfigTest {
 
     @Test
+    void memoryHistogramConfigurationMatchesSpringWithoutCollecting() {
+        var threads = mock(io.github.jdubois.bootui.engine.threads.ThreadDumpService.class);
+        var producer = new BootUiEngineProducer();
+        assertThat(producer.memoryScanner(threads, StubConfig.empty())
+                        .initialReport()
+                        .scan()
+                        .includeHistogram())
+                .isTrue();
+        var configured = new StubConfig(Map.of("bootui.memory.include-histogram", "false"));
+        assertThat(producer.memoryScanner(threads, configured)
+                        .initialReport()
+                        .scan()
+                        .includeHistogram())
+                .isFalse();
+        org.mockito.Mockito.verifyNoInteractions(threads);
+    }
+
+    @Test
     void retentionDefaultsAndInvalidValuesAreRejectedBeforeScanning() {
         assertThat(BootUiEngineProducer.advisorRetentionLimit(StubConfig.empty()))
                 .isEqualTo(10_000);

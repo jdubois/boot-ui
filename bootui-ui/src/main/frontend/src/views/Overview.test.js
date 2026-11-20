@@ -134,6 +134,23 @@ describe('Overview', () => {
       .findAll('button')
       .find((button) => /all scanners/.test(button.text()))
 
+  it('keeps the cached Memory mode visible while both Scorecard scan actions explicitly omit the histogram', async () => {
+    const report = severityReport([])
+    report.scan.includeHistogram = true
+    stubFetch({'api/memory': report})
+    const wrapper = mountOverview(onlyPanels('memory'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'Memory')
+    expect(card.text()).toContain('Last scan: histogram requested.')
+    expect(card.text()).toContain('No histogram or GC request; heap-content checks are skipped.')
+    expect(posts()).toEqual([])
+    card.vm.$emit('run')
+    await flushPromises()
+    await runAllButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(posts()).toEqual(['api/memory/scan?includeHistogram=false', 'api/memory/scan?includeHistogram=false'])
+  })
+
   it('guards duplicate events while a scan or GitHub refresh is pending', async () => {
     document.cookie = 'XSRF-TOKEN=test-token; path=/'
     const finish = []
@@ -187,10 +204,12 @@ describe('Overview', () => {
     expect(wrapper.findAllComponents(ScannerScoreCard)).toHaveLength(10)
     const runAll = runAllButton(wrapper)
     expect(runAll.element.disabled).toBe(true)
-    expect(wrapper.get(`[id="${runAll.attributes('aria-describedby')}"]`).text()).toContain('No scanners can run')
+    expect(wrapper.get(`[id="${runAll.attributes('aria-describedby').split(' ')[0]}"]`).text()).toContain(
+      'No scanners can run'
+    )
     for (const card of wrapper.findAllComponents(ScannerScoreCard)) {
       expect(card.get('button').element.disabled).toBe(true)
-      expect(card.get(`[id="${card.get('button').attributes('aria-describedby')}"]`).text()).toBe(reason)
+      expect(card.get(`[id="${card.get('button').attributes('aria-describedby').split(' ')[0]}"]`).text()).toBe(reason)
       expect(card.get('a').exists()).toBe(true)
       card.vm.$emit('run')
     }
@@ -211,7 +230,9 @@ describe('Overview', () => {
     await flushPromises()
     await runAllButton(wrapper).trigger('click')
     await flushPromises()
-    expect(posts().sort()).toEqual(['api/memory/scan', ...(githubReadOnly ? [] : ['api/github/refresh'])].sort())
+    expect(posts().sort()).toEqual(
+      ['api/memory/scan?includeHistogram=false', ...(githubReadOnly ? [] : ['api/github/refresh'])].sort()
+    )
     expect(scannerCard(wrapper, 'Architecture').get('button').element.disabled).toBe(true)
   })
 
@@ -367,6 +388,42 @@ describe('Overview', () => {
     expect(card.get('.scanner-score').classes()).toContain(`text-${tone}-emphasis`)
     expect(card.get('.scanner-score').text()).toBe(String(100 - alerts * 10))
     expect(card.get('.scanner-status').text()).toBe('Connected')
+  })
+
+  it('retains the last valid GitHub score when a refresh returns an HTTP-200 ERROR report', async () => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    let refresh = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init) => {
+        const report =
+          init?.method === 'POST' && ++refresh > 1
+            ? {
+                available: true,
+                connected: false,
+                status: 'ERROR',
+                message: 'GitHub credentials expired',
+                credential: {authenticated: false},
+                securitySignals: []
+              }
+            : githubReport({alerts: 2})
+        return Promise.resolve(new Response(JSON.stringify(report), {status: 200}))
+      })
+    )
+    const wrapper = mountOverview(onlyPanels('github'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'GitHub')
+
+    await card.get('button').trigger('click')
+    await flushPromises()
+    expect(card.get('.scanner-score').text()).toBe('80')
+    expect(card.get('.scanner-status').text()).toBe('Connected')
+
+    await card.get('button').trigger('click')
+    await flushPromises()
+    expect(card.get('.scanner-score').text()).toBe('80')
+    expect(card.get('.scanner-status').text()).toBe('Connected')
+    expect(card.text()).toContain('GitHub credentials expired')
   })
 
   afterEach(() => {
@@ -1076,6 +1133,49 @@ describe('Overview', () => {
       'Overall score: 100 out of 100 — Average of 1 score'
     )
     expect(card.text()).not.toMatch(/Good|high/)
+  })
+
+  it('binds later GitHub refreshes to the repository displayed by the scorecard', async () => {
+    const first = {
+      ...githubReport(),
+      repository: {host: 'github.com', fullName: 'jdubois/boot-ui', htmlUrl: 'https://github.com/jdubois/boot-ui'}
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(first), {status: 200}))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ...first,
+            status: 'ERROR',
+            message: 'The configured GitHub repository changed after page permission was granted.',
+            repository: {
+              host: 'github.com',
+              fullName: 'other/project',
+              htmlUrl: 'https://github.com/other/project'
+            }
+          }),
+          {status: 200}
+        )
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountOverview(onlyPanels('github'))
+    await flushPromises()
+    const card = scannerCard(wrapper, 'GitHub')
+
+    await card.get('button').trigger('click')
+    await flushPromises()
+    await card.get('button').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'api/github/refresh',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui'
+    ])
+    expect(card.text()).toContain('configured GitHub repository changed')
+    expect(card.get('button').attributes('disabled')).toBeDefined()
+    await card.get('button').trigger('click')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('leaves three MEDIUM findings at 91 when another advisor becomes clean', async () => {

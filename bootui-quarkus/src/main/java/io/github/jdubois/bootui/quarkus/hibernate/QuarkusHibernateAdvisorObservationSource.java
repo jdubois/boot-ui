@@ -99,6 +99,8 @@ public final class QuarkusHibernateAdvisorObservationSource implements Hibernate
                 org.jboss.logging.Logger.getLogger("org.hibernate.SQL").isDebugEnabled(),
                 org.jboss.logging.Logger.getLogger("org.hibernate.orm.jdbc.bind")
                         .isTraceEnabled(),
+                org.jboss.logging.Logger.getLogger("org.hibernate.orm.jdbc.extract")
+                        .isTraceEnabled(),
                 config.getOptionalValue("bootui.internal.hibernate-panache-enhancement", Boolean.class)
                         .orElse(false));
         return new HibernateAdvisorObservation(units, facts, diagnostics);

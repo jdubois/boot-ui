@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.FactoryBean;
@@ -31,6 +32,7 @@ import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
+import org.springframework.beans.factory.support.FactoryBeanRegistrySupport;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.origin.OriginTrackedValue;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -44,6 +46,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.MatcherSecurityWebFilterChain;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.csrf.CsrfWebFilter;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.server.WebFilter;
@@ -196,6 +199,13 @@ public final class SpringReactiveSecurityObservationCollector {
             if (definition != null && definition.isAbstract()) {
                 continue;
             }
+            Object cachedProduct = instance instanceof FactoryBean<?> ? cachedFactoryProduct(singletons, name) : null;
+            if (cachedProduct != null) {
+                if (expectedType.isInstance(cachedProduct)) {
+                    candidates.add(new BeanCandidate(name, cachedProduct));
+                }
+                continue;
+            }
             if (instance != null && !(instance instanceof FactoryBean<?>)) {
                 if (expectedType.isInstance(instance)) {
                     candidates.add(new BeanCandidate(name, instance));
@@ -219,7 +229,7 @@ public final class SpringReactiveSecurityObservationCollector {
             if (resolved == null || resolved == Object.class) {
                 complete = false;
             } else if (expectedType.isAssignableFrom(resolved)) {
-                // A FactoryBean product is not retrieved, even when its factory already exists.
+                // A matching uncached product remains unavailable; never invoke the application FactoryBean.
                 candidates.add(new BeanCandidate(name, null));
             }
         }
@@ -373,6 +383,7 @@ public final class SpringReactiveSecurityObservationCollector {
         boolean form = false;
         boolean bearer = false;
         boolean authComplete = true;
+        boolean csrfMatcherObserved = true;
         boolean redirect = false;
         for (int i = 0; i < filters.size() && i < MAX_ITEMS; i++) {
             Object filter = filters.get(i);
@@ -393,6 +404,11 @@ public final class SpringReactiveSecurityObservationCollector {
                             : filter.getClass().getSimpleName());
             if (exact(filter, HEADERS + "HttpHeaderWriterWebFilter")) {
                 headerFilters.add(filter);
+            }
+            if (exact(filter, SECURITY + "csrf.CsrfWebFilter")) {
+                // Only the held native default proves the supported unsafe-method scope; never match a request.
+                csrfMatcherObserved &= filter.getClass() == CsrfWebFilter.class
+                        && readField(filter, "requireCsrfProtectionMatcher") == CsrfWebFilter.DEFAULT_CSRF_MATCHER;
             }
             if (exact(filter, SECURITY + "authentication.AuthenticationWebFilter")) {
                 Object converter = readField(filter, "authenticationConverter");
@@ -449,7 +465,9 @@ public final class SpringReactiveSecurityObservationCollector {
                 filtersComplete && authComplete,
                 unconditional,
                 headers.policies,
-                redirect);
+                redirect,
+                null,
+                filtersComplete && csrfMatcherObserved);
     }
 
     private static Boolean unconditionalMatcher(Object matcher) {
@@ -876,9 +894,6 @@ public final class SpringReactiveSecurityObservationCollector {
                 continue;
             }
             Object singleton = singletons.containsSingleton(name) ? singletons.getSingleton(name) : null;
-            if (singleton instanceof FactoryBean<?>) {
-                continue;
-            }
             if (definition != null) {
                 String factoryBeanName = definition.getFactoryBeanName();
                 String className = definition.getBeanClassName();
@@ -889,10 +904,26 @@ public final class SpringReactiveSecurityObservationCollector {
                 recordMethodSecurityConfiguration(singleton.getClass().getName(), enabled);
             }
             Class<?> type = declaredType(definition).resolve();
-            if (type == null && singleton != null) {
+            if (singleton instanceof FactoryBean<?> factoryBean) {
+                type = factoryBean.getClass();
+                complete &= collectMethodFamilies(type, used, new HashSet<>(), 0);
+                Object product = cachedFactoryProduct(singletons, name);
+                if (product == null) {
+                    Class<?> productType = factoryProductType(definition, type);
+                    complete &= productType != null && frameworkType(productType);
+                    continue;
+                }
+                singleton = product;
+                type = product.getClass();
+            } else if (type != null && FactoryBean.class.isAssignableFrom(type)) {
+                Class<?> productType = factoryProductType(definition, type);
+                complete &= productType != null && frameworkType(productType);
+                continue;
+            } else if (type == null && singleton != null) {
                 type = singleton.getClass();
             }
-            if (type == null || FactoryBean.class.isAssignableFrom(type)) {
+            if (type == null) {
+                complete = false;
                 continue;
             }
             if (hasEnableReactiveMethodSecurity(type, new HashSet<>(), 0)) {
@@ -910,12 +941,19 @@ public final class SpringReactiveSecurityObservationCollector {
                 complete &= collectMethodFamilies(singleton.getClass(), used, new HashSet<>(), 0);
             }
         }
+        if (factory instanceof ConfigurableListableBeanFactory configurable
+                && configurable.getParentBeanFactory() != null) {
+            complete = false;
+        }
         Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
         if (advisorType != null) {
             BeanInventory advisors = beanInventory(factory, advisorType);
+            complete &= advisors.complete();
+            complete &= advisors.candidates().size() <= MAX_ITEMS;
             for (int index = 0; index < advisors.candidates().size() && index < MAX_ITEMS; index++) {
                 Object advisor = advisors.candidates().get(index).instance();
                 if (advisor == null) {
+                    complete = false;
                     continue;
                 }
                 String type = advisor.getClass().getName();
@@ -955,6 +993,38 @@ public final class SpringReactiveSecurityObservationCollector {
             }
         }
         return new MethodSecurityState(Set.copyOf(enabled), Set.copyOf(used), complete);
+    }
+
+    private static Object cachedFactoryProduct(SingletonBeanRegistry registry, String name) {
+        if (!(registry instanceof FactoryBeanRegistrySupport)) {
+            return null;
+        }
+        Object cache = readField(registry, "factoryBeanObjectCache");
+        return cache != null && cache.getClass() == ConcurrentHashMap.class ? ((Map<?, ?>) cache).get(name) : null;
+    }
+
+    private static Class<?> factoryProductType(BeanDefinition definition, Class<?> factoryType) {
+        if (definition != null) {
+            Object attribute = definition.getAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE);
+            ResolvableType product = attribute instanceof Class<?> type
+                    ? ResolvableType.forClass(type)
+                    : attribute instanceof ResolvableType type ? type : ResolvableType.NONE;
+            if (product.resolve() != null) {
+                return product.resolve();
+            }
+        }
+        return ResolvableType.forClass(factoryType)
+                .as(FactoryBean.class)
+                .getGeneric(0)
+                .resolve();
+    }
+
+    private static boolean frameworkType(Class<?> type) {
+        String name = type.getName();
+        return name.startsWith("org.springframework.")
+                || name.startsWith("java.")
+                || name.startsWith("jakarta.")
+                || name.startsWith("reactor.");
     }
 
     private static void recordMethodSecurityConfiguration(String configuration, Set<String> enabled) {

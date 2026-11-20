@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import java.util.List;
 
 /**
@@ -14,7 +15,37 @@ record ArchitectureContext(
         ArchitecturePlatform platform,
         ArchitectureEvaluationEvidence evidence,
         AdvisorViolationCollector violationCollector,
-        JavaClasses codingClasses) {
+        JavaClasses codingClasses,
+        ArchUnitBytecodeImports.Bytecode bytecode) {
+
+    ArchitectureContext(
+            ArchUnitBytecodeImports.Result imported, List<String> basePackages, ArchitecturePlatform platform) {
+        this(
+                imported.classes(),
+                basePackages,
+                platform,
+                new ArchitectureEvaluationEvidence(),
+                new AdvisorViolationCollector(10000),
+                imported.classes(),
+                imported.bytecode());
+    }
+
+    ArchitectureContext(
+            JavaClasses classes,
+            List<String> basePackages,
+            ArchitecturePlatform platform,
+            ArchitectureEvaluationEvidence evidence,
+            AdvisorViolationCollector violationCollector,
+            JavaClasses codingClasses) {
+        this(
+                classes,
+                basePackages,
+                platform,
+                evidence,
+                violationCollector,
+                codingClasses,
+                ArchUnitBytecodeImports.Bytecode.EMPTY);
+    }
 
     ArchitectureContext(JavaClasses classes, List<String> basePackages, ArchitecturePlatform platform) {
         this(classes, basePackages, platform, new ArchitectureEvaluationEvidence());
@@ -44,7 +75,7 @@ record ArchitectureContext(
     ArchitectureContext forCategory(ArchitectureCategory category) {
         return category == ArchitectureCategory.CODING_PRACTICES
                 ? new ArchitectureContext(
-                        codingClasses, basePackages, platform, evidence, violationCollector, codingClasses)
+                        codingClasses, basePackages, platform, evidence, violationCollector, codingClasses, bytecode)
                 : this;
     }
 

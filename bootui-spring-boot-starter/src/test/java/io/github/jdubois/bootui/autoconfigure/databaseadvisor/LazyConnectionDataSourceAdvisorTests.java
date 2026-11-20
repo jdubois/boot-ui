@@ -2,11 +2,14 @@ package io.github.jdubois.bootui.autoconfigure.databaseadvisor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration;
 import io.github.jdubois.bootui.autoconfigure.web.HikariDataSourceDiscovery;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -27,14 +30,90 @@ import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
  */
 class LazyConnectionDataSourceAdvisorTests {
 
-    private final WebApplicationContextRunner runner = new WebApplicationContextRunner()
+    private final WebApplicationContextRunner defaultRunner = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(BootUiAutoConfiguration.class, DataSourceAutoConfiguration.class))
             .withPropertyValues(
                     "bootui.enabled=ON",
                     "bootui.sql-trace.enabled=true",
                     "spring.datasource.url=jdbc:h2:mem:bootui-issue-924;DB_CLOSE_DELAY=-1",
-                    "spring.datasource.driver-class-name=org.h2.Driver",
-                    "spring.datasource.connection-fetch=lazy");
+                    "spring.datasource.driver-class-name=org.h2.Driver");
+
+    private final WebApplicationContextRunner runner =
+            defaultRunner.withPropertyValues("spring.datasource.connection-fetch=lazy");
+
+    @Test
+    void defaultHikariAndSqlTraceContextEarnsAKnownForeignKeyAccessPath() {
+        defaultRunner
+                .withPropertyValues("spring.datasource.url=jdbc:h2:mem:bootui-default-index-" + System.nanoTime())
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    DataSource dataSource = context.getBean(DataSource.class);
+                    assertThat(dataSource)
+                            .isNotInstanceOf(LazyConnectionDataSourceProxy.class)
+                            .isInstanceOf(SqlTracedDataSource.class);
+                    HikariDataSource hikari = dataSource.unwrap(HikariDataSource.class);
+                    assertThat(HikariDataSourceDiscovery.discover(context.getBeanFactory()))
+                            .singleElement()
+                            .satisfies(entry -> {
+                                assertThat(entry.beanName()).isEqualTo("dataSource");
+                                assertThat(entry.dataSource()).isSameAs(hikari);
+                            });
+
+                    try (Connection connection = dataSource.getConnection();
+                            Statement statement = connection.createStatement()) {
+                        statement.execute("create table parent (id int primary key)");
+                        statement.execute("create table child (id int primary key, parent_id int)");
+                        statement.execute("create index ix_child_parent on child(parent_id)");
+                        statement.execute("alter table child add constraint fk_child_parent "
+                                + "foreign key(parent_id) references parent(id)");
+                        statement.execute("SELECT 1");
+                        try (ResultSet keys =
+                                connection.getMetaData().getImportedKeys(connection.getCatalog(), "PUBLIC", "CHILD")) {
+                            assertThat(keys.next()).isTrue();
+                            assertThat(keys.getString("FK_NAME")).isEqualTo("FK_CHILD_PARENT");
+                            assertThat(keys.getString("FKCOLUMN_NAME")).isEqualTo("PARENT_ID");
+                            assertThat(keys.next()).isFalse();
+                        }
+                        boolean indexObserved = false;
+                        try (ResultSet indexes = connection
+                                .getMetaData()
+                                .getIndexInfo(connection.getCatalog(), "PUBLIC", "CHILD", false, true)) {
+                            while (indexes.next()) {
+                                if ("IX_CHILD_PARENT".equals(indexes.getString("INDEX_NAME"))) {
+                                    indexObserved = true;
+                                    assertThat(indexes.getString("COLUMN_NAME")).isEqualTo("PARENT_ID");
+                                    assertThat(indexes.getInt("TYPE")).isEqualTo(DatabaseMetaData.tableIndexOther);
+                                }
+                            }
+                        }
+                        assertThat(indexObserved).isTrue();
+                    }
+
+                    var report =
+                            context.getBean(DatabaseAdvisorController.class).scan();
+
+                    assertThat(report.scan().status()).isIn("SCANNED", "PARTIAL");
+                    assertThat(report.dataSourceNames()).containsExactly("dataSource");
+                    assertThat(report.tablesAnalyzed()).isGreaterThanOrEqualTo(2);
+                    assertThat(report.rulesEvaluated()).isPositive();
+                    // Results contain findings; every SKIPPED/ERROR/unknown evaluation emits a diagnostic.
+                    // With an observed FK, omitting the rule from both establishes PASS, not a no-target skip.
+                    assertThat(report.diagnostics())
+                            .as("DB-SCHEMA-002 must be assessed, not skipped, errored or unknown")
+                            .noneMatch(diagnostic -> diagnostic.source().equals("DB-SCHEMA-002"));
+                    assertThat(report.results())
+                            .as("the known ordinary covering index must pass DB-SCHEMA-002")
+                            .noneMatch(result -> result.id().equals("DB-SCHEMA-002"));
+                    assertThat(report.diagnostics())
+                            .noneMatch(diagnostic ->
+                                    diagnostic.message().contains("verifiable physical H2 connection is unavailable"));
+                    SqlTraceRecorder recorder = context.getBean(SqlTraceRecorder.class);
+                    assertThat(recorder.dataSourceNames()).contains("dataSource");
+                    assertThat(recorder.recent())
+                            .extracting(SqlTraceRecorder.CapturedStatement::sql)
+                            .contains("SELECT 1");
+                });
+    }
 
     @Test
     void scansThePoolWrappedInALazyConnectionDataSourceProxy() {

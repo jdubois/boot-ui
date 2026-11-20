@@ -112,6 +112,7 @@ class RuntimeInsightsResourceComparisonTests {
                     sideEffects,
                     sql,
                     exposure,
+                    new io.github.jdubois.bootui.quarkus.logging.QuarkusLogCoverage(),
                     new SmallRyeConfigBuilder().build());
 
             assertThat(resource.comparison(null).current().requests()).isEqualTo(1);

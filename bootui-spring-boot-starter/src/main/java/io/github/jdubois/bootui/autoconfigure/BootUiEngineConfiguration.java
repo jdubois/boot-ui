@@ -785,7 +785,8 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     MemoryScanner bootUiMemoryScanner(ThreadDumpService threadDumpService, BootUiProperties properties) {
-        MemoryScanner scanner = MemoryScanner.create(threadDumpService, Clock.systemUTC());
+        MemoryScanner scanner = MemoryScanner.create(
+                threadDumpService, Clock.systemUTC(), properties.getMemory().isIncludeHistogram());
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return scanner;
     }
@@ -1047,11 +1048,13 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    MemoryReportProvider bootUiMemoryReportProvider(Environment environment, BootUiExposure exposure) {
+    MemoryReportProvider bootUiMemoryReportProvider(
+            Environment environment, BootUiExposure exposure, ApplicationContext applicationContext) {
         // Live policy: virtual-threads and Kubernetes health-probe settings are read from the live
         // Environment (and thus the runtime override property source) on every report, not snapshotted,
         // and the exposure policy masking JVM input arguments is re-read the same way.
-        return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment), exposure);
+        return new MemoryReportProvider(
+                new SpringMemoryRuntimeConfig(environment, applicationContext.getClassLoader()), exposure);
     }
 
     /**

@@ -10,9 +10,8 @@ import org.springframework.cache.Cache;
  * exactly as {@code SqlTracingProxies} wraps JDBC and {@code NotifyingHttpExchangeRepository} wraps HTTP
  * exchange storage.
  *
- * <p>Only the primary synchronous accessors are instrumented, to keep capture lightweight: {@link #retrieve},
- * {@link #putIfAbsent}, {@link #evictIfPresent} and {@link #invalidate} delegate straight through,
- * uninstrumented.</p>
+ * <p>Only the primary synchronous accessors are instrumented. {@code retrieve} keeps {@link Cache}'s unsupported
+ * default; {@link #putIfAbsent}, {@link #evictIfPresent} and {@link #invalidate} delegate uninstrumented.</p>
  */
 final class CacheActivityCache implements Cache {
 

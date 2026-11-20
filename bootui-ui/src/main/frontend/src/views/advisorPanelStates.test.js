@@ -126,6 +126,8 @@ describe('advisor panel states', () => {
   }
 
   describe.each(advisorComponents)('%s rendered advisor actions', (name, component, id) => {
+    const scanUrl = `api/${id}/scan${id === 'memory' ? '?includeHistogram=true' : ''}`
+
     it.each([true, false])('disables scans until the initial GET settles (success %s)', async (success) => {
       let finish
       const fetchMock = vi.fn((url) =>
@@ -139,7 +141,7 @@ describe('advisor panel states', () => {
       const scan = wrapper.get('.panel-header__actions button')
       expect(scan.element.disabled).toBe(true)
       await scan.trigger('click')
-      expect(fetchMock.mock.calls.some(([url]) => url === `api/${id}/scan`)).toBe(false)
+      expect(fetchMock.mock.calls.some(([url]) => url.split('?')[0] === `api/${id}/scan`)).toBe(false)
 
       finish(new Response(JSON.stringify(success ? actionableReport() : {}), {status: success ? 200 : 500}))
       await flushPromises()
@@ -188,9 +190,7 @@ describe('advisor panel states', () => {
         for (const disabled of actionButtons(wrapper)) await disabled.trigger('click')
         expect(fetchMock).toHaveBeenCalledTimes(pendingRequests)
         const [url, init] = fetchMock.mock.calls.at(-1)
-        expect(url).toBe(
-          action === 'scan' ? `api/${id}/scan` : `api/dismissed-rules/TEST-${action === 'Dismiss' ? 1 : 2}`
-        )
+        expect(url).toBe(action === 'scan' ? scanUrl : `api/dismissed-rules/TEST-${action === 'Dismiss' ? 1 : 2}`)
         expect(init.method).toBe(action === 'Restore' ? 'DELETE' : 'POST')
 
         finishAction(new Response(JSON.stringify(action === 'scan' ? actionableReport() : {dismissed: []})))

@@ -363,11 +363,11 @@ final class DormantInfrastructureAnnotationsRule extends AbstractSpringRule {
     DormantInfrastructureAnnotationsRule() {
         super(
                 "WIRING-011",
-                "Enable infrastructure for @Async, @Scheduled, @Cacheable, and @Transactional beans",
+                "Enable infrastructure for @Async, @Cacheable, and @Transactional beans",
                 SpringCategory.BEAN_WIRING,
                 "HIGH",
-                "Application beans declare @Async, @Scheduled/@Schedules, @Cacheable/@CachePut/@CacheEvict/@Caching, or @Transactional without the corresponding annotation processor, advisor, or transaction manager registered in the bean factory.",
-                "Add @EnableAsync, @EnableScheduling, or @EnableCaching on a @Configuration class, or ensure @EnableTransactionManagement and a TransactionManager bean are present for @Transactional beans.",
+                "Application beans declare @Async, @Cacheable/@CachePut/@CacheEvict/@Caching, or @Transactional without the corresponding annotation processor, advisor, or transaction manager registered in the bean factory.",
+                "Add @EnableAsync or @EnableCaching on a @Configuration class, or ensure @EnableTransactionManagement and a TransactionManager bean are present for @Transactional beans.",
                 "features/task-execution-and-scheduling.html");
     }
 
@@ -382,6 +382,32 @@ final class DormantInfrastructureAnnotationsRule extends AbstractSpringRule {
                     .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
         }
         return violation(c, c.dormantInfrastructureBeans());
+    }
+}
+
+final class DormantSchedulingAnnotationsRule extends AbstractSpringRule {
+    DormantSchedulingAnnotationsRule() {
+        super(
+                "WIRING-012",
+                "Review @Scheduled methods without scheduling infrastructure",
+                SpringCategory.BEAN_WIRING,
+                "MEDIUM",
+                "Application beans declare @Scheduled/@Schedules without a ScheduledAnnotationBeanPostProcessor or ScheduledTaskHolder in the observed bean factory. Scheduling may be intentionally disabled for this context; absence does not establish a production defect.",
+                "Review whether scheduling is intended in this run. Keep deliberate profile/property exclusions; add @EnableScheduling on a @Configuration class only when these methods should be scheduled.",
+                "features/task-execution-and-scheduling.html");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        c.applies(c.beanDefinitionCount() > 0 || !c.dormantSchedulingBeans().isEmpty());
+        if (c.observations().yes(BEAN_INDEX_INCOMPLETE)) return unknown(c);
+        if (!c.observations().incomplete().isEmpty()) {
+            if (c.dormantSchedulingBeans().isEmpty()) return unknown(c);
+            c.observations()
+                    .evaluation()
+                    .unknown("Required non-eager metadata is unavailable or custom; observation is unknown.");
+        }
+        return violation(c, c.dormantSchedulingBeans());
     }
 }
 

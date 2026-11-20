@@ -1,7 +1,15 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -11,23 +19,31 @@ import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.MemoryUsage;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Behavior tests for {@link MemoryReportProvider}, the framework-neutral engine service shared by the
  * Live Memory and JVM Tuning panels.
  *
  * <p>Uses a fake {@link MemoryRuntimeConfig} to drive the virtual-threads /
- * Kubernetes-health-probe inputs without a framework. Live
- * {@link java.lang.management.ManagementFactory} data is used for heap, non-heap and pool readings —
- * these are always non-negative in a running JVM, which is all these tests assert about them. The pure
- * formula assertions are covered by {@link MemoryCalculatorTests} and
+ * Kubernetes-health-probe inputs without a framework. Observation suppliers pin heap, non-heap, and named
+ * pools where needed; unpinned observations retain live {@link java.lang.management.ManagementFactory}
+ * defaults. The pure formula assertions are covered by {@link MemoryCalculatorTests} and
  * {@link MemoryKubernetesSizerTests}.
  */
 class MemoryReportProviderTests {
+
+    private static final long MB = 1024L * 1024L;
 
     private static MemoryRuntimeConfig config(boolean virtualThreads, boolean healthProbes) {
         return new MemoryRuntimeConfig() {
@@ -54,11 +70,25 @@ class MemoryReportProviderTests {
     }
 
     private static MemoryReportProvider providerWithDefaults() {
-        return new MemoryReportProvider(new MemoryCalculator());
+        return providerWithHeapUsage(
+                new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS, 0);
     }
 
     private static MemoryReportProvider providerWithDisabledDetector(MemoryRuntimeConfig runtimeConfig) {
-        return new MemoryReportProvider(new MemoryCalculator(), ContainerMemoryLimitDetector.disabled(), runtimeConfig);
+        return providerWithHeapUsage(new MemoryCalculator(), ContainerMemoryLimitDetector.disabled(), runtimeConfig, 0);
+    }
+
+    private static MemoryReportProvider providerWithHeapUsage(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector detector,
+            MemoryRuntimeConfig runtimeConfig,
+            long usedBytes) {
+        return new MemoryReportProvider(
+                calculator, detector, runtimeConfig, null, List::of, () -> heapUsage(usedBytes), List::of);
+    }
+
+    private static MemoryUsage heapUsage(long usedBytes) {
+        return new MemoryUsage(-1, usedBytes, Math.max(64 * MB, usedBytes), -1);
     }
 
     @Test
@@ -80,6 +110,332 @@ class MemoryReportProviderTests {
         LiveMemoryReport report = providerWithDefaults().buildReport(512L, null, null, null, null);
 
         assertThat(report.calculation().totalMemoryBytes()).isEqualTo(512L * 1024L * 1024L);
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            value = {
+                "null, null, null, null, 0, 128, 128",
+                "2048, null, null, null, 0, 2, null",
+                "null, 1500, null, null, 0, 2, 128",
+                "null, null, 10, null, 0, 2, 128",
+                "null, null, null, 2048, 0, 2, null",
+                "null, null, null, null, 250, 300, 300",
+                "2048, null, null, null, 250, 250, null",
+                "null, 1500, null, null, 250, 250, 300",
+                "null, null, 10, null, 250, 250, 300",
+                "null, null, null, 2048, 250, 250, null"
+            },
+            nullValues = "null")
+    void appliesObservedHeapBoundAndDefaultAllowanceAccordingToInputProvenance(
+            Long totalMiB,
+            Integer threads,
+            Integer headroom,
+            Long containerLimitMiB,
+            long observedHeapMiB,
+            long minimumHeapMiB,
+            Long automaticTargetHeapMiB) {
+        MemoryCalculator calculator = spy(new MemoryCalculator());
+        ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
+        when(detector.detect())
+                .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
+                        containerLimitMiB == null
+                                ? OptionalLong.empty()
+                                : OptionalLong.of(containerLimitMiB * 1024L * 1024L),
+                        OptionalLong.empty(),
+                        OptionalLong.empty()));
+        MemoryReportProvider provider =
+                providerWithHeapUsage(calculator, detector, MemoryRuntimeConfig.DEFAULTS, observedHeapMiB * MB);
+
+        provider.buildReport(totalMiB, threads, headroom, null, null);
+
+        verify(calculator)
+                .calculate(
+                        anyLong(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyBoolean(),
+                        any(),
+                        anyLong(),
+                        eq(minimumHeapMiB * 1024L * 1024L),
+                        eq(-1L));
+        if (automaticTargetHeapMiB == null) {
+            verify(calculator, never())
+                    .defaultTotalMemoryBytes(anyLong(), anyLong(), anyInt(), anyInt(), anyLong(), anyLong(), anyLong());
+        } else {
+            verify(calculator)
+                    .defaultTotalMemoryBytes(
+                            anyLong(),
+                            anyLong(),
+                            anyInt(),
+                            anyInt(),
+                            anyLong(),
+                            eq(automaticTargetHeapMiB * MB),
+                            eq(-1L));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            value = {"300, null, 0, 960", "null, 5, 0, 960", "300, null, 256, 1280", "null, 5, 256, 1280"},
+            nullValues = "null")
+    void editingOnlyThreadsOrHeadroomKeepsTheAutomaticTotal(
+            Integer threads, Integer headroom, long observedMetaspaceMiB, long expectedTotalMiB) {
+        MemoryCalculator calculator = spy(new MemoryCalculator());
+        MemoryCalculator fixedObservations = new MemoryCalculator();
+        // Pin only the footprint/fixed-region observations while exercising the provider's target selection.
+        doAnswer(invocation -> fixedObservations.defaultTotalMemoryBytes(
+                        0,
+                        0,
+                        250,
+                        1_000,
+                        0,
+                        invocation.getArgument(5, Long.class),
+                        invocation.getArgument(6, Long.class)))
+                .when(calculator)
+                .defaultTotalMemoryBytes(anyLong(), anyLong(), anyInt(), anyInt(), anyLong(), anyLong(), anyLong());
+        MemoryReportProvider provider = new MemoryReportProvider(
+                calculator,
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                () -> heapUsage(250 * MB),
+                () -> List.of(pool("Metaspace", new MemoryUsage(-1, 0, observedMetaspaceMiB * MB, -1))));
+
+        LiveMemoryReport defaults = provider.buildReport(null, null, null, null, null);
+        LiveMemoryReport edited = provider.buildReport(null, threads, headroom, null, null);
+
+        assertThat(defaults.calculation().totalMemoryBytes()).isEqualTo(expectedTotalMiB * MB);
+        assertThat(edited.calculation().totalMemoryBytes())
+                .isEqualTo(defaults.calculation().totalMemoryBytes());
+        assertThat(fixedObservations
+                        .calculate(
+                                edited.calculation().totalMemoryBytes(),
+                                threads == null ? 250 : threads,
+                                1_000,
+                                headroom == null ? 10 : headroom,
+                                250,
+                                1_000,
+                                false,
+                                null,
+                                0,
+                                250 * MB,
+                                observedMetaspaceMiB * MB)
+                        .valid())
+                .isTrue();
+    }
+
+    @Test
+    void usesOneHeapNonHeapDirectAndMetaspaceObservationForDefaultsCalculationAndDisplayedReport() {
+        MemoryCalculator calculator = spy(new MemoryCalculator());
+        MemoryMXBean memory = mock(MemoryMXBean.class);
+        when(memory.getHeapMemoryUsage()).thenReturn(heapUsage(250 * MB), heapUsage(1024 * MB));
+        MemoryUsage nonHeap = new MemoryUsage(-1, 8 * MB, 32 * MB, -1);
+        when(memory.getNonHeapMemoryUsage()).thenReturn(nonHeap, new MemoryUsage(-1, 0, Long.MAX_VALUE, -1));
+        long committedMetaspace = 512 * MB + 1;
+        MemoryPoolMXBean metaspace = pool("Metaspace", new MemoryUsage(-1, 64 * MB, committedMetaspace, -1));
+        when(metaspace.getUsage())
+                .thenReturn(new MemoryUsage(-1, 64 * MB, committedMetaspace, -1), heapUsage(Long.MAX_VALUE));
+        MemoryPoolMXBean compressedClasses = pool("Compressed Class Space", heapUsage(4096 * MB));
+        MemoryPoolMXBean codeCache = pool("CodeHeap 'profiled nmethods'", heapUsage(4096 * MB));
+        MemoryReportProvider provider = new MemoryReportProvider(
+                calculator,
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                memory::getHeapMemoryUsage,
+                () -> List.of(metaspace, compressedClasses, codeCache),
+                memory::getNonHeapMemoryUsage);
+        ArgumentCaptor<Long> directBytes = ArgumentCaptor.forClass(Long.class);
+
+        LiveMemoryReport report = provider.buildReport(null, null, null, true, false);
+
+        verify(calculator)
+                .defaultTotalMemoryBytes(
+                        eq(250 * MB),
+                        eq(32 * MB),
+                        anyInt(),
+                        anyInt(),
+                        directBytes.capture(),
+                        eq(300 * MB),
+                        eq(committedMetaspace));
+        verify(calculator)
+                .calculate(
+                        anyLong(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyInt(),
+                        anyBoolean(),
+                        any(),
+                        eq(directBytes.getValue()),
+                        eq(300 * MB),
+                        eq(committedMetaspace));
+        assertThat(report.heap().usedBytes()).isEqualTo(250 * MB);
+        assertThat(report.nonHeap().usedBytes()).isEqualTo(8 * MB);
+        assertThat(report.nonHeap().committedBytes()).isEqualTo(32 * MB);
+        assertThat(report.kubernetes().currentSnapshotBytes()).isEqualTo(282 * MB + directBytes.getValue());
+        assertThat(report.kubernetes().requestMemoryBytes())
+                .isGreaterThanOrEqualTo(report.calculation().heapBytes() + 32 * MB);
+        assertThat(report.pools()).anySatisfy(pool -> {
+            assertThat(pool.name()).isEqualTo("Metaspace");
+            assertThat(pool.committedBytes()).isEqualTo(committedMetaspace);
+        });
+        long classModel = new MemoryCalculator()
+                .calculate(65536 * MB, 250, report.calculation().loadedClasses(), 0, 250, 0)
+                .metaspaceBytes();
+        assertThat(report.calculation().metaspaceBytes()).isEqualTo(Math.max(classModel, 641 * MB));
+        verify(memory).getHeapMemoryUsage();
+        verify(memory).getNonHeapMemoryUsage();
+        verifyNoMoreInteractions(memory);
+        verify(metaspace).getUsage();
+        verify(metaspace).getName();
+        verifyNoMoreInteractions(metaspace);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unavailableMetaspaceRetainsAnHonestClassModelFallback(boolean poolPresent) {
+        MemoryPoolMXBean metaspace = pool("Metaspace", null);
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                () -> heapUsage(0),
+                () -> poolPresent ? List.of(metaspace) : List.of(pool("Compressed Class Space", heapUsage(4096 * MB))));
+
+        LiveMemoryReport report = provider.buildReport(65536L, 250, 10, false, false);
+        long classModel = new MemoryCalculator()
+                .calculate(65536 * MB, 250, report.calculation().loadedClasses(), 10, 250, 0)
+                .metaspaceBytes();
+
+        assertThat(report.calculation().valid()).isTrue();
+        assertThat(report.calculation().metaspaceBytes()).isEqualTo(classModel);
+        assertThat(report.kubernetes().warnings())
+                .anySatisfy(
+                        warning -> assertThat(warning).contains("Metaspace committed is unavailable", "class-count"))
+                .noneSatisfy(warning -> assertThat(warning).contains("current Metaspace committed plus 25%"));
+        assertThat(report.pools()).noneSatisfy(pool -> assertThat(pool.name()).isEqualTo("Metaspace"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void observedMetaspaceCannotInflateExplicitOrDetectedBudgets(boolean detectedBudget) {
+        ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
+        when(detector.detect())
+                .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
+                        detectedBudget ? OptionalLong.of(1024 * MB) : OptionalLong.empty(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty()));
+        MemoryPoolMXBean metaspace = pool("Metaspace", heapUsage(900 * MB));
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                detector,
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                () -> heapUsage(0),
+                () -> List.of(metaspace));
+
+        LiveMemoryReport report = provider.buildReport(detectedBudget ? null : 1024L, 250, 10, false, false);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(1024 * MB);
+        assertThat(report.calculation().metaspaceBytes()).isGreaterThanOrEqualTo(1125 * MB);
+        assertNoRecommendation(report);
+    }
+
+    @Test
+    void observedMetaspaceBeyondTheDefaultClampEmitsNoOptionsOrYaml() {
+        MemoryPoolMXBean metaspace = pool("Metaspace", heapUsage(1536 * MB));
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                () -> heapUsage(0),
+                () -> List.of(metaspace));
+
+        LiveMemoryReport report = provider.buildReport(null, null, null, null, null);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(2048 * MB);
+        assertThat(report.calculation().metaspaceBytes()).isGreaterThanOrEqualTo(1920 * MB);
+        assertNoRecommendation(report);
+    }
+
+    @Test
+    void observedMetaspaceNotesAndOptionsUseTheSameReservationWithoutAddingOtherPools() {
+        MemoryPoolMXBean metaspace = pool("Metaspace", new MemoryUsage(-1, 64 * MB, 256 * MB + 1, -1));
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                () -> heapUsage(0),
+                () -> List.of(
+                        metaspace,
+                        pool("Compressed Class Space", heapUsage(65536 * MB)),
+                        pool("CodeHeap 'profiled nmethods'", heapUsage(65536 * MB))));
+
+        LiveMemoryReport report = provider.buildReport(65536L, 250, 10, false, false);
+        long classModel = new MemoryCalculator()
+                .calculate(65536 * MB, 250, report.calculation().loadedClasses(), 10, 250, 0)
+                .metaspaceBytes();
+        long expectedMetaspace = Math.max(classModel, 321 * MB);
+        String option = "-XX:MaxMetaspaceSize=" + expectedMetaspace / MB + "m";
+
+        assertThat(report.calculation().valid()).isTrue();
+        assertThat(report.calculation().metaspaceBytes()).isEqualTo(expectedMetaspace);
+        assertThat(report.suggestedJvmOptions()).contains(option);
+        assertThat(report.kubernetes().javaToolOptions()).contains(option);
+        assertThat(report.kubernetes().yaml()).contains(option);
+        assertThat(report.kubernetes().warnings())
+                .anySatisfy(warning -> assertThat(warning).contains("current Metaspace committed plus 25%", "not peak"))
+                .anySatisfy(warning -> assertThat(warning).contains("hard cap", "OutOfMemoryError: Metaspace"))
+                .noneSatisfy(warning -> assertThat(warning).contains("Metaspace committed is unavailable"));
+    }
+
+    @Test
+    void impossibleObservedDefaultHeapKeepsTheClampAndEmitsNoOptionsOrYaml() {
+        MemoryReportProvider provider = providerWithHeapUsage(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                3072 * MB);
+
+        LiveMemoryReport report = provider.buildReport(null, null, null, null, null);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(2048 * MB);
+        assertThat(report.heap().usedBytes()).isEqualTo(3072 * MB);
+        assertNoRecommendation(report);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void insufficientExplicitAndDetectedBudgetsAreNotInflatedToFitObservedHeap(boolean detectedBudget) {
+        ContainerMemoryLimitDetector detector = mock(ContainerMemoryLimitDetector.class);
+        when(detector.detect())
+                .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
+                        detectedBudget ? OptionalLong.of(1024 * MB) : OptionalLong.empty(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty()));
+        MemoryReportProvider provider =
+                providerWithHeapUsage(new MemoryCalculator(), detector, MemoryRuntimeConfig.DEFAULTS, 2048 * MB);
+
+        LiveMemoryReport report = provider.buildReport(detectedBudget ? null : 1024L, null, null, null, null);
+
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(1024 * MB);
+        assertThat(report.calculation().error()).contains((2048 * MB) + " bytes");
+        assertNoRecommendation(report);
     }
 
     @Test
@@ -134,6 +490,60 @@ class MemoryReportProviderTests {
                 .contains("port: http")
                 .doesNotContain("-Xmx")
                 .doesNotContain("-Xms");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void observedNonHeapCanRefuseOnlyTheOptInKubernetesRecommendation(boolean burstableEnabled) {
+        long limitBytes = 65536 * MB;
+        MemoryMXBean memory = mock(MemoryMXBean.class);
+        when(memory.getNonHeapMemoryUsage())
+                .thenReturn(new MemoryUsage(-1, 32 * MB, limitBytes, -1), new MemoryUsage(-1, 0, Long.MAX_VALUE, -1));
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                List::of,
+                () -> heapUsage(0),
+                List::of,
+                memory::getNonHeapMemoryUsage);
+
+        LiveMemoryReport report = provider.buildReport(65536L, 250, 10, burstableEnabled, false);
+
+        assertThat(report.nonHeap().committedBytes()).isEqualTo(limitBytes);
+        assertThat(report.calculation().valid()).isTrue();
+        assertThat(report.calculation().totalMemoryBytes()).isEqualTo(limitBytes);
+        assertThat(report.calculation().heapBytes()).isPositive();
+        assertThat(report.suggestedJvmOptions())
+                .isEqualTo(report.calculation().jvmOptions())
+                .contains("-Xms", "-Xmx");
+        assertThat(report.kubernetes().limitMemoryBytes()).isEqualTo(limitBytes);
+        assertThat(report.kubernetes().limitMemory()).isEqualTo("65536Mi");
+        assertThat(report.kubernetes().burstableEnabled()).isEqualTo(burstableEnabled);
+        if (burstableEnabled) {
+            assertThat(report.kubernetes().requestMemoryBytes()).isZero();
+            assertThat(report.kubernetes().burstableRequestMemoryBytes()).isZero();
+            assertThat(report.kubernetes().qosClass()).isEqualTo("Unavailable");
+            assertThat(report.kubernetes().confidence()).isEqualTo("Low");
+            assertThat(report.kubernetes().yaml()).isEmpty();
+            assertThat(report.kubernetes().javaToolOptions()).isEmpty();
+            assertThat(report.kubernetes().maxRamPercentage()).isZero();
+            assertThat(report.kubernetes().initialRamPercentage()).isZero();
+            assertThat(report.kubernetes().warnings())
+                    .singleElement()
+                    .satisfies(warning ->
+                            assertThat(warning).contains("modeled heap", "non-heap commitment", "disable Burstable"));
+        } else {
+            assertThat(report.kubernetes().requestMemoryBytes()).isEqualTo(limitBytes);
+            assertThat(report.kubernetes().requestMemory()).isEqualTo("65536Mi");
+            assertThat(report.kubernetes().qosClass()).isEqualTo("Depends on CPU");
+            assertThat(report.kubernetes().javaToolOptions()).contains("-XX:InitialRAMPercentage=");
+            assertThat(report.kubernetes().yaml())
+                    .startsWith("resources:\n  requests:\n    memory: \"65536Mi\"\n  limits:\n    memory: \"65536Mi\"");
+        }
+        verify(memory).getNonHeapMemoryUsage();
+        verifyNoMoreInteractions(memory);
     }
 
     @Test
@@ -194,7 +604,8 @@ class MemoryReportProviderTests {
         when(detector.detect())
                 .thenReturn(new ContainerMemoryLimitDetector.CgroupMemorySample(
                         OptionalLong.of(detectedBytes), OptionalLong.of(256L * mebibyte), OptionalLong.empty()));
-        MemoryReportProvider provider = new MemoryReportProvider(new MemoryCalculator(), detector);
+        MemoryReportProvider provider =
+                providerWithHeapUsage(new MemoryCalculator(), detector, MemoryRuntimeConfig.DEFAULTS, 0);
 
         LiveMemoryReport report = provider.buildReport(null, 50, 10, false, false);
 
@@ -258,5 +669,24 @@ class MemoryReportProviderTests {
         exposure.set(ValueExposure.FULL);
         assertThat(provider.buildReport(null, null, null, null, null).jvmInputArguments())
                 .containsExactly("-Dapp.api-token=raw-token", "-Dapp.name=demo", "-Xss512k");
+    }
+
+    private static void assertNoRecommendation(LiveMemoryReport report) {
+        assertThat(report.calculation().valid()).isFalse();
+        assertThat(report.calculation().error()).isNotBlank();
+        assertThat(report.calculation().heapBytes()).isZero();
+        assertThat(report.calculation().jvmOptions()).isEmpty();
+        assertThat(report.suggestedJvmOptions()).isEmpty();
+        assertThat(report.kubernetes().javaToolOptions()).isEmpty();
+        assertThat(report.kubernetes().yaml()).isEmpty();
+        assertThat(report.kubernetes().qosClass()).isEqualTo("Unavailable");
+        assertThat(report.kubernetes().warnings()).contains(report.calculation().error());
+    }
+
+    private static MemoryPoolMXBean pool(String name, MemoryUsage usage) {
+        MemoryPoolMXBean pool = mock(MemoryPoolMXBean.class);
+        when(pool.getName()).thenReturn(name);
+        when(pool.getUsage()).thenReturn(usage);
+        return pool;
     }
 }

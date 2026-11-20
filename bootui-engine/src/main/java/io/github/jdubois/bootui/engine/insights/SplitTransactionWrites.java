@@ -3,17 +3,18 @@ package io.github.jdubois.bootui.engine.insights;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code split-transaction-writes} ({@code docs/PLAN-v2.md} §5.5): requests that committed their writes in two or more
- * independent units, each a physical transaction, savepoints included in theirs, or an autocommit statement, with their
- * boundaries. Worded "if these writes must succeed together…", since a deliberate audit or outbox write is common.
+ * {@code split-transaction-writes} ({@code docs/PLAN-v2.md} §5.5): executed writes across named data sources or
+ * recorded transaction boundaries. Temporal placement does not establish resource ownership or atomicity.
  */
 public final class SplitTransactionWrites implements Observation {
 
@@ -28,7 +29,7 @@ public final class SplitTransactionWrites implements Observation {
 
     @Override
     public String title() {
-        return "Writes split across transactions";
+        return "Write atomicity to verify";
     }
 
     @Override
@@ -66,21 +67,50 @@ public final class SplitTransactionWrites implements Observation {
                     continue;
                 }
                 TransactionWindows windows = new TransactionWindows(request);
-                if (!writes.stream().allMatch(windows::canPlace)) {
+                boolean placed = writes.stream().allMatch(windows::canPlace);
+                boolean multipleNamedSources = writes.stream()
+                                .map(write -> dataSource((SqlPayload) write.payload()))
+                                .filter(name -> name != null)
+                                .distinct()
+                                .count()
+                        >= 2;
+                Map<GroupKey, Unit> units = new LinkedHashMap<>();
+                Set<Object> splitCandidates = new LinkedHashSet<>();
+                List<TransactionWindows.Window> boundaries = windows.windows();
+                boolean boundaryPlacementKnown = placed;
+                for (RuntimeEvent write : writes) {
+                    TransactionWindows.Window boundary = placed ? boundary(windows, write) : null;
+                    if (boundary != null && !boundary.transaction().independent()) {
+                        boundaryPlacementKnown = false;
+                    }
+                    boolean rolledBack =
+                            boundary != null && boundary.transaction().rolledBack();
+                    if (rolledBack && !multipleNamedSources) {
+                        continue;
+                    }
+                    Object position = boundary != null ? boundary : placed ? write : null;
+                    if (placed
+                            && !rolledBack
+                            && (boundary == null || boundary.transaction().independent())) {
+                        splitCandidates.add(position);
+                    }
+                    GroupKey key = new GroupKey(dataSource((SqlPayload) write.payload()), position);
+                    units.computeIfAbsent(
+                                    key,
+                                    k -> new Unit(
+                                            k.dataSource(),
+                                            boundary,
+                                            boundary == null ? 0 : boundaries.indexOf(boundary) + 1,
+                                            placed))
+                            .add(write);
+                }
+                boolean split = multipleNamedSources || splitCandidates.size() >= 2;
+                if (!boundaryPlacementKnown && !split) {
                     unplaced++;
                     continue;
                 }
                 routeEligible++;
-                Map<Object, Unit> units = new LinkedHashMap<>();
-                for (RuntimeEvent write : writes) {
-                    TransactionWindows.Window committing = windows.committing(write);
-                    if (committing != null && committing.transaction().rolledBack()) {
-                        continue;
-                    }
-                    Object key = committing == null ? write : committing;
-                    units.computeIfAbsent(key, k -> new Unit(committing)).add(write);
-                }
-                if (units.size() >= 2) {
+                if (split) {
                     rows.add(List.of(
                             request.requestId(),
                             String.valueOf(units.size()),
@@ -100,16 +130,30 @@ public final class SplitTransactionWrites implements Observation {
                 findings,
                 uncounted == 0
                         ? null
-                        : InsightText.counted(uncounted, "request") + " wrote with a transaction or statement that had"
-                                + " no monotonic time, so " + (uncounted == 1 ? "its writes are" : "their writes are")
-                                + " not placed or counted.");
+                        : InsightText.counted(uncounted, "request")
+                                + " had writes whose transaction timing or boundary ownership could not be established"
+                                + " and are not counted. Captured multi-data-source and known split-boundary facts"
+                                + " remain included.");
+    }
+
+    private static String dataSource(SqlPayload sql) {
+        return sql.dataSource() == null || sql.dataSource().isBlank() ? null : sql.dataSource();
+    }
+
+    private static TransactionWindows.Window boundary(TransactionWindows windows, RuntimeEvent write) {
+        TransactionWindows.Window inner = windows.innermost(write);
+        if (inner != null && !inner.transaction().boundaryKnown()) {
+            return inner;
+        }
+        TransactionWindows.Window committing = windows.committing(write);
+        return committing == null ? inner : committing;
     }
 
     static boolean committedWrite(RuntimeEvent event) {
         return event.payload() instanceof SqlPayload sql
                 && sql.executed()
                 && !sql.failed()
-                && SafeMethodDml.isDml(sql.sql());
+                && !SqlShapes.writes(sql.sql()).isEmpty();
     }
 
     private Finding finding(
@@ -118,16 +162,21 @@ public final class SplitTransactionWrites implements Observation {
                 .mapToInt(row -> Integer.parseInt(row.get(1)))
                 .max()
                 .orElse(2);
-        String sentence = "`" + route + "` committed its writes in " + (most == 2 ? "2" : "up to " + most)
-                + " independent units in " + rows.size() + " of "
+        String sentence = "`" + route + "` recorded writes in " + (most == 2 ? "2" : "up to " + most)
+                + " groups across data sources or recorded transaction boundaries in " + rows.size() + " of "
                 + InsightText.counted(eligible, InsightText.unit(route))
-                + " that wrote: if these writes must succeed together, one may persist while another fails.";
+                + " that wrote; their required atomicity needs verification.";
         List<String> limitations = new ArrayList<>();
-        limitations.add("A unit is a transaction that began its own physical transaction or a statement run outside"
-                + " every recorded transaction, which autocommits; a manual JDBC transaction is not recognized.");
+        limitations.add("Groups use captured data-source names and recorded boundaries matched by monotonic time and"
+                + " thread name, not proven physical-resource or transaction-manager ownership. Shared resources"
+                + " and JTA/XA coordination are not established or excluded.");
+        limitations.add("A write outside recorded transactions is an autocommit candidate, not proof; manual JDBC"
+                + " transactions and uncaptured boundaries are not recognized. A recorded commit or rollback does"
+                + " not establish the outcome of every resource's writes.");
         if (unplaced > 0) {
-            limitations.add(InsightText.counted(unplaced, "request") + " could not be placed, since a transaction or"
-                    + " statement had no monotonic time.");
+            limitations.add(InsightText.counted(unplaced, "request")
+                    + " could not be judged from transaction timing or boundary ownership and "
+                    + (unplaced == 1 ? "is" : "are") + " not counted.");
         }
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
             limitations.add("A reactive transaction belongs to a request only when its pipeline carried the request's"
@@ -141,22 +190,31 @@ public final class SplitTransactionWrites implements Observation {
                 eligible,
                 rows.size(),
                 List.of(
-                        "If these writes must succeed together, run them in one transaction.",
+                        "If these writes must succeed together, verify which resources and transaction managers own"
+                                + " them and whether one transaction or coordinated JTA/XA work covers them.",
                         "If one is meant to commit alone, such as an audit or outbox write, check that a failure"
                                 + " after it leaves consistent data."),
                 rows.stream().limit(3).map(row -> row.get(0)).toList(),
-                List.of("Request", "Units", "Boundaries"),
+                List.of("Request", "Recorded groups", "Boundaries"),
                 rows,
                 limitations);
     }
 
+    private record GroupKey(String dataSource, Object boundary) {}
+
     private static final class Unit {
 
+        private final String dataSource;
         private final TransactionWindows.Window transaction;
+        private final int boundaryNumber;
+        private final boolean placed;
         private final List<String> statements = new ArrayList<>();
 
-        Unit(TransactionWindows.Window transaction) {
+        Unit(String dataSource, TransactionWindows.Window transaction, int boundaryNumber, boolean placed) {
+            this.dataSource = dataSource;
             this.transaction = transaction;
+            this.boundaryNumber = boundaryNumber;
+            this.placed = placed;
         }
 
         void add(RuntimeEvent write) {
@@ -164,14 +222,21 @@ public final class SplitTransactionWrites implements Observation {
         }
 
         String describe() {
-            String name = transaction == null
-                    ? AUTOCOMMIT
-                    : (transaction.transaction().method() == null
-                                    ? "transaction"
-                                    : transaction.transaction().method())
-                            + (transaction.transaction().nested() ? " (nested)" : "");
-            return name + ": " + InsightText.counted(statements.size(), "write") + ", first `" + statements.get(0)
-                    + "`";
+            String position;
+            if (!placed) {
+                position = "transaction placement unavailable";
+            } else if (transaction == null) {
+                position = "outside recorded transactions (" + AUTOCOMMIT + " candidate)";
+            } else {
+                position = "recorded "
+                        + (transaction.transaction().independent()
+                                ? "physical boundary "
+                                : transaction.transaction().savepoint() ? "savepoint " : "boundary ")
+                        + boundaryNumber
+                        + (transaction.transaction().rolledBack() ? " (rollback recorded)" : " (no rollback reported)");
+            }
+            return (dataSource == null ? "unknown data source" : "`" + dataSource + "`") + ", " + position + ": "
+                    + InsightText.counted(statements.size(), "write") + ", first `" + statements.get(0) + "`";
         }
     }
 }

@@ -287,11 +287,17 @@ remain gated. Retrieval completeness does not affect evidence coverage or scores
 | `bootui.github.request-timeout`        | `5s`             | Timeout for each GitHub API request and local `gh auth token` lookup.                |
 | `bootui.github.max-pull-requests`      | `10`             | Maximum open pull requests returned in one refresh.                                  |
 | `bootui.github.max-issues`             | `25`             | Maximum open issues fetched for the issue buckets and open issue list in one refresh. |
-| `bootui.github.max-security-alerts`    | `50`             | Maximum Dependabot alert details listed per refresh (count stays exact; metadata only). |
+| `bootui.github.max-security-alerts`    | `50`             | Maximum Dependabot details retained, independent of pagination; incomplete totals stay unknown. |
 | `bootui.github.max-workflow-runs`      | `20`             | Maximum recent workflow runs returned in one refresh.                                |
 | `bootui.github.quota-safety-threshold` | `10`             | Skip optional API calls when remaining core quota is at or below this value.         |
-| `bootui.github.max-api-calls`          | `17`             | Maximum GitHub API requests issued by one refresh.                                   |
+| `bootui.github.max-api-calls`          | `17`             | Maximum GitHub API requests per refresh, including every alert page.                  |
 | `bootui.github.allowed-api-hosts`      | `api.github.com` | Allowed GitHub API hosts. Add a GitHub Enterprise host to enable enterprise remotes. |
+
+Alert totals require complete bounded traversal; counts are non-atomic observations, not a consistent remote snapshot.
+Extra pages reserve capacity for remaining baseline calls without raising this hard budget; very small budgets can
+still leave sections unavailable. Incomplete traversal retains lower-bound evidence only from completed pages, not an
+available total; failed first pages invent no observed zero. Repository-ID Link aliases require matching fetched metadata.
+See [GitHub](features/developer-tools.md#github).
 
 ### Configuration
 
@@ -466,6 +472,14 @@ See [MySQL](features/database.md#mysql) for permissions, evidence scopes, and sa
 | -------------------------------- | ------- | -------------------------------------------------------------- |
 | `bootui.panels.memory.enabled`   | `true`  | Show read-only JVM memory configuration best-practice checks. |
 | `bootui.panels.memory.read-only` | `false` | Disable the explicit Memory Advisor scan action.              |
+| `bootui.memory.include-histogram` | `true` | Default for explicit Memory scans, including argument-free MCP/CLI scans. The histogram requests full GC and may pause the JVM. `false` omits it and leaves heap-content checks unassessed. Read at scanner creation; restart to change the default. |
+
+`POST <api>/memory/scan?includeHistogram=false` overrides the default for one scan; `true` explicitly includes it.
+Only one literal `true` or `false` with the exact parameter spelling is accepted; empty, bare, repeated, or differently
+cased parameters return 400 without scanning.
+Omitting the parameter uses configuration. The Memory panel offers
+the same choice; Scorecard scans always omit the histogram. Reports and compact MCP/CLI answers carry
+`scan.includeHistogram`, independently of `summary.histogramAvailable` (requested does not mean available).
 
 ### Flyway
 

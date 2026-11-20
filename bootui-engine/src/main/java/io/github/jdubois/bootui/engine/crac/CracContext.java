@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.crac;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import java.util.List;
 
 /**
@@ -9,7 +10,15 @@ import java.util.List;
  * resources (such as connection pools) that are auto-configured by Spring rather than present in the
  * application's own bytecode.
  */
-record CracContext(JavaClasses classes, List<String> basePackages, CracRuntimeInventory runtime) {
+record CracContext(
+        JavaClasses classes,
+        List<String> basePackages,
+        CracRuntimeInventory runtime,
+        ArchUnitBytecodeImports.Bytecode bytecode) {
+
+    CracContext(JavaClasses classes, List<String> basePackages, CracRuntimeInventory runtime) {
+        this(classes, basePackages, runtime, ArchUnitBytecodeImports.Bytecode.EMPTY);
+    }
 
     CracContext {
         basePackages = List.copyOf(basePackages);

@@ -71,6 +71,21 @@ class CspPolicyTests {
     }
 
     @Test
+    void absentScriptDirectiveIsUnrestrictedButAnEmptyDirectiveOrSandboxBlocksScripts() {
+        for (String policy : new String[] {"frame-ancestors 'self'", "script-src-attr 'none'", "object-src 'none'"}) {
+            assertThat(CspPolicy.analyze(policy).unrestrictedScript())
+                    .as(policy)
+                    .isTrue();
+        }
+        for (String policy :
+                new String[] {"script-src", "default-src", "script-src-elem 'self'", "sandbox allow-forms"}) {
+            assertThat(CspPolicy.analyze(policy).unrestrictedScript())
+                    .as(policy)
+                    .isFalse();
+        }
+    }
+
+    @Test
     void strictDynamicDisregardsBroadScriptHosts() {
         var policy = CspPolicy.analyze("script-src 'nonce-YWJjZA==' 'strict-dynamic' https: 'unsafe-inline'");
         assertThat(policy.unrestrictedScript()).isFalse();

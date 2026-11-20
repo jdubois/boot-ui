@@ -8,6 +8,9 @@ import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.cli.BootUiCli;
 import io.github.jdubois.bootui.client.JsonValue;
 import io.github.jdubois.bootui.client.JsonWriter;
+import io.github.jdubois.bootui.engine.hibernate.HibernateQueryCoverageFixture;
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -73,7 +76,33 @@ class CiAssessmentRunnerTests {
     private String runtimeInsightsQuery;
     private int runtimeInsightsLimit;
     private String runtimeInsightsBody = runtimeInsightsReport(false, false);
+    private HibernateScanner hibernateCoverageScanner;
+    private Path producedCaptureDirectory;
     private final Map<String, UnaryOperator<String>> responseTransforms = new LinkedHashMap<>();
+
+    /** Exposes the same controlled producer to released CLI and checkout Action acceptance runs. */
+    public static void main(String[] arguments) throws Exception {
+        if (arguments.length != 2
+                || !List.of("readable-bulk", "unsupported-bulk").contains(arguments[1])) {
+            throw new IllegalArgumentException("Expected capture directory and readable-bulk or unsupported-bulk");
+        }
+        CiAssessmentRunnerTests fixture = new CiAssessmentRunnerTests();
+        fixture.producedCaptureDirectory = Path.of(arguments[0]);
+        Files.createDirectories(fixture.producedCaptureDirectory);
+        fixture.hibernateCoverageScanner = HibernateQueryCoverageFixture.scanner(arguments[1].equals("readable-bulk"));
+        fixture.startServer();
+        try {
+            Files.writeString(
+                    fixture.producedCaptureDirectory.resolve("ready.json"),
+                    JsonValue.object(Map.of(
+                                    "url", JsonValue.of(fixture.url()),
+                                    "apiPath", JsonValue.of("/bootui/api")))
+                            .toJson());
+            System.in.read();
+        } finally {
+            fixture.stopServer();
+        }
+    }
 
     @AfterEach
     void stopServer() {
@@ -123,6 +152,75 @@ class CiAssessmentRunnerTests {
                         .exitCode())
                 .isZero();
         assertThat(Files.readString(output.resolve("junit.xml"))).contains("<testsuite");
+    }
+
+    @Test
+    void producedHibernateQueryCoverageControlsStrictLiveAndOfflineGatesWithoutRelaxingPolicy() throws Exception {
+        startServer();
+        for (boolean required : List.of(false, true)) {
+            Path policy = temp.resolve("hibernate-" + required + "-policy.json");
+            Files.writeString(policy, """
+                    {"schemaVersion":1,"advisors":{
+                      "architecture":{"required":true,"failOn":"high"},
+                      "hibernate":{"required":%s,"failOn":"high"}
+                    }}
+                    """.formatted(required));
+            for (boolean readableBulk : List.of(false, true)) {
+                hibernateCoverageScanner = HibernateQueryCoverageFixture.scanner(readableBulk);
+                String name = required + "-" + readableBulk;
+                Path witness = temp.resolve("hibernate-" + name + "-witness.json");
+                Path output = temp.resolve("hibernate-" + name);
+                assertThat(runCli(
+                                "ci",
+                                "attach",
+                                "--url",
+                                url(),
+                                "--assessment-id",
+                                "test-assessment",
+                                "--policy",
+                                policy.toString(),
+                                "--output",
+                                witness.toString()))
+                        .isZero();
+                int expected = readableBulk ? 3 : required ? 1 : 0;
+                assertThat(runCli(
+                                "ci",
+                                "assess",
+                                "--url",
+                                url(),
+                                "--assessment-id",
+                                "test-assessment",
+                                "--policy",
+                                policy.toString(),
+                                "--witness",
+                                witness.toString(),
+                                "--output-dir",
+                                output.toString()))
+                        .isEqualTo(expected);
+                var report = hibernateCoverageScanner.lastReport();
+                assertThat(report.rulesEvaluated()).isEqualTo(2);
+                assertThat(report.evidence().usable()).isTrue();
+                assertThat(report.evidence().coverageComplete()).isEqualTo(readableBulk);
+                assertThat(report.scan().status()).isEqualTo(readableBulk ? "SCANNED" : "PARTIAL");
+                assertThat(report.results())
+                        .extracting(result -> result.id())
+                        .containsExactlyInAnyOrder("HIB-QUERY-007", "HIB-CONFIG-014");
+                assertThat(report.severityCounts()).anySatisfy(count -> {
+                    assertThat(count.severity()).isEqualTo("HIGH");
+                    assertThat(count.count()).isEqualTo(1);
+                });
+                assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                                .exitCode())
+                        .isEqualTo(expected);
+                String summary = Files.readString(output.resolve("summary.md"));
+                if (readableBulk) {
+                    assertThat(summary).contains("| hibernate | " + required + " | ASSESSED | 2 | 0 | - |");
+                } else {
+                    assertThat(summary).contains("EVIDENCE_UNEVALUABLE");
+                    if (!required) assertThat(summary).contains("| hibernate | false | SKIPPED | 0 | 0 |");
+                }
+            }
+        }
     }
 
     @Test
@@ -1441,6 +1539,71 @@ class CiAssessmentRunnerTests {
         assertThat(Files.readString(temp.resolve("warning/bundle.json"))).contains("ADVISOR_ERRORS");
     }
 
+    @Test
+    void nativeH2IndexEvidencePromotesOptionalAssessmentWithoutWeakeningLiveOrOfflineHighGates() throws Exception {
+        startServer();
+        Path policy = temp.resolve("policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"high"},
+                  "database-advisor":{"required":false,"failOn":"high"}
+                }}
+                """);
+        Path witness = temp.resolve("witness.json");
+        assertThat(runner(policy, witness, temp.resolve("unused")).attach()).isZero();
+        List<Path> bundles = new ArrayList<>();
+        // Native H2 2.4.240 reports from identical DDL: only the new access-method refinement was disabled
+        // for baseline. All three raw HIGH findings exist in both; no evidence or count field is fabricated.
+        for (String phase : List.of("baseline", "ordinary")) {
+            JsonValue fixture;
+            try (var input = getClass().getResourceAsStream("/ci/h2-" + phase + "-ci.json")) {
+                assertThat(input).isNotNull();
+                fixture = JsonValue.parseStrict(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            }
+            responseTransforms.put(
+                    "database_advisor_scan", body -> fixture.get("summary").toJson());
+            responseTransforms.put(
+                    "get_database_advisor_report", body -> fixture.get("report").toJson());
+            responseTransforms.put(
+                    "get_database_advisor_rule_violations",
+                    body -> fixture.get("details").toJson());
+            Path output = temp.resolve(phase);
+            int expectedExit = phase.equals("baseline") ? 0 : 3;
+            assertThat(runner(policy, witness, output).assess()).as(phase).isEqualTo(expectedExit);
+            Path bundle = output.resolve("bundle.json");
+            bundles.add(bundle);
+            String text = Files.readString(bundle);
+            JsonValue database = JsonValue.parseStrict(text).get("advisors").values().stream()
+                    .filter(advisor -> advisor.get("name").asString("").equals("database-advisor"))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(database.get("status").asString(""))
+                    .isEqualTo(phase.equals("baseline") ? "SKIPPED" : "ASSESSED");
+            assertThat(database.get("coverageComplete").isBoolean()).isTrue();
+            assertThat(database.get("coverageComplete").asBoolean(false)).isEqualTo(phase.equals("ordinary"));
+            assertThat(database.get("findingCount").asInt(-1)).isEqualTo(phase.equals("baseline") ? 0 : 3);
+            if (phase.equals("baseline")) {
+                assertThat(database.get("reason").asString("")).isEqualTo("EVIDENCE_UNEVALUABLE");
+            } else {
+                assertThat(database.get("reason").isNull()).isTrue();
+                assertThat(database.get("findings").values()).singleElement().satisfies(finding -> {
+                    assertThat(finding.get("ruleId").asString("")).isEqualTo("DB-SCHEMA-011");
+                    assertThat(finding.get("severity").asString("")).isEqualTo("HIGH");
+                    assertThat(finding.get("count").asInt(-1)).isEqualTo(3);
+                });
+            }
+            assertThat(text).doesNotContain("PUBLIC.CHILD", "FK_FIRST", "jdbc:h2", "specifies ON DELETE");
+        }
+        server.stop(0);
+        server = null;
+        assertThat(CiBundleEvaluator.evaluate(bundles.get(0), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+        assertThat(CiBundleEvaluator.evaluate(bundles.get(1), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {5, 6})
     void rejectsDatabaseReportsWithAllOrTooManyRulesSkipped(int skipped) throws Exception {
@@ -2057,6 +2220,20 @@ class CiAssessmentRunnerTests {
             if (changeIdentityAfterRuntimeInsights) {
                 currentInstance = "b1b2c3d4";
             }
+        } else if (path.endsWith("/tools/hibernate_scan") && hibernateCoverageScanner != null) {
+            body = producedJson(McpScanSummaries.hibernate(hibernateCoverageScanner.scan()))
+                    .toJson();
+        } else if (path.endsWith("/tools/get_hibernate_report") && hibernateCoverageScanner != null) {
+            body = producedJson(hibernateCoverageScanner.lastReport()).toJson();
+        } else if (path.endsWith("/tools/get_hibernate_rule_violations") && hibernateCoverageScanner != null) {
+            JsonValue arguments =
+                    JsonValue.parse(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            body = producedJson(hibernateCoverageScanner.ruleViolations(
+                            arguments.get("id").asString(null),
+                                    arguments.get("scanId").asString(null),
+                            arguments.get("offset").asInt(0),
+                                    arguments.get("limit").asInt(100)))
+                    .toJson();
         } else if (path.endsWith("/tools/architecture_scan")
                 || path.endsWith("/tools/hibernate_scan")
                 || path.endsWith("/tools/database_advisor_scan")
@@ -2122,6 +2299,12 @@ class CiAssessmentRunnerTests {
         if (transform != null) {
             body = transform.apply(body);
         }
+        if (producedCaptureDirectory != null) {
+            Files.writeString(
+                    producedCaptureDirectory.resolve(
+                            String.format("%04d-%s.json", targetRequests, path.substring(path.lastIndexOf('/') + 1))),
+                    body);
+        }
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         int status = path.endsWith("/tools/get_runtime_insights")
@@ -2158,6 +2341,18 @@ class CiAssessmentRunnerTests {
                 false,
                 "RULE_VIOLATIONS",
                 List.of("id", "scanId", "offset", "limit")));
+        if (hibernateCoverageScanner != null) {
+            tools.add(tool("hibernate_scan", true, "NONE", List.of(), "hibernate", true, false));
+            tools.add(tool("get_hibernate_report", false, "NONE", List.of(), "hibernate", true, false));
+            tools.add(tool(
+                    "get_hibernate_rule_violations",
+                    false,
+                    "RULE_VIOLATIONS",
+                    List.of("id", "scanId", "offset", "limit"),
+                    "hibernate",
+                    true,
+                    false));
+        }
         if (runtimeInsightsAdvertised) {
             tools.add(tool(
                     "get_runtime_insights",
@@ -2178,6 +2373,34 @@ class CiAssessmentRunnerTests {
                 ? "spring"
                 : name.startsWith("hibernate_") || name.startsWith("get_hibernate_") ? "hibernate" : "architecture";
         return tool(name, action, schema, arguments, panel, true, false);
+    }
+
+    private static JsonValue producedJson(Object value) {
+        if (value == null) return JsonValue.NULL;
+        if (value instanceof String text) return JsonValue.of(text);
+        if (value instanceof Boolean flag) return JsonValue.of(flag);
+        if (value instanceof Number number) return JsonValue.of(number.longValue());
+        if (value instanceof List<?> list) {
+            return JsonValue.array(
+                    list.stream().map(CiAssessmentRunnerTests::producedJson).toList());
+        }
+        Map<String, JsonValue> fields = new LinkedHashMap<>();
+        if (value instanceof Map<?, ?> map) {
+            map.forEach((key, item) -> fields.put((String) key, producedJson(item)));
+        } else if (value.getClass().isRecord()) {
+            for (var component : value.getClass().getRecordComponents()) {
+                try {
+                    fields.put(
+                            component.getName(),
+                            producedJson(component.getAccessor().invoke(value)));
+                } catch (ReflectiveOperationException ex) {
+                    throw new AssertionError("Could not serialize produced advisor DTO", ex);
+                }
+            }
+        } else {
+            throw new AssertionError("Unexpected produced advisor value: " + value.getClass());
+        }
+        return JsonValue.object(fields);
     }
 
     private static String tool(

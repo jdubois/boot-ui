@@ -75,6 +75,10 @@ final class MemoryCollector {
     }
 
     MemoryContext collect() {
+        return collect(true);
+    }
+
+    MemoryContext collect(boolean includeHistogram) {
         MemoryData memory = collectMemory();
         ThreadData threads = collectThreads();
         // Sample GC counters BEFORE the histogram so the diagnostic request interval is excluded
@@ -82,9 +86,11 @@ final class MemoryCollector {
         // for the next scan.
         GcSample preHistogramGc = currentGcSample();
         GcEvent preHistogramGcEvent = readLastGcEvent().asGcEvent();
-        HeapContentData heapContent = collectHeapContent();
-        GcSample postHistogramGc = currentGcSample();
-        GcEvent postHistogramGcEvent = readLastGcEvent().asGcEvent();
+        HeapContentData heapContent = includeHistogram ? collectHeapContent() : HeapContentData.unavailable();
+        // With no diagnostic request there is no own-GC interval to exclude. Reuse the boundary
+        // so an unrelated concurrent application collection belongs to the next observation window.
+        GcSample postHistogramGc = includeHistogram ? currentGcSample() : preHistogramGc;
+        GcEvent postHistogramGcEvent = includeHistogram ? readLastGcEvent().asGcEvent() : GcEvent.unavailable();
         PostGcHeapData postGcHeap = collectPostGcHeap(heapContent.available());
         ClassLoadingData classLoading = collectClassLoading();
         RuntimeData runtime = collectRuntime(preHistogramGc, preHistogramGcEvent);

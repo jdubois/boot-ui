@@ -69,7 +69,7 @@ class RecorderPublishingTests {
         RuntimeEvent event = single(JournalSource.CACHE);
         assertThat(event.requestId()).isEqualTo(REQUEST.requestId());
         assertThat(event.durationNanos()).isEqualTo(-1);
-        assertThat(event.payload()).isEqualTo(new CachePayload("products", "MISS"));
+        assertThat(event.payload()).isEqualTo(new CachePayload("products", "MISS", null, 0L, "caffeine"));
     }
 
     @Test

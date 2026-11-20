@@ -1916,7 +1916,7 @@ class DatabaseAdvisorHibernateRulesTests {
     }
 
     @Test
-    void validatedPostgresForeignKeyAbsentFromACompleteNotValidReadMatchesAfterTheVendorMerge() {
+    void postgresAssociationRequiresObservedEnforcementRatherThanAbsenceFromNotValidResults() {
         MappedEntityFacts mapped = entity("Order", "orders", List.of(customerAssociation()), List.of(), List.of());
         TableModel orders = table(
                 "orders",
@@ -1924,18 +1924,22 @@ class DatabaseAdvisorHibernateRulesTests {
                 List.of(),
                 List.of(foreignKey("fk_customer", List.of("customer_id"), "customers", List.of("id"))),
                 List.of());
-        for (boolean truncated : List.of(false, true)) {
+        for (Boolean enforced : Arrays.asList(null, false, true)) {
             VendorFindings findings = VendorFindings.builder()
                     .add(VendorAugmentation.available(
-                            VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), truncated))
+                            VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), false))
+                    .add(VendorAugmentation.available(
+                            VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS,
+                            List.of(new PostgresForeignKeyDetail("public", "orders", "fk_customer", enforced, true)),
+                            false))
                     .build();
             List<TableModel> merged =
                     VendorSchemaMerge.merge(List.of(orders, customers()), Dialect.POSTGRESQL, findings);
             DatabaseAdvisorContext context =
                     hibernateContext(schema("ds", Dialect.POSTGRESQL, merged, findings), mapped);
             DatabaseAdvisorRuleResultDto result = new HibernateMissingForeignKeyConstraintRule().evaluate(context);
-            assertThat(result.status()).isEqualTo(truncated ? SKIPPED : PASS);
-            assertThat(context.evaluationDiagnostics()).hasSize(truncated ? 1 : 0);
+            assertThat(result.status()).isEqualTo(Boolean.TRUE.equals(enforced) ? PASS : SKIPPED);
+            assertThat(context.evaluationDiagnostics()).hasSize(Boolean.TRUE.equals(enforced) ? 0 : 1);
         }
     }
 

@@ -174,16 +174,14 @@ function occurrenceCountLabel(count) {
   return `${count} ${pluralize(count, 'occurrence')} found`
 }
 
-function dependencyBadgeLabel(dep) {
-  if (dep.shipsMetadata || dep.repositoryMetadata) return 'covered'
-  if (dep.repositoryMetadataVersion) return 'partial'
-  return 'none'
-}
-
-function dependencyBadgeClass(dep) {
-  if (dep.shipsMetadata || dep.repositoryMetadata) return 'text-bg-success'
-  if (dep.repositoryMetadataVersion) return 'text-bg-warning'
-  return 'text-bg-secondary'
+function dependencySourceLabels(dep) {
+  const sources = []
+  if (dep.shipsMetadata) sources.push('Bundled metadata')
+  if (dep.shipsSpringAotFactories) sources.push('Spring AOT factories')
+  if (dep.repositoryMetadata) sources.push('Repository match')
+  if (sources.length) return sources
+  if (dep.repositoryMetadataVersion) return ['Other repository version']
+  return ['None found']
 }
 
 function scanTime() {
@@ -697,10 +695,14 @@ onBeforeUnmount(stopProgressPolling)
 
       <div v-if="report.includeDependencies" class="card mb-3">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <span class="fw-semibold">Dependency reachability metadata</span>
+          <span class="fw-semibold">Dependency hint sources</span>
           <span class="text-muted small">
             {{ dependenciesWithMetadata }} of {{ report.dependenciesAnalyzed }} dependencies ship bundled metadata
           </span>
+        </div>
+        <div class="card-body small text-muted border-bottom">
+          Sources found do not prove native-image compatibility or complete hints. Spring AOT factories declare
+          contributors, not verified hint coverage. None found is not itself a defect.
         </div>
         <div v-if="!report.dependencies || report.dependencies.length === 0" class="card-body text-muted">
           No third-party dependency JARs were detected on the classpath.
@@ -709,12 +711,14 @@ onBeforeUnmount(stopProgressPolling)
           <div
             v-for="dep in report.dependencies"
             :key="dep.name"
-            class="list-group-item d-flex align-items-start gap-2"
+            class="list-group-item d-flex flex-column flex-sm-row align-items-start gap-2"
           >
-            <span :class="dependencyBadgeClass(dep)" class="badge mt-1">
-              {{ dependencyBadgeLabel(dep) }}
-            </span>
-            <div>
+            <div class="d-flex flex-wrap flex-sm-column flex-shrink-0 align-items-start gap-1 mt-1">
+              <span v-for="source in dependencySourceLabels(dep)" :key="source" class="badge text-bg-secondary">
+                {{ source }}
+              </span>
+            </div>
+            <div class="text-break">
               <div class="font-monospace small">{{ dep.name }}</div>
               <div v-if="dep.coordinates" class="small text-muted">{{ dep.coordinates }}</div>
               <div v-if="dep.note" class="small text-muted">{{ dep.note }}</div>

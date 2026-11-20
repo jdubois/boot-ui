@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Structured violation locations on the Architecture advisor: taken from ArchUnit's violating objects, completed
@@ -33,14 +34,17 @@ import org.junit.jupiter.api.Test;
  * unchanged violation text on every sample and detail page.
  */
 class ArchitectureViolationLocationTests {
+    @TempDir
+    Path tempDir;
 
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1700000000000L), ZoneOffset.UTC);
     private static final String JAVA_FIXTURES = LocatedStreamUser.class.getPackageName();
     private static final String KOTLIN_FIXTURES = "io.github.jdubois.bootui.engine.architecture.kotlinlocationfixtures";
 
-    private static ArchitectureScanner scanner(JavaClasses classes, String root, List<ArchitectureRule> rules) {
+    private ArchitectureScanner scanner(JavaClasses classes, String root, List<ArchitectureRule> rules) {
+        JavaClasses staged = CompiledOutputFixtures.stageMain(tempDir, classes);
         return new ArchitectureScanner(
-                () -> List.of(root), packages -> classes, ArchitecturePlatform.SPRING, CLOCK, rules);
+                () -> List.of(root), packages -> staged, ArchitecturePlatform.SPRING, CLOCK, rules);
     }
 
     private static ArchitectureRuleResultDto result(ArchitectureReport report, String id) {
@@ -92,7 +96,7 @@ class ArchitectureViolationLocationTests {
         Path path = Path.of(method.sourcePath());
         assertThat(path).isAbsolute();
         assertThat(path.toString().replace('\\', '/'))
-                .endsWith("bootui-engine/src/test/java/io/github/jdubois/bootui/engine/architecture/"
+                .endsWith("src/main/java/io/github/jdubois/bootui/engine/architecture/"
                         + "locationfixtures/LocatedStreamUser.java");
         assertThat(Files.readAllLines(path).get(15)).contains("System.out.println(\"method body\")");
 
@@ -254,7 +258,8 @@ class ArchitectureViolationLocationTests {
 
     @Test
     void anExhaustedLookupBudgetKeepsNoPathAndSaysWhy() {
-        JavaClasses classes = new ClassFileImporter().importClasses(LocatedStreamUser.class);
+        JavaClasses classes = CompiledOutputFixtures.stageMain(
+                tempDir, new ClassFileImporter().importClasses(LocatedStreamUser.class));
         AtomicInteger resolutions = new AtomicInteger();
         BiFunction<JavaClasses, java.util.Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution> tiny =
                 (imported, located) -> {
@@ -288,7 +293,8 @@ class ArchitectureViolationLocationTests {
 
     @Test
     void aFailedLookupDropsUnverifiableLinesInsteadOfShowingThem() {
-        JavaClasses classes = new ClassFileImporter().importClasses(LocatedStreamUser.class);
+        JavaClasses classes = CompiledOutputFixtures.stageMain(
+                tempDir, new ClassFileImporter().importClasses(LocatedStreamUser.class));
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(JAVA_FIXTURES),
                 packages -> classes,

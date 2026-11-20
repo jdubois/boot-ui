@@ -268,8 +268,12 @@ final class MySqlCatalogReader {
         int nonUnique = rs.getInt("non_unique");
         boolean knownUniqueness = !rs.wasNull() && (nonUnique == 0 || nonUnique == 1);
         String columnExtra = rs.getString("column_extra");
-        boolean generated = columnExtra != null
-                && columnExtra.toUpperCase(java.util.Locale.ROOT).contains("GENERATED");
+        String normalizedExtra = columnExtra == null ? null : columnExtra.toUpperCase(java.util.Locale.ROOT);
+        Boolean generated = normalizedExtra == null
+                ? null
+                : normalizedExtra.contains("STORED GENERATED")
+                        || normalizedExtra.contains("VIRTUAL GENERATED")
+                        || normalizedExtra.contains("PERSISTENT GENERATED");
         return new MySqlIndexDetail(
                 rs.getString("table_schema"),
                 rs.getString("table_name"),

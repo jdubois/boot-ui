@@ -5,10 +5,15 @@ import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -43,10 +48,21 @@ public class MemoryController implements AdvisorViolationsEndpoint {
         return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
-    @PostMapping("/scan")
     public MemoryReport scan() {
         MemoryReport report = scanner.scan();
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @PostMapping("/scan")
+    public MemoryReport scan(@RequestParam MultiValueMap<String, String> queryParameters) {
+        Boolean selected = MemoryScanner.parseIncludeHistogram(queryParameters);
+        if (selected == null) return scan();
+        return scanner.applyDismissals(scanner.scan(selected), dismissedRules.load());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> invalidScanSelection(IllegalArgumentException exception) {
+        return ResponseEntity.badRequest().body(Map.of("message", exception.getMessage()));
     }
 
     @Override

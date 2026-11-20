@@ -141,7 +141,7 @@ function isValidEvidence(evidence) {
   )
 }
 
-function hasCompletedDependency(dependency) {
+export function hasCompletedDependency(dependency) {
   return dependency.assessment?.queryComplete === true && dependency.assessment?.detailAssessmentComplete === true
 }
 

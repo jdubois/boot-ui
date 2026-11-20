@@ -344,11 +344,10 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(nonHeap.containsKey("usedPercent")).isTrue();
         assertThat(body.get("pools")).isInstanceOf(List.class);
         assertThat(body.get("jvmInputArguments")).isInstanceOf(List.class);
-        assertThat(body.get("suggestedJvmOptions")).asString().contains("-Xms").contains("-Xmx");
 
         Map<?, ?> calculation = (Map<?, ?>) body.get("calculation");
         assertThat(calculation).isNotNull();
-        assertThat(calculation.get("valid")).isEqualTo(Boolean.TRUE);
+        assertThat(calculation.get("valid")).isInstanceOf(Boolean.class);
         assertThat(calculation.containsKey("totalMemoryBytes")).isTrue();
         assertThat(calculation.containsKey("heapBytes")).isTrue();
         assertThat(calculation.containsKey("metaspaceBytes")).isTrue();
@@ -358,7 +357,41 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(calculation.containsKey("headRoomBytes")).isTrue();
         assertThat(calculation.containsKey("threadCount")).isTrue();
         assertThat(calculation.containsKey("loadedClasses")).isTrue();
-        assertThat(calculation.get("jvmOptions"))
+        Map<?, ?> kubernetes = (Map<?, ?>) body.get("kubernetes");
+        assertThat(kubernetes).isNotNull();
+        if (Boolean.TRUE.equals(calculation.get("valid"))) {
+            assertThat(calculation.get("error")).isNull();
+            assertThat(body.get("suggestedJvmOptions"))
+                    .asString()
+                    .contains("-Xms")
+                    .contains("-Xmx");
+            assertThat(calculation.get("jvmOptions")).isEqualTo(body.get("suggestedJvmOptions"));
+            assertThat(kubernetes.get("yaml")).asString().contains("JAVA_TOOL_OPTIONS");
+        } else {
+            assertThat(calculation.get("error")).asString().isNotBlank();
+            assertThat(((Number) calculation.get("heapBytes")).longValue()).isZero();
+            assertThat(calculation.get("jvmOptions")).isEqualTo("");
+            assertThat(body.get("suggestedJvmOptions")).isEqualTo("");
+            assertThat(kubernetes.get("javaToolOptions")).isEqualTo("");
+            assertThat(kubernetes.get("yaml")).isEqualTo("");
+            assertThat(kubernetes.get("qosClass")).isEqualTo("Unavailable");
+            assertThat((List<?>) kubernetes.get("warnings"))
+                    .anySatisfy(warning -> assertThat(warning).isEqualTo(calculation.get("error")));
+        }
+
+        var explicit = getMap("/bootui/api/live-memory?totalMemoryMb=65536");
+        assertThat(explicit.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> explicitBody = explicit.getBody();
+        assertThat(explicitBody).isNotNull();
+        Map<?, ?> explicitCalculation = (Map<?, ?>) explicitBody.get("calculation");
+        assertThat(explicitCalculation.get("valid")).isEqualTo(Boolean.TRUE);
+        assertThat(((Number) explicitCalculation.get("totalMemoryBytes")).longValue())
+                .isEqualTo(65536L * 1024 * 1024);
+        assertThat(explicitBody.get("suggestedJvmOptions"))
+                .asString()
+                .contains("-Xms")
+                .contains("-Xmx");
+        assertThat(explicitCalculation.get("jvmOptions"))
                 .asString()
                 .contains("-Xmx")
                 .contains("-XX:MaxMetaspaceSize=")

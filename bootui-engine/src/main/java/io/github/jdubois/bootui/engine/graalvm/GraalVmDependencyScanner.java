@@ -38,8 +38,9 @@ import java.util.regex.PatternSyntaxException;
  * repository has an entry for the dependency version. Only the unified metadata filename or a
  * canonical legacy configuration filename counts as bundled metadata; arbitrary JSON and a bare
  * {@code native-image.properties} do not.
- * Dependencies without bundled metadata may still be covered by the GraalVM reachability metadata
- * repository, or may need manual hints.
+ * Spring AOT's {@code META-INF/spring/aot.factories} resource is inventoried separately, without
+ * claiming that its contributors execute or provide complete native-image hints. Repository lookup
+ * is reserved for JARs without either bundled source. Absence of either source is not itself a defect.
  *
  * <p>The scan only opens JAR files (never the exploded application classes) and is bounded so a very
  * large classpath cannot make the panel expensive; if the bound is hit the survey reports a
@@ -55,6 +56,7 @@ import java.util.regex.PatternSyntaxException;
 final class GraalVmDependencyScanner {
 
     private static final String METADATA_PREFIX = "META-INF/native-image/";
+    private static final String SPRING_AOT_FACTORIES = "META-INF/spring/aot.factories";
     private static final String MAVEN_POM_PREFIX = "META-INF/maven/";
     private static final String NESTED_LIBRARY_PREFIX = "BOOT-INF/lib/";
     private static final Set<String> METADATA_FILES = Set.of(
@@ -82,6 +84,11 @@ final class GraalVmDependencyScanner {
             "Bundles native-image build arguments (native-image.properties) but no reachability metadata JSON; "
                     + "runtime features may still need hints.";
     private static final String MISSING_NOTE = "No bundled reachability metadata.";
+    private static final String SPRING_AOT_NOTE =
+            "Bundles META-INF/spring/aot.factories (Spring AOT contributor declarations); "
+                    + "presence does not verify contributor execution or native-image hint coverage.";
+    private static final String BUNDLED_LOOKUP_NOTE =
+            "Repository lookup skipped because a bundled hint source was found; native compatibility is not verified.";
 
     private final Supplier<String> classPathSupplier;
     private final ReachabilityMetadataRepository repository;
@@ -201,17 +208,23 @@ final class GraalVmDependencyScanner {
             List<GraalVmDependencyDto> dependencies = new ArrayList<>(inspected.size());
             for (InspectedDependency dependency : inspected) {
                 dependencies.add(dependency.toDto(
-                        Optional.empty(), "Oracle reachability metadata repository lookup is disabled."));
+                        Optional.empty(),
+                        dependency.hasBundledHintSource()
+                                ? BUNDLED_LOOKUP_NOTE
+                                : "Oracle reachability metadata repository lookup is disabled."));
             }
             return dependencies;
         }
 
-        // Phase 1 (sequential, no I/O): assign every distinct coordinate a lookup slot, in
+        // Phase 1 (sequential, no I/O): assign each distinct coordinate needing a lookup a slot, in
         // first-encounter order, so the configured bootui.graalvm.max-repository-lookups cap stays a
         // deterministic function of classpath order regardless of how the concurrent fetches below
         // complete.
         Map<Coordinates, Boolean> lookupSlots = new LinkedHashMap<>();
         for (InspectedDependency dependency : inspected) {
+            if (dependency.hasBundledHintSource()) {
+                continue;
+            }
             Coordinates coordinates = dependency.coordinates();
             if (coordinates != null && coordinates.isComplete()) {
                 lookupSlots.putIfAbsent(coordinates, lookupSlots.size() < maxRepositoryLookups);
@@ -232,10 +245,10 @@ final class GraalVmDependencyScanner {
                 true,
                 "dependencies.repository",
                 0,
-                inspected.size(),
-                "Checking reachability metadata repository coverage (0 of " + inspected.size() + ")."));
+                toFetch.size(),
+                "Checking reachability metadata repository coverage (0 of " + toFetch.size() + ")."));
         if (!toFetch.isEmpty() && !cancellationRequested.get()) {
-            fetchConcurrently(toFetch, inspected.size(), coverageByCoordinates);
+            fetchConcurrently(toFetch, toFetch.size(), coverageByCoordinates);
         }
         for (Map.Entry<Coordinates, Boolean> slot : lookupSlots.entrySet()) {
             coverageByCoordinates.computeIfAbsent(
@@ -252,7 +265,10 @@ final class GraalVmDependencyScanner {
             Coordinates coordinates = dependency.coordinates();
             Optional<RepositoryCoverage> coverage;
             String repositoryNote;
-            if (coordinates != null && coordinates.isComplete()) {
+            if (dependency.hasBundledHintSource()) {
+                coverage = Optional.empty();
+                repositoryNote = BUNDLED_LOOKUP_NOTE;
+            } else if (coordinates != null && coordinates.isComplete()) {
                 RepositoryCoverage resolved = coverageByCoordinates.get(coordinates);
                 coverage = Optional.of(resolved);
                 repositoryNote = resolved.note(coordinates);
@@ -374,7 +390,7 @@ final class GraalVmDependencyScanner {
         } catch (Exception ex) {
             return new Inspection(
                     List.of(new InspectedDependency(
-                            jar.getName(), false, "Could not read JAR: " + ex.getMessage(), null)),
+                            jar.getName(), false, false, "Could not read JAR: " + ex.getMessage(), null)),
                     false);
         }
     }
@@ -387,13 +403,20 @@ final class GraalVmDependencyScanner {
         }
         boolean hasMetadataJson = false;
         boolean hasBuildArgs = false;
+        boolean hasSpringAotFactories = false;
         boolean truncated = false;
         List<Coordinates> pomCandidates = new ArrayList<>();
         List<JarEntry> nestedLibraryEntries = new ArrayList<>();
         Enumeration<JarEntry> entries = jarFile.entries();
         while (entries.hasMoreElements() && !cancellationRequested.get()) {
             JarEntry entry = entries.nextElement();
+            if (entry.isDirectory()) {
+                continue;
+            }
             String name = entry.getName();
+            if (SPRING_AOT_FACTORIES.equals(name)) {
+                hasSpringAotFactories = true;
+            }
             if (name.startsWith(METADATA_PREFIX)) {
                 String lower = name.toLowerCase(Locale.ROOT);
                 if (isReachabilityMetadataFile(name)) {
@@ -436,7 +459,9 @@ final class GraalVmDependencyScanner {
             coordinates = coordinatesFromJarName(jar.getName()).orElse(null);
         }
         return new Inspection(
-                List.of(toInspectedDependency(jar.getName(), hasMetadataJson, hasBuildArgs, coordinates)), false);
+                List.of(toInspectedDependency(
+                        jar.getName(), hasMetadataJson, hasBuildArgs, hasSpringAotFactories, coordinates)),
+                false);
     }
 
     /** Whether the jar's manifest names it the BootUI agent ({@value AgentJars#PROTOCOL_ATTRIBUTE}). */
@@ -461,10 +486,17 @@ final class GraalVmDependencyScanner {
         try (JarInputStream nestedJar = new JarInputStream(outerJarFile.getInputStream(nestedEntry))) {
             boolean hasMetadataJson = false;
             boolean hasBuildArgs = false;
+            boolean hasSpringAotFactories = false;
             List<Coordinates> pomCandidates = new ArrayList<>();
             JarEntry inner;
             while ((inner = nestedJar.getNextJarEntry()) != null) {
+                if (inner.isDirectory()) {
+                    continue;
+                }
                 String name = inner.getName();
+                if (SPRING_AOT_FACTORIES.equals(name)) {
+                    hasSpringAotFactories = true;
+                }
                 if (name.startsWith(METADATA_PREFIX)) {
                     String lower = name.toLowerCase(Locale.ROOT);
                     if (isReachabilityMetadataFile(name)) {
@@ -482,21 +514,31 @@ final class GraalVmDependencyScanner {
             if (coordinates == null) {
                 coordinates = coordinatesFromJarName(nestedName).orElse(null);
             }
-            return toInspectedDependency(nestedName, hasMetadataJson, hasBuildArgs, coordinates);
+            return toInspectedDependency(nestedName, hasMetadataJson, hasBuildArgs, hasSpringAotFactories, coordinates);
         } catch (Exception ex) {
-            return new InspectedDependency(nestedName, false, "Could not read nested JAR: " + ex.getMessage(), null);
+            return new InspectedDependency(
+                    nestedName, false, false, "Could not read nested JAR: " + ex.getMessage(), null);
         }
     }
 
     private InspectedDependency toInspectedDependency(
-            String name, boolean hasMetadataJson, boolean hasBuildArgs, Coordinates coordinates) {
+            String name,
+            boolean hasMetadataJson,
+            boolean hasBuildArgs,
+            boolean hasSpringAotFactories,
+            Coordinates coordinates) {
+        String note;
         if (hasMetadataJson) {
-            return new InspectedDependency(name, true, SHIPS_NOTE, coordinates);
+            note = SHIPS_NOTE;
+        } else if (hasBuildArgs) {
+            note = BUILD_ARGS_NOTE;
+        } else {
+            note = MISSING_NOTE;
         }
-        if (hasBuildArgs) {
-            return new InspectedDependency(name, false, BUILD_ARGS_NOTE, coordinates);
+        if (hasSpringAotFactories) {
+            note = MISSING_NOTE.equals(note) ? SPRING_AOT_NOTE : note + " " + SPRING_AOT_NOTE;
         }
-        return new InspectedDependency(name, false, MISSING_NOTE, coordinates);
+        return new InspectedDependency(name, hasMetadataJson, hasSpringAotFactories, note, coordinates);
     }
 
     private static boolean isReachabilityMetadataFile(String entryName) {
@@ -626,7 +668,12 @@ final class GraalVmDependencyScanner {
 
     record Inspection(List<InspectedDependency> dependencies, boolean truncated) {}
 
-    record InspectedDependency(String name, boolean shipsMetadata, String note, Coordinates coordinates) {
+    record InspectedDependency(
+            String name, boolean shipsMetadata, boolean shipsSpringAotFactories, String note, Coordinates coordinates) {
+        boolean hasBundledHintSource() {
+            return shipsMetadata || shipsSpringAotFactories;
+        }
+
         GraalVmDependencyDto toDto(Optional<RepositoryCoverage> coverage, String repositoryNote) {
             boolean repositoryMetadata =
                     coverage.map(RepositoryCoverage::covered).orElse(false);
@@ -658,7 +705,8 @@ final class GraalVmDependencyScanner {
                     metadataVersion,
                     testedVersions,
                     repositoryUrl,
-                    repositoryMetadataUrl);
+                    repositoryMetadataUrl,
+                    shipsSpringAotFactories);
         }
     }
 

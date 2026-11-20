@@ -47,10 +47,10 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
                                 + constraint.constraint() + " on " + constraint.qualifiedTable()
                                 + " is currently not validated. "
                                 + (Boolean.TRUE.equals(constraint.enforced())
-                                        ? "New writes are checked. "
+                                        ? "Declaration is ENFORCED. "
                                         : Boolean.FALSE.equals(constraint.enforced())
-                                                ? "It is NOT ENFORCED; new writes are not checked. "
-                                                : "Enforcement state is unknown. ")
+                                                ? "Declaration is NOT ENFORCED. "
+                                                : "Declaration enforcement state is unknown. ")
                                 + "The snapshot does not establish when this state began or whether any row violates it.",
                         DatabaseIdentities.table(
                                 schema.dataSourceName(),

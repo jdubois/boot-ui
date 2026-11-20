@@ -19,6 +19,8 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** M4-8: {@code transactional-listener-skipped} and {@code after-commit-writes}, each with its counterexample. */
 class AppEventObservationsTests {
@@ -131,6 +133,58 @@ class AppEventObservationsTests {
             assertThat(observation.whatToCheck().get(1)).contains("REQUIRES_NEW");
             assertThat(observation.whatToCheck().get(0)).contains("timing alone does not prove");
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "/* Hibernate insert */ insert into audit values (?)",
+                "-- Hibernate update\nupdate audit set seen = ?",
+                "/* Hibernate delete */ delete from audit where id = ?",
+                "/* Hibernate merge */ merge into audit using incoming on audit.id = incoming.id when matched then"
+                        + " update set seen = ?",
+                "replace into audit values (?)",
+                "/* Hibernate replace */ replace into audit values (?)"
+            })
+    void commentedWritesAndReplaceAreReportedButCommentedReadsInTheListenerAreNot(String statement) {
+        long start = 1_000 * MS;
+        offer(
+                "r1",
+                new Child(
+                        JournalSource.APP_EVENT,
+                        10 * MS,
+                        AppEventPayload.listener(
+                                PLACED, "AuditListener#onShipped", "AFTER_COMMIT", AppEventPayload.RAN, null, start)),
+                new Child(JournalSource.SQL, MS, sql(statement, start + MS)),
+                new Child(
+                        JournalSource.SQL,
+                        MS,
+                        sql("/* insert into audit values (?) */ select * from audit", start + 2 * MS)),
+                new Child(
+                        JournalSource.SQL,
+                        MS,
+                        sql("-- update audit set seen = ?\nselect * from audit", start + 3 * MS)),
+                new Child(JournalSource.SQL, MS, sql("select 'delete from audit' from audit", start + 4 * MS)));
+
+        for (InsightsStack stack : List.of(InsightsStack.SPRING_MVC, InsightsStack.SPRING_WEBFLUX)) {
+            RuntimeInsightsService insights = new RuntimeInsightsService(journal, null, null, stack, null);
+            assertThat(insights.report().observations())
+                    .filteredOn(observation -> observation.kind().equals(AfterCommitWrites.KIND))
+                    .singleElement()
+                    .satisfies(observation -> {
+                        assertThat(observation.sentence())
+                                .contains("AFTER_COMMIT listener `AuditListener#onShipped` ran 1 write");
+                        assertThat(observation.exemplarRequestIds()).containsExactly("r1");
+                        assertThat(insights.insight(observation.id()).rows())
+                                .singleElement()
+                                .satisfies(row -> {
+                                    assertThat(row.cells())
+                                            .containsExactly("r1", InsightText.statement(statement), "1.0");
+                                });
+                        assertThat(observation.limitations())
+                                .anyMatch(text -> text.contains("not their database commit outcome"));
+                    });
+        }
     }
 
     @Test

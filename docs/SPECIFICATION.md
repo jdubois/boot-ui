@@ -352,12 +352,17 @@ group.
 Data sources:
 
 - Local `.git` metadata for repository detection and branch/upstream information.
-- GitHub REST API during explicitly authorized manual/one-minute refreshes.
-- Local credentials from `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`, never persisted or returned to the browser.
+- GitHub REST API during explicitly authorized manual or one-minute refreshes.
+- Host-bound local credentials: `GITHUB_TOKEN` / `GH_TOKEN` for github.com, Enterprise token variables only with a
+  matching `GH_HOST`, or the host's stored `gh auth token --hostname <host>` login, never persisted or returned to
+  the browser.
 
 Features:
 
 - Show repository identity, visibility, default branch, local branch, stars, forks, watchers, and recent push time.
+- Keep origin as the default. Label security cards as fork data only when GitHub returns `fork: true`; null fork status
+  stays unknown. Offer a validated, allow-listed local `upstream` remote as an explicit connection choice, with its host
+  and repository shown, without inferring that it is the fork's parent or contacting it on render.
 - Show bounded open pull requests, issue buckets and the bounded open issue list, latest GitHub Actions executions,
   configured workflow links, and permission-aware security signals.
 - Render every resource returned by `/rate_limit` dynamically, plus best-effort repository/owner quota cards when
@@ -371,12 +376,44 @@ Acceptance criteria:
   in memory and never inferred from cached connection state. Stop or read-only policy revokes permission.
 - External timers pause while the panel/page is inactive or hidden. Returning reads cache first without an
   activation-triggered POST; subsequent scheduled refreshes may use existing consent. Reload/new tab clears consent.
+- Cached reads retain the report's actual `refreshedAt`, including null before the first live refresh. Failed
+  refreshes, including HTTP-200 reports with status `ERROR`, retain the last good data and timestamp with a visible
+  error; an initial error does not create fresh data. Other report statuses remain authoritative.
+- GET and refresh POST accept optional `remote=origin|upstream`, defaulting to origin for existing callers. Additive
+  `repositoryContext` metadata exposes safe origin/upstream identities and the selected remote, not raw remote URLs,
+  embedded credentials or filesystem paths. Local git reads are bounded. Missing/invalid upstream metadata stays
+  unknown; arbitrary remote names/URLs are rejected. Selection never bypasses read-only or host-aware credential
+  policy. A present `remote` must occur exactly once with the exact value `origin` or `upstream`; empty, bare,
+  duplicated and case-alias parameters are rejected before repository/cache work. Each selection caches independently
+  by API host and repository; errors cannot overwrite either good cache.
+  Switching targets is explicit and requires Connect for that target; reopening starts on origin.
+- Returning to origin remains available when the selected upstream becomes unavailable. Read-only recovery uses only
+  the cached origin GET and does not enable polling.
+- Cached recovery never enables live refresh or polling.
 - Outbound GitHub calls happen only through `POST /bootui/api/github/refresh` and are blocked by read-only settings.
 - Scorecard's GitHub controls, including GitHub-only run-all, honor that same target policy without hiding cached data.
 - The quotas/rate-limits drawer is hidden by default and highlights resources at quota or with 10% or less remaining.
 - Private repositories, missing credentials, rate limits, denied quota endpoints, and unsupported GitHub Enterprise
   endpoints produce stable unavailable states instead of raw errors.
+- Malformed, blank, or non-array successful security-alert responses are `UNAVAILABLE` with a null count, never a
+  clean zero. Valid empty arrays remain `AVAILABLE` with count zero. Failed alert signals add warnings and make the
+  dashboard `PARTIAL`, retaining independent successful sections.
+- Security-alert counts sum every observed page, including next-only forward cursors, without extrapolating from
+  first/last page sizes. Pagination preserves the original repository API origin, prefix, endpoint, state and page size;
+  numeric repository aliases require the matching positive integral ID from fetched metadata, never a first-seen Link.
+  Valid initial-page first/previous links are accepted without a forward selector, after the same validation.
+- Unsafe, malformed, contradictory, cyclic or repeated pagination, failed/truncated/oversized first or later alert
+  responses, and traversal-budget stops leave a null total. Completed pages retain an explicit lower-bound reason and
+  bounded Dependabot details; first-page I/O failure invents no observed lower bound. Independent loaded sections survive.
+  Code and secret scanning remain count-only. Completed counts are non-atomic observations, not a consistent snapshot.
+- Extra alert pages preserve capacity for remaining baseline alert, cache, artifact, billing and applicable Copilot
+  requests without consuming a refused reservation or increasing the shared hard budget. A dedicated traversal-budget
+  reason distinguishes reservation from global exhaustion. Very small budgets can still leave baseline sections unavailable.
+- HTTP errors retain their status regardless of body format; decode failures use sanitized section errors without
+  exposing response text. A 403 or 404 alone does not establish whether an alert feature is disabled or unauthorized.
 - Tokens, authorization headers, response bodies, and subprocess stderr are never exposed to the browser.
+- A token for one repository host is never silently reused for another; CLI fallback ignores generic token
+  environment variables and does not use the CLI's default host.
 
 ### 5.2 Beans Explorer
 
@@ -1143,9 +1180,22 @@ Features:
 - The JVM Tuning panel provides a bare-metal JVM memory calculator that partitions a user-chosen
   target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
-  using the live loaded-class count from `ClassLoadingMXBean` (with an explicit 1.25× safety
-  factor), the greater of the 10 MiB direct-memory fallback and observed direct-buffer use, and a platform-thread count
-  floored at 250 by default.
+  reserving the larger of the live loaded-class model from `ClassLoadingMXBean` and named Metaspace pool committed
+  bytes, each with a 25% starting allowance and upward MiB rounding. One passive pool observation supplies the display,
+  default total and both option forms; Compressed Class Space is already included and is not added again. When the
+  observation is unavailable, the class model remains the fallback with an explicit note. Exceeding the generated
+  `MaxMetaspaceSize` cap can cause `OutOfMemoryError: Metaspace`; the allowance is not a live-after-GC or peak-demand
+  guarantee. The other reservations use the greater of the 10 MiB direct-memory fallback and observed direct-buffer
+  use, and a platform-thread count floored at 250 by default.
+- All generated fixed whole-MiB and floored three-decimal percentage heap options must reach observed heap used and
+  the generic 2 MiB bound. Untouched host defaults target the larger of 128 MiB and observed heap used plus an explicit
+  20% starting allowance, accounting for default headroom and option rounding while retaining the hard 2 GiB default
+  clamp. The allowance is not a peak/workload guarantee; explicit/manual and detected-container plans do not require it.
+  Defaults, validation and the displayed heap reuse one `MemoryUsage` snapshot, without requesting GC or a histogram.
+  The automatic fixed-region floor includes the same Metaspace reservation; oversized observations saturate rather
+  than wrap, without raising the default clamp or explicit/detected budgets.
+  An insufficient budget returns the existing invalid/error shape with no options or YAML, not an inflated budget
+  or a recommendation below observed demand.
 - The JVM Tuning panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
   (equal for a fixed modeled heap), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`, and `-Xss`. It deliberately
   leaves the running JVM's collector unchanged and does not synthesize direct-memory, pre-touch, compact-header,
@@ -1155,7 +1205,16 @@ Features:
   Equal memory request and limit values are reported as `Depends on CPU`, because Kubernetes Guaranteed QoS also
   requires equal, non-zero CPU request and limit values for every container.
 - The JVM Tuning panel lets the user attempt a lower, Burstable Kubernetes request based first on the current cgroup
-  memory snapshot, with committed JVM pools plus observed direct buffers as a lower-confidence fallback. It can include
+  memory snapshot, with committed JVM pools plus observed direct buffers as a lower-confidence fallback. It retains
+  the larger of 15% and 64 MiB as a snapshot margin, a 128 MiB minimum, and upward 64 MiB request rounding. The request
+  also covers the modeled heap plus observed aggregate non-heap committed, without adding individual pools again.
+  The raw JVM aggregate may itself include overlapping pool accounting; BootUI retains it without deduplication.
+  The modeled heap also bounds the downward-rounded initial-heap option against the selected limit.
+  An opt-in floor that exceeds the fixed limit produces an
+  `Unavailable` Kubernetes recommendation with an explanation and no options or YAML, not a higher limit or a request
+  below that floor; the bare-metal calculation and default emitted equal request/limit, QoS, and YAML are unchanged.
+  The informational Burstable alternative is also floored while opt-in is off. These are snapshot
+  heuristics, not peak-demand, live-after-GC, or effective-heap guarantees. It can include
   startup/readiness/liveness probes using framework-default paths and the named container port `http`; operators must
   verify both when application, management-server, or container-port configuration differs.
 - The model, generated-option inventory, platform behavior, evidence, and limitations are documented in
@@ -1164,6 +1223,9 @@ Features:
 Acceptance criteria:
 
 - Memory values serialize through stable BootUI DTOs.
+- Memory advisor `MEM-GC-009` assesses external explicit-GC pauses within a bounded JVM-uptime scan interval,
+  not lifetime notification totals; missing interval evidence remains unknown alongside known findings.
+  See [Memory check time boundaries](MEMORY-CHECKS.md#time-and-collector-boundaries).
 - Suggested options are clearly presented as recommendations, not automatic changes.
 - JVM argument disclosure is reviewed as part of release hardening.
 
@@ -1192,6 +1254,13 @@ Data sources:
   SBOM entries are also reconciled out.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
+- Otherwise unidentified ordinary local JARs in the Gradle `modules-2/files-2.1` cache layout, supplied through the
+  classpath or application loader. Require exact main-artifact filename and canonical path agreement, safe coordinate
+  segments, and Gradle's unpadded lowercase SHA-1 directory format. Embedded Maven descriptors, bundled archives, and
+  shadowed basenames prevent this fallback; already identified shipped-SBOM, descriptor, and classpath matches take
+  precedence. A newly Gradle-identified archive is not used by the later filename-based rescue of excluded/test-only
+  SBOM components. The path is discovery provenance, not verified publication identity; no cache search, checksum
+  lookup, or external request is performed.
 - Quarkus instead reads coordinates captured from its build-time resolved application model. A missing/blank model, a
   malformed entry, or a coordinate the build step could not encode reports `UNAVAILABLE` coverage, never `COMPLETE`.
 - OSV.dev Maven vulnerability data for explicit on-demand scans.
@@ -1217,6 +1286,13 @@ Features:
   UNKNOWN cannot establish usability and always limits coverage, even after dismissal;
   UNKNOWN-only evidence remains unscored unless independent usable evidence exists. Dismissed known
   findings remain observed evidence. An empty active summary is not a genuinely empty retained advisory list.
+- Keep query-returned IDs without fetched details as separate unassessed candidates in
+  `assessment.unassessedAdvisoryIds` (at most 100 distinct IDs per dependency, at most 240 characters each and no
+  control characters) with `assessment.unassessedAdvisoryCount` counting all distinct unassessed associations.
+  Show omitted preview IDs honestly. Candidates are not interpreted vulnerabilities: they add no severity, summary,
+  fix claim, EPSS lookup, dismissal, finding count, or usability. Preserve them on detail failure, timeout, deadline,
+  and max-advisories paths and through report copies. The shared UI's **Findings or unassessed candidates** filter
+  keeps affected incomplete dependencies discoverable, with separate counts and the neutral **Not assessed** badge.
 - Retain findings and diagnostics independently of eligibility. Usable numeric scores lead with findings and a neutral
   **Results available** status. Incomplete inventory, query/detail gaps, unknown severity, or incomplete applicable
   checks remain in an initially collapsed, keyboard-accessible **Scan notes** disclosure in the dedicated panel,
@@ -1388,7 +1464,7 @@ Acceptance criteria:
   shaded coordinates naming it), reach is `UNKNOWN`, as it is for web-resource jars and artifacts whose classes the agent
   never records.
 
-Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
+Known limitations: further inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
 classifiers. Unreadable container/archive
 diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
@@ -1398,8 +1474,8 @@ nor a consumer trusting that flag independently verifies a complete runtime inve
 The dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
 manifest header carries a `groupId` (the curated `spring-boot-jarmode-tools` exception above relies on its fixed, known
 group) — `Implementation-Title` is a display name as often as an artifact id, and
-`Implementation-Vendor-Id` is not a group id. An application built without a CycloneDX SBOM therefore cannot resolve
-coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
+`Implementation-Vendor-Id` is not a group id. Without a CycloneDX SBOM or a recognized repository/cache path, Spring
+cannot resolve coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
 `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the PostgreSQL driver, and the `opentelemetry-*` and
 `micrometer-*` families among them), and inside a repackaged fat JAR the `java.class.path` fallback is dead too. Archives
 detected as unidentified by the census are reported through `coverage`, subject to the attribution limitations above;
@@ -2009,9 +2085,35 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   (`EVALUATED`, `INSUFFICIENT` when no work was eligible, `PARTIAL`, `NOT_APPLICABLE` with its reason, or
   `UNAVAILABLE` with its reason when it reads SQL that
   this application's stack does not record, such as R2DBC), the observations, and limitations. The projection is
-  cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
-  not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
+  cached until the journal records more, a cache-absence capability/window changes, or a panel's enablement changes.
+  Cache absence can establish a Spring proxy bypass only for a proven standard synchronous manager path and a request
+  starting after its current continuous-capture window began. Installation, journal/correlation rebinding and
+  suspend/resume never retroactively prove earlier requests. Proof must remain stable around the retained-entry read;
+  concurrent transitions and failed cache observations withhold absence inference. Unsupported or inherited routing,
+  reactive retrieval, unresolved declarations and lazy or ambiguous capture remain unassessed, without application or
+  factory callbacks. This qualifies only proxy-bypass absence inference: retained cache events,
+  route comparisons, dropped-event qualifications and independent transaction evaluation remain unchanged.
+  Thread names and kinds do not prove physical identity or whether `@Async` advice ran. Async-only work stays
+  unassessed without hiding independently judgeable outer transaction or cache boundaries.
+  Eligibility follows the observation's unit, not just its request count: a heap-growth check that examined collections
+  is evaluated even with zero requests,
   whether it observed growth or a stable heap.
+  Repeated SELECTs requires observed execution provenance, or an observed zero-statement connection within its
+  declared execution-only feeder scope; preparation-only and unknown SQL do not establish execution absence.
+  Connection overlap eligibility requires logical-connection evidence, never SQL execution completeness, and each
+  data-source finding uses its own observed denominator. Current capture uncertainty does not erase retained facts.
+  Event-loop checks independently examine executed JDBC and native synchronous Spring HTTP-client calls with
+  classified issuing threads. A supported HTTP channel can remain usable without JDBC capture; SQL-only contexts
+  with no retained SQL facts remain unavailable when SQL cannot be recorded.
+  Native log-coverage gaps qualify framework-warning absence and optional log evidence without hiding captured
+  errors or independent 2xx failures. Coverage reads use held native metadata, not logging filters, custom appender
+  callbacks, or lazy application factories. SQL feeder-scope and log-gap changes also invalidate the projection cache.
+  Log qualifications are immutable per-projection results for each retained unit's own start and unowned captured
+  fact, not a run-wide window anchored by unrelated startup or GC events. Initial sampling, mid-read validation and
+  cache comparison use the same windows. Incomplete log scope uses captured-fact wording rather than request-wide
+  prevalence. Passive Insights coverage stays separate from existing explicit deep Caught inspection.
+  A captured framework-log finding without a proven request population keeps `eligible=0` even with positive
+  `affected`; consumers therefore omit request-frequency ratios without discarding the captured facts.
   Each kind's external validation (recorded once in the engine's `ExternalValidation`)
   decides whether its rows enter the agents' default selection, and is never exposed: no check, row, limitation, MCP
   or CLI text names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
@@ -2412,6 +2514,8 @@ Data sources:
 - JPA `EntityManagerFactory` metamodel when Hibernate ORM is present.
 - Spring Data repository metadata for query and paging heuristics.
 - Selected Spring Boot and Hibernate configuration properties.
+- Effective runtime bind-parameter and result-value TRACE logger state (`HIB-CONFIG-018`); no logged values or
+  messages are read.
 - The auto-commit default of the HikariCP or Agroal pool behind a resource-local persistence unit, read without
   borrowing a connection (`HIB-CONFIG-008` and `HIB-CONFIG-021`).
 
@@ -2447,6 +2551,9 @@ Acceptance criteria:
 - Opening the panel never executes application queries or mutates persistence metadata.
 - The scan action is blocked by global read-only mode and `bootui.panels.hibernate.read-only`.
 - Findings are presented as heuristic review prompts, not definitive performance verdicts.
+- HIB-QUERY-007 proves only a narrow verified static bulk-DML subset irrelevant before requiring a SELECT root.
+  Unknown provenance, unreadable text and unsupported applicable shapes remain evidence gaps; other rules' bulk-query
+  obligations and existing findings remain intact (see `docs/HIBERNATE-CHECKS.md`).
 
 ### 5.17.1.1 Hibernate Statistics Panel
 
@@ -2579,6 +2686,14 @@ Data sources:
 
 - Every discovered application `DataSource`, introspected through standard JDBC `DatabaseMetaData` for tables, columns,
   primary keys, foreign keys, and indexes.
+- Identified H2 2.x datasources additionally use a bounded, table-qualified `INFORMATION_SCHEMA.INDEXES` read
+  on the same scan connection to establish ordinary MVStore secondary-index access methods for physical FKs.
+  JDBC `tableIndexOther` alone is not sufficient; spatial, hash, custom and unknown implementations are not promoted,
+  and primary-key implementations remain outside this refinement. Its temporary H2 query timeout preserves any tighter
+  limit, restores the exact session milliseconds and leaves the JDBC getter cache unchanged. If a safe physical close
+  target cannot be established, the refinement stays unknown without mutating the session. Restoration failure discards
+  the verified physical connection and fails that datasource. This does not establish full comparison or
+  constraint-enforcement evidence.
 - PostgreSQL, MySQL, MariaDB, and Oracle (19c+) system catalogs for the bounded vendor-specific checks documented in
   `docs/DATABASE-ADVISOR-CHECKS.md`. Oracle catalog reads use only `ALL_*` dictionary views and
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no
@@ -3291,6 +3406,27 @@ resolves remote configuration; missing build files and indeterminate inspections
 `SEC-STATIC-001` is INFO advice only and does not establish runtime security evidence or a score. Cached report GETs
 do not inspect project files.
 
+The Quarkus application advisor's `QA-CDI-005` reports normal-scoped beans or producer types that cannot be
+client-proxied, not every JDK return type. Indexed or non-initializing JDK metadata must distinguish valid abstract
+types such as `Clock` from final, sealed, or constructor-inaccessible types; unresolved metadata remains unknown.
+A positive native ArC unproxyability error takes precedence over an apparently proxyable shape or missing static
+return-type metadata. Default-mode final-method skips alone are outside this rule. Observed sealed-producer build-time
+rejection, conditional strict-mode deferral, and unverified failure stages are distinguished in the
+[rule catalog](QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005-normal-scoped-bean-cannot-be-client-proxied).
+
+On servlet MVC, supported native filterless chains (including `web.ignoring()`) are excluded from missing-authorization
+`SEC-AUTHZ-001` and produce one inventory-scoped `SEC-AUTHZ-006` finding listing the observed ignored scopes. Its
+`violationCount` and retained detail count are one, not the number of patterns; standard detail-text bounds still
+apply. Proven unconditional scopes are listed first, preserving original order within unconditional and remaining
+groups, so truncation retains the HIGH justification. Severity is LOW unless passive typed matcher facts prove at
+least one ignored scope unconditional, then HIGH. A positively nonempty supported native chain discharges only this
+rule's filterless obligation, even when custom filter types are unknown; global and other-rule uncertainty remains.
+Method/base-path constraints and unknown matcher semantics cannot be erased by a textual `/**`. Unsupported empty
+placeholders do not prove ignored requests; unknown scope retains incomplete coverage alongside any known finding.
+Normal nonempty `permitAll` chains are not SEC-AUTHZ-006 targets. The new ID does not inherit SEC-AUTHZ-001 dismissals
+or reuse retired SEC-CONFIG-004. WebFlux and Quarkus retain their own catalogues; no DTO, generic scoring, strict CI
+eligibility, or whole-sample completeness contract changes.
+
 #### Advisor violation pages
 
 The seven compact rule advisors (`architecture`, `hibernate`, `spring`, `rest-api`, `memory`, `security`,
@@ -3455,7 +3591,7 @@ Initial endpoints:
 | `/bootui/api/spring`                     | GET    | Latest Spring Advisor scan report                                                      |
 | `/bootui/api/spring/scan`                | POST   | Run explicit read-only Spring context and configuration checks                         |
 | `/bootui/api/memory`                     | GET    | Latest Memory Advisor scan report                                                      |
-| `/bootui/api/memory/scan`                | POST   | Run explicit read-only JVM memory, GC, and thread health checks                        |
+| `/bootui/api/memory/scan`                | POST   | Run explicit JVM checks; optional `includeHistogram` (`true` or `false`) overrides `bootui.memory.include-histogram` (default `true`); selection is returned as `scan.includeHistogram` |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
@@ -3608,10 +3744,10 @@ Initial properties:
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |
 | `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for the issue buckets and open issue list.                            |
-| `bootui.github.max-security-alerts`          | `50`                                    | Maximum Dependabot alert details listed per refresh; count stays exact, metadata only.            |
+| `bootui.github.max-security-alerts`          | `50`                                    | Maximum Dependabot details retained; a total is available only after complete bounded traversal. |
 | `bootui.github.max-workflow-runs`            | `20`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                      |
 | `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                   |
-| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                   |
+| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls per refresh, including every alert page; incomplete totals stay unknown. |
 | `bootui.github.allowed-api-hosts`            | `api.github.com`                        | Allowed GitHub API hosts; add a GitHub Enterprise host to enable enterprise remotes.              |
 | `bootui.dev-services.restart-enabled`        | `false`                                 | Enables restart controls for bean-backed Testcontainers services.                                 |
 | `bootui.dev-services.log-tail-bytes`         | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                           |

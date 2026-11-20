@@ -861,7 +861,7 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
-    void formLoginChainWithCsrfWebFilterDoesNotTriggerCsrfRule() {
+    void legacyFilterNamesDoNotEstablishCsrfMatcherEvidence() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
                 "any request",
@@ -882,6 +882,125 @@ class ReactiveSecurityScannerTests {
         SecurityReport report = scan(chain, List.of(), false);
 
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-CSRF-001");
+        ReactiveSecurityContext context = new ReactiveSecurityContext(
+                List.of(chain), List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveCsrfDisabledLoginRule().evaluate(context).status())
+                .isEqualTo("SKIPPED");
+        assertThat(context.evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(context.evaluation().evidence(List.of()).coverageComplete()).isFalse();
+    }
+
+    @Test
+    void csrfRulesDistinguishObservedDefaultsMissingFiltersAndUnknownMatchers() {
+        for (boolean basic : List.of(false, true)) {
+            ReactiveSecurityRule rule = basic ? new ReactiveBasicCsrfRule() : new ReactiveCsrfDisabledLoginRule();
+            ReactiveSecurityContext known = new ReactiveSecurityContext(
+                    List.of(csrfChain(0, !basic, basic, false, true, true)),
+                    List.of(),
+                    true,
+                    ReactiveSecurityEnvironmentSnapshot.empty());
+            assertThat(rule.evaluate(known).status()).isEqualTo("PASS");
+            assertThat(known.evaluation().evidence(List.of()).usable()).isTrue();
+            assertThat(known.evaluation().evidence(List.of()).coverageComplete())
+                    .isTrue();
+
+            ReactiveSecurityContext unknown = new ReactiveSecurityContext(
+                    List.of(csrfChain(0, !basic, basic, false, true, false)),
+                    List.of(),
+                    true,
+                    ReactiveSecurityEnvironmentSnapshot.empty());
+            assertThat(rule.evaluate(unknown).status()).isEqualTo("SKIPPED");
+            assertThat(unknown.evaluation().evidence(List.of()).usable()).isFalse();
+            assertThat(unknown.evaluation().evidence(List.of()).coverageComplete())
+                    .isFalse();
+
+            ReactiveSecurityContext missing = new ReactiveSecurityContext(
+                    List.of(csrfChain(0, !basic, basic, false, false, false)),
+                    List.of(),
+                    true,
+                    ReactiveSecurityEnvironmentSnapshot.empty());
+            SecurityRuleResultDto finding = rule.evaluate(missing);
+            assertThat(finding.status()).isEqualTo("VIOLATION");
+            assertThat(finding.violationCount()).isOne();
+            assertThat(finding.severity()).isEqualTo(basic ? "MEDIUM" : "HIGH");
+            assertThat(missing.evaluation().evidence(List.of()).usable()).isTrue();
+            assertThat(missing.evaluation().evidence(List.of()).coverageComplete())
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void irrelevantCsrfMatchersDoNotCreateEvidenceGapsOrDuplicateLoginFindings() {
+        for (ReactiveSecurityRule rule : List.of(new ReactiveCsrfDisabledLoginRule(), new ReactiveBasicCsrfRule())) {
+            for (List<WebFilterChainObservation> chains : List.of(
+                    List.<WebFilterChainObservation>of(),
+                    List.of(csrfChain(0, false, false, false, true, false)),
+                    List.of(csrfChain(0, false, false, true, true, false)))) {
+                ReactiveSecurityContext context = new ReactiveSecurityContext(
+                        chains, List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+                assertThat(rule.evaluate(context).status()).isEqualTo("PASS");
+                assertThat(context.evaluation().evidence(List.of()).usable()).isFalse();
+                assertThat(context.evaluation().evidence(List.of()).coverageComplete())
+                        .isTrue();
+            }
+        }
+        ReactiveSecurityContext mixed = new ReactiveSecurityContext(
+                List.of(csrfChain(0, true, true, false, true, false)),
+                List.of(),
+                true,
+                ReactiveSecurityEnvironmentSnapshot.empty());
+        assertThat(new ReactiveBasicCsrfRule().evaluate(mixed).status()).isEqualTo("PASS");
+        assertThat(mixed.evaluation().evidence(List.of()).usable()).isFalse();
+        assertThat(mixed.evaluation().evidence(List.of()).coverageComplete()).isTrue();
+        assertThat(new ReactiveCsrfDisabledLoginRule().evaluate(mixed).status()).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void missingCsrfFindingsSurviveAnIndependentUnknownMatcherInEitherChainOrder() {
+        for (boolean basic : List.of(false, true)) {
+            ReactiveSecurityRule rule = basic ? new ReactiveBasicCsrfRule() : new ReactiveCsrfDisabledLoginRule();
+            WebFilterChainObservation missing = csrfChain(0, !basic, basic, false, false, true);
+            WebFilterChainObservation unknown = csrfChain(1, !basic, basic, false, true, false);
+            for (List<WebFilterChainObservation> chains :
+                    List.of(List.of(missing, unknown), List.of(unknown, missing))) {
+                ReactiveSecurityContext context = new ReactiveSecurityContext(
+                        chains, List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());
+                SecurityRuleResultDto finding = rule.evaluate(context);
+                assertThat(finding.status()).isEqualTo("VIOLATION");
+                assertThat(finding.violationCount()).isOne();
+                assertThat(finding.sampleViolations())
+                        .singleElement()
+                        .asString()
+                        .contains("Chain 0");
+                assertThat(context.evaluation().evidence(List.of()).usable()).isTrue();
+                assertThat(context.evaluation().evidence(List.of()).coverageComplete())
+                        .isFalse();
+            }
+        }
+    }
+
+    private static WebFilterChainObservation csrfChain(
+            int index, boolean form, boolean basic, boolean bearer, boolean csrfPresent, boolean matcherObserved) {
+        return new WebFilterChainObservation(
+                index,
+                "any request",
+                csrfPresent ? List.of("CsrfWebFilter") : List.of(),
+                false,
+                bearer,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                true,
+                form,
+                basic,
+                true,
+                true,
+                List.of(),
+                false,
+                null,
+                matcherObserved);
     }
 
     @Test
@@ -1689,7 +1808,7 @@ class ReactiveSecurityScannerTests {
                 .filteredOn(result -> result.id().equals("SEC-RXF-HEAD-007"))
                 .singleElement()
                 .satisfies(result -> {
-                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.severity()).isEqualTo("LOW");
                     assertThat(result.sampleViolations())
                             .singleElement()
                             .asString()
@@ -1723,6 +1842,106 @@ class ReactiveSecurityScannerTests {
         assertThat(scan(nonceBacked, List.of(), false).results())
                 .extracting(SecurityRuleResultDto::id)
                 .doesNotContain("SEC-RXF-HEAD-007");
+    }
+
+    @Test
+    void missingWeakAndStrongCspUseTheSameBrowserLoginScopeAndLowBaseline() {
+        SecurityReport missing = scan(cspBrowserChain(List.of()), List.of(), false);
+        assertThat(missing.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-HEAD-004"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.severity()).isEqualTo("LOW"));
+        for (String policy : List.of(
+                "script-src 'unsafe-inline'",
+                "script-src 'unsafe-eval'",
+                "script-src *",
+                "script-src https:",
+                "frame-ancestors 'self'")) {
+            SecurityReport weak = scan(
+                    cspBrowserChain(List.of(new WebFilterChainObservation.CspObservation(policy, false))),
+                    List.of(),
+                    false);
+            assertThat(weak.results())
+                    .filteredOn(result ->
+                            List.of("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007").contains(result.id()))
+                    .as(policy)
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.id()).isEqualTo("SEC-RXF-HEAD-007");
+                        assertThat(result.severity()).isEqualTo("LOW");
+                    });
+        }
+        for (String policy : List.of(
+                "script-src 'self'",
+                "script-src 'unsafe-inline' 'nonce-YWJjZA=='",
+                "script-src 'unsafe-inline' 'sha256-YWJjZA=='",
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' https: 'unsafe-inline'")) {
+            SecurityReport strong = scan(
+                    cspBrowserChain(List.of(new WebFilterChainObservation.CspObservation(policy, false))),
+                    List.of(),
+                    false);
+            assertThat(strong.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .as(policy)
+                    .doesNotContain("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007");
+        }
+    }
+
+    @Test
+    void cspReportOnlyDoesNotReplaceEnforcementAndMultipleEnforcingPoliciesStayUnknown() {
+        var monitoring = new WebFilterChainObservation.CspObservation("script-src 'unsafe-inline'", true);
+        SecurityReport reportOnly = scan(cspBrowserChain(List.of(monitoring)), List.of(), false);
+        assertThat(reportOnly.results())
+                .filteredOn(result ->
+                        List.of("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007").contains(result.id()))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.id()).isEqualTo("SEC-RXF-HEAD-004");
+                    assertThat(result.severity()).isEqualTo("LOW");
+                });
+        var strong = new WebFilterChainObservation.CspObservation("script-src 'self'", false);
+        for (var policies : List.of(List.of(strong, monitoring), List.of(monitoring, strong))) {
+            assertThat(scan(cspBrowserChain(policies), List.of(), false).results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007");
+        }
+        var weak = new WebFilterChainObservation.CspObservation("script-src *", false);
+        for (var policies : List.of(
+                List.of(strong, weak),
+                List.of(weak, strong),
+                List.of(new WebFilterChainObservation.CspObservation("script-src *, script-src 'self'", false)))) {
+            var chain = cspBrowserChain(policies);
+            assertThat(chain.weakCspObservation()).isNull();
+            SecurityReport report = scan(chain, List.of(), false);
+            assertThat(report.scan().status()).isEqualTo("PARTIAL");
+            assertThat(report.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-HEAD-004", "SEC-RXF-HEAD-007");
+        }
+    }
+
+    private static WebFilterChainObservation cspBrowserChain(List<WebFilterChainObservation.CspObservation> policies) {
+        return new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthenticationWebFilter", "AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                false,
+                false,
+                policies.isEmpty()
+                        ? List.of("XFrameOptionsServerHttpHeadersWriter")
+                        : List.of(
+                                "XFrameOptionsServerHttpHeadersWriter", "ContentSecurityPolicyServerHttpHeadersWriter"),
+                null,
+                null,
+                null,
+                null,
+                true,
+                true,
+                false,
+                true,
+                true,
+                policies,
+                false);
     }
 
     @Test

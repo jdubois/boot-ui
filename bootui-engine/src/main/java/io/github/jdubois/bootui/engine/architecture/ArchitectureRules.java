@@ -37,16 +37,20 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.lang.conditions.ArchConditions;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
-import io.github.jdubois.bootui.engine.source.LocalSourceModule;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
  * Base class for curated architecture rules backed by a single ArchUnit {@link ArchRule}.
@@ -527,12 +531,15 @@ final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
                 "ARCH-CODE-003",
                 "Classes should not use java.util.logging",
                 ArchitectureCategory.CODING_PRACTICES,
-                "LOW",
+                "INFO",
                 "Detects application code that assigns a field of a java.util.logging type, typically a"
                         + " java.util.logging.Logger field, instead of using the project logging facade on Spring."
+                        + " This is an informational convention: Spring Boot routes JUL into its configured logging"
+                        + " system by default, but custom handlers or disabled bridging can leave routing gaps."
                         + " Tuning a JUL-based library's logger without storing it is not reported. Not evaluated on"
                         + " Quarkus, where java.util.logging is a built-in logging API backed by JBoss LogManager.",
-                "Use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent logging.",
+                "Prefer the project logging facade (SLF4J over Logback by default in Spring Boot) as a convention."
+                        + " Verify JUL routing separately when customizing handlers or bridges.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
 
@@ -1208,7 +1215,25 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
  */
 final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRule {
 
+    @FunctionalInterface
+    private interface ReceiverEvidenceReader {
+        ProxyReceiverEvidence read(
+                JavaClass type, ArchUnitBytecodeImports.Bytecode captured, ArchitectureContext context);
+    }
+
+    private final ReceiverEvidenceReader receiverEvidence;
+
     NoSelfInvocationOfProxiedMethodsRule() {
+        this((type, captured, context) -> ProxyReceiverEvidence.read(
+                type, captured, origin -> ArchitectureRuleSupport.isObservedOrigin(origin, context.classes())));
+    }
+
+    NoSelfInvocationOfProxiedMethodsRule(
+            BiFunction<JavaClass, ArchUnitBytecodeImports.Bytecode, ProxyReceiverEvidence> receiverEvidence) {
+        this((type, captured, context) -> receiverEvidence.apply(type, captured));
+    }
+
+    private NoSelfInvocationOfProxiedMethodsRule(ReceiverEvidenceReader receiverEvidence) {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-004",
                 "Beans should not self-invoke their own proxied methods",
@@ -1223,6 +1248,7 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                         + " only if necessary, inject a @Lazy self-reference and call through it. Kotlin behaves"
                         + " identically here: marking the function open does not make a this-call go through the proxy.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
+        this.receiverEvidence = receiverEvidence;
     }
 
     @Override
@@ -1238,13 +1264,16 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                                         + " the declaring class)") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
+                                Map<JavaClass, ProxyReceiverEvidence> receivers = new HashMap<>();
                                 for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
                                     events.add(new SimpleConditionEvent(
-                                            call, bypassesProxy(context, beans, call), describe(call)));
+                                            call, bypassesProxy(context, beans, receivers, call), describe(call)));
                                 }
                                 for (JavaMethodReference reference : javaClass.getMethodReferencesFromSelf()) {
                                     events.add(new SimpleConditionEvent(
-                                            reference, bypassesProxy(context, beans, reference), describe(reference)));
+                                            reference,
+                                            bypassesProxy(context, beans, receivers, reference),
+                                            describe(reference)));
                                 }
                             }
                         })
@@ -1269,8 +1298,11 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
      * calling a target whose sole proxy behaviour is a {@code REQUIRED}, {@code SUPPORTS} or {@code MANDATORY}
      * transaction with the same manager, rollback rules, isolation and timeout. See {@link TransactionJoin}.
      */
-    private static boolean bypassesProxy(
-            ArchitectureContext context, ContainerBeans beans, JavaCodeUnitAccess<?> access) {
+    private boolean bypassesProxy(
+            ArchitectureContext context,
+            ContainerBeans beans,
+            Map<JavaClass, ProxyReceiverEvidence> receivers,
+            JavaCodeUnitAccess<?> access) {
         if (context.platform() != ArchitecturePlatform.SPRING
                 || !access.getOriginOwner().equals(access.getTargetOwner())
                 || KotlinBytecode.isGeneratedDispatchBridge(access.getOrigin())) {
@@ -1301,7 +1333,16 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
         if (!methodAnnotated && !classAnnotated) {
             return false;
         }
-        if (!methodAnnotated && !AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(resolvedMethod)) {
+        boolean interceptable = AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(resolvedMethod);
+        if (!methodAnnotated && !interceptable) {
+            return false;
+        }
+        if (interceptable
+                && receivers
+                        .computeIfAbsent(
+                                access.getOriginOwner(),
+                                type -> receiverEvidence.read(type, context.bytecode(), context))
+                        .isProxyReceiver(access)) {
             return false;
         }
         return !(access instanceof JavaMethodCall call && TransactionJoin.joinsCallerTransaction(call, resolvedMethod));
@@ -1572,8 +1613,9 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                         "Application classes should not depend on test frameworks",
                         ArchitectureCategory.CODING_PRACTICES,
                         "MEDIUM",
-                        "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito,"
-                                + " AssertJ, Hamcrest, Testcontainers, Spring Test, Quarkus's @QuarkusTest, or RestAssured."
+                        "Detects dependencies from application classes to common test-only APIs such as JUnit, TestNG,"
+                                + " Mockito, MockK, AssertJ, Hamcrest, Spring Test and Mock, Spring Security Test,"
+                                + " Spring Boot Test, Reactor Test, Testcontainers, Quarkus's @QuarkusTest, or RestAssured."
                                 + " Classes compiled into a local test output directory (target/test-classes,"
                                 + " build/classes/*/test), which are on the classpath when the application runs from its tests,"
                                 + " are not judged.",
@@ -1601,6 +1643,11 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
                         "org.hamcrest..",
                         "org.springframework.boot.test..",
                         "org.springframework.test..",
+                        "org.springframework.mock..",
+                        "org.springframework.security.test..",
+                        "reactor.test..",
+                        "org.testng..",
+                        "io.mockk..",
                         "org.testcontainers..",
                         "io.quarkus.test..",
                         "io.restassured..");
@@ -1611,11 +1658,7 @@ final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
      * {@code spring-boot:test-run} or Gradle's {@code bootTestRun}. Archives and unknown layouts stay judged.
      */
     static boolean isTestOutput(JavaClass javaClass) {
-        return javaClass
-                .getSource()
-                .flatMap(source -> LocalSourceModule.of(javaClass.getName(), source.getUri()))
-                .filter(module -> module.sourceSet().equals("test"))
-                .isPresent();
+        return ArchitectureRuleSupport.isTestOutput(javaClass);
     }
 }
 
@@ -2080,7 +2123,8 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                         "Async should not be used in configuration classes",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Async on @Configuration classes or methods declared within them.",
+                        "Detects @Async on @Configuration classes (including composed configuration annotations) or"
+                                + " methods declared within them.",
                         "Move asynchronous work to a regular Spring bean; @Async is not supported on methods declared"
                                 + " in @Configuration classes.",
                         "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/scheduling/annotation/Async.html"));
@@ -2092,7 +2136,8 @@ final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchi
                 .should(new ArchCondition<JavaClass>("not use @Async in @Configuration classes") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        if (!SpringStereotypes.CONFIGURATION_ANNOTATED.test(javaClass)) {
+                        if (!SpringStereotypes.CONFIGURATION_ANNOTATED.test(javaClass)
+                                && !javaClass.isMetaAnnotatedWith(SpringStereotypes.CONFIGURATION)) {
                             return;
                         }
                         context.evidence().observed();
@@ -2210,7 +2255,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                                 "be final with a private constructor when only static members are exposed") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
-                                if (!isUtilityClass(javaClass)) {
+                                if (!isUtilityClass(javaClass, context.classes())) {
                                     return;
                                 }
                                 context.evidence().observed();
@@ -2233,7 +2278,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                 .as("Utility classes should be final with a private constructor");
     }
 
-    private static boolean isUtilityClass(JavaClass javaClass) {
+    private static boolean isUtilityClass(JavaClass javaClass, JavaClasses view) {
         if (KotlinBytecode.isCompilerGenerated(javaClass)) {
             // Kotlin file facades (FooKt), companion holders, DefaultImpls and WhenMappings tables are
             // emitted by the compiler, so their finality and constructors are not the author's to change.
@@ -2252,7 +2297,7 @@ final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends Abstra
                         .map(superclass -> superclass.isEquivalentTo(Object.class))
                         .orElse(true)
                 || !javaClass.getRawInterfaces().isEmpty()
-                || !javaClass.getSubclasses().isEmpty()) {
+                || !ArchitectureRuleSupport.observedSubclasses(javaClass, view).isEmpty()) {
             return false;
         }
         if (ContainerBeans.isAnnotatedBean(javaClass) || ContainerBeans.declaresFactoryMethods(javaClass)) {
@@ -2626,7 +2671,8 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                         "Async event listeners should return void",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @EventListener methods that run through @Async (on the method or declaring class) and"
+                        "Detects @EventListener methods (including composed listener annotations) that run through"
+                                + " @Async (on the method or declaring class) and"
                                 + " return a Future (or a non-void value not already reported by ARCH-SPRING-011)."
                                 + " Spring cannot publish that value as a follow-up event for an asynchronous"
                                 + " listener.",
@@ -2643,8 +2689,9 @@ final class AsyncEventListenersShouldReturnVoidRule extends AbstractArchitecture
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         boolean classLevelAsync = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
                         for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
-                            if (method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
-                                    && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))) {
+                            boolean eventListener = method.isAnnotatedWith(SpringStereotypes.EVENT_LISTENER)
+                                    || method.isMetaAnnotatedWith(SpringStereotypes.EVENT_LISTENER);
+                            if (eventListener && (classLevelAsync || SpringStereotypes.ASYNC_ANNOTATED.test(method))) {
                                 if (AsyncMethodsShouldHaveSupportedSignaturesRule.isReportedByArchSpring011(method)) {
                                     continue;
                                 }
@@ -3421,7 +3468,7 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
                                 "be registered as a container bean when declaring @Scheduled or @EventListener methods") {
                             @Override
                             public void check(JavaClass javaClass, ConditionEvents events) {
-                                if (!isConcreteTopLevelLeafClass(javaClass)) {
+                                if (!isConcreteTopLevelLeafClass(javaClass, context.classes())) {
                                     return;
                                 }
                                 List<JavaMethod> triggered = new ArrayList<>();
@@ -3450,14 +3497,14 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
                 .as("Scheduled and event-listener methods should be declared on container-managed beans");
     }
 
-    private static boolean isConcreteTopLevelLeafClass(JavaClass javaClass) {
+    private static boolean isConcreteTopLevelLeafClass(JavaClass javaClass, JavaClasses view) {
         return javaClass.isTopLevelClass()
                 && !javaClass.isInterface()
                 && !javaClass.isAnnotation()
                 && !javaClass.isEnum()
                 && !javaClass.getModifiers().contains(JavaModifier.ABSTRACT)
                 && !KotlinBytecode.isCompilerGenerated(javaClass)
-                && javaClass.getSubclasses().isEmpty();
+                && ArchitectureRuleSupport.observedSubclasses(javaClass, view).isEmpty();
     }
 
     private static boolean isScheduledOrEventListenerMethod(JavaMethod method) {
@@ -3554,8 +3601,8 @@ final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends A
 }
 
 /**
- * Flags non-thread-safe JDK formatters and XML processors stored in {@code static} fields or in
- * instance fields of shared-scope Spring or CDI beans.
+ * Flags stateful JDK processors stored in {@code static} fields or in instance fields of shared-scope
+ * Spring or CDI beans, including positively identified subtypes.
  */
 final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitectureRule {
 
@@ -3568,7 +3615,12 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
             "javax.xml.parsers.DocumentBuilder",
             "javax.xml.parsers.SAXParser",
             "javax.xml.transform.Transformer",
-            "javax.xml.validation.Validator");
+            "javax.xml.validation.Validator",
+            "java.security.MessageDigest",
+            "javax.crypto.Cipher",
+            "javax.crypto.Mac",
+            "java.security.Signature",
+            "java.util.regex.Matcher");
 
     private static final Set<String> NON_SHARED_SCOPE_ANNOTATIONS = Set.of(
             "jakarta.enterprise.context.RequestScoped",
@@ -3594,24 +3646,24 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
     NoSharedStatefulJdkFormattersAndParsersRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-019",
-                "Classes should not store non-thread-safe JDK formatters or XML processors in static or shared-bean"
-                        + " fields",
+                "Classes should not store stateful JDK processors in static or shared-bean fields",
                 ArchitectureCategory.CODING_PRACTICES,
                 "MEDIUM",
-                "Detects non-thread-safe JDK formatters and XML processors (SimpleDateFormat, DateFormat,"
+                "Detects shared JDK formatters, XML processors, cryptographic engines, and regex matchers (SimpleDateFormat, DateFormat,"
                         + " DecimalFormat, NumberFormat, MessageFormat, DocumentBuilder, SAXParser, Transformer, or"
-                        + " javax.xml.validation.Validator) stored in static fields or in instance fields of"
-                        + " shared-scope Spring or CDI beans. These types mutate internal state during formatting,"
-                        + " parsing, and validation and are not thread-safe.",
-                "Use java.time.format.DateTimeFormatter for dates and times, create a fresh formatter or XML processor"
-                        + " per operation (from a thread-safe factory when applicable), or guard per-thread instances"
-                        + " with ThreadLocal.",
+                        + " javax.xml.validation.Validator; MessageDigest, Cipher, Mac, Signature, Matcher), including"
+                        + " known subtypes. Static fields and instance fields on shared-scope Spring or CDI beans"
+                        + " can share mutable operation state. A subtype or provider does not establish safe concurrent use.",
+                "Use java.time.format.DateTimeFormatter for dates and times, share Pattern rather than Matcher,"
+                        + " create a fresh processor per operation, isolate instances with ThreadLocal, or synchronize"
+                        + " the entire operation. Field declarations alone do not prove synchronization.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/text/SimpleDateFormat.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         Set<String> sharedProducedTypes = sharedProducedTypes(context.classes());
+        Map<String, Optional<String>> jdkSuperclasses = new HashMap<>();
         return fields().that(
                         new DescribedPredicate<JavaField>("are static or declared on a shared-scope container bean") {
                             @Override
@@ -3619,30 +3671,91 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
                                 return !ArchitectureRuleSupport.isCompilerGenerated(field)
                                         && (field.getModifiers().contains(JavaModifier.STATIC)
                                                 || isSharedScopeBeanOrInheritedByOne(
-                                                        field.getOwner(), sharedProducedTypes, context.platform()));
+                                                        field.getOwner(),
+                                                        sharedProducedTypes,
+                                                        context.platform(),
+                                                        context.classes()));
                             }
                         })
                 .and(observed(DescribedPredicate.alwaysTrue(), context))
-                .should(new ArchCondition<JavaField>("not store non-thread-safe JDK formatters or XML processors") {
+                .should(new ArchCondition<JavaField>("not share mutable JDK processor state") {
                     @Override
                     public void check(JavaField field, ConditionEvents events) {
                         String typeName = field.getRawType().getName();
-                        if (!UNSAFE_SHARED_FIELD_TYPES.contains(typeName)) {
+                        if (!isStatefulType(field.getRawType(), context, jdkSuperclasses)) {
                             return;
                         }
                         boolean isStatic = field.getModifiers().contains(JavaModifier.STATIC);
-                        events.add(SimpleConditionEvent.violated(
-                                field,
-                                (isStatic ? "Static field " : "Shared-bean field ")
-                                        + field.getFullName()
-                                        + " stores non-thread-safe type "
-                                        + typeName
-                                        + " without per-call or ThreadLocal isolation"));
+                        events.add(
+                                SimpleConditionEvent.violated(
+                                        field,
+                                        (isStatic ? "Static field " : "Shared-bean field ")
+                                                + field.getFullName()
+                                                + " stores stateful JDK processor type "
+                                                + typeName
+                                                + "; review per-call or ThreadLocal isolation, or whole-operation synchronization"));
                     }
                 })
-                .as("Classes should not store non-thread-safe JDK formatters or XML processors in static or"
-                        + " shared-bean fields")
+                .as("Classes should not store stateful JDK processors in static or shared-bean fields")
                 .allowEmptyShould(true);
+    }
+
+    private static boolean isStatefulType(
+            JavaClass type, ArchitectureContext context, Map<String, Optional<String>> jdkSuperclasses) {
+        Set<String> visited = new HashSet<>();
+        while (!type.isPrimitive() && !type.isArray() && !type.isEquivalentTo(Object.class)) {
+            if (!visited.add(type.getName())) {
+                context.evidence().markRequiredUnknown();
+                return false;
+            }
+            if (UNSAFE_SHARED_FIELD_TYPES.contains(type.getName())) {
+                return true;
+            }
+            if (!type.isFullyImported()) {
+                String name = type.getName();
+                while (!name.equals(Object.class.getName())) {
+                    if (UNSAFE_SHARED_FIELD_TYPES.contains(name)) {
+                        return true;
+                    }
+                    Optional<String> parent = jdkSuperclasses.computeIfAbsent(
+                            name, NoSharedStatefulJdkFormattersAndParsersRule::jdkSuperclass);
+                    if (parent.isEmpty() || !visited.add(parent.get())) {
+                        context.evidence().markRequiredUnknown();
+                        return false;
+                    }
+                    name = parent.get();
+                }
+                return false;
+            }
+            Optional<JavaClass> parent = type.getRawSuperclass();
+            if (parent.isEmpty()) {
+                return false;
+            }
+            type = parent.get();
+        }
+        return false;
+    }
+
+    private static Optional<String> jdkSuperclass(String name) {
+        // Only the platform loader may fill JDK stubs; never resolve or load application/provider classes.
+        try (var input = ClassLoader.getPlatformClassLoader().getResourceAsStream(name.replace('.', '/') + ".class")) {
+            if (input == null) {
+                return Optional.empty();
+            }
+            ClassReader reader;
+            try {
+                reader = new ClassReader(input);
+            } catch (IllegalArgumentException ex) {
+                // A future JDK class version can exceed the bundled ASM's supported versions.
+                return Optional.empty();
+            }
+            if (!reader.getClassName().replace('/', '.').equals(name)) {
+                throw new IllegalStateException("JDK processor hierarchy bytecode does not match the requested class");
+            }
+            return Optional.ofNullable(reader.getSuperName()).map(parent -> parent.replace('/', '.'));
+        } catch (IOException ex) {
+            throw new IllegalStateException("JDK processor hierarchy bytecode could not be read", ex);
+        }
     }
 
     private static Set<String> sharedProducedTypes(Iterable<JavaClass> classes) {
@@ -3673,11 +3786,11 @@ final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitec
     }
 
     private static boolean isSharedScopeBeanOrInheritedByOne(
-            JavaClass javaClass, Set<String> sharedProducedTypes, ArchitecturePlatform platform) {
+            JavaClass javaClass, Set<String> sharedProducedTypes, ArchitecturePlatform platform, JavaClasses view) {
         if (isDirectSharedScopeBean(javaClass, sharedProducedTypes, platform)) {
             return true;
         }
-        for (JavaClass subclass : javaClass.getSubclasses()) {
+        for (JavaClass subclass : ArchitectureRuleSupport.observedSubclasses(javaClass, view)) {
             if (isDirectSharedScopeBean(subclass, sharedProducedTypes, platform)) {
                 return true;
             }

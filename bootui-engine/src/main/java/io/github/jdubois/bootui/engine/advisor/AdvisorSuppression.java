@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.advisor;
 import io.github.jdubois.bootui.core.dto.AdvisorSuppressedFindingDto;
 import io.github.jdubois.bootui.core.dto.AdvisorSuppressionDto;
 import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
+import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -86,6 +87,21 @@ public final class AdvisorSuppression {
 
         public int suppressedCount() {
             return suppressedCount;
+        }
+
+        /** The highest remaining evaluation grade, or the original grade when counted evidence is missing. */
+        public String activeSeverity(String originalSeverity, int violationCount) {
+            if (retained.size() != violationCount) return originalSeverity;
+            String severity = null;
+            for (int index = 0; index < retained.size(); index++) {
+                if (suppressed[index]) continue;
+                String evaluated = retained.get(index).evaluationSeverity();
+                if (evaluated == null || !SeverityOrder.DEFAULT.contains(evaluated)) return originalSeverity;
+                if (severity == null || SeverityOrder.rank(evaluated) < SeverityOrder.rank(severity)) {
+                    severity = evaluated;
+                }
+            }
+            return severity == null ? originalSeverity : severity;
         }
 
         /**

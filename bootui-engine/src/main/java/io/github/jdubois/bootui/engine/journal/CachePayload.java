@@ -1,19 +1,25 @@
 package io.github.jdubois.bootui.engine.journal;
 
 /**
- * A cache access's payload: the cache, the operation, such as {@code HIT} or {@code EVICT}, and up to four application
- * frames above it. Never its key.
+ * A cache access's payload: the manager, the cache, the operation, such as {@code HIT} or {@code EVICT}, and up to four
+ * application frames above it. Never its key.
  *
  * @param codePathStamp the BootUI agent's code-paths stamp of the instrumented method open on the issuing thread when the
  *     access was recorded ({@code docs/PLAN-v2.md} §5.14, M5-4c), which names the request-tree node that issued it, or {@code 0}
  *     when unknown: without the agent, or when the recorder ran on another thread
  */
-public record CachePayload(String cacheName, String operation, ApplicationFrames frames, long codePathStamp)
+public record CachePayload(
+        String cacheName, String operation, ApplicationFrames frames, long codePathStamp, String managerName)
         implements RuntimeEventPayload {
 
     /** An access without a code-paths stamp. */
     public CachePayload(String cacheName, String operation, ApplicationFrames frames) {
-        this(cacheName, operation, frames, 0L);
+        this(cacheName, operation, frames, 0L, null);
+    }
+
+    /** An access from code predating cache-manager provenance. */
+    public CachePayload(String cacheName, String operation, ApplicationFrames frames, long codePathStamp) {
+        this(cacheName, operation, frames, codePathStamp, null);
     }
 
     /** An access without application frames. */
@@ -28,7 +34,8 @@ public record CachePayload(String cacheName, String operation, ApplicationFrames
                 dictionary.shared(cacheName),
                 dictionary.shared(operation),
                 ApplicationFrames.interned(frames, dictionary),
-                codePathStamp);
+                codePathStamp,
+                dictionary.shared(managerName));
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -40,9 +47,10 @@ public record CachePayload(String cacheName, String operation, ApplicationFrames
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 24
+        return 32
                 + JournalDictionary.retained(dictionary, cacheName)
                 + JournalDictionary.retained(dictionary, operation)
+                + JournalDictionary.retained(dictionary, managerName)
                 + (frames == null ? 0 : frames.estimatedBytes());
     }
 }

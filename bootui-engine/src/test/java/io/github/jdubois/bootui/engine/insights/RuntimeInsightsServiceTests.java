@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CodeInventoryMethodDto;
@@ -10,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.inventory.CodeChanges;
@@ -35,9 +38,11 @@ import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.sql.Connection;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -46,13 +51,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RuntimeInsightsServiceTests {
 
@@ -918,16 +928,18 @@ class RuntimeInsightsServiceTests {
         assertThat(byRoute.get("POST /api/orders").sentence())
                 .isEqualTo("`POST /api/orders` held 2 connections of `db` at the same time in 1 of 1 request.");
         assertThat(byRoute.get("POST /api/orders").whatToCheck().get(1))
-                .contains("pool of 10 connections", "10 concurrent requests", "estimate", "not proof");
+                .contains("maximum of 10 connections", "If checkouts are nested")
+                .doesNotContain("concurrent", "estimate");
         assertThat(observations(service().report(), ConnectionsPerRequest.KIND)
                         .get("POST /api/orders")
                         .whatToCheck()
                         .get(1))
-                .contains("floor((P - 1) / 1) + 1");
+                .contains("Check the pool's maximum size")
+                .doesNotContain("floor(");
     }
 
     @Test
-    void connectionEstimateRoundsUpWithThreeHeldAndOneRequestCanExhaustASmallerPool() {
+    void higherConnectionOverlapAndSmallPoolLimitsRemainFactsRatherThanExhaustionEstimates() {
         request(
                 "POST",
                 "/api/orders",
@@ -940,14 +952,122 @@ class RuntimeInsightsServiceTests {
                         .get("POST /api/orders")
                         .whatToCheck()
                         .get(1))
-                .contains("5 concurrent requests");
+                .contains("maximum of 10 connections")
+                .doesNotContain("concurrent requests");
+        assertThat(observations(insights.report(), ConnectionsPerRequest.KIND)
+                        .get("POST /api/orders")
+                        .sentence())
+                .contains("held 3 connections");
         RuntimeInsightsService small = service();
         small.setPoolSizes(name -> 1);
         assertThat(observations(small.report(), ConnectionsPerRequest.KIND)
                         .get("POST /api/orders")
                         .whatToCheck()
                         .get(1))
-                .contains("1 concurrent request can");
+                .contains("maximum of 1 connection")
+                .doesNotContain("concurrent request");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"parallel", "same-execution", "unknown-thread", "blank-thread", "reused-thread"})
+    void connectionOverlapDoesNotEstablishNestedHoldAndWait(String provenance) {
+        String thread =
+                switch (provenance) {
+                    case "unknown-thread" -> null;
+                    case "blank-thread" -> "";
+                    default -> "worker";
+                };
+        CorrelationContext context = CorrelationContext.forRequest("r1");
+        CorrelationContext first = context.withExecutionId("task-first");
+        CorrelationContext second =
+                provenance.equals("same-execution") ? first : context.withExecutionId("task-second");
+        journal.offer(RuntimeEvent.of(
+                JournalSource.CONNECTION,
+                1_000,
+                50_000_000,
+                first,
+                thread,
+                null,
+                false,
+                new ConnectionPayload("db", 0, 1, 1_000)));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.CONNECTION,
+                1_000,
+                5_000_000,
+                second,
+                provenance.equals("parallel") ? "other-worker" : thread,
+                null,
+                false,
+                new ConnectionPayload("db", 0, 1, 10_000_000)));
+        request("POST", "/api/overlap");
+        RuntimeInsightsService insights = service();
+        insights.setPoolSizes(name -> 10);
+
+        RuntimeObservationDto overlap =
+                observations(insights.report(), ConnectionsPerRequest.KIND).get("POST /api/overlap");
+
+        assertThat(overlap.sentence()).contains("held 2 connections", "in 1 of 1 request");
+        assertThat(overlap.eligible()).isEqualTo(1);
+        assertThat(overlap.affected()).isEqualTo(1);
+        assertThat(String.join(" ", overlap.whatToCheck()))
+                .doesNotContain("10 concurrent", "floor(", "while waiting for another connection");
+        assertThat(overlap.whatToCheck()).anyMatch(check -> check.contains("parallel") && check.contains("nested"));
+    }
+
+    @Test
+    void nativeConnectionsRetainCheckoutOwnershipEvenWhenDifferentThreadsShareItsNameAndExecution() throws Exception {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 20, 100, 2_000, 200, 5);
+        recorder.setRuntimeEventSink(journal);
+        DataSource source = mock(DataSource.class);
+        when(source.getConnection()).thenReturn(mock(Connection.class), mock(Connection.class));
+        DataSource traced = SqlTracingProxies.wrapNamed(source, recorder, "db");
+        CorrelationContext checkoutContext = CorrelationContext.forRequest("r1").withExecutionId("task-shared");
+        AtomicReference<Thread> firstThread = new AtomicReference<>();
+        AtomicReference<Thread> secondThread = new AtomicReference<>();
+        ExecutorService first = Executors.newSingleThreadExecutor(task -> new Thread(task, "same-worker"));
+        ExecutorService second = Executors.newSingleThreadExecutor(task -> new Thread(task, "same-worker"));
+        try {
+            Connection held = first.submit(() -> {
+                        firstThread.set(Thread.currentThread());
+                        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(checkoutContext)) {
+                            return traced.getConnection();
+                        }
+                    })
+                    .get(5, TimeUnit.SECONDS);
+            second.submit(() -> {
+                        secondThread.set(Thread.currentThread());
+                        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(checkoutContext);
+                                Connection connection = traced.getConnection()) {
+                            return null;
+                        }
+                    })
+                    .get(5, TimeUnit.SECONDS);
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(
+                    CorrelationContext.forRequest("release-request").withExecutionId("task-release"))) {
+                held.close();
+            }
+        } finally {
+            first.shutdownNow();
+            second.shutdownNow();
+            assertThat(first.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(second.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+        request("POST", "/api/native-overlap");
+
+        assertThat(firstThread.get()).isNotSameAs(secondThread.get());
+        assertThat(journal.entries().stream()
+                        .map(entry -> entry.event())
+                        .filter(event -> event.source() == JournalSource.CONNECTION))
+                .hasSize(2)
+                .allSatisfy(event -> {
+                    assertThat(event.requestId()).isEqualTo("r1");
+                    assertThat(event.executionId()).isEqualTo("task-shared");
+                    assertThat(event.thread()).isEqualTo("same-worker");
+                });
+        assertThat(observations(service().report(), ConnectionsPerRequest.KIND)
+                        .get("POST /api/native-overlap")
+                        .sentence())
+                .contains("held 2 connections");
     }
 
     @Test
@@ -1069,10 +1189,14 @@ class RuntimeInsightsServiceTests {
                 });
 
         service.setSqlCapture(SqlCapture::capturing);
+        assertThat(checks(service.report()).get(RepeatedSelects.KIND).status())
+                .as("current availability alone does not qualify earlier requests without SQL evidence")
+                .isEqualTo("INSUFFICIENT");
+        request("GET", "/api/captured", sqls("select 1", 0, null));
         assertThat(service.report().checks())
                 .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
-                .as("the requests remain eligible for SELECT checks once SQL capture is available")
+                .as("an observed execution establishes eligible SELECT work")
                 .containsExactly("EVALUATED");
     }
 
@@ -1115,8 +1239,8 @@ class RuntimeInsightsServiceTests {
                 .contains("its own application event multicaster", "Spring Modulith", "does not record");
         assertThat(report.limitations()).contains(AppEventCapture.CUSTOM_MULTICASTER);
         assertThat(checks.get(RepeatedSelects.KIND).status())
-                .as("a check reading no application event is evaluated as before")
-                .isEqualTo("EVALUATED");
+                .as("application-event availability cannot qualify requests without SQL evidence")
+                .isEqualTo("INSUFFICIENT");
 
         service.setAppEventCapture(AppEventCapture::capturing);
         RuntimeInsightsReportDto recorded = service.report();
@@ -1434,6 +1558,15 @@ class RuntimeInsightsServiceTests {
     @Test
     void aSurvivingScheduledRunDoesNotMakeHiddenHttpRequestsLookEvaluated() {
         request("GET", "/api/orders/{id}", sqls("select 1", 0, null));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                2_000,
+                0,
+                CorrelationContext.forExecution("job-1"),
+                "scheduler",
+                null,
+                false,
+                new SqlPayload("select 1", null, "db", false)));
         journal.offer(RuntimeEvent.of(
                 JournalSource.SCHEDULED,
                 2_000,

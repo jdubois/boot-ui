@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.vulnerabilities;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyScanStatusDto;
@@ -29,6 +30,9 @@ public final class DependencyReports {
      */
     public static final int EPSS_CVE_PARAMETER_MAX_LENGTH = 2000;
 
+    private static final int MAX_UNASSESSED_ADVISORY_IDS = 100;
+    private static final int MAX_ADVISORY_ID_LENGTH = 240;
+
     private static final Pattern CVE_ID = Pattern.compile("CVE-[0-9]{4}-[0-9]{4,}");
 
     private static final Comparator<String> ALPHABETIC =
@@ -55,6 +59,19 @@ public final class DependencyReports {
             .thenComparing(DependencyVulnerabilityDto::id, ALPHABETIC);
 
     private DependencyReports() {}
+
+    /** Retains query-only candidates independently of parsed findings and of the advisory-fetch cap. */
+    public static DependencyAssessmentDto assessment(
+            boolean queryComplete, boolean detailComplete, Collection<String> unassessedIds) {
+        Set<String> distinct = new LinkedHashSet<>(unassessedIds);
+        List<String> preview = distinct.stream()
+                .filter(id -> id != null && !id.isBlank() && id.length() <= MAX_ADVISORY_ID_LENGTH)
+                .filter(id -> id.chars().noneMatch(Character::isISOControl))
+                .limit(MAX_UNASSESSED_ADVISORY_IDS)
+                .toList();
+        return new DependencyAssessmentDto(
+                queryComplete, detailComplete && distinct.isEmpty(), preview, distinct.size());
+    }
 
     public static DependenciesReport report(
             boolean scanningEnabled,

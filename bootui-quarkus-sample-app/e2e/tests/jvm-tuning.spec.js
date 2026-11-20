@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerJvmSizingInputTests} from '../../../bootui-spring-sample-app/e2e/scenarios/jvm-sizing-inputs.js'
+
+registerJvmSizingInputTests(test, expect)
 
 test.describe('JVM Tuning view (Quarkus)', () => {
   test('renders JVM options and Kubernetes calculator recommendations', async ({
@@ -18,7 +21,14 @@ test.describe('JVM Tuning view (Quarkus)', () => {
       }
     }
 
+    const defaultResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/api/jvm-tuning')
+    )
     await openView('jvm-tuning', 'JVM Tuning')
+    const defaultResult = await defaultResponse
+    expect(defaultResult.status()).toBe(200)
+    const defaultReport = await defaultResult.json()
 
     // Quarkus has no application-wide virtual-threads switch (only per-endpoint
     // @RunOnVirtualThread), so QuarkusMemoryRuntimeConfig.virtualThreadsProperty() is always
@@ -33,6 +43,30 @@ test.describe('JVM Tuning view (Quarkus)', () => {
     const kubernetesYaml = kubernetesCard.locator('.options-box code')
     await expect(jvmOptionsCard).toBeVisible()
     await expect(kubernetesCard).toBeVisible()
+    expect(typeof defaultReport.calculation.valid).toBe('boolean')
+    if (defaultReport.calculation.valid) {
+      expect(defaultReport.calculation.error).toBeNull()
+      expect(defaultReport.suggestedJvmOptions).toMatch(/-Xmx[1-9]\d*m/)
+      expect(defaultReport.kubernetes.yaml).toContain('JAVA_TOOL_OPTIONS')
+    } else {
+      expect(defaultReport.calculation.error).toContain('Insufficient heap budget')
+      expect(defaultReport.calculation.heapBytes).toBe(0)
+      expect(defaultReport.calculation.jvmOptions).toBe('')
+      expect(defaultReport.suggestedJvmOptions).toBe('')
+      expect(defaultReport.kubernetes.javaToolOptions).toBe('')
+      expect(defaultReport.kubernetes.yaml).toBe('')
+      expect(defaultReport.kubernetes.qosClass).toBe('Unavailable')
+      expect(defaultReport.kubernetes.warnings).toContain(defaultReport.calculation.error)
+      await expect(page.locator('.card', {hasText: 'Bare metal JVM calculator'})).toContainText(
+        'Insufficient heap budget'
+      )
+      await expect(jvmOptionsCard.getByRole('button', {name: /Copy/})).toBeDisabled()
+      await expect(kubernetesYaml).toContainText('Adjust calculator inputs until a valid heap is available.')
+    }
+
+    await page.locator('#jvm-target-memory').fill('32768')
+    await page.locator('#jvm-target-memory').blur()
+    await expect(kubernetesYaml).toContainText('memory: "32768Mi"')
     await expect(kubernetesCard).toContainText('Depends on CPU')
     await expect(kubernetesCard.locator('#kubernetesBurstableEnabled')).not.toBeChecked()
     // SmallRye Health is on the sample app's classpath, so
@@ -55,7 +89,7 @@ test.describe('JVM Tuning view (Quarkus)', () => {
     await expect(kubernetesCard).toContainText('Sizing notes')
 
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
-    await expect(optionsBlock).toContainText(/-Xmx|-XX:/)
+    await expect(optionsBlock).toContainText(/-Xmx[1-9]\d*m/)
     await expect(optionsBlock).not.toContainText('spring.threads.virtual.enabled=true')
 
     const copyButton = jvmOptionsCard.getByRole('button', {name: /Copy/})
@@ -87,7 +121,9 @@ test.describe('JVM Tuning view (Quarkus)', () => {
       .poll(
         async () => {
           const yaml = await yamlBlock.innerText()
-          return yaml.match(/requests:\s+memory: "([^"]+)"/)?.[1] || ''
+          const request = yaml.match(/requests:\s+memory: "([^"]+)"/)
+          expect(request).not.toBeNull()
+          return request[1]
         },
         {timeout: 5_000}
       )
@@ -98,6 +134,7 @@ test.describe('JVM Tuning view (Quarkus)', () => {
     // probe stanzas from the generated manifest (Quarkus has no env-var equivalent to assert
     // the absence of; the whole `httpGet` probe blocks disappear instead).
     await actuatorToggle.uncheck()
+    await expect(yamlBlock).toContainText('JAVA_TOOL_OPTIONS')
     await expect(yamlBlock).not.toContainText('startupProbe')
     await expect(yamlBlock).not.toContainText('readinessProbe')
     await expect(yamlBlock).not.toContainText('livenessProbe')
@@ -116,25 +153,23 @@ test.describe('JVM Tuning view (Quarkus)', () => {
     await expect(totalInput).not.toHaveValue('')
 
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
+    const kubernetesYaml = page.locator('.card', {hasText: 'Kubernetes calculator'}).locator('.options-box code')
+    await totalInput.fill('32768')
+    await totalInput.blur()
+    await expect(kubernetesYaml).toContainText('memory: "32768Mi"')
+    await expect(optionsBlock).toContainText(/-Xmx[1-9]\d*m/)
     const before = await optionsBlock.innerText()
-    const beforeMatch = before.match(/-Xmx(\d+)m/)
+    const beforeMatch = before.match(/-Xmx([1-9]\d*)m/)
     expect(beforeMatch).not.toBeNull()
     const beforeXmx = parseInt(beforeMatch[1], 10)
+    expect(beforeXmx).toBeGreaterThan(0)
 
-    const currentTotal = parseInt(await totalInput.inputValue(), 10)
-    const newTotal = currentTotal > 1024 ? 512 : currentTotal + 512
-    await totalInput.fill(String(newTotal))
+    await totalInput.fill('65536')
     await totalInput.blur()
-
-    await expect
-      .poll(
-        async () => {
-          const text = await optionsBlock.innerText()
-          const m = text.match(/-Xmx(\d+)m/)
-          return m ? parseInt(m[1], 10) : 0
-        },
-        {timeout: 5_000}
-      )
-      .not.toBe(beforeXmx)
+    await expect(kubernetesYaml).toContainText('memory: "65536Mi"')
+    await expect(optionsBlock).toContainText(/-Xmx[1-9]\d*m/)
+    const afterMatch = (await optionsBlock.innerText()).match(/-Xmx([1-9]\d*)m/)
+    expect(afterMatch).not.toBeNull()
+    expect(parseInt(afterMatch[1], 10)).toBeGreaterThan(beforeXmx)
   })
 })

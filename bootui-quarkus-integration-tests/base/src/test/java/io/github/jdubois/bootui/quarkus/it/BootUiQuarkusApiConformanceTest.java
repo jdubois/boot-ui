@@ -92,6 +92,26 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
     @Inject
     TelemetryStore telemetryStore;
 
+    @Test
+    void architectureSourceLocationsHaveAMainOutputWitness() {
+        var response = new BootUiHttpProbe(baseUrl.toExternalForm())
+                .post("/bootui/api/architecture/scan", Map.of("Content-Type", "application/json"));
+        assertThat(response.status()).isEqualTo(200);
+        var report = response.json();
+        boolean located = report.path("results").findValues("sampleLocations").stream()
+                .flatMap(locations -> java.util.stream.StreamSupport.stream(locations.spliterator(), false))
+                .filter(location -> "org.acme.archdemo.ArchitectureSourceWitness"
+                        .equals(location.path("className").asText()))
+                .filter(location -> !location.path("sourcePath").isNull())
+                .map(location ->
+                        java.nio.file.Path.of(location.path("sourcePath").asText()))
+                .anyMatch(path -> java.nio.file.Files.isRegularFile(path)
+                        && path.toString().contains("src" + java.io.File.separator + "main"));
+        assertThat(located)
+                .as("Architecture main-output source witness: %s", report.toPrettyString())
+                .isTrue();
+    }
+
     @Inject
     DataSource dataSource;
 

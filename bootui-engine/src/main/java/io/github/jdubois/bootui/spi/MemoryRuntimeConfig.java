@@ -6,9 +6,9 @@ package io.github.jdubois.bootui.spi;
  *
  * <p>This is the seam behind the memory report: the engine asks <em>whether</em> virtual threads are
  * enabled (for explanatory context, not a speculative stack discount) and <em>whether</em> Kubernetes
- * liveness/readiness health probes are exposed (which changes the generated manifest), but
+ * liveness/readiness health probes are configured (which defaults the generated manifest), but
  * <em>how</em> those facts are derived is a per-framework detail. The Spring Boot adapter resolves them from
- * {@code spring.threads.virtual.enabled} and the {@code management.endpoint.health.*} chain; a Quarkus
+ * {@code spring.threads.virtual.enabled}, endpoint access settings, and the health-probe switch; a Quarkus
  * adapter would resolve them from its own equivalents (e.g. SmallRye Health). Both are read <em>live</em>
  * on every report so a runtime override is honored.
  */
@@ -26,7 +26,7 @@ public interface MemoryRuntimeConfig {
      */
     String virtualThreadsProperty();
 
-    /** Whether Kubernetes liveness/readiness health probes are exposed by the application. */
+    /** Whether configured health capability permits probes; not proof of deployed HTTP reachability. */
     boolean kubernetesHealthProbesEnabled();
 
     /**

@@ -178,7 +178,7 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
         const reads = []
         const scans = []
         await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: report()}))
-        await page.route(`**${apiPath}/${advisor}/scan`, (route) => {
+        await page.route(`**${apiPath}/${advisor}/scan{,?*}`, (route) => {
           scans.push(route.request().url())
           return route.fulfill({json: report()})
         })

@@ -140,8 +140,8 @@ describe('Hibernate', () => {
       advisorReport([
         ruleResult('HIB-FETCH-002', 'Informational fetch finding', 'INFO', 'VIOLATION', 2),
         ruleResult('HIB-MAP-004', 'Passing mapping rule', 'MEDIUM', 'PASS'),
-        ruleResult('HIB-ID-001', 'Medium severity finding', 'MEDIUM', 'VIOLATION', 1),
-        ruleResult('HIB-FETCH-001', 'High severity finding', 'HIGH', 'VIOLATION', 1)
+        ruleResult('HIB-FETCH-001', 'Review eager to-one fetch plans', 'MEDIUM', 'VIOLATION', 1),
+        ruleResult('HIB-FETCH-010', 'Eager collection fetching should stay bounded', 'HIGH', 'VIOLATION', 1)
       ])
     )
 
@@ -152,8 +152,8 @@ describe('Hibernate', () => {
     expect(wrapper.text()).toContain('Learn more')
     expect(wrapper.text()).not.toContain('Passing mapping rule')
     expect(wrapper.findAll('.advisor-rule-title').map((title) => title.text())).toEqual([
-      'High severity finding',
-      'Medium severity finding',
+      'Eager collection fetching should stay bounded',
+      'Review eager to-one fetch plans',
       'Informational fetch finding'
     ])
   })

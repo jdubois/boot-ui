@@ -19,6 +19,11 @@ While target permissions are unknown, actions remain disabled. Run-all is disabl
 After a run-all, a dismissible tip points at the MCP Server panel, since enabling it lets an AI agent read these same
 results and fix the findings for you.
 
+Memory scans from either Scorecard action omit the heap histogram and do not request GC. Heap-content checks
+remain unassessed, not clean; other JVM checks still run. The card identifies the last report's selected mode,
+including histogram scans started elsewhere. To include a histogram (which requests full GC and may pause the
+JVM), open the Memory panel and select **Include heap histogram**.
+
 ## Overall score
 
 The overall score is the rounded arithmetic mean of the eligible, available, visible advisor scores, plus the GitHub

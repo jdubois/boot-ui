@@ -52,7 +52,10 @@ public final class SqlShapes {
         return sql == null ? Set.of() : shape(sql).tables();
     }
 
-    /** The bounded shape cache's exact or candidate write targets for each captured statement. */
+    /**
+     * The bounded shape cache's exact or candidate write targets for each captured statement. This lexical
+     * classification skips SQL comments but does not parse CTE-headed writes or procedure calls.
+     */
     public static List<SqlTables.WriteTargets> writes(String sql) {
         return sql == null ? List.of() : shape(sql).writes();
     }

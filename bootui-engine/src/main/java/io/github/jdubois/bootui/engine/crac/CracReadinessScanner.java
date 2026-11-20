@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.CracScanStatusDto;
 import io.github.jdubois.bootui.core.dto.CracSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
@@ -102,12 +103,15 @@ public final class CracReadinessScanner {
         BasePackageDetection basePackages = detectBasePackages();
         List<String> warnings = new ArrayList<>(basePackages.warnings());
         JavaClasses classes = null;
+        ArchUnitBytecodeImports.Bytecode bytecode = ArchUnitBytecodeImports.Bytecode.EMPTY;
         boolean importFailed = false;
         if (basePackages.packages().isEmpty()) {
             warnings.add("No application base package was detected; bytecode-backed checks were skipped.");
         } else {
             try {
-                classes = importer.importPackages(basePackages.packages());
+                ArchUnitBytecodeImports.Result imported = importer.importWithBytecode(basePackages.packages());
+                classes = imported.classes();
+                bytecode = imported.bytecode();
                 if (classes == null || classes.isEmpty()) {
                     warnings.add("No application classes were found; bytecode-backed checks were skipped.");
                 }
@@ -124,7 +128,7 @@ public final class CracReadinessScanner {
         latestRuntimeInventory = inventory.inventory();
         warnings.addAll(inventory.warnings());
         boolean bytecodeAvailable = classes != null && !classes.isEmpty();
-        CracContext context = new CracContext(classes, basePackages.packages(), inventory.inventory());
+        CracContext context = new CracContext(classes, basePackages.packages(), inventory.inventory(), bytecode);
         List<CracFindingDto> results = new ArrayList<>();
         int checksRun = 0;
         for (CracCheck check : CracCheckRegistry.activeChecks()) {

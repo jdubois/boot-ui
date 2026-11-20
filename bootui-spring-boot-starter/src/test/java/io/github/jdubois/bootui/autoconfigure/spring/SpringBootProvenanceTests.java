@@ -4,9 +4,12 @@ import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.F
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.actuate.autoconfigure.context.ShutdownEndpointAutoConfiguration;
 import org.springframework.boot.actuate.autoconfigure.endpoint.EndpointAutoConfiguration;
 import org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointAutoConfiguration;
@@ -16,6 +19,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration;
 import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.context.runner.AbstractApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
@@ -614,7 +618,7 @@ class SpringBootProvenanceTests {
                                     context.getBeanFactory(), context.getEnvironment(), false, Clock.systemUTC())
                             .scan();
                     assertThat(report.scan().status()).isEqualTo("SCANNED");
-                    assertThat(report.rulesEvaluated()).isEqualTo(44);
+                    assertThat(report.rulesEvaluated()).isEqualTo(45);
                 });
     }
 
@@ -783,12 +787,21 @@ class SpringBootProvenanceTests {
 
                     var infraResult = new DormantInfrastructureAnnotationsRule().evaluate(snapshot);
                     assertThat(infraResult.status()).isEqualTo("VIOLATION");
-                    assertThat(infraResult.violationCount()).isEqualTo(4);
+                    assertThat(infraResult.severity()).isEqualTo("HIGH");
+                    assertThat(infraResult.violationCount()).isEqualTo(3);
                     assertThat(infraResult.sampleViolations())
                             .anySatisfy(d -> assertThat(d).contains("asyncWork", "@EnableAsync"))
-                            .anySatisfy(d -> assertThat(d).contains("scheduledTick", "@EnableScheduling"))
                             .anySatisfy(d -> assertThat(d).contains("cachedLookup", "@EnableCaching"))
-                            .anySatisfy(d -> assertThat(d).contains("transactionalUpdate", "TransactionManager"));
+                            .anySatisfy(d -> assertThat(d).contains("transactionalUpdate", "TransactionManager"))
+                            .noneSatisfy(d -> assertThat(d).contains("scheduledTick"));
+                    var schedulingResult = new DormantSchedulingAnnotationsRule().evaluate(snapshot);
+                    assertThat(schedulingResult.status()).isEqualTo("VIOLATION");
+                    assertThat(schedulingResult.severity()).isEqualTo("MEDIUM");
+                    assertThat(schedulingResult.violationCount()).isOne();
+                    assertThat(schedulingResult.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("scheduledTick", "intentionally disabled");
                 });
 
         new ApplicationContextRunner()
@@ -813,6 +826,10 @@ class SpringBootProvenanceTests {
                                     .evaluate(snapshot)
                                     .status())
                             .isEqualTo("PASS");
+                    assertThat(new DormantSchedulingAnnotationsRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("PASS");
                 });
 
         var interfaceFactory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
@@ -828,6 +845,113 @@ class SpringBootProvenanceTests {
         assertThat(interfaceResult.status()).isEqualTo("VIOLATION");
         assertThat(interfaceResult.sampleViolations())
                 .anySatisfy(d -> assertThat(d).contains("interfaceAsyncBean", "runAsync", "@EnableAsync"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void schedulingAbsenceIsAMediumReviewOnBothSpringStacks(boolean reactive) {
+        for (String mode : List.of("absent", "property-disabled", "profile-disabled")) {
+            var runner = schedulingReviewRunner(reactive)
+                    .withBean(
+                            "scheduledTasks",
+                            app.advisoraudit.ApplicationFixtures.SchedulingReviewTasks.class,
+                            app.advisoraudit.ApplicationFixtures.SchedulingReviewTasks::new);
+            if ("property-disabled".equals(mode)) {
+                runner = runner.withUserConfiguration(PropertySchedulingConfig.class)
+                        .withPropertyValues("audit.scheduling.enabled=false");
+            } else if ("profile-disabled".equals(mode)) {
+                runner = runner.withUserConfiguration(ProfileSchedulingConfig.class)
+                        .withPropertyValues("spring.profiles.active=dev");
+            }
+            runner.run(context -> {
+                assertThat(context).hasNotFailed();
+                var application = context.getSourceApplicationContext();
+                assertThat(application
+                                .getBeanFactory()
+                                .containsBean(
+                                        "org.springframework.scheduling.config.internalScheduledAnnotationProcessor"))
+                        .as(mode)
+                        .isFalse();
+                var snapshot =
+                        SpringInventory.discover(application.getBeanFactory(), application.getEnvironment(), reactive);
+                var review = new DormantSchedulingAnnotationsRule().evaluate(snapshot);
+                assertThat(review.id()).isEqualTo("SPRING-WIRING-012");
+                assertThat(review.status()).isEqualTo("VIOLATION");
+                assertThat(review.severity()).isEqualTo("MEDIUM");
+                assertThat(review.violationCount()).isEqualTo(2);
+                assertThat(review.sampleViolations())
+                        .anySatisfy(d -> assertThat(d).contains("privateTick"))
+                        .anySatisfy(d -> assertThat(d).contains("repeatedTick"))
+                        .allSatisfy(d -> assertThat(d)
+                                .contains("intentionally disabled", "ScheduledTaskHolder")
+                                .doesNotContain("add @EnableScheduling"));
+                assertThat(SpringScanner.evidence(snapshot).coverageComplete()).isTrue();
+                assertThat(new DormantInfrastructureAnnotationsRule()
+                                .evaluate(snapshot)
+                                .status())
+                        .isEqualTo("PASS");
+            });
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void enabledSchedulingWithDisabledCronExpressionsDoesNotNeedInfrastructureReview(boolean reactive) {
+        schedulingReviewRunner(reactive)
+                .withBean(
+                        "disabledCronTasks",
+                        app.advisoraudit.ApplicationFixtures.DisabledCronTasks.class,
+                        app.advisoraudit.ApplicationFixtures.DisabledCronTasks::new)
+                .withUserConfiguration(PropertySchedulingConfig.class)
+                .withPropertyValues("audit.scheduling.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var application = context.getSourceApplicationContext();
+                    assertThat(
+                                    application
+                                            .getBeanFactory()
+                                            .containsBean(
+                                                    "org.springframework.scheduling.config.internalScheduledAnnotationProcessor"))
+                            .isTrue();
+                    var processor = application
+                            .getBeanFactory()
+                            .getBean(
+                                    "org.springframework.scheduling.config.internalScheduledAnnotationProcessor",
+                                    org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor
+                                            .class);
+                    assertThat(processor.getScheduledTasks()).isEmpty();
+                    var snapshot = SpringInventory.discover(
+                            application.getBeanFactory(), application.getEnvironment(), reactive);
+                    assertThat(new DormantSchedulingAnnotationsRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("PASS");
+                    assertThat(snapshot.dormantSchedulingBeans()).isEmpty();
+                });
+    }
+
+    @Test
+    void scheduledTaskHolderMetadataStillPreventsAnAbsenceFindingWithoutInstantiation() {
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var holder = new org.springframework.beans.factory.support.RootBeanDefinition(
+                org.springframework.scheduling.config.ScheduledTaskHolder.class, () -> {
+                    throw new AssertionError("must not instantiate lazy task holder");
+                });
+        holder.setLazyInit(true);
+        factory.registerBeanDefinition("customTaskHolder", holder);
+        factory.registerBeanDefinition(
+                "scheduledTasks",
+                new org.springframework.beans.factory.support.RootBeanDefinition(
+                        app.advisoraudit.ApplicationFixtures.SchedulingReviewTasks.class));
+        var snapshot = SpringInventory.discover(factory, new org.springframework.mock.env.MockEnvironment(), false);
+        assertThat(new DormantSchedulingAnnotationsRule().evaluate(snapshot).status())
+                .isEqualTo("PASS");
+        assertThat(factory.containsSingleton("customTaskHolder")).isFalse();
+        assertThat(factory.containsSingleton("scheduledTasks")).isFalse();
+    }
+
+    private AbstractApplicationContextRunner<?, ?, ?> schedulingReviewRunner(boolean reactive) {
+        return reactive ? new ReactiveWebApplicationContextRunner() : new WebApplicationContextRunner();
     }
 
     @Test
@@ -916,4 +1040,16 @@ class SpringBootProvenanceTests {
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
     @org.springframework.scheduling.annotation.EnableScheduling
     static class SchedulingOnlyConfig {}
+
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @org.springframework.scheduling.annotation.EnableScheduling
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "audit.scheduling.enabled",
+            havingValue = "true")
+    static class PropertySchedulingConfig {}
+
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @org.springframework.scheduling.annotation.EnableScheduling
+    @org.springframework.context.annotation.Profile("scheduled")
+    static class ProfileSchedulingConfig {}
 }

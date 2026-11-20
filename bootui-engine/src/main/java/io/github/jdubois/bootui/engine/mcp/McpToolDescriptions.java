@@ -44,8 +44,10 @@ public final class McpToolDescriptions {
                             + "live schema before changing it."),
             Map.entry(
                     "memory_scan",
-                    "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram "
-                            + "and full GC, so run only when memory evidence is needed."),
+                    "Actively analyze JVM memory and return prioritized findings. Uses bootui.memory.include-histogram "
+                            + "(default true): the histogram requests full GC and may pause the JVM; false skips "
+                            + "histogram-dependent checks without requesting GC. scan.includeHistogram records the "
+                            + "selected mode. Run only when memory evidence is needed."),
             Map.entry(
                     "security_scan",
                     "On explicit request, review application security configuration and bounded local declarations "

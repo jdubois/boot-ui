@@ -155,9 +155,23 @@ Verify those paths and that port name against your deployment.
   commands, and `-Xlog` selections.
 - The bare-metal calculator keeps the current collector and omits workload-specific GC, direct-memory-cap, pre-touch,
   compact-header, string-deduplication, and out-of-memory policy flags.
+- Every generated heap option must fit observed heap used and the generic 2 MiB bound after rounding. Untouched host
+  defaults target at least 128 MiB or observed heap used plus a 20% starting allowance, whichever is larger, after
+  headroom. This snapshot requires no GC and is not a peak-demand guarantee. Explicit and detected budgets do not
+  require that allowance; insufficient budgets, including the 2 GiB default clamp, produce no options or YAML.
+- Metaspace reserves the larger of the class-count model and current Metaspace committed bytes plus 25%, rounded up
+  to MiB. It reuses one passive pool observation without adding Compressed Class Space again; unavailable observations
+  retain the class model with an explicit note. This is a starting allowance, not a peak-demand guarantee:
+  exceeding `MaxMetaspaceSize` can cause `OutOfMemoryError: Metaspace`.
 - The Kubernetes calculator sets equal memory request and limit by default but labels Pod QoS `Depends on CPU`, because
   Guaranteed QoS also needs matching non-zero CPU resources on every container. You can attempt a lower, snapshot-based
-  Burstable request instead.
+  Burstable request instead. It retains the 15%/64 MiB snapshot margin but covers at least the modeled heap plus
+  observed non-heap committed. The model also bounds the downward-rounded initial-heap option against the selected
+  limit. The raw non-heap aggregate can contain overlapping pool accounting; BootUI does not deduplicate it or add
+  individual pools again. An infeasible floor produces no Kubernetes options or YAML rather than exceeding the limit
+  or shrinking below that bound. Review modeled headroom/reservations or turn Burstable off; a larger total alone
+  need not fix the floor. Default emitted resources stay equal-request, while the informational Burstable alternative
+  is also floored when opt-in is off. These remain starting heuristics, not peak-demand or effective-heap guarantees.
 - On Spring the startup probe reuses `/actuator/health/liveness`, while Quarkus has a dedicated `/q/health/started`.
 
 The full model is recorded in
@@ -258,12 +272,18 @@ The checks are heuristic review aids that complement the GraalVM tracing agent a
 This panel is unavailable when the application already runs as a native image, and not applicable on Quarkus, which
 compiles native images itself.
 
-### Dependency reachability metadata
+### Dependency hint sources
 
 With **Include dependencies** on (the default), the panel also reports which third-party libraries already ship
-reachability metadata under `META-INF/native-image/`. For libraries that do not, it consults Oracle's
+reachability metadata under `META-INF/native-image/` or a Spring AOT contributor-declaration resource at
+`META-INF/spring/aot.factories`. These are distinct sources; Spring AOT factories are not counted as bundled JSON.
+For libraries with neither bundled source, it consults Oracle's
 [reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) and reports the detected
-version as `covered`, `partial`, or `none`, with links to the matching entry.
+version match or another available version, with links to the matching entry. Bundled sources skip that lookup and
+consume no repository-lookup budget.
+
+**None found is not itself a defect**, and finding a source does not prove working or complete native-image hints.
+The inventory does not execute AOT contributors or validate native compatibility.
 
 That lookup is the panel's only outbound network call. It is user-initiated and time-bounded, can be aborted from the
 panel, and is disabled with `bootui.graalvm.repository-lookup-enabled=false`.

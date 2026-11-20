@@ -8,6 +8,8 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  *
  * @param position {@code SEQ_IN_INDEX}, one-based
  * @param visible {@code TRUE}/{@code FALSE} when the server reports visibility, {@code null} when it cannot
+ * @param generatedColumn whether the joined column metadata reports a generated column, or {@code null}
+ *     when that metadata is missing
  */
 record MySqlIndexDetail(
         String schema,
@@ -21,7 +23,7 @@ record MySqlIndexDetail(
         boolean unique,
         Boolean visible,
         String expression,
-        boolean generatedColumn,
+        Boolean generatedColumn,
         boolean definitionComplete) {
 
     MySqlIndexDetail(
@@ -48,7 +50,7 @@ record MySqlIndexDetail(
                 unique,
                 visible,
                 expression,
-                false,
+                null,
                 false);
     }
 }

@@ -44,7 +44,7 @@ final class ForeignKeySetNullOnNotNullColumnRule extends AbstractDatabaseAdvisor
                     unknown(context, table.qualifiedName() + ": column metadata is incomplete.");
                 }
                 for (ForeignKeyModel fk : table.foreignKeys()) {
-                    if (Boolean.FALSE.equals(fk.enforced())) {
+                    if (schema.dialect() != Dialect.POSTGRESQL && Boolean.FALSE.equals(fk.enforced())) {
                         continue;
                     }
                     if (!fk.consistent()) {
@@ -84,6 +84,27 @@ final class ForeignKeySetNullOnNotNullColumnRule extends AbstractDatabaseAdvisor
                         unknown(context, table.qualifiedName() + ": referencing column nullability is unknown.");
                         continue;
                     }
+                    if (schema.dialect() == Dialect.POSTGRESQL) {
+                        PostgresForeignKeyDetail state =
+                                VendorSchemaMerge.postgresForeignKeyDetail(table, fk, schema.vendorFindings());
+                        deleteSetNull = deleteSetNull
+                                && activeAction(
+                                        context,
+                                        table,
+                                        fk,
+                                        "DELETE",
+                                        state == null ? null : state.deleteActionEnabled());
+                        updateSetNull = updateSetNull
+                                && activeAction(
+                                        context,
+                                        table,
+                                        fk,
+                                        "UPDATE",
+                                        state == null ? null : state.updateActionEnabled());
+                        if (!deleteSetNull && !updateSetNull) {
+                            continue;
+                        }
+                    }
                     eligible++;
                     String action = deleteSetNull && updateSetNull
                             ? "ON DELETE SET NULL and ON UPDATE SET NULL"
@@ -102,5 +123,16 @@ final class ForeignKeySetNullOnNotNullColumnRule extends AbstractDatabaseAdvisor
             }
         }
         return assessed(context, eligible, details);
+    }
+
+    private boolean activeAction(
+            DatabaseAdvisorContext context, TableModel table, ForeignKeyModel fk, String action, Boolean enabled) {
+        if (enabled == null) {
+            unknown(
+                    context,
+                    table.qualifiedName() + " foreign key " + fk.name() + ": ON " + action
+                            + " SET NULL trigger activation is unknown.");
+        }
+        return Boolean.TRUE.equals(enabled);
     }
 }

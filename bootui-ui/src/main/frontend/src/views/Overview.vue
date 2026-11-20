@@ -21,6 +21,7 @@ import SpinnerButton from './components/SpinnerButton.vue'
 const injectedPanels = inject('panels', null)
 const applicationPath = getBootUiApplicationPath()
 const runAllReasonId = `scorecard-run-all-reason-${useId()}`
+const memoryScanCostId = `scorecard-memory-cost-${useId()}`
 
 // Standalone mounts fetch availability; the application shell owns its injected manifest.
 const localPanels = ref(null)
@@ -65,7 +66,7 @@ const scannerDefs = [
     icon: 'bi-clipboard2-pulse',
     tone: 'warning',
     to: '/memory',
-    endpoint: 'api/memory/scan',
+    endpoint: 'api/memory/scan?includeHistogram=false',
     reportEndpoint: 'api/memory'
   },
   {
@@ -146,7 +147,8 @@ function newScannerState() {
     statusLabel: null,
     statusTone: 'secondary',
     error: null,
-    warning: null
+    warning: null,
+    scanMode: null
   }
 }
 
@@ -180,6 +182,14 @@ function applyReport(def, state, report) {
   state.state = status === 'ERROR' ? 'error' : status === 'NOT_SCANNED' ? 'idle' : 'done'
   state.error = status === 'ERROR' ? report.scan.message || 'Scan failed' : null
   state.warning = validSummary ? null : 'The report has an invalid severity summary. Its counts cannot be displayed.'
+  state.scanMode =
+    def.id === 'memory' && status !== 'NOT_SCANNED'
+      ? report.scan.includeHistogram === false
+        ? 'Last scan: histogram omitted.'
+        : report.scan.includeHistogram === true
+          ? 'Last scan: histogram requested.'
+          : null
+      : null
 }
 
 const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailable(def.id)))
@@ -246,6 +256,8 @@ const github = reactive({
   state: 'idle',
   score: null,
   hasReport: false,
+  target: null,
+  targetBlocked: false,
   connected: false,
   authenticated: false,
   available: true,
@@ -280,12 +292,46 @@ const overallBand = computed(() => {
   return {tone, label: {secondary: 'Not scored', success: 'Good', warning: 'Needs attention', danger: 'At risk'}[tone]}
 })
 
+function githubTarget(report) {
+  const repository = report?.repository
+  if (!repository?.fullName) return null
+  const host =
+    repository.host ||
+    (() => {
+      try {
+        return repository.htmlUrl ? new URL(repository.htmlUrl).host : null
+      } catch {
+        return null
+      }
+    })()
+  return host ? {host, fullName: repository.fullName} : null
+}
+
 async function connectGithub() {
-  if (actionReason('github') || github.state === 'running') return
+  if (actionReason('github') || github.state === 'running' || github.targetBlocked) return
   github.state = 'running'
   github.error = null
   try {
-    const report = await getJson('api/github/refresh', {method: 'POST'})
+    const parameters = new URLSearchParams()
+    if (github.target) {
+      parameters.set('expectedHost', github.target.host)
+      parameters.set('expectedRepository', github.target.fullName)
+    }
+    const query = parameters.size ? `?${parameters}` : ''
+    const report = await getJson(`api/github/refresh${query}`, {method: 'POST'})
+    if (report?.status === 'ERROR') {
+      const currentTarget = githubTarget(report)
+      if (
+        github.target &&
+        currentTarget &&
+        (currentTarget.host !== github.target.host || currentTarget.fullName !== github.target.fullName)
+      ) {
+        github.targetBlocked = true
+      }
+      throw new Error(report.message || 'GitHub refresh failed')
+    }
+    github.target = githubTarget(report)
+    github.targetBlocked = false
     const score = githubSecurityScore(report)
     github.available = report.available !== false
     github.connected = report.connected === true
@@ -310,7 +356,7 @@ const unscannedCount = computed(() => visibleScanners.value.filter((def) => scan
 const incompleteCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].incomplete).length)
 const hasActions = computed(() => visibleScanners.value.length > 0 || githubVisible.value)
 const runnableScanners = computed(() => visibleScanners.value.filter((def) => !actionReason(def.id)))
-const githubRunnable = computed(() => githubVisible.value && !actionReason('github'))
+const githubRunnable = computed(() => githubVisible.value && !actionReason('github') && !github.targetBlocked)
 const runAllDisabledReason = computed(() => {
   if (runnableScanners.value.length || githubRunnable.value) return null
   if (!injectedPanels?.value && !localPanels.value)
@@ -478,7 +524,11 @@ watch(
               <SpinnerButton
                 :loading="anyRunning"
                 :disabled="anyRunning || !!runAllDisabledReason"
-                :aria-describedby="runAllDisabledReason ? runAllReasonId : undefined"
+                :aria-describedby="
+                  [runAllDisabledReason ? runAllReasonId : null, panelAvailable('memory') ? memoryScanCostId : null]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                "
                 class="btn btn-primary flex-shrink-0 align-self-start align-self-xl-center ms-xl-auto"
                 type="button"
                 :label="assessedCount > 0 ? 'Re-run all scanners' : 'Run all scanners'"
@@ -488,6 +538,10 @@ watch(
             </div>
             <p v-if="runAllDisabledReason" :id="runAllReasonId" class="small text-muted mt-2 mb-0">
               {{ runAllDisabledReason }}
+            </p>
+            <p v-if="panelAvailable('memory')" :id="memoryScanCostId" class="small text-muted mt-2 mb-0">
+              Memory runs without a heap histogram or GC request; heap-content checks are skipped. Include the histogram
+              from the Memory panel when needed.
             </p>
             <div class="overall-assessment d-flex flex-wrap align-items-center gap-2 mt-3 small">
               <span>
@@ -609,7 +663,7 @@ watch(
               class="btn btn-sm btn-primary"
               type="button"
               icon="bi-github"
-              :disabled="github.state === 'running' || !!actionReason('github')"
+              :disabled="github.state === 'running' || !!actionReason('github') || github.targetBlocked"
               :aria-describedby="reasonId"
               @click="connectGithub"
             >
@@ -640,8 +694,13 @@ watch(
           :warning-message="scanners[def.id].warning"
           :run-disabled="!!actionReason(def.id)"
           :run-disabled-reason="actionReason(def.id)"
+          :run-hint="def.id === 'memory' ? 'No histogram or GC request; heap-content checks are skipped.' : null"
           @run="runScanner(def)"
-        />
+        >
+          <template v-if="def.id === 'memory'" #notes>
+            <p v-if="scanners[def.id].scanMode" class="small text-muted mt-2 mb-0">{{ scanners[def.id].scanMode }}</p>
+          </template>
+        </ScannerScoreCard>
       </div>
 
       <div v-if="!hasActions" class="col-12">

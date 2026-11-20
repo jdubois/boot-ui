@@ -190,6 +190,8 @@ public class BootUiProperties {
      * Heap Dump panel settings.
      */
     private HeapDump heapDump = new HeapDump();
+
+    private Memory memory = new Memory();
     /** Bounded thread capture and finite-observation settings. */
     private Threads threads = new Threads();
     /**
@@ -580,6 +582,14 @@ public class BootUiProperties {
 
     public void setHeapDump(HeapDump heapDump) {
         this.heapDump = heapDump == null ? new HeapDump() : heapDump;
+    }
+
+    public Memory getMemory() {
+        return memory;
+    }
+
+    public void setMemory(Memory memory) {
+        this.memory = memory == null ? new Memory() : memory;
     }
 
     public Threads getThreads() {
@@ -1069,8 +1079,8 @@ public class BootUiProperties {
         private int maxIssues = 25;
 
         /**
-         * Maximum Dependabot alert details listed in one dashboard refresh. The alert count is still
-         * exact; only the inlined detail list is capped. Code scanning and secret scanning remain
+         * Maximum Dependabot alert details retained in one dashboard refresh. Totals require complete
+         * bounded pagination and are non-atomic observations. Code scanning and secret scanning remain
          * count-only and never inline alert details.
          */
         private int maxSecurityAlerts = 50;
@@ -1086,7 +1096,8 @@ public class BootUiProperties {
         private int quotaSafetyThreshold = 10;
 
         /**
-         * Maximum number of GitHub API calls issued by one refresh.
+         * Hard maximum GitHub API calls per refresh. Extra alert pages preserve capacity for pending
+         * baseline sections; an incomplete traversal keeps its total unavailable.
          */
         private int maxApiCalls = 17;
 
@@ -2187,6 +2198,21 @@ public class BootUiProperties {
 
         public void setObservationIntervalMillis(long value) {
             observationIntervalMillis = value;
+        }
+    }
+
+    /** Memory Advisor settings. */
+    public static class Memory {
+
+        /** Default for explicit Memory scans; a REST request can override it for one scan. */
+        private boolean includeHistogram = true;
+
+        public boolean isIncludeHistogram() {
+            return includeHistogram;
+        }
+
+        public void setIncludeHistogram(boolean includeHistogram) {
+            this.includeHistogram = includeHistogram;
         }
     }
 

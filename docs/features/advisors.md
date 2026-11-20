@@ -347,6 +347,10 @@ violation count. Treat it as a starting point that complements a project-specifi
 checks (`ARCH-CODE-*`) exclude classes positively identified as generated; see
 [generated-code scope and limitations](../ARCHITECTURE-CHECKS.md#generated-application-code).
 
+The retained `java.util.logging` prompt (`ARCH-CODE-003`) is an INFO convention on Spring, with no score penalty.
+Spring Boot routes JUL into its configured logging system by default; custom handlers or disabled bridging still
+need separate routing and coverage checks. Logger field modifiers remain independently checked by `ARCH-CODE-012`.
+
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
 > `ClassFileImporter`, which is incompatible with a native executable; the panel moves to the sidebar's
 > _Disabled / unavailable_ group and explains why.
@@ -407,7 +411,10 @@ persistence, Actuator exposure, and reactive (WebFlux-only) checks. See [SPRING-
 
 It focuses on "started but suboptimal" states and complements the Architecture panel by inspecting the live, wired
 context. It never mutates the context, intercepts traffic, or surfaces secrets. On MVC, Open Session in View is reported
-as present, confirmed absent, or unknown from actual registration metadata. This advisor is **relabelled per
+as present, confirmed absent, or unknown from actual registration metadata. On both Spring stacks, scheduled methods
+without observed scheduling infrastructure get a separate MEDIUM review (`SPRING-WIRING-012`): deliberately disabling
+scheduling in development or CI is not evidence of a production defect. Dismissing that review does not silence the
+HIGH async, caching, or transaction infrastructure checks. This advisor is **relabelled per
 framework**: **Spring** on Spring Boot, **Quarkus** on Quarkus, with the same menu slot and `/bootui/api/spring`
 contract.
 
@@ -422,6 +429,10 @@ against the running application and its MicroProfile `Config`:
 - Production configuration evidence: schema actions, SQL and bind-parameter logging, explicit in-memory storage.
 - Managed REST-client timers, HTTP compression, and request-draining configuration.
 - Conditional synchronized virtual-thread pinning on JDK 21-23.
+
+Client-proxy checks retain native ArC unproxyability errors before classifying types such as abstract `Clock`.
+Default-mode final-method skips are a separate proxy-use hazard, while native strict-mode errors remain findings.
+The failure stage is not inferred from a type's shape alone.
 
 Missing annotations or production overrides are not defects by themselves, and incomplete evidence is reported
 explicitly rather than treated as clean. See [QUARKUS-ADVISOR-CHECKS.md](../QUARKUS-ADVISOR-CHECKS.md).
@@ -587,10 +598,19 @@ common performance and mapping risks: eager fetching, problematic identifier gen
 unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. It never intercepts queries, invokes
 repositories, executes SQL, or modifies mappings. See [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md).
 
-The catalog has 76 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
+The catalog has 78 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
 findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) names every failed or incompletely evaluated
 rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
 every mapping or query was verified.
+
+HIB-QUERY-007 excludes only [narrowly proven static bulk statements](../HIBERNATE-CHECKS.md#hib-query-007-queries-should-not-join-fetch-more-than-one-collection)
+from its fetch-query obligations. Unsupported applicable queries remain incomplete; other rules still inspect bulk
+queries where relevant. Removing the last genuine gap can make existing findings eligible for unchanged strict CI gates.
+
+Eager to-one mappings are MEDIUM review guidance under HIB-FETCH-001, not proof of extra queries. Eager collections
+remain HIGH under the separate HIB-FETCH-010. Existing HIB-FETCH-001 dismissals are not copied to the collection rule,
+so previously dismissed collection findings reappear on the next scan. See the
+[dismissal migration](../HIBERNATE-CHECKS.md#hib-fetch-001-review-eager-to-one-fetch-plans).
 
 HIB-CONFIG-008 and the high-severity HIB-CONFIG-021 compare Hibernate's effective
 `hibernate.connection.provider_disables_autocommit` with the auto-commit default of the HikariCP or Agroal pool behind a
@@ -599,7 +619,7 @@ a connection; a unit that cannot be attributed to one pool, and any JTA unit, is
 
 ::: details On Quarkus
 
-The panel runs the same 76-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
+The panel runs the same 78-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
 `EntityManagerFactory` across all persistence units. Spring Data query rules skip when repository metadata is
 unavailable. Differences:
 
@@ -641,6 +661,10 @@ expose. The scan is on demand and caches the last report. See [MEMORY-CHECKS.md]
 [Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
 you re-run the checks.
 
+External stop-the-world `System.gc()` findings cover only events ending since the previous successful scan boundary
+(since the listener started on the first scan), not lifetime activity. Rescanning without new events clears that
+finding; lost or incomparable evidence remains an explicit coverage limitation.
+
 ## Security
 
 The Security panel runs an explicit, read-only scan of the application's security configuration to flag hardening gaps
@@ -650,15 +674,34 @@ declare no supported static security analyzer. It never runs those tools, assess
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the configuration. The same
 panel and `/bootui/api/security` contract support all three stacks.
 
+Missing and weak script CSP policies use the same LOW review baseline across Security and Pentesting. Adding a partial
+restriction does not incur a higher script-policy penalty than omitting it in the same browser/authentication scope;
+these passive observations do not prove an exploitable injection. Unknown policy composition stays incomplete.
+
 ### Spring Boot (Spring Security)
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it evaluates a 50-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
+On Spring Boot it evaluates a 51-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
 supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
 also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
 check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
 verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
+
+The servlet missing-HTTP-authorization and blanket-`permitAll` findings remain visible at **MEDIUM** when metadata marked
+known for inspected beans shows at least one observed used method-annotation family and matching activation for every
+used family; otherwise they stay **HIGH**. MEDIUM calls for annotation, proxy and invocation coverage review, not a claim
+that endpoints are protected: HTTP authorization is still absent or broad. Supported cached products and static Spring
+proxy targets retain interface and implementation metadata; native creator eligibility qualifies advisor activation.
+Opaque products, custom or dynamic targets, unsupported creator bindings and GraalVM class-based targets remain
+incomplete and prevent MEDIUM qualification. Passive factory support is narrow; even the shipped BootUI sample retains
+gaps from its own lazy factories, rather than proving a complete method inventory.
+See the [metadata limits and verdict impact](../SECURITY-CHECKS.md#authorization).
+This calibration does not change the separate WebFlux or Quarkus rules.
+
+Proven filterless/ignored request scopes produce one `SEC-AUTHZ-006` review instead of per-chain missing-authorization
+advice: LOW normally, HIGH for a passively proven unconditional ignored matcher. Prefer public `permitAll` mappings
+inside a real chain. Unknown scope stays incomplete, and existing `SEC-AUTHZ-001` dismissals do not dismiss the new ID.
 
 ### Spring WebFlux
 
@@ -757,6 +800,10 @@ are rejected. CVSS v2 is not calculated.
 Withdrawn advisories are excluded. A failed advisory-detail fetch does not abort the scan: it is counted, the scan
 degrades to `PARTIAL`, and every advisory that did fetch is kept.
 
+Unfetched query IDs remain **unassessed candidates**, separately counted and never assigned a severity or included
+in vulnerability counts. **Findings or unassessed candidates** keeps their dependencies visible; a candidate-only
+row stays **Not assessed**, not clean. Candidate previews are bounded; the panel states omitted IDs.
+
 ::: details Pagination, batching, and result validation
 
 The scanner follows OSV's `next_page_token` on `/v1/querybatch`, bounded by 20 page rounds per chunk (degrading to
@@ -798,7 +845,7 @@ visible (dimmed, with a _Restore_ button) and leave the vulnerable counts. Contr
 
 ::: details How Spring discovers dependencies
 
-The Spring adapter resolves coordinates from three sources, in decreasing authority:
+The Spring adapter resolves coordinates from four sources, in decreasing authority:
 
 1. **The embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`). Maven PURLs carry
    the `groupId` no manifest header carries. A component declared not shipped (`scope: "excluded"`, or the
@@ -808,8 +855,15 @@ The Spring adapter resolves coordinates from three sources, in decreasing author
 2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, including inside a repackaged archive's nested
    JARs.
 3. **`java.class.path` entries**, read through the Maven repository layout or an adjacent POM. A group id is derived from
-   a path only when a literal `repository` directory makes it unambiguous. Inside a repackaged fat JAR this source is
-   dead.
+   a Maven path only when a literal `repository` directory identifies the layout. Inside a repackaged fat JAR this source
+   is dead.
+4. **Standard Gradle module-cache paths**, for otherwise unidentified local JARs already supplied on the classpath or
+   application loader. The `modules-2/files-2.1/group/artifact/version/hash/artifact-version.jar` suffix must agree with
+   the real path and Gradle's unpadded lowercase SHA-1 directory format. Embedded Maven descriptors, bundled archives,
+   shadowed basenames, and classified/custom filenames prevent inference. Already identified shipped-SBOM, descriptor,
+   and classpath matches take precedence. An archive newly identified here cannot also rescue an excluded/test-only
+   SBOM component by filename. This is path provenance, not proof of upstream publication; BootUI does not search the
+   cache or perform a hash lookup.
 
 Unreadable resources, a malformed SBOM, and unreadable archives are logged and skipped rather than failing the
 inventory.
@@ -887,9 +941,9 @@ unencodable coordinate reports `UNAVAILABLE`, keeping every readable dependency.
 
 - **Discovery can overclaim coverage.** Spring de-duplicates archive basenames and matches filenames without group
   identity, so case or classifier ambiguity can overstate identification.
-- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`, so artifacts published
-  without a Maven descriptor (Spring Framework, Spring Boot, `tomcat-embed-*`, `hibernate-core`, and others) cannot be
-  resolved. They appear through coverage as unidentified.
+- **Without metadata or a recognized repository layout, some JARs cannot be identified.** No JAR manifest header carries
+  a `groupId`. An SBOM can identify artifacts without Maven descriptors or a supported local cache path; otherwise they
+  appear through coverage as unidentified.
 - **Shaded/uber JARs are invisible.** The inventory is coordinate-based, so a library relocated inside a shaded JAR is
   not seen.
 - **No direct-vs-transitive provenance.** "Introduced through" is not tracked on either adapter.

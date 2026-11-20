@@ -9,14 +9,13 @@ import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * {@code safe-method-dml} ({@code docs/PLAN-v2.md} §5.5): GET or HEAD requests that executed or, on Quarkus,
- * prepared an INSERT, UPDATE, DELETE, or MERGE, per route and fingerprint. Worded as a question, since an audit write
- * is often intended.
+ * prepared an INSERT, UPDATE, DELETE, MERGE, or REPLACE, per route and fingerprint. Worded as a question, since an audit
+ * write is often intended.
  */
 public final class SafeMethodDml implements Observation {
 
@@ -80,7 +79,7 @@ public final class SafeMethodDml implements Observation {
                     if (prepared && (hiddenOrm || !preparationsExecuted)) {
                         continue;
                     }
-                    if (!sql.failed() && isDml(sql.sql())) {
+                    if (!sql.failed() && !SqlShapes.writes(sql.sql()).isEmpty()) {
                         StatementKey key = new StatementKey(SqlShapes.fingerprint(sql.sql()), prepared);
                         perRequest.computeIfAbsent(key, f -> new int[1])[0]++;
                         callSites.putIfAbsent(key, sql.callSite());
@@ -178,16 +177,5 @@ public final class SafeMethodDml implements Observation {
             }
         }
         return !metered || executed > 0;
-    }
-
-    static boolean isDml(String sql) {
-        if (sql == null) {
-            return false;
-        }
-        String head = sql.stripLeading().toLowerCase(Locale.ROOT);
-        return head.startsWith("insert")
-                || head.startsWith("update")
-                || head.startsWith("delete")
-                || head.startsWith("merge");
     }
 }

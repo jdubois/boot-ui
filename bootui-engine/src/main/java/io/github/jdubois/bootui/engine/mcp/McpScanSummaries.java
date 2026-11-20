@@ -264,6 +264,11 @@ public final class McpScanSummaries {
         summary.put("scanningEnabled", report.scanningEnabled());
         summary.put("dependencies", report.total());
         summary.put("coverage", report.coverage());
+        summary.put(
+                "unassessedAdvisoryCandidates",
+                report.dependencies().stream()
+                        .mapToLong(dependency -> dependency.assessment().unassessedAdvisoryCount())
+                        .sum());
         return summary;
     }
 

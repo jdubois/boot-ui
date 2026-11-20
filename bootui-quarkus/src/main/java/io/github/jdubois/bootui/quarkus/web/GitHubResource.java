@@ -4,11 +4,14 @@ import io.github.jdubois.bootui.core.dto.GitHubDashboardReport;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.UriInfo;
 
 /**
  * JAX-RS resource for the GitHub dashboard panel ({@code GET /bootui/api/github},
@@ -24,7 +27,7 @@ import jakarta.ws.rs.core.MediaType;
  * are identical to Spring.</p>
  *
  * <p>It is {@code @ApplicationScoped} (not the default per-request scope) because the engine service caches
- * the last refreshed report in a {@code volatile} field across requests — the CDI analogue of the Spring
+ * the last refreshed report per selected remote across requests — the CDI analogue of the Spring
  * controller's singleton holding the engine service. {@code POST /refresh} is a state-changing endpoint, so it
  * is gated by {@code BootUiQuarkusSafetyFilter} like every other write.</p>
  */
@@ -39,16 +42,37 @@ public class GitHubResource {
         this.service = service;
     }
 
-    @GET
-    @Produces(MediaType.APPLICATION_JSON)
     public GitHubDashboardReport dashboard() {
         return service.dashboard();
+    }
+
+    public GitHubDashboardReport refresh() {
+        return service.refresh();
+    }
+
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    public GitHubDashboardReport dashboard(@Context UriInfo uriInfo) {
+        return service.dashboard(selectedRemote(uriInfo));
     }
 
     @POST
     @Path("/refresh")
     @Produces(MediaType.APPLICATION_JSON)
-    public GitHubDashboardReport refresh() {
-        return service.refresh();
+    public GitHubDashboardReport refresh(@Context UriInfo uriInfo) {
+        try {
+            var selection = GitHubDashboardService.parseRefreshSelection(uriInfo.getQueryParameters());
+            return service.refresh(selection.remote(), selection.host(), selection.repository());
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException(ex.getMessage(), ex);
+        }
+    }
+
+    private String selectedRemote(UriInfo uriInfo) {
+        try {
+            return GitHubDashboardService.parseRemoteSelection(uriInfo.getQueryParameters());
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException(ex.getMessage(), ex);
+        }
     }
 }

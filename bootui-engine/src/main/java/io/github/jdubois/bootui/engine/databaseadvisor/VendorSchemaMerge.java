@@ -29,7 +29,7 @@ final class VendorSchemaMerge {
             return mergePostgres(tables, findings);
         }
         if (dialect.isMySqlFamily()) {
-            return mergeMySql(tables, findings);
+            return mergeMySql(tables, dialect, findings);
         }
         if (dialect == Dialect.ORACLE) {
             return mergeOracle(tables, findings);
@@ -265,31 +265,14 @@ final class VendorSchemaMerge {
     }
 
     private static TableModel enrichForeignKeys(TableModel table, Dialect dialect, VendorFindings findings) {
-        boolean unvalidatedReadComplete = findings.available(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)
-                && !findings.augmentation(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)
-                        .truncated();
         List<ForeignKeyModel> foreignKeys = new ArrayList<>();
         for (ForeignKeyModel foreignKey : table.foreignKeys()) {
             ForeignKeyModel enriched = foreignKey;
             if (dialect == Dialect.POSTGRESQL) {
-                List<PostgresUnvalidatedConstraint> matches =
-                        findings.findings(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS).stream()
-                                .filter(constraint -> java.util.Objects.equals(table.schema(), constraint.schema())
-                                        && java.util.Objects.equals(table.name(), constraint.table())
-                                        && java.util.Objects.equals(foreignKey.name(), constraint.constraint())
-                                        && "f".equals(constraint.type()))
-                                .toList();
-                if (matches.size() == 1) {
-                    enriched = foreignKey.withEnforcement(matches.get(0).enforced(), false, foreignKey.matchType());
-                } else if (matches.isEmpty()
-                        && unvalidatedReadComplete
-                        && !blank(table.schema())
-                        && !blank(table.name())
-                        && !blank(foreignKey.name())) {
-                    // Absent from a complete convalidated = false read, so validated. Every foreign key is enforced
-                    // before PostgreSQL 18, and from 18 on a NOT ENFORCED constraint is always NOT VALID, so it
-                    // would have been listed.
-                    enriched = foreignKey.withEnforcement(true, true, foreignKey.matchType());
+                PostgresForeignKeyDetail detail = postgresForeignKeyDetail(table, foreignKey, findings);
+                if (detail != null) {
+                    enriched =
+                            foreignKey.withEnforcement(detail.enforced(), detail.validated(), foreignKey.matchType());
                 }
             } else if (dialect == Dialect.ORACLE) {
                 List<OracleConstraintDetail> matches = findings.findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
@@ -314,7 +297,21 @@ final class VendorSchemaMerge {
         return table.withForeignKeys(foreignKeys);
     }
 
-    private static List<TableModel> mergeMySql(List<TableModel> tables, VendorFindings findings) {
+    static PostgresForeignKeyDetail postgresForeignKeyDetail(
+            TableModel table, ForeignKeyModel foreignKey, VendorFindings findings) {
+        if (blank(table.schema()) || blank(table.name()) || blank(foreignKey.name())) {
+            return null;
+        }
+        List<PostgresForeignKeyDetail> matches =
+                findings.findings(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS).stream()
+                        .filter(detail -> java.util.Objects.equals(table.schema(), detail.schema())
+                                && java.util.Objects.equals(table.name(), detail.table())
+                                && java.util.Objects.equals(foreignKey.name(), detail.constraint()))
+                        .toList();
+        return matches.size() == 1 ? matches.get(0) : null;
+    }
+
+    private static List<TableModel> mergeMySql(List<TableModel> tables, Dialect dialect, VendorFindings findings) {
         if (!findings.available(VendorFindingKinds.MYSQL_INDEX_DETAILS)) {
             return tables;
         }
@@ -326,6 +323,12 @@ final class VendorSchemaMerge {
         }
         List<TableModel> merged = new ArrayList<>();
         for (TableModel table : tables) {
+            String schema = table.schema() == null || table.schema().isBlank() ? table.catalog() : table.schema();
+            List<MySqlTableInfo> definitions = findings.findings(VendorFindingKinds.MYSQL_TABLES).stream()
+                    .filter(detail -> key(detail.schema(), detail.table()).equals(key(schema, table.name())))
+                    .toList();
+            boolean ordinaryStorage = definitions.size() == 1
+                    && "InnoDB".equalsIgnoreCase(definitions.get(0).engine());
             List<IndexModel> indexes = new ArrayList<>();
             for (IndexModel index : table.indexes()) {
                 List<MySqlIndexDetail> details = detailsByIndex.get(indexKey(table, index));
@@ -334,7 +337,7 @@ final class VendorSchemaMerge {
                                         || details.isEmpty()
                                         || details.size() != index.keyParts().size()
                                 ? index
-                                : enrich(table, index, details));
+                                : enrich(table, index, details, dialect, ordinaryStorage));
             }
             TableModel enriched = table.withIndexes(indexes);
             IndexModel backing = enriched.primaryKeyBackingIndex();
@@ -352,13 +355,19 @@ final class VendorSchemaMerge {
         return key(schema, table.name(), index.name());
     }
 
-    private static IndexModel enrich(TableModel table, IndexModel index, List<MySqlIndexDetail> details) {
+    private static IndexModel enrich(
+            TableModel table,
+            IndexModel index,
+            List<MySqlIndexDetail> details,
+            Dialect dialect,
+            boolean ordinaryStorage) {
         List<MySqlIndexDetail> ordered = new ArrayList<>(details);
         ordered.sort((left, right) -> Integer.compare(left.position(), right.position()));
         List<IndexKeyPart> keyParts = new ArrayList<>();
         Boolean visible = null;
         String indexType = null;
         int expected = 1;
+        boolean jdbcKeysAgree = true;
         for (MySqlIndexDetail detail : ordered) {
             if (detail.position() != expected++) {
                 return index;
@@ -369,14 +378,21 @@ final class VendorSchemaMerge {
             if (indexType == null) {
                 indexType = detail.indexType();
             }
-            if (detail.column() == null) {
+            if (blank(detail.column()) || !blank(detail.expression())) {
                 keyParts.add(IndexKeyPart.expression(detail.expression()));
+                jdbcKeysAgree = false;
                 continue;
             }
             Boolean ascending = "A".equalsIgnoreCase(detail.collation())
                     ? Boolean.TRUE
                     : "D".equalsIgnoreCase(detail.collation()) ? Boolean.FALSE : null;
             keyParts.add(new IndexKeyPart(detail.column(), null, ascending, detail.subPart(), null));
+            IndexKeyPart jdbcPart = index.keyParts().get(detail.position() - 1);
+            jdbcKeysAgree &= java.util.Objects.equals(jdbcPart.columnName(), detail.column())
+                    && !jdbcPart.isExpression()
+                    && !jdbcPart.isPrefix()
+                    && jdbcPart.collation() == null
+                    && (jdbcPart.ascending() == null || jdbcPart.ascending().equals(ascending));
         }
         if (keyParts.isEmpty()) {
             keyParts = index.keyParts();
@@ -390,6 +406,20 @@ final class VendorSchemaMerge {
         }
         boolean consistentMethod =
                 ordered.stream().allMatch(detail -> java.util.Objects.equals(detail.indexType(), first.indexType()));
+        boolean comparisonComplete = uniquenessKnown
+                && ordinaryStorage
+                && jdbcKeysAgree
+                && consistentMethod
+                && "BTREE".equalsIgnoreCase(indexType)
+                && visible != null
+                && (dialect != Dialect.MARIADB || !first.unique() || mariaDbOverlapRuledOut(table, keyParts))
+                && ordered.stream()
+                        .allMatch(detail -> !blank(detail.column())
+                                && blank(detail.expression())
+                                && Boolean.FALSE.equals(detail.generatedColumn())
+                                && detail.subPart() == null
+                                && ("A".equalsIgnoreCase(detail.collation())
+                                        || "D".equalsIgnoreCase(detail.collation())));
         IndexModel.Visibility visibility = visible == null
                 ? IndexModel.Visibility.UNKNOWN
                 : (visible ? IndexModel.Visibility.VISIBLE : IndexModel.Visibility.INVISIBLE);
@@ -417,11 +447,44 @@ final class VendorSchemaMerge {
                 index.nullsNotDistinct(),
                 index.automatic(),
                 index.partitioned(),
-                index.specialized() || ordered.stream().anyMatch(MySqlIndexDetail::generatedColumn),
+                index.specialized()
+                        || ordered.stream().anyMatch(detail -> Boolean.TRUE.equals(detail.generatedColumn())),
                 index.includedColumns(),
-                false,
+                comparisonComplete,
                 uniquenessKnown,
                 backingConstraint);
+    }
+
+    private static boolean mariaDbOverlapRuledOut(TableModel table, List<IndexKeyPart> parts) {
+        if (parts.size() < 2) {
+            return true;
+        }
+        // WITHOUT OVERLAPS expands to two trailing temporal columns, indistinguishable from an ordinary
+        // unique key in STATISTICS before MariaDB 13. A known non-temporal column rules that shape out.
+        return parts.subList(parts.size() - 2, parts.size()).stream().anyMatch(part -> {
+            ColumnModel column = table.column(part.columnName());
+            return column != null
+                    && switch (column.jdbcType()) {
+                        case java.sql.Types.BIT,
+                                java.sql.Types.BOOLEAN,
+                                java.sql.Types.TINYINT,
+                                java.sql.Types.SMALLINT,
+                                java.sql.Types.INTEGER,
+                                java.sql.Types.BIGINT,
+                                java.sql.Types.REAL,
+                                java.sql.Types.FLOAT,
+                                java.sql.Types.DOUBLE,
+                                java.sql.Types.NUMERIC,
+                                java.sql.Types.DECIMAL,
+                                java.sql.Types.CHAR,
+                                java.sql.Types.VARCHAR,
+                                java.sql.Types.LONGVARCHAR,
+                                java.sql.Types.BINARY,
+                                java.sql.Types.VARBINARY,
+                                java.sql.Types.LONGVARBINARY -> true;
+                        default -> false;
+                    };
+        });
     }
 
     private record ObjectKey(String schema, String table, String index) {}

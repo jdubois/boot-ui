@@ -48,14 +48,14 @@ class HibernateScanWiringTest {
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.entitiesAnalyzed()).isPositive();
-        assertThat(report.rulesEvaluated()).isEqualTo(76);
+        assertThat(report.rulesEvaluated()).isEqualTo(78);
         assertThat(report.results()).allSatisfy(result -> {
             assertThat(result.status()).isEqualTo("VIOLATION");
             assertThat(result.sampleViolations()).allMatch(sample -> sample.startsWith("["));
         });
         assertThat(report.results())
                 .extracting(result -> result.id())
-                .contains("HIB-QUERY-004")
+                .contains("HIB-QUERY-004", "HIB-FETCH-001", "HIB-FETCH-010")
                 .doesNotHaveDuplicates()
                 .doesNotContain(
                         "HIB-FETCH-004",
@@ -67,6 +67,21 @@ class HibernateScanWiringTest {
                         "HIB-QUERY-006",
                         "HIB-CONFIG-007",
                         "HIB-CONFIG-011");
+        assertThat(report.results())
+                .filteredOn(result -> "HIB-FETCH-001".equals(result.id()))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("#enabledFeatures"));
+                });
+        assertThat(report.results())
+                .filteredOn(result -> "HIB-FETCH-010".equals(result.id()))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.sampleViolations())
+                            .anySatisfy(sample -> assertThat(sample).contains("SampleAppPreferences#enabledFeatures"));
+                });
         var factory = entityManagerFactory.unwrap(SessionFactoryImplementor.class);
         var options = factory.getSessionFactoryOptions();
         var observed = observationSource.observe();

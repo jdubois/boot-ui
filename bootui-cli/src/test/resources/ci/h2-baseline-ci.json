@@ -1,0 +1,537 @@
+{
+  "provenance": {
+    "product": "H2",
+    "productVersion": "2.4.240 (2025-09-22)",
+    "driver": "H2 JDBC Driver",
+    "driverVersion": "2.4.240 (2025-09-22)",
+    "javaVersion": "17.0.21",
+    "jdbcIndexes": [
+      {
+        "INDEX_NAME": "PRIMARY_KEY_3",
+        "TYPE": 3,
+        "ORDINAL_POSITION": 1,
+        "COLUMN_NAME": "ID",
+        "ASC_OR_DESC": "A",
+        "FILTER_CONDITION": null
+      },
+      {
+        "INDEX_NAME": "FK_FIRST_INDEX_3",
+        "TYPE": 3,
+        "ORDINAL_POSITION": 1,
+        "COLUMN_NAME": "FIRST_PARENT",
+        "ASC_OR_DESC": "A",
+        "FILTER_CONDITION": null
+      },
+      {
+        "INDEX_NAME": "FK_SECOND_INDEX_3",
+        "TYPE": 3,
+        "ORDINAL_POSITION": 1,
+        "COLUMN_NAME": "SECOND_PARENT",
+        "ASC_OR_DESC": "A",
+        "FILTER_CONDITION": null
+      },
+      {
+        "INDEX_NAME": "FK_THIRD_INDEX_3",
+        "TYPE": 3,
+        "ORDINAL_POSITION": 1,
+        "COLUMN_NAME": "THIRD_PARENT",
+        "ASC_OR_DESC": "A",
+        "FILTER_CONDITION": null
+      }
+    ],
+    "catalogIndexes": [
+      {
+        "implementation": "org.h2.mvstore.db.MVSecondaryIndex",
+        "type": "INDEX",
+        "name": "FK_FIRST_INDEX_3"
+      },
+      {
+        "implementation": "org.h2.mvstore.db.MVSecondaryIndex",
+        "type": "INDEX",
+        "name": "FK_SECOND_INDEX_3"
+      },
+      {
+        "implementation": "org.h2.mvstore.db.MVSecondaryIndex",
+        "type": "INDEX",
+        "name": "FK_THIRD_INDEX_3"
+      },
+      {
+        "implementation": "org.h2.mvstore.db.MVDelegateIndex",
+        "type": "PRIMARY KEY",
+        "name": "PRIMARY_KEY_3"
+      }
+    ]
+  },
+  "report": {
+    "localOnly": true,
+    "disclaimer": "Read-only JDBC schema introspection (tables, columns, primary/foreign keys, indexes) via DatabaseMetaData, with PostgreSQL, MySQL/MariaDB, and Oracle catalog augmentation, plus cross-reference checks against the Hibernate metamodel when both are available. These checks are review prompts, not verdicts.",
+    "dataSourceNames": ["primary"],
+    "dataSources": [
+      {
+        "name": "primary",
+        "product": "H2 2.4",
+        "dialect": "Generic JDBC",
+        "identifierCase": "UPPER",
+        "status": "AVAILABLE",
+        "message": null,
+        "tablesAnalyzed": 2,
+        "truncated": false
+      }
+    ],
+    "tablesAnalyzed": 2,
+    "rulesEvaluated": 56,
+    "violationsFound": 1,
+    "rulesSkipped": 52,
+    "rulesErrored": 0,
+    "truncated": false,
+    "severityCounts": [
+      {
+        "severity": "CRITICAL",
+        "count": 0
+      },
+      {
+        "severity": "HIGH",
+        "count": 3
+      },
+      {
+        "severity": "MEDIUM",
+        "count": 0
+      },
+      {
+        "severity": "LOW",
+        "count": 0
+      },
+      {
+        "severity": "INFO",
+        "count": 0
+      }
+    ],
+    "scan": {
+      "analyzer": "BootUI Database Advisor",
+      "status": "PARTIAL",
+      "message": "Database Advisor completed against 2 tables across 1 datasource. Some advisor evidence could not be read; see the diagnostics.",
+      "scannedAt": 1794873600000,
+      "rulesEvaluated": 56,
+      "tablesAnalyzed": 2,
+      "violationsFound": 1
+    },
+    "results": [
+      {
+        "id": "DB-SCHEMA-011",
+        "name": "Foreign key specifies SET NULL on a NOT NULL column",
+        "category": "Schema",
+        "severity": "HIGH",
+        "description": "Detects foreign keys declaring ON DELETE SET NULL or ON UPDATE SET NULL where all referencing child columns are NOT NULL, which guarantees a NOT NULL constraint failure when the referential action runs.",
+        "status": "VIOLATION",
+        "violationCount": 3,
+        "sampleViolations": [
+          "primary: PUBLIC.CHILD foreign key FK_FIRST [FIRST_PARENT] specifies ON DELETE SET NULL, but column FIRST_PARENT is NOT NULL; a parent delete will fail the NOT NULL constraint.",
+          "primary: PUBLIC.CHILD foreign key FK_SECOND [SECOND_PARENT] specifies ON DELETE SET NULL, but column SECOND_PARENT is NOT NULL; a parent delete will fail the NOT NULL constraint.",
+          "primary: PUBLIC.CHILD foreign key FK_THIRD [THIRD_PARENT] specifies ON DELETE SET NULL, but column THIRD_PARENT is NOT NULL; a parent delete will fail the NOT NULL constraint."
+        ],
+        "recommendation": "Align the foreign-key action with the column nullability: either make the referencing column(s) nullable so SET NULL can succeed, or change the referential action to RESTRICT, NO ACTION or CASCADE.",
+        "learnMoreUrl": "https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK",
+        "dismissed": false,
+        "suppressedCount": 0
+      }
+    ],
+    "diagnostics": [
+      {
+        "source": "Hibernate metadata",
+        "level": "INFO",
+        "message": "Unavailable."
+      },
+      {
+        "source": "DB-SCHEMA-002",
+        "level": "INFO",
+        "message": "No applicable targets were available for this check."
+      },
+      {
+        "source": "DB-SCHEMA-003",
+        "level": "INFO",
+        "message": "No applicable targets were available for this check."
+      },
+      {
+        "source": "DB-SCHEMA-005",
+        "level": "INFO",
+        "message": "No applicable targets were available for this check."
+      },
+      {
+        "source": "DB-SCHEMA-007",
+        "level": "INFO",
+        "message": "No applicable targets were available for this check."
+      },
+      {
+        "source": "DB-SCHEMA-010",
+        "level": "INFO",
+        "message": "No applicable targets were available for this check."
+      },
+      {
+        "source": "DB-PG-001",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-PG-002",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-PG-003",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-PG-004",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-PG-005",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-PG-006",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-MYSQL-001",
+        "level": "INFO",
+        "message": "Not applicable: No MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-MYSQL-002",
+        "level": "INFO",
+        "message": "Not applicable: No MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-MYSQL-003",
+        "level": "INFO",
+        "message": "Not applicable: No MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-MYSQL-004",
+        "level": "INFO",
+        "message": "Not applicable: No MySQL datasource was detected."
+      },
+      {
+        "source": "DB-ORACLE-001",
+        "level": "INFO",
+        "message": "Not applicable: No Oracle datasource was detected."
+      },
+      {
+        "source": "DB-ORACLE-002",
+        "level": "INFO",
+        "message": "Not applicable: No Oracle datasource was detected."
+      },
+      {
+        "source": "DB-ORACLE-003",
+        "level": "INFO",
+        "message": "Not applicable: No Oracle datasource was detected."
+      },
+      {
+        "source": "DB-ORACLE-004",
+        "level": "INFO",
+        "message": "Not applicable: No Oracle datasource was detected."
+      },
+      {
+        "source": "DB-HIB-002",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-003",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-004",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-005",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-006",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-007",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-009",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-010",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-011",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-012",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-013",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-HIB-014",
+        "level": "INFO",
+        "message": "No EntityManagerFactory/Hibernate metamodel is available to cross-reference."
+      },
+      {
+        "source": "DB-RUNTIME-001",
+        "level": "INFO",
+        "message": "No statements have been captured by SQL Trace, so runtime SQL could not be inspected. Enable SQL Trace and exercise the application, then run the checks again."
+      },
+      {
+        "source": "DB-DRIVER-001",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource using the PostgreSQL JDBC driver (pgjdbc) was detected."
+      },
+      {
+        "source": "DB-DRIVER-002",
+        "level": "INFO",
+        "message": "Not applicable: No datasource using MySQL Connector/J was detected."
+      },
+      {
+        "source": "DB-DRIVER-003",
+        "level": "INFO",
+        "message": "Not applicable: No datasource using MySQL Connector/J was detected."
+      },
+      {
+        "source": "DB-DRIVER-004",
+        "level": "INFO",
+        "message": "Not applicable: No datasource using MySQL Connector/J was detected."
+      },
+      {
+        "source": "DB-DRIVER-005",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource using the PostgreSQL JDBC driver (pgjdbc) was detected."
+      },
+      {
+        "source": "DB-DRIVER-006",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource using the PostgreSQL JDBC driver (pgjdbc) was detected."
+      },
+      {
+        "source": "DB-DRIVER-007",
+        "level": "INFO",
+        "message": "Not applicable: No datasource using MySQL Connector/J or the PostgreSQL JDBC driver (pgjdbc) was detected."
+      },
+      {
+        "source": "DB-DRIVER-008",
+        "level": "INFO",
+        "message": "Not applicable: No datasource using MySQL Connector/J or the PostgreSQL JDBC driver (pgjdbc) was detected."
+      },
+      {
+        "source": "DB-DRIVER-009",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource using the PostgreSQL JDBC driver (pgjdbc) was detected."
+      },
+      {
+        "source": "DB-DRIVER-010",
+        "level": "INFO",
+        "message": "Not applicable: No datasource using MySQL Connector/J was detected."
+      },
+      {
+        "source": "DB-POOL-001",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL, MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-POOL-002",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL, MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-POOL-003",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL, MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-POOL-005",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL, MySQL or MariaDB datasource, or attributed HikariCP/Agroal pool, was detected."
+      },
+      {
+        "source": "DB-SERVER-001",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-SERVER-003",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-SERVER-004",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-SERVER-005",
+        "level": "INFO",
+        "message": "Not applicable: No PostgreSQL datasource was detected."
+      },
+      {
+        "source": "DB-SERVER-007",
+        "level": "INFO",
+        "message": "Not applicable: No MySQL datasource was detected."
+      },
+      {
+        "source": "DB-SERVER-008",
+        "level": "INFO",
+        "message": "Not applicable: No MySQL or MariaDB datasource was detected."
+      },
+      {
+        "source": "DB-SCHEMA-002",
+        "level": "WARNING",
+        "message": "primary: PUBLIC.CHILD foreign key FK_FIRST may have an access path whose applicability cannot be established from metadata."
+      },
+      {
+        "source": "DB-SCHEMA-002",
+        "level": "WARNING",
+        "message": "primary: PUBLIC.CHILD foreign key FK_SECOND may have an access path whose applicability cannot be established from metadata."
+      },
+      {
+        "source": "DB-SCHEMA-002",
+        "level": "WARNING",
+        "message": "primary: PUBLIC.CHILD foreign key FK_THIRD may have an access path whose applicability cannot be established from metadata."
+      }
+    ],
+    "evidence": {
+      "usable": true,
+      "coverageComplete": false,
+      "limitations": [
+        "DB-SCHEMA-002: primary: PUBLIC.CHILD foreign key FK_FIRST may have an access path whose applicability cannot be established from metadata.",
+        "DB-SCHEMA-002: primary: PUBLIC.CHILD foreign key FK_SECOND may have an access path whose applicability cannot be established from metadata.",
+        "DB-SCHEMA-002: primary: PUBLIC.CHILD foreign key FK_THIRD may have an access path whose applicability cannot be established from metadata."
+      ]
+    },
+    "violationDetails": {
+      "scanId": "f9fbd655-2e3f-4c0e-ad44-6e41d43db885",
+      "total": 3,
+      "retained": 3,
+      "retentionLimit": 10000,
+      "truncated": false,
+      "locationNotes": [],
+      "changes": null
+    },
+    "suppression": {
+      "suppressedFindings": 0,
+      "incompleteRules": [],
+      "findings": [],
+      "omitted": 0
+    }
+  },
+  "summary": {
+    "reportTool": "get_database_advisor_report",
+    "detailsTool": "get_database_advisor_rule_violations",
+    "scan": {
+      "analyzer": "BootUI Database Advisor",
+      "status": "PARTIAL",
+      "message": "Database Advisor completed against 2 tables across 1 datasource. Some advisor evidence could not be read; see the diagnostics.",
+      "scannedAt": 1794873600000,
+      "rulesEvaluated": 56,
+      "tablesAnalyzed": 2,
+      "violationsFound": 1
+    },
+    "findingsFound": 1,
+    "severityCounts": [
+      {
+        "severity": "CRITICAL",
+        "count": 0
+      },
+      {
+        "severity": "HIGH",
+        "count": 3
+      },
+      {
+        "severity": "MEDIUM",
+        "count": 0
+      },
+      {
+        "severity": "LOW",
+        "count": 0
+      },
+      {
+        "severity": "INFO",
+        "count": 0
+      }
+    ],
+    "topFindings": [
+      {
+        "id": "DB-SCHEMA-011",
+        "title": "Foreign key specifies SET NULL on a NOT NULL column",
+        "severity": "HIGH",
+        "count": 3
+      }
+    ],
+    "moreFindings": 0,
+    "evidence": {
+      "usable": true,
+      "coverageComplete": false,
+      "limitations": [
+        "DB-SCHEMA-002: primary: PUBLIC.CHILD foreign key FK_FIRST may have an access path whose applicability cannot be established from metadata.",
+        "DB-SCHEMA-002: primary: PUBLIC.CHILD foreign key FK_SECOND may have an access path whose applicability cannot be established from metadata.",
+        "DB-SCHEMA-002: primary: PUBLIC.CHILD foreign key FK_THIRD may have an access path whose applicability cannot be established from metadata."
+      ]
+    },
+    "violationDetails": {
+      "scanId": "f9fbd655-2e3f-4c0e-ad44-6e41d43db885",
+      "total": 3,
+      "retained": 3,
+      "retentionLimit": 10000,
+      "truncated": false,
+      "locationNotes": [],
+      "changes": null
+    }
+  },
+  "details": {
+    "scanId": "f9fbd655-2e3f-4c0e-ad44-6e41d43db885",
+    "ruleId": "DB-SCHEMA-011",
+    "violationCount": 3,
+    "retainedCount": 3,
+    "truncated": false,
+    "violations": [
+      "primary: PUBLIC.CHILD foreign key FK_FIRST [FIRST_PARENT] specifies ON DELETE SET NULL, but column FIRST_PARENT is NOT NULL; a parent delete will fail the NOT NULL constraint.",
+      "primary: PUBLIC.CHILD foreign key FK_SECOND [SECOND_PARENT] specifies ON DELETE SET NULL, but column SECOND_PARENT is NOT NULL; a parent delete will fail the NOT NULL constraint.",
+      "primary: PUBLIC.CHILD foreign key FK_THIRD [THIRD_PARENT] specifies ON DELETE SET NULL, but column THIRD_PARENT is NOT NULL; a parent delete will fail the NOT NULL constraint."
+    ],
+    "page": {
+      "total": 3,
+      "matched": 3,
+      "offset": 0,
+      "limit": 200,
+      "returned": 3,
+      "hasMore": false
+    },
+    "locations": [],
+    "identities": [
+      "v1:ds=primary|catalog=NATIVE_CI|schema=PUBLIC|table=CHILD|fk=FK_FIRST",
+      "v1:ds=primary|catalog=NATIVE_CI|schema=PUBLIC|table=CHILD|fk=FK_SECOND",
+      "v1:ds=primary|catalog=NATIVE_CI|schema=PUBLIC|table=CHILD|fk=FK_THIRD"
+    ],
+    "changes": [],
+    "suppressed": [],
+    "suppressedCount": 0
+  }
+}

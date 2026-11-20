@@ -331,6 +331,20 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
+function forkReport() {
+  const report = connectedReport()
+  return {
+    ...report,
+    repository: {...report.repository, fork: true},
+    repositoryContext: {
+      selectedRemote: 'origin',
+      origin: {name: 'origin', host: 'github.com', fullName: 'jdubois/boot-ui'},
+      upstream: {name: 'upstream', host: 'ghe.example.com', fullName: 'team/service'},
+      upstreamUnavailableReason: null
+    }
+  }
+}
+
 function control(wrapper, name) {
   return wrapper.findAll('button').find((button) => button.text() === name)
 }
@@ -356,6 +370,167 @@ describe('GitHub', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     document.cookie = 'XSRF-TOKEN=; Max-Age=0'
+  })
+
+  it('contacts a configured upstream only after explicit selection and keeps it selected', async () => {
+    const origin = forkReport()
+    const upstream = {
+      ...origin,
+      repository: {
+        ...origin.repository,
+        host: 'ghe.example.com',
+        fullName: 'team/service',
+        htmlUrl: 'https://ghe.example.com/team/service',
+        fork: false
+      },
+      repositoryContext: {...origin.repositoryContext, selectedRemote: 'upstream'}
+    }
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(origin)).mockResolvedValue(jsonResponse(upstream))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
+    expect(wrapper.text()).toContain('not its upstream')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    await control(wrapper, 'Connect to configured upstream').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?remote=upstream&expectedHost=ghe.example.com&expectedRepository=team%2Fservice',
+      expect.objectContaining({method: 'POST'})
+    )
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).not.toContain('Fork data')
+    expect(wrapper.text()).toContain('explicitly selected configured upstream')
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?remote=upstream&expectedHost=ghe.example.com&expectedRepository=team%2Fservice',
+      expect.objectContaining({method: 'POST'})
+    )
+  })
+
+  it('retains the selected origin and cached snapshot after an upstream ERROR report', async () => {
+    const origin = forkReport()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValueOnce(
+        jsonResponse({...origin, status: 'ERROR', message: 'Upstream refresh failed', repository: null})
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await control(wrapper, 'Connect to configured upstream').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Upstream refresh failed')
+    expect(metricButton(wrapper, 'Dependabot alerts').text()).toContain('Fork data')
+    expect(wrapper.get('a[href="https://github.com/jdubois/boot-ui"]').text()).toContain('jdubois/boot-ui')
+    expect(wrapper.get('time').attributes('datetime')).toBe(new Date(origin.refreshedAt).toISOString())
+    expect(control(wrapper, 'Stop')).toBeUndefined()
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('connects to origin when the selected upstream has become unavailable', async () => {
+    const origin = forkReport()
+    const unavailableUpstream = githubReport({
+      available: false,
+      connected: false,
+      status: 'UNAVAILABLE',
+      unavailableReason: 'Configured upstream is unavailable',
+      repository: null,
+      repositoryContext: {
+        ...origin.repositoryContext,
+        selectedRemote: 'upstream',
+        upstream: null
+      }
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...origin,
+          repositoryContext: {
+            ...origin.repositoryContext,
+            selectedRemote: 'upstream'
+          }
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse(unavailableUpstream))
+      .mockResolvedValue(jsonResponse(origin))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect to configured upstream').trigger('click')
+    await flushPromises()
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Configured upstream is unavailable')
+    await control(wrapper, 'Connect to origin').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
+      expect.objectContaining({method: 'POST'})
+    )
+    expect(wrapper.text()).toContain('jdubois/boot-ui')
+  })
+
+  it('keeps Stop actionable while an explicit upstream switch is pending', async () => {
+    const origin = forkReport()
+    const pending = deferredResponse()
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(origin)).mockReturnValueOnce(pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await control(wrapper, 'Connect to configured upstream').trigger('click')
+    await flushPromises()
+
+    expect(control(wrapper, 'Stop')).toBeDefined()
+    await control(wrapper, 'Stop').trigger('click')
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    pending.resolve(jsonResponse(origin))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('revokes stale consent when a cached GET resolves the remote to another repository', async () => {
+    const origin = forkReport()
+    const changedOrigin = {
+      ...origin,
+      repository: {...origin.repository, fullName: 'other/project', htmlUrl: 'https://github.com/other/project'},
+      repositoryContext: {
+        ...origin.repositoryContext,
+        origin: {...origin.repositoryContext.origin, fullName: 'other/project'}
+      }
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValueOnce(jsonResponse(origin))
+      .mockResolvedValue(jsonResponse(changedOrigin))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(GitHub)
+    await flushPromises()
+    await control(wrapper, 'Connect').trigger('click')
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('configured GitHub repository changed')
+    expect(control(wrapper, 'Stop')).toBeUndefined()
+    expect(control(wrapper, 'Connect')).toBeDefined()
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2)
   })
 
   it('reads only cache until Connect, regardless of cached connected state', async () => {
@@ -385,7 +560,10 @@ describe('GitHub', () => {
     await control(wrapper, 'Connect').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock).toHaveBeenLastCalledWith('api/github/refresh', expect.objectContaining({method: 'POST'}))
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
+      expect.objectContaining({method: 'POST'})
+    )
     expect(control(wrapper, 'Stop')).toBeDefined()
     expect(control(wrapper, 'Connect')).toBeUndefined()
 
@@ -400,8 +578,8 @@ describe('GitHub', () => {
     expect(control(wrapper, 'Connect')).toBeDefined()
     expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
       ['api/github', 'GET'],
-      ['api/github/refresh', 'POST'],
-      ['api/github/refresh', 'POST']
+      ['api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui', 'POST'],
+      ['api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui', 'POST']
     ])
   })
 
@@ -583,7 +761,7 @@ describe('GitHub', () => {
       // Even a still-CONNECTED cache cannot restore permission after the late denial.
       expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method || 'GET'])).toEqual([
         ['api/github', 'GET'],
-        ['api/github/refresh', 'POST'],
+        ['api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui', 'POST'],
         ['api/github', 'GET']
       ])
     }
@@ -619,7 +797,7 @@ describe('GitHub', () => {
       await flushPromises()
       await vi.advanceTimersByTimeAsync(180_000)
       expect(control(returned, 'Stop')).toBeUndefined()
-      expect(fetchMock.mock.calls.filter(([url]) => url === 'api/github/refresh')).toHaveLength(1)
+      expect(fetchMock.mock.calls.filter(([url]) => url.startsWith('api/github/refresh'))).toHaveLength(1)
     }
   )
 
@@ -648,7 +826,7 @@ describe('GitHub', () => {
     expect(returned.get('time').attributes('datetime')).toBe(new Date(cached.refreshedAt).toISOString())
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'api/github',
-      'api/github/refresh',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
       'api/github',
       'api/github'
     ])
@@ -683,7 +861,7 @@ describe('GitHub', () => {
     expect(metricButton(returned, 'Open pull requests').text()).toContain('99')
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'api/github',
-      'api/github/refresh',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui',
       'api/github',
       'api/github'
     ])
@@ -708,7 +886,10 @@ describe('GitHub', () => {
     )
     await flushPromises()
     expect(metricButton(wrapper, 'Open pull requests').text()).toContain('99')
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['api/github', 'api/github/refresh'])
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'api/github',
+      'api/github/refresh?expectedHost=github.com&expectedRepository=jdubois%2Fboot-ui'
+    ])
     await control(wrapper, 'Stop').trigger('click')
     await vi.advanceTimersByTimeAsync(180_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)

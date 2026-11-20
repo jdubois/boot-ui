@@ -159,16 +159,47 @@ describe('GraalVm', () => {
     expect(wrapper.text()).toContain('org.example:with-metadata')
     expect(wrapper.text()).toContain('org.example:no-metadata')
     expect(wrapper.text()).toContain('Repository entry')
-    expect(wrapper.text()).toContain('covered')
-    expect(wrapper.text()).toContain('partial')
+    expect(wrapper.text()).toContain('Bundled metadata')
+    expect(wrapper.text()).toContain('Other repository version')
     expect(wrapper.text()).toContain('Repository metadata exists for a different version')
     expect(wrapper.text()).not.toContain('Metadata file')
+  })
+
+  it('distinguishes Spring AOT factories from bundled JSON and repository matches without claiming coverage', async () => {
+    const wrapper = await mountWithReport(
+      graalvmReport([], {
+        dependencies: [
+          {name: 'aot-only.jar', shipsMetadata: false, shipsSpringAotFactories: true},
+          {name: 'both.jar', shipsMetadata: true, shipsSpringAotFactories: true},
+          {name: 'repository.jar', shipsMetadata: false, repositoryMetadata: true},
+          {name: 'plain.jar', shipsMetadata: false}
+        ]
+      })
+    )
+
+    const dependencies = wrapper.findAll('.list-group-item').filter((item) => item.find('.badge').exists())
+    const labels = (name) =>
+      dependencies
+        .find((item) => item.text().includes(name))
+        .findAll('.badge')
+        .map((badge) => badge.text())
+    expect(labels('aot-only.jar')).toEqual(['Spring AOT factories'])
+    expect(labels('both.jar')).toEqual(['Bundled metadata', 'Spring AOT factories'])
+    expect(labels('repository.jar')).toEqual(['Repository match'])
+    expect(labels('plain.jar')).toEqual(['None found'])
+    expect(wrapper.text()).toContain('1 of 4 dependencies ship bundled metadata')
+    expect(wrapper.text()).toContain('Sources found do not prove native-image compatibility or complete hints.')
+    expect(wrapper.text()).toContain('None found is not itself a defect.')
+    for (const dependency of dependencies) {
+      expect(dependency.find('.badge.text-bg-success').exists()).toBe(false)
+    }
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it('hides the dependency section when dependencies were not surveyed', async () => {
     const wrapper = await mountWithReport(graalvmReport([], {includeDependencies: false}))
 
-    expect(wrapper.text()).not.toContain('Dependency reachability metadata')
+    expect(wrapper.text()).not.toContain('Dependency hint sources')
   })
 
   it('shows the resolved coordinates in the scaffold placement path', async () => {

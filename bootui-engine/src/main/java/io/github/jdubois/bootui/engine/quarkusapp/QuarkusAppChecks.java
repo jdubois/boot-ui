@@ -79,18 +79,22 @@ final class QuarkusAppChecks {
                     Set.of()),
             new Check(
                     "QA-CDI-005",
-                    "Normal-scoped bean has a deferred runtime UnproxyableResolutionException",
+                    "Normal-scoped bean cannot be client-proxied",
                     "CDI",
                     "HIGH",
-                    "A resolved normal-scoped application bean or producer return type is unproxyable (sealed, final"
-                            + " with quarkus.arc.transform-unproxyable-classes=false, missing a non-private no-arg"
-                            + " constructor when ArC cannot synthesize one because its superclass lacks a no-arg"
-                            + " constructor, or a concrete java.* class). When not directly injected at a static"
-                            + " injection point, ArC defers the failure and throws UnproxyableResolutionException at"
-                            + " runtime or skips final java.* methods on the client proxy.",
-                    "Add a package-private or public no-arg constructor, remove the final or sealed modifier, expose"
-                            + " the bean through an interface, or change @Produces methods returning concrete JDK or"
-                            + " unproxyable third-party types from @ApplicationScoped to @Singleton.",
+                    "A resolved normal-scoped application bean or producer has a native ArC unproxyability error"
+                            + " or an unproxyable shape: sealed, final without a usable transformation, or lacking an"
+                            + " accessible no-arg constructor when ArC cannot supply one. JDK classes need a public or"
+                            + " protected no-arg constructor. Proxyable shapes such as java.time.Clock are not"
+                            + " findings unless ArC has recorded an unproxyability error. Default ArC rejects sealed"
+                            + " producers during augmentation; failure stages for other shapes depend on proxy"
+                            + " generation and use. Strict compatibility can defer an UnproxyableResolutionException"
+                            + " to lookup. Default-mode final-method skips are a separate proxy-use hazard; positive"
+                            + " strict-mode ArC errors still count.",
+                    "Supply a no-arg constructor accessible to the generated subclass, remove final or sealed where"
+                            + " appropriate, expose the value through a proxyable interface, or consider @Singleton"
+                            + " for producer values that do not need a client proxy. Review lifecycle differences"
+                            + " before changing scope.",
                     "cdi#client_proxies",
                     Set.of(),
                     Set.of()),
@@ -166,11 +170,13 @@ final class QuarkusAppChecks {
                     "Configuration",
                     "HIGH",
                     "A visible production declaration enables Hibernate ORM bind-parameter logging, which can write"
-                            + " every bound value, including personal data, credentials or tokens, to the logs. This"
-                            + " build-time setting is fixed when the production application is packaged; it does not"
-                            + " prove that a future build uses this declaration or that log handling exposes it.",
+                            + " every bound value, including personal data, credentials or tokens, to the logs. ORM flags"
+                            + " and category minimum levels are build-time settings; the category level is"
+                            + " runtime-overridable. These declarations do not prove a future deployment's effective logging"
+                            + " or that any data was emitted or exposed.",
                     "Remove the production declaration of quarkus.hibernate-orm.log.bind-parameters (and the deprecated"
-                            + " log.bind-param); enable it only temporarily outside production.",
+                            + " log.bind-param); for explicit category logging, restrict the org.hibernate.orm.jdbc.bind"
+                            + " level or minimum. Enable bind logging only temporarily outside production.",
                     "hibernate-orm#quarkus-hibernate-orm_quarkus-hibernate-orm-log-bind-parameters",
                     Set.of("true", "false"),
                     Set.of("true")),

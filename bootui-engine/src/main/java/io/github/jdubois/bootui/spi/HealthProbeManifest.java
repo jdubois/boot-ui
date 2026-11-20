@@ -15,13 +15,24 @@ package io.github.jdubois.bootui.spi;
  * <p>{@code probesOmittedWarning} is the advisory note appended to the recommendation when the probe
  * stanzas are left out, so the wording stays accurate per framework rather than naming Spring Actuator
  * unconditionally.
+ * {@code deploymentWarning} is an optional dependency caveat, independent of the selected probe toggle.
  */
 public record HealthProbeManifest(
         String startupPath,
         String livenessPath,
         String readinessPath,
         String enablingEnvVar,
-        String probesOmittedWarning) {
+        String probesOmittedWarning,
+        String deploymentWarning) {
+
+    public HealthProbeManifest(
+            String startupPath,
+            String livenessPath,
+            String readinessPath,
+            String enablingEnvVar,
+            String probesOmittedWarning) {
+        this(startupPath, livenessPath, readinessPath, enablingEnvVar, probesOmittedWarning, null);
+    }
 
     /**
      * Spring Boot Actuator Kubernetes health groups. The startup probe reuses the liveness group, which
@@ -32,7 +43,8 @@ public record HealthProbeManifest(
             "/actuator/health/liveness",
             "/actuator/health/readiness",
             "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED",
-            "Spring Boot Actuator probes are omitted from the snippet; add verified startup, readiness, and liveness probes for the deployment.");
+            "Spring Boot Actuator probes are omitted from the snippet; add verified startup, readiness, and liveness probes for the deployment.",
+            "BootUI supplies Actuator during development; verify that the deployed artifact declares Actuator independently when BootUI is removed. Probe settings alone do not add the dependency or prove endpoint reachability.");
 
     /**
      * Quarkus SmallRye Health endpoints. SmallRye serves a dedicated startup endpoint

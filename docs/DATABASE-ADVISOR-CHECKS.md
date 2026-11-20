@@ -131,6 +131,18 @@ See [Hibernate `SequenceStyleGenerator`](https://docs.hibernate.org/orm/7.2/java
 column set. An equality lookup can use those leading columns in a different order; indexing just one column
 of a composite FK is not equivalent. Known trailing expressions must not erase a usable leading key.
 
+For identified H2 2.x datasources, a bounded `INFORMATION_SCHEMA.INDEXES` read on the same scan connection
+can establish an ordinary MVStore secondary index (`MVSecondaryIndex`, with catalog type `INDEX` or
+`UNIQUE INDEX`). JDBC `tableIndexOther` and an absent filter alone are insufficient: H2 also reports spatial
+indexes that way. Hash, spatial, custom and unidentified implementations remain unknown when they could serve
+the FK. `PRIMARY KEY` implementations, including delegate indexes, remain outside this refinement.
+The read preserves any tighter session query timeout and restores the exact original milliseconds without
+changing H2's cached JDBC timeout getter. If a physical H2 connection cannot be verified for safe disposal,
+the refinement is skipped without changing session state. A timeout-restoration failure discards that physical
+connection and fails the datasource instead of publishing promoted evidence.
+This narrow access-method evidence does not establish full index-comparison semantics or FK enforcement;
+other required gaps still leave coverage incomplete.
+
 Partial, value-prefix and specialized definitions may require evidence this check does not have, but only an
 index that keys a foreign-key column, an expression or nothing known can make one FK's result unknown: a GIN,
 partial or generic-JDBC index over unrelated columns cannot serve that lookup and does not hide a finding.
@@ -149,10 +161,25 @@ key order/direction, expressions, predicates, access method, collation/operator 
 ownership can make superficially similar indexes different. Unknown definitions do not prove equality.
 Review dependencies, hints and measured usage; BootUI does not assert that dropping an index is safe.
 Generic JDBC and vendor catalogs lacking the complete comparison evidence can therefore leave this check
-unevaluated. An index whose comparison semantics are not modelled — a PostgreSQL `hash` or GIN index, for
+unevaluated. PostgreSQL and fully observed ordinary InnoDB indexes on MySQL/MariaDB can establish
+comparison evidence; Oracle and generic JDBC do not yet support full comparison semantics.
+For MySQL/MariaDB, complete, consecutive
+`information_schema.statistics` key parts must agree with JDBC identity/keys and report uniqueness,
+full-value keys (`SUB_PART IS NULL`), direction (`A`/`D`), `BTREE` type and known visibility on a
+positively identified InnoDB table. Other storage engines' full comparison semantics are not modelled.
+Joined column metadata must positively identify non-generated columns. Functional/generated keys,
+prefix keys, unreadable ordering or visibility, and incomplete or contradictory groups are not promoted.
+An expression default (`DEFAULT_GENERATED`, such as a timestamp defaulting to `CURRENT_TIMESTAMP`)
+does not make the column a computed/generated key.
+The same physical columns supply their collation; key order and direction remain significant.
+MariaDB unique keys with two trailing temporal or unreadable column types stay unknown: older
+`STATISTICS` metadata cannot distinguish an ordinary unique key from `WITHOUT OVERLAPS`.
+An index whose comparison semantics are not modelled — a PostgreSQL `hash` or GIN index, for
 instance — is reported as unknown only when it could pair with another index on the same table: same key columns,
 and an access method that is equal, B-tree-like on both sides, or not reported. The unknown names that index rather
 than its table. A readable datasource can still produce a `PARTIAL` report when an applicable comparison is unknown.
+If some comparisons are known but others remain unknown, the rule stays `SKIPPED` unless it has a confirmed
+finding; confirmed findings remain `VIOLATION` with the missing coverage diagnosed separately.
 
 ### DB-SCHEMA-004 - Foreign key column type mismatch with the referenced column
 
@@ -178,6 +205,14 @@ Oracle reverse-key index) is excluded from the comparison rather than reported a
 exact duplicate of a proven backing index. A unique index whose semantics really are unreadable is reported once
 per index, naming the datasource, table and index. Oracle may use a **nonunique** index to enforce a PK/unique
 constraint.
+MySQL/MariaDB use the same complete ordinary-key evidence as DB-SCHEMA-003 and the catalog's unique
+`PRIMARY` identity linked to the JDBC-reported primary-key constraint; matching columns alone do not establish it.
+Full Oracle/generic-JDBC definition comparison remains unsupported.
+Complete known key columns that cannot match the primary-key backing index do not create an unknown-overlap warning;
+known ordinal divergence rules out exact overlap even for a shorter observed key. A short matching prefix,
+empty/blank key parts, unread inventories or incomplete backing columns remain unknown.
+Known non-overlaps do not turn other unread
+comparisons into a passing rule.
 Review full definitions and dependencies, never drop a guessed constraint backing index.
 
 ### DB-SCHEMA-006 - Potential duplicate foreign-key definitions
@@ -218,8 +253,11 @@ and [Oracle invisible indexes](https://docs.oracle.com/en/database/oracle/oracle
 is then guaranteed to fail the child table's `NOT NULL` constraint. Requiring all referencing columns of a composite
 foreign key to be `NOT NULL` avoids false positives on PostgreSQL 15+ column-subset `ON DELETE SET NULL (col)`
 constraints, where `DatabaseMetaData.getImportedKeys()` reports `importedKeySetNull` for all constraint columns even
-when only a nullable subset is nulled. Disabled or unenforced foreign keys are excluded. Either make the referencing
-column(s) nullable or change the referential action to `RESTRICT`, `NO ACTION` or `CASCADE`.
+when only a nullable subset is nulled. On PostgreSQL, each parent action is checked separately using its observed
+native trigger activation: disabled child checks do not suppress an active parent action, while an inactive action
+does not contribute to the finding. Missing or unsupported action evidence remains unknown. Other dialects exclude
+foreign keys known to be disabled or unenforced. Either make the referencing column(s) nullable or change the
+referential action to `RESTRICT`, `NO ACTION` or `CASCADE`.
 See [PostgreSQL foreign key constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK).
 
 ## Dialect detection and catalog augmentation
@@ -275,7 +313,8 @@ See [CREATE SEQUENCE](https://www.postgresql.org/docs/17/sql-createsequence.html
 
 **MEDIUM.** The retained ID reports a foreign-key, check or PostgreSQL 18+ `NOT NULL` constraint (`pg_constraint.contype in ('f', 'c', 'n')`) **currently not validated**; the historical heading is
 retained for existing links, not as a claim that it was never validated or that a migration was forgotten.
-NOT VALID normally checks new/updated rows while leaving existing rows unverified. PostgreSQL 18 also
+NOT VALID normally checks new/updated rows while leaving existing rows unverified; declaration flags alone
+do not establish that native enforcement triggers are enabled. PostgreSQL 18 also
 distinguishes enforcement state and represents `NOT NULL` constraints in `pg_constraint`. Review the intended migration stage and version-supported validation;
 the snapshot does not prove bad rows or how long the state has existed.
 See [ALTER TABLE](https://www.postgresql.org/docs/17/sql-altertable.html) and
@@ -486,9 +525,13 @@ is corroborated as the target table's observed single-column primary key. The `@
 `@Column(name)`, or from a plain lowercase attribute name such as `id`. Composite joins with an omitted referenced
 column, an unestablished or non-primary-key identifier, and constraints that pair the join column with a
 non-primary-key target column remain unknown.
-A matching constraint passes only when it is known to be enforced. On PostgreSQL, a foreign key absent from the
-complete `NOT VALID` catalog read (DB-PG-003's source) is validated and enforced, because PostgreSQL 18 marks every
-`NOT ENFORCED` constraint `NOT VALID`; a failed or truncated read leaves enforcement unknown.
+A matching constraint passes only when it is known to be enforced. On PostgreSQL, a separate bounded catalog read
+checks the declaration and all four native referential-integrity triggers on ordinary, non-inherited relations,
+including the child insert/update and parent delete/update roles. Disabled triggers prevent a healthy match even
+when the declaration remains validated. Trigger modes are interpreted for the scan connection's
+`session_replication_role`, not every application session or future write. Missing, ambiguous, unsupported or
+unreadable evidence stays unknown; an absent row never proves enforcement. `NOT VALID` is independent of trigger
+enforcement and does not establish historical row integrity; DB-PG-003 retains that declaration-validation scope.
 JPA cascade does **not** imply database ON DELETE CASCADE; FK-generation annotations are not a proof of
 the live database's intended cascade policy. Review whether a database constraint is intended before adding one.
 See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).

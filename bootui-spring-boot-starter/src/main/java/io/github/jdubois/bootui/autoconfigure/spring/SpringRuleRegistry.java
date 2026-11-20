@@ -35,6 +35,7 @@ final class SpringRuleRegistry {
             new MutableSingletonFieldRule(),
             new DormantResilienceAnnotationsRule(),
             new DormantInfrastructureAnnotationsRule(),
+            new DormantSchedulingAnnotationsRule(),
             // Configuration
             new DebugOrTraceLoggingRule(),
             new RemovedOrRenamedPropertyRule(),

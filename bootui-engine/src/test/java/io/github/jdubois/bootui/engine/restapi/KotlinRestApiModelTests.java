@@ -63,6 +63,7 @@ class KotlinRestApiModelTests {
         assertThat(createOrder.returnsVoid()).isTrue();
         assertThat(createOrder.bodyIsUntyped()).isFalse();
         assertThat(createOrder.hasRequestBody()).isTrue();
+        assertThat(createOrder.requestBodyConstraints()).isEqualTo(RestApiModel.ValidationConstraints.PRESENT);
         assertThat(createOrder.responseStatusValue()).contains("CREATED");
     }
 

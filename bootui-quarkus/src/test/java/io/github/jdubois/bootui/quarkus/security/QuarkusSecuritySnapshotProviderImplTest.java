@@ -734,6 +734,43 @@ class QuarkusSecuritySnapshotProviderImplTest {
     }
 
     @Test
+    void cspReportOnlyAndMultiplePolicyDeclarationsKeepTheirEvidenceSemantics() {
+        Map<String, String> document = Map.of(
+                "bootui.internal.sec.endpoints", "1",
+                "bootui.internal.sec.endpoint.0.path", "/page",
+                "bootui.internal.sec.endpoint.0.method", "GET",
+                "bootui.internal.sec.endpoint.0.access", "RESTRICTED",
+                "bootui.internal.sec.endpoint.0.document", "true",
+                "quarkus.http.auth.form.enabled", "true",
+                "bootui.internal.sec.csrf-present", "true");
+        for (var declaration : java.util.List.of(
+                Map.<String, String>of(),
+                Map.of("quarkus.http.header.\"Content-Security-Policy-Report-Only\".value", "script-src 'self'"))) {
+            Map<String, String> properties = new java.util.HashMap<>(document);
+            properties.putAll(declaration);
+            var observed = snapshot(properties);
+            assertThat(QuarkusSecurityScanner.usingSnapshot(() -> observed, Clock.systemUTC())
+                            .scan()
+                            .results())
+                    .filteredOn(result -> Set.of("QS-HDR-002", "QS-HDR-004").contains(result.id()))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.id()).isEqualTo("QS-HDR-004");
+                        assertThat(result.severity()).isEqualTo("LOW");
+                    });
+        }
+        Map<String, String> properties = new java.util.HashMap<>(document);
+        properties.put("quarkus.http.header.\"Content-Security-Policy\".value", "script-src *, script-src 'self'");
+        var ambiguous = snapshot(properties);
+        assertThat(ambiguous.evidence().unknownRules()).contains("QS-HDR-002");
+        var report = QuarkusSecurityScanner.usingSnapshot(() -> ambiguous, Clock.systemUTC())
+                .scan();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.results())
+                .noneMatch(result -> Set.of("QS-HDR-002", "QS-HDR-004").contains(result.id()));
+    }
+
+    @Test
     void exactJdbcNamespaceAndActiveStoreAreRequired() {
         assertThat(snapshot(Map.of("unrelated.principal-query.clear-password-mapper.enabled", "true"))
                         .jdbcClearPasswordMapperEnabled())

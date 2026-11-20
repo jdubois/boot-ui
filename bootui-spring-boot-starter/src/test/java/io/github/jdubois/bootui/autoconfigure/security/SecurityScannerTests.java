@@ -1,7 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
@@ -14,40 +22,73 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.lang.reflect.Proxy;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.aop.TargetSource;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.support.DelegatingIntroductionInterceptor;
+import org.springframework.aop.target.SingletonTargetSource;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.AnnotatedGenericBeanDefinition;
 import org.springframework.beans.factory.aot.BeanInstanceSupplier;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.ObjectFactoryCreatingFactoryBean;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.beans.factory.support.InstanceSupplier;
 import org.springframework.beans.factory.support.RegisteredBean;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Role;
+import org.springframework.context.annotation.Scope;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.type.AnnotationMetadata;
+import org.springframework.core.type.StandardMethodMetadata;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.annotation.Secured;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.ObservationAuthorizationManager;
 import org.springframework.security.authorization.SingleResultAuthorizationManager;
+import org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -56,15 +97,20 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.debug.DebugFilter;
+import org.springframework.security.web.firewall.FirewalledRequest;
+import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 50;
+    private static final int RULE_COUNT = 51;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @TempDir
@@ -177,6 +223,1454 @@ class SecurityScannerTests {
         factory.registerSingleton("bootUiSecurityFilterChain", bootUi);
         return scannerFor(new FilterChainProxy(List.of(bootUi, application)), factory)
                 .scan();
+    }
+
+    @Test
+    void unresolvedLazyMethodMetadataRetainsKnownFamiliesWithoutQualifyingHttpFindings() throws Exception {
+        for (int variant = 0; variant < 3; variant++) {
+            try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+                var factory = application.getDefaultListableBeanFactory();
+                MethodInventoryService service =
+                        AopTestUtils.getUltimateTargetObject(application.getBean(MethodInventoryService.class));
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                var known = methodInventoryEvidence(factory);
+                assertThat(known.methodFamiliesKnown()).isTrue();
+                assertThat(known.usedMethodFamilies()).containsExactly("pre-post");
+                assertThat(known.enabledMethodFamilies()).contains("pre-post");
+                assertHttpMethodQualification(scanner.scan(), "MEDIUM");
+
+                AtomicInteger supplierCalls = new AtomicInteger();
+                AtomicInteger factoryCalls = new AtomicInteger();
+                FactoryBean<MethodInventoryService> opaqueFactory = new FactoryBean<>() {
+                    @Override
+                    public MethodInventoryService getObject() {
+                        factoryCalls.incrementAndGet();
+                        return new MethodInventoryService();
+                    }
+
+                    @Override
+                    public Class<?> getObjectType() {
+                        factoryCalls.incrementAndGet();
+                        return MethodInventoryService.class;
+                    }
+                };
+                var unresolved = new RootBeanDefinition();
+                unresolved.setLazyInit(true);
+                unresolved.setInstanceSupplier(() -> {
+                    supplierCalls.incrementAndGet();
+                    return opaqueFactory;
+                });
+                if (variant == 1) unresolved.setBeanClassName("com.example.UnresolvableMethodInventoryBean");
+                if (variant == 2) unresolved.setRole(BeanDefinition.ROLE_INFRASTRUCTURE);
+                factory.registerBeanDefinition("unresolvedApplication", unresolved);
+                factory.registerSingleton("existingUnprobedFactory", opaqueFactory);
+                // Native bootstrap may resolve types; only the collection window forbids those calls.
+                clearMethodInvocations(factory);
+
+                var partial = methodInventoryEvidence(factory);
+                var report = scanner.scan();
+
+                assertThat(partial.methodFamiliesKnown())
+                        .as("variant %s", variant)
+                        .isFalse();
+                assertThat(partial.usedMethodFamilies()).isEqualTo(known.usedMethodFamilies());
+                assertThat(partial.enabledMethodFamilies()).isEqualTo(known.enabledMethodFamilies());
+                assertHttpMethodQualification(report, "HIGH");
+                assertThat(report.scan().status()).isEqualTo("PARTIAL");
+                assertThat(report.evidence().usable()).isTrue();
+                assertThat(report.evidence().coverageComplete()).isFalse();
+                assertThat(report.evidence().limitations())
+                        .contains(
+                                "SEC-METHOD-001: Method-security family metadata is incomplete.",
+                                "SEC-METHOD-002: Method-security configuration metadata is incomplete.");
+                assertThat(report.analysisErrors()).isEmpty();
+                assertThat(factory.containsSingleton("unresolvedApplication")).isFalse();
+                assertThat(supplierCalls).hasValue(0);
+                assertThat(factoryCalls).hasValue(0);
+                assertThat(service.calls).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Test
+    void knownLazyAndNativeInfrastructureMethodMetadataDoesNotBecomeUnknown() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            var lazy = new RootBeanDefinition(MethodInventoryService.class);
+            lazy.setLazyInit(true);
+            factory.registerBeanDefinition("knownLazyApplication", lazy);
+            var infrastructure = new RootBeanDefinition(
+                    org.springframework.aop.framework.autoproxy.InfrastructureAdvisorAutoProxyCreator.class);
+            infrastructure.setRole(BeanDefinition.ROLE_INFRASTRUCTURE);
+            infrastructure.setLazyInit(true);
+            factory.registerBeanDefinition("knownNativeInfrastructure", infrastructure);
+            var template = new RootBeanDefinition();
+            template.setAbstract(true);
+            factory.registerBeanDefinition("abstractTemplate", template);
+            factory.registerBeanDefinition("existingApplication", new RootBeanDefinition());
+            factory.registerSingleton("existingApplication", new MethodInventoryService());
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.usedMethodFamilies()).containsExactly("pre-post");
+            assertThat(evidence.enabledMethodFamilies()).contains("pre-post");
+            assertHttpMethodQualification(report, "MEDIUM");
+            assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+            assertThat(report.analysisErrors()).isEmpty();
+            assertThat(factory.containsSingleton("knownLazyApplication")).isFalse();
+            assertThat(factory.containsSingleton("knownNativeInfrastructure")).isFalse();
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    @Test
+    void abstractMethodDefinitionDoesNotHideAnExistingSingletonsAdditionalFamily() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            AtomicInteger supplierCalls = new AtomicInteger();
+            var definition = new RootBeanDefinition();
+            definition.setAbstract(true);
+            definition.setInstanceSupplier(() -> {
+                supplierCalls.incrementAndGet();
+                throw new AssertionError("Must not create a bean from the abstract definition");
+            });
+            factory.registerBeanDefinition("existingSecuredApplication", definition);
+            var singleton = new SecuredMethodInventoryService();
+            factory.registerSingleton("existingSecuredApplication", singleton);
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured");
+            assertThat(evidence.enabledMethodFamilies()).contains("pre-post").doesNotContain("secured");
+            assertHttpMethodQualification(report, "HIGH");
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals("SEC-METHOD-001"))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.status()).isEqualTo("VIOLATION");
+                        assertThat(result.severity()).isEqualTo("HIGH");
+                        assertThat(result.violationCount()).isOne();
+                        assertThat(result.sampleViolations()).anyMatch(value -> value.contains("secured"));
+                    });
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+            assertThat(report.analysisErrors()).isEmpty();
+            assertThat(factory.getSingleton("existingSecuredApplication")).isSameAs(singleton);
+            assertThat(supplierCalls).hasValue(0);
+            assertThat(singleton.calls).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    @Test
+    void knownEmptyMethodMetadataIsNeitherMissingEvidenceNorMethodAuthorization() throws Exception {
+        var factory = spy(new DefaultListableBeanFactory());
+        var definition = new RootBeanDefinition(Object.class);
+        definition.setLazyInit(true);
+        factory.registerBeanDefinition("knownUnannotatedApplication", definition);
+        var scanner = scannerFor(methodInventoryChains(), factory);
+        clearMethodInvocations(factory);
+
+        var evidence = methodInventoryEvidence(factory);
+        var report = scanner.scan();
+
+        assertThat(evidence.methodFamiliesKnown()).isTrue();
+        assertThat(evidence.usedMethodFamilies()).isEmpty();
+        assertThat(evidence.enabledMethodFamilies()).isEmpty();
+        assertHttpMethodQualification(report, "HIGH");
+        assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(factory.containsSingleton("knownUnannotatedApplication")).isFalse();
+        assertNoMethodTypeResolutionCallbacks(factory);
+    }
+
+    @Test
+    void nativeFinalFactoryProductsAreObservedWithoutCreatingLazyOrPrototypeBeans() throws Exception {
+        for (String product : List.of("finalProduct", "staticFinalProduct")) {
+            try (var application = methodProductApplication(product)) {
+                var factory = application.getDefaultListableBeanFactory();
+                assertThat(factory.containsSingleton(product)).isFalse();
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                clearMethodInvocations(factory);
+
+                var evidence = methodInventoryEvidence(factory);
+                var report = scanner.scan();
+
+                assertThat(evidence.methodFamiliesKnown()).as("%s", product).isTrue();
+                assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured");
+                assertHttpMethodQualification(report, "HIGH");
+                assertThat(report.results())
+                        .filteredOn(result -> result.id().equals("SEC-METHOD-001"))
+                        .singleElement()
+                        .satisfies(result ->
+                                assertThat(result.sampleViolations()).anyMatch(value -> value.contains("secured")));
+                assertThat(factory.containsSingleton(product)).isFalse();
+                assertThat(MethodProductConfiguration.calls).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Test
+    void nonFinalAndUnsupportedFactoryProductsRemainUnknownWithoutCallbacks() throws Exception {
+        for (String product : List.of(
+                "nonFinalProduct",
+                "factoryProduct",
+                "arrayProduct",
+                "primitiveProduct",
+                "interfaceProduct",
+                "objectProduct")) {
+            try (var application = methodProductApplication(product)) {
+                var factory = application.getDefaultListableBeanFactory();
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                clearMethodInvocations(factory);
+
+                var evidence = methodInventoryEvidence(factory);
+                var report = scanner.scan();
+
+                assertThat(evidence.methodFamiliesKnown()).as("%s", product).isFalse();
+                assertThat(evidence.usedMethodFamilies()).containsExactly("pre-post");
+                assertHttpMethodQualification(report, "HIGH");
+                assertThat(report.evidence().coverageComplete()).isFalse();
+                assertThat(report.evidence().limitations())
+                        .contains("SEC-METHOD-001: Method-security family metadata is incomplete.");
+                assertThat(factory.containsSingleton(product)).isFalse();
+                assertThat(MethodProductConfiguration.calls).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Test
+    void contradictoryFactoryPathsAndFactoryObjectsCannotStandInForProducts() throws Exception {
+        for (int variant = 0; variant < 8; variant++) {
+            try (var application = methodProductApplication("finalProduct")) {
+                var factory = application.getDefaultListableBeanFactory();
+                var definition = (RootBeanDefinition) factory.getBeanDefinition("finalProduct");
+                AtomicInteger callbacks = new AtomicInteger();
+                if (variant == 0) {
+                    definition.setInstanceSupplier(() -> {
+                        callbacks.incrementAndGet();
+                        throw new AssertionError("Must not invoke a custom supplier");
+                    });
+                } else if (variant == 1) {
+                    definition.setInstanceSupplier(BeanInstanceSupplier.forFactoryMethod(
+                                    MethodProductConfiguration.class, "finalProduct")
+                            .withGenerator((registeredBean, arguments) -> {
+                                callbacks.incrementAndGet();
+                                throw new AssertionError("Native metadata does not prove a generator's product");
+                            }));
+                } else if (variant == 2) {
+                    definition.setInstanceSupplier(new InstanceSupplier<FinalMethodProduct>() {
+                        @Override
+                        public FinalMethodProduct get(RegisteredBean bean) {
+                            callbacks.incrementAndGet();
+                            throw new AssertionError("Must not initialize a product");
+                        }
+
+                        @Override
+                        public java.lang.reflect.Method getFactoryMethod() {
+                            callbacks.incrementAndGet();
+                            throw new AssertionError("Must not ask a custom supplier for provenance");
+                        }
+                    });
+                } else if (variant == 3) {
+                    definition.setFactoryMethodName("nonFinalProduct");
+                } else if (variant == 4) {
+                    definition.setFactoryBeanName("differentFactory");
+                    factory.registerSingleton("differentFactory", new Object());
+                } else if (variant == 5) {
+                    factory.removeBeanDefinition("finalProduct");
+                    var unbound = new RootBeanDefinition(ObjectFactoryCreatingFactoryBean.class);
+                    unbound.setFactoryMethodName("product");
+                    factory.registerBeanDefinition("finalProduct", unbound);
+                } else if (variant == 6) {
+                    factory.removeBeanDefinition("finalProduct");
+                    factory.registerBeanDefinition("finalProduct", new RootBeanDefinition(FinalMethodProduct.class));
+                    factory.registerSingleton("finalProduct", new FinalMethodProductFactory(callbacks));
+                } else {
+                    factory.removeBeanDefinition("finalProduct");
+                    var overloaded = new AnnotatedGenericBeanDefinition(
+                            AnnotationMetadata.introspect(OverloadedMethodFactory.class),
+                            new StandardMethodMetadata(OverloadedMethodFactory.class.getDeclaredMethod("product")));
+                    overloaded.setFactoryBeanName("overloadedFactory");
+                    overloaded.setFactoryMethodName("product");
+                    factory.registerBeanDefinition("finalProduct", overloaded);
+                    factory.registerSingleton("overloadedFactory", new OverloadedMethodFactory());
+                }
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                clearMethodInvocations(factory);
+
+                assertThat(methodInventoryEvidence(factory).methodFamiliesKnown())
+                        .as("variant %s", variant)
+                        .isFalse();
+                var report = scanner.scan();
+                assertHttpMethodQualification(report, "HIGH");
+                assertThat(report.evidence().coverageComplete()).isFalse();
+                assertThat(callbacks).hasValue(0);
+                assertThat(MethodProductConfiguration.calls).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Test
+    void applicationDefinitionUsesItsBeanClassLoaderWithoutInitializingTheClass() throws Exception {
+        Path source = projectRoot.resolve("OnlyApplicationService.java");
+        Files.writeString(source, """
+                package isolated.application;
+                public class OnlyApplicationService {
+                    static {
+                        if (Boolean.parseBoolean("true")) throw new AssertionError("Must not initialize");
+                    }
+                    @org.springframework.security.access.annotation.Secured("ROLE_ADMIN")
+                    public void guarded() {}
+                }
+                """);
+        assertThat(ToolProvider.getSystemJavaCompiler()
+                        .run(
+                                null,
+                                null,
+                                null,
+                                "--release",
+                                "17",
+                                "-classpath",
+                                System.getProperty("java.class.path"),
+                                "-d",
+                                projectRoot.toString(),
+                                source.toString()))
+                .isZero();
+        try (var loader =
+                new URLClassLoader(new URL[] {projectRoot.toUri().toURL()}, SecurityScanner.class.getClassLoader())) {
+            assertThatThrownBy(() -> Class.forName(
+                            "isolated.application.OnlyApplicationService",
+                            false,
+                            SecurityScanner.class.getClassLoader()))
+                    .isInstanceOf(ClassNotFoundException.class);
+            var factory = spy(new DefaultListableBeanFactory());
+            factory.setBeanClassLoader(loader);
+            var definition = new RootBeanDefinition();
+            definition.setBeanClassName("isolated.application.OnlyApplicationService");
+            definition.setLazyInit(true);
+            factory.registerBeanDefinition("applicationService", definition);
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.usedMethodFamilies()).containsExactly("secured");
+            assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-METHOD-001");
+            assertThat(factory.containsSingleton("applicationService")).isFalse();
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    @Test
+    void unenumeratedSingletonAdvisorsPreventMethodFamilyCompleteness() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            for (int index = factory.getSingletonCount(); index <= 5000; index++) {
+                factory.registerSingleton("inventoryPadding" + index, new Object());
+            }
+            var evidence = methodInventoryEvidence(factory);
+
+            assertThat(evidence.methodFamiliesKnown()).isFalse();
+            assertThat(evidence.usedMethodFamilies()).containsExactly("pre-post");
+            assertThat(evidence.enabledMethodFamilies()).contains("pre-post");
+        }
+    }
+
+    @Test
+    void opaqueProductCannotProveAnObservedMethodFamilyIsUnactivated() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            factory.registerBeanDefinition(
+                    "observedSecured", new RootBeanDefinition(SecuredMethodInventoryService.class));
+            var observed = new SecuredMethodInventoryService();
+            factory.registerSingleton("observedSecured", observed);
+            AtomicInteger callbacks = new AtomicInteger();
+            var unresolved = new RootBeanDefinition();
+            unresolved.setLazyInit(true);
+            unresolved.setInstanceSupplier(() -> {
+                callbacks.incrementAndGet();
+                throw new AssertionError("Opaque code is not activation evidence");
+            });
+            factory.registerBeanDefinition("opaqueProduct", unresolved);
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isFalse();
+            assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured");
+            assertThat(evidence.enabledMethodFamilies()).contains("pre-post").doesNotContain("secured");
+            assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-METHOD-001");
+            assertThat(report.evidence().limitations())
+                    .contains("SEC-METHOD-001: Method-security family metadata is incomplete.");
+            assertHttpMethodQualification(report, "HIGH");
+            assertThat(callbacks).hasValue(0);
+            assertThat(observed.calls).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    @Test
+    void nativeSingletonJdkMethodProxyExposesItsImplementationOnlyFamilyWithoutInvokingItsTarget() throws Exception {
+        JdkMethodConfiguration.calls.set(0);
+        try (var application =
+                methodApplicationContext(MethodInventoryConfiguration.class, JdkMethodConfiguration.class)) {
+            assertThat(Proxy.isProxyClass(
+                            application.getBean("jdkMethodService").getClass()))
+                    .isTrue();
+            var factory = application.getDefaultListableBeanFactory();
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(JdkMethodConfiguration.calls).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+            assertThat(evidence.usedMethodFamilies()).contains("pre-post");
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured");
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals("SEC-METHOD-001"))
+                    .singleElement()
+                    .satisfies(result ->
+                            assertThat(result.sampleViolations()).anyMatch(value -> value.contains("secured")));
+            assertHttpMethodQualification(report, "HIGH");
+            assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+        }
+    }
+
+    @Test
+    void nativeJdkProxyCollectsBothInterfaceAndHeldSingletonTargetFamilies() throws Exception {
+        JdkMethodConfiguration.calls.set(0);
+        try (var application = methodApplicationContext(JdkMethodConfiguration.class)) {
+            assertThat(Proxy.isProxyClass(
+                            application.getBean("jdkMethodService").getClass()))
+                    .isTrue();
+            var factory = application.getDefaultListableBeanFactory();
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(JdkMethodConfiguration.calls).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.enabledMethodFamilies()).contains("pre-post");
+            assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured");
+            assertHttpMethodQualification(report, "HIGH");
+            assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+        }
+    }
+
+    @Test
+    void cachedFactoryProductRetainsNativeAuthorizationAndMissingFamilyDetectionWithoutCallbacks() throws Exception {
+        for (Class<?> configuration :
+                List.of(MethodInventoryConfiguration.class, AllMethodFamiliesConfiguration.class)) {
+            JdkMethodConfiguration.calls.set(0);
+            try (var application = methodApplicationContext(configuration)) {
+                var nativeFactory = application.getDefaultListableBeanFactory();
+                var policy = new CountingMethodPolicy();
+                nativeFactory.registerBeanDefinition(
+                        "methodPolicy", new RootBeanDefinition(CountingMethodPolicy.class));
+                nativeFactory.registerSingleton("methodPolicy", policy);
+                var productFactory = new CountingMethodFactory();
+                nativeFactory.registerBeanDefinition(
+                        "cachedMethodProduct", new RootBeanDefinition(CountingMethodFactory.class));
+                nativeFactory.registerSingleton("cachedMethodProduct", productFactory);
+                var product = (JdkMethodContract) nativeFactory.getBean("cachedMethodProduct");
+                assertThat(Proxy.isProxyClass(product.getClass())).isTrue();
+                var factory = nativeFactory;
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                productFactory.callbacks.set(0);
+                clearMethodInvocations(factory);
+
+                var evidence = methodInventoryEvidence(factory);
+                var report = scanner.scan();
+                assertThat(scanner.lastReport()).isSameAs(report);
+
+                assertThat(evidence.methodFamiliesKnown())
+                        .as("%s", configuration)
+                        .isTrue();
+                assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured", "jsr250");
+                assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+                assertThat(productFactory.callbacks).hasValue(0);
+                assertThat(policy.calls).hasValue(0);
+                assertThat(JdkMethodConfiguration.calls).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+
+                boolean securedEnabled = configuration == AllMethodFamiliesConfiguration.class;
+                assertThat(report.results().stream()
+                                .anyMatch(result -> result.id().equals("SEC-METHOD-001")))
+                        .isEqualTo(!securedEnabled);
+                if (!securedEnabled) {
+                    var page = scanner.ruleViolations(
+                            "SEC-METHOD-001", report.violationDetails().scanId(), 0, 100);
+                    assertThat(page.violationCount()).isEqualTo(2);
+                    assertThat(page.violations())
+                            .hasSize(2)
+                            .anyMatch(value -> value.contains("secured"))
+                            .anyMatch(value -> value.contains("jsr250"));
+                    assertThat(productFactory.callbacks).hasValue(0);
+                    assertThat(policy.calls).hasValue(0);
+                    assertThat(JdkMethodConfiguration.calls).hasValue(0);
+                    assertNoMethodTypeResolutionCallbacks(factory);
+                }
+                assertHttpMethodQualification(report, securedEnabled ? "MEDIUM" : "HIGH");
+                SecurityContextHolder.getContext()
+                        .setAuthentication(new TestingAuthenticationToken("reader", "unused", "ROLE_READER"));
+                assertThatThrownBy(product::guarded).isInstanceOf(AccessDeniedException.class);
+                if (securedEnabled) assertThatThrownBy(product::securedOnly).isInstanceOf(AccessDeniedException.class);
+                else product.securedOnly();
+                SecurityContextHolder.getContext()
+                        .setAuthentication(new TestingAuthenticationToken("admin", "unused", "ROLE_ADMIN"));
+                product.guarded();
+                product.securedOnly();
+                assertThat(JdkMethodConfiguration.calls).hasValue(securedEnabled ? 2 : 3);
+                assertThat(policy.calls).hasValue(2);
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        }
+    }
+
+    @Test
+    void uncachedFactoryProductRemainsUnknownWithoutCreatingOrAskingForItsType() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            var productFactory = new CountingMethodFactory();
+            factory.registerBeanDefinition(
+                    "uncachedMethodProduct", new RootBeanDefinition(CountingMethodFactory.class));
+            factory.registerSingleton("uncachedMethodProduct", productFactory);
+            var report = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var result = report.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isFalse();
+            assertThat(result.evidence().limitations())
+                    .contains("SEC-METHOD-001: Method-security family metadata is incomplete.");
+            assertThat(productFactory.callbacks).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    @Test
+    void cachedNativeAdvisorProductCountsAsActivationWithoutCallingItsFactory() throws Exception {
+        try (var application = methodApplicationContext(CachedAdvisorConfiguration.class)) {
+            var service = application.getBean(SecuredMethodInventoryService.class);
+            var target = AopTestUtils.<SecuredMethodInventoryService>getUltimateTargetObject(service);
+            var advisorFactory = (CachedSecuredAdvisorFactory) application.getBean("&cachedSecuredAdvisor");
+            SecurityContextHolder.getContext()
+                    .setAuthentication(new TestingAuthenticationToken("reader", "unused", "ROLE_READER"));
+            assertThatThrownBy(service::guarded).isInstanceOf(AccessDeniedException.class);
+            var factory = application.getDefaultListableBeanFactory();
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            advisorFactory.callbacks.set(0);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+            scanner.lastReport();
+
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.usedMethodFamilies()).containsExactly("secured");
+            assertThat(evidence.enabledMethodFamilies()).contains("secured");
+            assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-METHOD-001");
+            assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-METHOD-"));
+            assertHttpMethodQualification(report, "MEDIUM");
+            assertThat(advisorFactory.callbacks).hasValue(0);
+            assertThat(target.calls).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+
+            SecurityContextHolder.getContext()
+                    .setAuthentication(new TestingAuthenticationToken("admin", "unused", "ROLE_ADMIN"));
+            service.guarded();
+            assertThat(target.calls).hasValue(1);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity
+    static class CachedAdvisorConfiguration {
+        @Bean
+        @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+        CachedSecuredAdvisorFactory cachedSecuredAdvisor() {
+            return new CachedSecuredAdvisorFactory();
+        }
+
+        @Bean
+        SecuredMethodInventoryService securedService() {
+            return new SecuredMethodInventoryService();
+        }
+    }
+
+    static final class CachedSecuredAdvisorFactory implements FactoryBean<AuthorizationManagerBeforeMethodInterceptor> {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public AuthorizationManagerBeforeMethodInterceptor getObject() {
+            callbacks.incrementAndGet();
+            return AuthorizationManagerBeforeMethodInterceptor.secured();
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            callbacks.incrementAndGet();
+            return AuthorizationManagerBeforeMethodInterceptor.class;
+        }
+    }
+
+    @Test
+    void opaqueDynamicSubclassedAndCyclicProxyTargetsStayUnknownWithoutCallbacks() throws Exception {
+        for (int variant = 0; variant < 5; variant++) {
+            try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+                var factory = application.getDefaultListableBeanFactory();
+                AtomicInteger callbacks = new AtomicInteger();
+                Object proxy;
+                if (variant == 0) {
+                    proxy = Proxy.newProxyInstance(
+                            getClass().getClassLoader(),
+                            new Class<?>[] {JdkMethodContract.class},
+                            (object, method, arguments) -> {
+                                callbacks.incrementAndGet();
+                                throw new AssertionError("Must not invoke a custom handler");
+                            });
+                } else {
+                    var builder = new ProxyFactory();
+                    builder.setInterfaces(JdkMethodContract.class);
+                    if (variant == 1) {
+                        builder.setTargetSource(new TargetSource() {
+                            @Override
+                            public Class<?> getTargetClass() {
+                                callbacks.incrementAndGet();
+                                return JdkMethodService.class;
+                            }
+
+                            @Override
+                            public boolean isStatic() {
+                                callbacks.incrementAndGet();
+                                return false;
+                            }
+
+                            @Override
+                            public Object getTarget() {
+                                callbacks.incrementAndGet();
+                                return new JdkMethodService();
+                            }
+
+                            @Override
+                            public void releaseTarget(Object target) {
+                                callbacks.incrementAndGet();
+                            }
+                        });
+                    } else if (variant == 2) {
+                        builder.setTargetSource(new SingletonTargetSource(new JdkMethodService()) {
+                            @Override
+                            public Object getTarget() {
+                                callbacks.incrementAndGet();
+                                return super.getTarget();
+                            }
+                        });
+                    } else {
+                        builder.setTarget(new JdkMethodService());
+                    }
+                    proxy = builder.getProxy();
+                    if (variant == 3) builder.setTarget(proxy);
+                    if (variant == 4) {
+                        for (int depth = 0; depth < 9; depth++) {
+                            var outer = new ProxyFactory();
+                            outer.setInterfaces(JdkMethodContract.class);
+                            outer.setTarget(proxy);
+                            proxy = outer.getProxy();
+                        }
+                    }
+                }
+                factory.registerBeanDefinition("opaqueProxy", new RootBeanDefinition());
+                factory.registerSingleton("opaqueProxy", proxy);
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                callbacks.set(0);
+                clearMethodInvocations(factory);
+
+                var evidence = methodInventoryEvidence(factory);
+                var report = scanner.scan();
+
+                assertThat(evidence.methodFamiliesKnown())
+                        .as("variant %s", variant)
+                        .isFalse();
+                assertThat(evidence.usedMethodFamilies()).contains("pre-post");
+                assertThat(report.evidence().limitations())
+                        .contains("SEC-METHOD-001: Method-security family metadata is incomplete.");
+                assertHttpMethodQualification(report, "HIGH");
+                assertThat(callbacks).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Test
+    void nestedNativeStaticProxiesRetainInnerInterfaceAndImplementationAnnotations() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var inner = new ProxyFactory();
+            inner.setInterfaces(JdkMethodContract.class, AdditionalMethodContract.class);
+            inner.setTarget(new JdkMethodService());
+            inner.addAdvice(new DelegatingIntroductionInterceptor((AdditionalMethodContract) () -> {
+                throw new AssertionError("Must not invoke an introduced method");
+            }));
+            var outer = new ProxyFactory();
+            outer.setInterfaces(JdkMethodContract.class);
+            outer.setTarget(inner.getProxy());
+            var factory = application.getDefaultListableBeanFactory();
+            factory.registerBeanDefinition("nestedProxy", new RootBeanDefinition());
+            factory.registerSingleton("nestedProxy", outer.getProxy());
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scannerFor(methodInventoryChains(), factory).scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isTrue();
+            assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured", "jsr250");
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals("SEC-METHOD-001"))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.violationCount()).isEqualTo(2);
+                        assertThat(result.sampleViolations())
+                                .anyMatch(value -> value.contains("jsr250"))
+                                .anyMatch(value -> value.contains("secured"));
+                    });
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    interface AdditionalMethodContract {
+        @jakarta.annotation.security.RolesAllowed("ADMIN")
+        void additionalGuard();
+    }
+
+    @Test
+    void unrelatedLazyProductDoesNotInvalidateModernOrObservedLegacyConfiguration() throws Exception {
+        for (boolean legacy : List.of(false, true)) {
+            try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+                var factory = application.getDefaultListableBeanFactory();
+                if (legacy) {
+                    var definition = new RootBeanDefinition(Class.forName(
+                            "org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration",
+                            false,
+                            SecurityScanner.class.getClassLoader()));
+                    definition.setLazyInit(true);
+                    factory.registerBeanDefinition("declaredLegacyConfiguration", definition);
+                }
+                var lazy = new RootBeanDefinition(UnannotatedMethodProduct.class);
+                lazy.setLazyInit(true);
+                lazy.setInstanceSupplier(() -> {
+                    throw new AssertionError("Must not create a lazy product");
+                });
+                if (legacy) lazy.setBeanClassName("example.UnresolvedMethodConfiguration");
+                factory.registerBeanDefinition("unrelatedProduct", lazy);
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                clearMethodInvocations(factory);
+
+                var report = scanner.scan();
+
+                assertThat(report.evidence().limitations())
+                        .anyMatch(value -> value.startsWith("SEC-METHOD-001:"))
+                        .noneMatch(value -> value.startsWith("SEC-METHOD-002:"));
+                assertThat(report.results().stream()
+                                .anyMatch(result -> result.id().equals("SEC-METHOD-002")))
+                        .isEqualTo(legacy);
+                assertThat(factory.containsSingleton("unrelatedProduct")).isFalse();
+                assertThat(factory.containsSingleton("declaredLegacyConfiguration"))
+                        .isFalse();
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity(proxyTargetClass = false, securedEnabled = true, jsr250Enabled = true)
+    static class AllMethodFamiliesConfiguration {}
+
+    static class CountingMethodPolicy {
+        final AtomicInteger calls = new AtomicInteger();
+
+        public boolean allowed() {
+            calls.incrementAndGet();
+            return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                    .anyMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"));
+        }
+    }
+
+    @jakarta.annotation.security.RolesAllowed("ADMIN")
+    static final class CountingMethodFactory implements FactoryBean<JdkMethodContract> {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public JdkMethodContract getObject() {
+            callbacks.incrementAndGet();
+            return new JdkMethodService();
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            callbacks.incrementAndGet();
+            return JdkMethodContract.class;
+        }
+
+        @Override
+        public boolean isSingleton() {
+            callbacks.incrementAndGet();
+            return true;
+        }
+    }
+
+    @Test
+    void uncreatedChildDefinitionCannotHideAnInheritedFactoryMethod() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            AtomicInteger callbacks = new AtomicInteger();
+            var parent = new RootBeanDefinition(UnannotatedMethodProduct.class);
+            parent.setAbstract(true);
+            parent.setFactoryBeanName("parentCreationFactory");
+            parent.setFactoryMethodName("product");
+            factory.registerSingleton("parentCreationFactory", new ParentCreationFactory(callbacks));
+            factory.registerBeanDefinition("creationParent", parent);
+            var child = new GenericBeanDefinition();
+            child.setParentName("creationParent");
+            child.setBeanClass(UnannotatedMethodProduct.class);
+            child.setLazyInit(true);
+            factory.registerBeanDefinition("lazyCreationChild", child);
+            assertThat(child.getFactoryBeanName()).isNull();
+            assertThat(child.getFactoryMethodName()).isNull();
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var beforeCreation = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(callbacks).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+            // Verify native inherited creation only after ending the collection window.
+            assertThat(factory.getBean("lazyCreationChild")).isInstanceOf(UnannotatedMethodProduct.class);
+            assertThat(callbacks).hasValue(1);
+            clearMethodInvocations(factory);
+            var afterCreation = methodInventoryEvidence(factory);
+            assertThat(afterCreation.methodFamiliesKnown()).isTrue();
+            assertThat(callbacks).hasValue(1);
+            assertNoMethodTypeResolutionCallbacks(factory);
+            assertThat(beforeCreation.methodFamiliesKnown())
+                    .as(
+                            "Local factory metadata is null but Spring selected the inherited factory; prior report: %s",
+                            report.results())
+                    .isFalse();
+            assertHttpMethodQualification(report, "HIGH");
+        }
+    }
+
+    @Test
+    void inheritedFactoryOverloadCannotBorrowAnUnselectedFinalReturnType() throws Exception {
+        InheritedMethodFactory.parentCalls.set(0);
+        ChildMethodFactory.childCalls.set(0);
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            factory.registerSingleton("inheritedMethodFactory", new ChildMethodFactory());
+            var definition = new AnnotatedGenericBeanDefinition(
+                    AnnotationMetadata.introspect(ChildMethodFactory.class),
+                    new StandardMethodMetadata(ChildMethodFactory.class.getDeclaredMethod("product")));
+            definition.setFactoryBeanName("inheritedMethodFactory");
+            definition.setFactoryMethodName("product");
+            definition.getConstructorArgumentValues().addIndexedArgumentValue(0, "native-selected");
+            definition.setScope("prototype");
+            factory.registerBeanDefinition("inheritedMethodProduct", definition);
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(InheritedMethodFactory.parentCalls).hasValue(0);
+            assertThat(ChildMethodFactory.childCalls).hasValue(0);
+            assertNoMethodTypeResolutionCallbacks(factory);
+            // An explicit argument makes the inherited overload the actual native creation path.
+            assertThat(factory.getBean("inheritedMethodProduct")).isInstanceOf(UnannotatedMethodProduct.class);
+            assertThat(InheritedMethodFactory.parentCalls).hasValue(1);
+            assertThat(ChildMethodFactory.childCalls).hasValue(0);
+            assertThat(evidence.methodFamiliesKnown())
+                    .as("The metadata's final-return overload was not selected; prior report: %s", report.results())
+                    .isFalse();
+            assertHttpMethodQualification(report, "HIGH");
+        }
+    }
+
+    @Test
+    void methodTypeObservationNeverCreatesAnEarlySingletonReference() throws Exception {
+        var factory = new EarlyMethodBeanFactory();
+        factory.registerBeanDefinition("pendingMethodBean", new RootBeanDefinition(UnannotatedMethodProduct.class));
+        factory.installEarlyReference("pendingMethodBean");
+        assertThat(factory.containsSingleton("pendingMethodBean")).isFalse();
+        try {
+            var observer = SecurityScanner.class.getDeclaredMethod(
+                    "collectBeanMethodTypes",
+                    org.springframework.beans.factory.config.ConfigurableListableBeanFactory.class,
+                    String.class,
+                    org.springframework.beans.factory.support.AbstractBeanDefinition.class,
+                    Set.class,
+                    Set.class);
+            observer.setAccessible(true);
+
+            observer.invoke(
+                    null,
+                    factory,
+                    "pendingMethodBean",
+                    factory.getBeanDefinition("pendingMethodBean"),
+                    new HashSet<Class<?>>(),
+                    java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
+
+            assertThat(factory.callbacks)
+                    .as("Passive type observation must not invoke a native early ObjectFactory")
+                    .hasValue(0);
+        } finally {
+            factory.finishEarlyReference("pendingMethodBean");
+        }
+    }
+
+    @Test
+    void singletonInventoryNeverCreatesAnEarlySingletonReference() throws Exception {
+        var factory = new EarlyMethodBeanFactory();
+        factory.registerBeanDefinition("pendingInventoryBean", new RootBeanDefinition(UnannotatedMethodProduct.class));
+        factory.installEarlyReference("pendingInventoryBean");
+        assertThat(factory.containsSingleton("pendingInventoryBean")).isFalse();
+        try {
+            var observer = SecurityScanner.class.getDeclaredMethod(
+                    "existingSingletons", ListableBeanFactory.class, Class.class);
+            observer.setAccessible(true);
+
+            observer.invoke(null, factory, Object.class);
+
+            assertThat(factory.callbacks)
+                    .as("The preexisting inventory helper must not materialize an early reference either")
+                    .hasValue(0);
+        } finally {
+            factory.finishEarlyReference("pendingInventoryBean");
+        }
+    }
+
+    @Test
+    void applicationLoaderFailureKeepsIndependentNativeChainFindings() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            factory.setBeanClassLoader(new ClassLoader(SecurityScanner.class.getClassLoader()) {
+                @Override
+                protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                    if (name.equals("isolated.application.RejectedType")) {
+                        throw new IllegalStateException("private loader detail");
+                    }
+                    return super.loadClass(name, resolve);
+                }
+            });
+            var definition = new RootBeanDefinition();
+            definition.setBeanClassName("isolated.application.RejectedType");
+            definition.setLazyInit(true);
+            factory.registerBeanDefinition("rejectedApplicationType", definition);
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var report = scanner.scan();
+
+            assertNoMethodTypeResolutionCallbacks(factory);
+            assertThat(report.filterChainsAnalyzed())
+                    .as("A single metadata loader failure must not discard both observed native chains")
+                    .isEqualTo(2);
+            assertHttpMethodQualification(report, "HIGH");
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.evidence().coverageComplete()).isFalse();
+            assertThat(report.evidence().limitations())
+                    .contains("SEC-METHOD-001: Method-security family metadata is incomplete.")
+                    .noneMatch(value -> value.contains("private loader detail"));
+            assertThat(report.analysisErrors()).isEmpty();
+        }
+    }
+
+    @Test
+    void uncreatedConstructorBasedFactoryBeanTypesAreNotTheirProducts() throws Exception {
+        for (boolean framework : List.of(false, true)) {
+            try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+                var factory = application.getDefaultListableBeanFactory();
+                AtomicInteger callbacks = new AtomicInteger();
+                var definition = new RootBeanDefinition(
+                        framework ? ObjectFactoryCreatingFactoryBean.class : FinalMethodProductFactory.class);
+                definition.setLazyInit(true);
+                if (!framework) definition.getConstructorArgumentValues().addIndexedArgumentValue(0, callbacks);
+                factory.registerBeanDefinition("uncreatedConstructorFactory", definition);
+                var scanner = scannerFor(methodInventoryChains(), factory);
+                clearMethodInvocations(factory);
+
+                var evidence = methodInventoryEvidence(factory);
+                var report = scanner.scan();
+
+                assertThat(evidence.methodFamiliesKnown())
+                        .as("framework=%s", framework)
+                        .isFalse();
+                assertHttpMethodQualification(report, "HIGH");
+                assertThat(factory.containsSingleton("uncreatedConstructorFactory"))
+                        .isFalse();
+                assertThat(callbacks).hasValue(0);
+                assertNoMethodTypeResolutionCallbacks(factory);
+            }
+        }
+    }
+
+    @Test
+    void unsupportedDefinitionAccessorsAreNotInvokedAndKnownSingletonFactsRemain() throws Exception {
+        try (var application = methodApplicationContext(MethodInventoryConfiguration.class)) {
+            var factory = application.getDefaultListableBeanFactory();
+            var definition = new GuardedMethodDefinition();
+            factory.registerBeanDefinition("guardedDefinition", definition);
+            var singleton = new SecuredMethodInventoryService();
+            factory.registerSingleton("guardedDefinition", singleton);
+            definition.armed = true;
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isFalse();
+            assertThat(evidence.usedMethodFamilies()).containsExactlyInAnyOrder("pre-post", "secured");
+            assertThat(definition.callbacks).hasValue(0);
+            assertThat(singleton.calls).hasValue(0);
+            assertHttpMethodQualification(report, "HIGH");
+            assertNoMethodTypeResolutionCallbacks(factory);
+            definition.armed = false;
+        }
+    }
+
+    @Test
+    void enhancedConfigurationOwnerDoesNotProveALazyFinalProduct() throws Exception {
+        EnhancedMethodConfiguration.calls.set(0);
+        try (var application =
+                methodApplicationContext(MethodInventoryConfiguration.class, EnhancedMethodConfiguration.class)) {
+            assertThat(application
+                            .getBean(EnhancedMethodConfiguration.class)
+                            .getClass()
+                            .getSuperclass())
+                    .isEqualTo(EnhancedMethodConfiguration.class);
+            var factory = application.getDefaultListableBeanFactory();
+            var scanner = scannerFor(methodInventoryChains(), factory);
+            clearMethodInvocations(factory);
+
+            var evidence = methodInventoryEvidence(factory);
+            var report = scanner.scan();
+
+            assertThat(evidence.methodFamiliesKnown()).isFalse();
+            assertThat(EnhancedMethodConfiguration.calls).hasValue(0);
+            assertThat(factory.containsSingleton("enhancedMethodProduct")).isFalse();
+            assertHttpMethodQualification(report, "HIGH");
+            assertNoMethodTypeResolutionCallbacks(factory);
+        }
+    }
+
+    private static AnnotationConfigApplicationContext methodProductApplication(String retainedProduct) {
+        MethodProductConfiguration.calls.set(0);
+        var application =
+                methodApplicationContext(MethodInventoryConfiguration.class, MethodProductConfiguration.class);
+        for (String product : List.of(
+                "finalProduct",
+                "staticFinalProduct",
+                "nonFinalProduct",
+                "factoryProduct",
+                "arrayProduct",
+                "primitiveProduct",
+                "interfaceProduct",
+                "objectProduct")) {
+            if (!product.equals(retainedProduct)) application.removeBeanDefinition(product);
+        }
+        return application;
+    }
+
+    static AnnotationConfigApplicationContext methodApplicationContext(Class<?>... configurations) {
+        var application = new AnnotationConfigApplicationContext(new RecordingMethodBeanFactory());
+        if (configurations.length > 0) {
+            application.register(configurations);
+            application.refresh();
+        }
+        return application;
+    }
+
+    static void clearMethodInvocations(DefaultListableBeanFactory factory) {
+        if (factory instanceof RecordingMethodBeanFactory recording) recording.lookups.set(0);
+        else clearInvocations(factory);
+    }
+
+    static class RecordingMethodBeanFactory extends DefaultListableBeanFactory {
+        final AtomicInteger lookups = new AtomicInteger();
+
+        @Override
+        public Object getBean(String name) {
+            lookups.incrementAndGet();
+            return super.getBean(name);
+        }
+
+        @Override
+        public <T> T getBean(String name, Class<T> type) {
+            lookups.incrementAndGet();
+            return super.getBean(name, type);
+        }
+
+        @Override
+        public Object getBean(String name, Object... args) {
+            lookups.incrementAndGet();
+            return super.getBean(name, args);
+        }
+
+        @Override
+        public <T> T getBean(Class<T> type) {
+            lookups.incrementAndGet();
+            return super.getBean(type);
+        }
+
+        @Override
+        public <T> T getBean(Class<T> type, Object... args) {
+            lookups.incrementAndGet();
+            return super.getBean(type, args);
+        }
+
+        @Override
+        public Class<?> getType(String name) {
+            lookups.incrementAndGet();
+            return super.getType(name);
+        }
+
+        @Override
+        public Class<?> getType(String name, boolean initialize) {
+            lookups.incrementAndGet();
+            return super.getType(name, initialize);
+        }
+    }
+
+    static SecurityContext.Evidence methodInventoryEvidence(DefaultListableBeanFactory factory)
+            throws ReflectiveOperationException {
+        var method = SecurityScanner.class.getDeclaredMethod(
+                "discoverEvidence", ListableBeanFactory.class, List.class, Environment.class, List.class);
+        method.setAccessible(true);
+        return (SecurityContext.Evidence)
+                method.invoke(null, factory, List.of(), new MockEnvironment(), new ArrayList<String>());
+    }
+
+    private static FilterChainProxy methodInventoryChains() {
+        return new FilterChainProxy(List.of(
+                new DefaultSecurityFilterChain(
+                        PathPatternRequestMatcher.pathPattern("/missing/**"),
+                        new UsernamePasswordAuthenticationFilter()),
+                new DefaultSecurityFilterChain(
+                        AnyRequestMatcher.INSTANCE,
+                        new UsernamePasswordAuthenticationFilter(),
+                        new AuthorizationFilter(SingleResultAuthorizationManager.permitAll()))));
+    }
+
+    private static void assertHttpMethodQualification(SecurityReport report, String severity) {
+        assertThat(report.results())
+                .filteredOn(result -> List.of("SEC-AUTHZ-001", "SEC-AUTHZ-002").contains(result.id()))
+                .hasSize(2)
+                .allSatisfy(result -> {
+                    assertThat(result.status()).isEqualTo("VIOLATION");
+                    assertThat(result.severity()).isEqualTo(severity);
+                    assertThat(result.violationCount()).isOne();
+                });
+    }
+
+    static void assertNoMethodTypeResolutionCallbacks(DefaultListableBeanFactory factory) {
+        if (factory instanceof RecordingMethodBeanFactory recording) {
+            assertThat(recording.lookups).hasValue(0);
+            return;
+        }
+        verify(factory, never()).getBean(anyString());
+        verify(factory, never()).getBean(anyString(), org.mockito.ArgumentMatchers.<Class<Object>>any());
+        verify(factory, never()).getBean(anyString(), any(Object[].class));
+        verify(factory, never()).getBean(org.mockito.ArgumentMatchers.<Class<Object>>any());
+        verify(factory, never()).getBean(org.mockito.ArgumentMatchers.<Class<Object>>any(), any(Object[].class));
+        verify(factory, never()).getType(anyString());
+        verify(factory, never()).getType(anyString(), anyBoolean());
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity
+    static class MethodInventoryConfiguration {
+        @Bean
+        MethodInventoryService methodInventoryService() {
+            return new MethodInventoryService();
+        }
+    }
+
+    static class MethodInventoryService {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @PreAuthorize("hasRole('ADMIN')")
+        public void guarded() {
+            calls.incrementAndGet();
+        }
+    }
+
+    static class SecuredMethodInventoryService {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Secured("ROLE_ADMIN")
+        public void guarded() {
+            calls.incrementAndGet();
+        }
+    }
+
+    interface JdkMethodContract {
+        @PreAuthorize("@methodPolicy.allowed()")
+        void guarded();
+
+        void securedOnly();
+    }
+
+    static class JdkMethodService implements JdkMethodContract {
+        @Override
+        @PreAuthorize("@methodPolicy.allowed()")
+        public void guarded() {
+            JdkMethodConfiguration.calls.incrementAndGet();
+        }
+
+        @Override
+        @Secured("ROLE_ADMIN")
+        public void securedOnly() {
+            JdkMethodConfiguration.calls.incrementAndGet();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity(proxyTargetClass = false)
+    static class JdkMethodConfiguration {
+        static final AtomicInteger calls = new AtomicInteger();
+
+        @Bean
+        JdkMethodContract jdkMethodService() {
+            return new JdkMethodService();
+        }
+    }
+
+    static class UnannotatedMethodProduct {}
+
+    static class ParentCreationFactory {
+        private final AtomicInteger callbacks;
+
+        ParentCreationFactory(AtomicInteger callbacks) {
+            this.callbacks = callbacks;
+        }
+
+        UnannotatedMethodProduct product() {
+            callbacks.incrementAndGet();
+            return new UnannotatedMethodProduct();
+        }
+    }
+
+    static class InheritedMethodFactory {
+        static final AtomicInteger parentCalls = new AtomicInteger();
+
+        UnannotatedMethodProduct product(String argument) {
+            parentCalls.incrementAndGet();
+            return new UnannotatedMethodProduct();
+        }
+    }
+
+    static class ChildMethodFactory extends InheritedMethodFactory {
+        static final AtomicInteger childCalls = new AtomicInteger();
+
+        FinalMethodProduct product() {
+            childCalls.incrementAndGet();
+            return new FinalMethodProduct();
+        }
+    }
+
+    static class EarlyMethodBeanFactory extends DefaultListableBeanFactory {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        void installEarlyReference(String name) {
+            beforeSingletonCreation(name);
+            addSingletonFactory(name, () -> {
+                callbacks.incrementAndGet();
+                return new UnannotatedMethodProduct();
+            });
+        }
+
+        void finishEarlyReference(String name) {
+            afterSingletonCreation(name);
+            destroySingleton(name);
+        }
+    }
+
+    static class GuardedMethodDefinition extends RootBeanDefinition {
+        final AtomicInteger callbacks = new AtomicInteger();
+        boolean armed;
+
+        @Override
+        public String getFactoryBeanName() {
+            if (armed) {
+                callbacks.incrementAndGet();
+                throw new AssertionError("Must not invoke unsupported definition accessors");
+            }
+            return super.getFactoryBeanName();
+        }
+
+        @Override
+        public String getFactoryMethodName() {
+            if (armed) {
+                callbacks.incrementAndGet();
+                throw new AssertionError("Must not invoke unsupported definition accessors");
+            }
+            return super.getFactoryMethodName();
+        }
+
+        @Override
+        public String getBeanClassName() {
+            if (armed) {
+                callbacks.incrementAndGet();
+                throw new AssertionError("Must not invoke unsupported definition accessors");
+            }
+            return super.getBeanClassName();
+        }
+    }
+
+    @Configuration
+    static class EnhancedMethodConfiguration {
+        static final AtomicInteger calls = new AtomicInteger();
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        FinalMethodProduct enhancedMethodProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Must not invoke an enhanced configuration owner");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class MethodProductConfiguration {
+        static final AtomicInteger calls = new AtomicInteger();
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        FinalMethodProduct finalProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Must not create a prototype final product");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        static FinalMethodProduct staticFinalProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Must not execute a static factory");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        MethodInventoryService nonFinalProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Nonfinal declared type is incomplete");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        FinalMethodProductFactory factoryProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Factory class is not its product");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        String[] arrayProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("An array's final modifier proves no product inventory");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        int primitiveProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Primitive is not an ordinary bean type");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        Runnable interfaceProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Interface return does not prove an implementation");
+        }
+
+        @Bean
+        @Lazy
+        @Scope("prototype")
+        Object objectProduct() {
+            calls.incrementAndGet();
+            throw new AssertionError("Object return does not prove a product type");
+        }
+    }
+
+    static final class FinalMethodProduct {
+        @Secured("ROLE_ADMIN")
+        public void guarded() {
+            throw new AssertionError("Declaration observation is not method invocation");
+        }
+    }
+
+    static final class FinalMethodProductFactory implements FactoryBean<FinalMethodProduct> {
+        private final AtomicInteger callbacks;
+
+        FinalMethodProductFactory(AtomicInteger callbacks) {
+            this.callbacks = callbacks;
+        }
+
+        @Override
+        public FinalMethodProduct getObject() {
+            callbacks.incrementAndGet();
+            throw new AssertionError("Must not create a FactoryBean product");
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            callbacks.incrementAndGet();
+            throw new AssertionError("Must not query FactoryBean product type");
+        }
+    }
+
+    static class OverloadedMethodFactory {
+        FinalMethodProduct product() {
+            throw new AssertionError("Must not execute an overloaded factory");
+        }
+
+        FinalMethodProduct product(String ignored) {
+            throw new AssertionError("Must not resolve overloaded arguments");
+        }
     }
 
     @Test
@@ -535,6 +2029,115 @@ class SecurityScannerTests {
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-CONFIG-001");
+    }
+
+    @Test
+    void nativeDefaultFirewallIsNotWeakenedByAnUnusedFirewallBean() {
+        var proxy = filterChainProxy(SingleResultAuthorizationManager.permitAll());
+        var unused = new StrictHttpFirewall();
+        unused.setAllowUrlEncodedSlash(true);
+        var factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("unusedFirewall", unused);
+
+        SecurityReport report = scannerFor(proxy, factory).scan();
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CONFIG-008");
+        assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-CONFIG-008:"));
+    }
+
+    @Test
+    void nativeRelaxedActiveFirewallProducesAHighFinding() {
+        var firewall = new StrictHttpFirewall();
+        firewall.setAllowUrlEncodedSlash(true);
+        var proxy = filterChainProxy(SingleResultAuthorizationManager.permitAll());
+        proxy.setFirewall(firewall);
+
+        SecurityReport report =
+                scannerFor(proxy, new DefaultListableBeanFactory()).scan();
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("SEC-CONFIG-008"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.violationCount()).isOne();
+                });
+        assertThat(report.evidence().limitations()).noneMatch(value -> value.startsWith("SEC-CONFIG-008:"));
+    }
+
+    @Test
+    void customAndSubclassFirewallsStayUnknownWithoutCallbacks() {
+        HttpFirewall custom = new HttpFirewall() {
+            @Override
+            public FirewalledRequest getFirewalledRequest(HttpServletRequest request) {
+                throw new AssertionError("Must not invoke custom firewall requests");
+            }
+
+            @Override
+            public HttpServletResponse getFirewalledResponse(HttpServletResponse response) {
+                throw new AssertionError("Must not invoke custom firewall responses");
+            }
+        };
+        var subclass = new StrictHttpFirewall() {
+            @Override
+            public Set<String> getEncodedUrlBlocklist() {
+                throw new AssertionError("Must not invoke a custom firewall getter");
+            }
+
+            @Override
+            public FirewalledRequest getFirewalledRequest(HttpServletRequest request) {
+                throw new AssertionError("Must not invoke subclass firewall requests");
+            }
+
+            @Override
+            public HttpServletResponse getFirewalledResponse(HttpServletResponse response) {
+                throw new AssertionError("Must not invoke subclass firewall responses");
+            }
+        };
+        for (HttpFirewall firewall : List.of(custom, subclass)) {
+            assertUnknownFirewallPreservesIndependentFindings(firewall);
+        }
+    }
+
+    @Test
+    void unreadableNativeFirewallBlocklistStaysUnknown() {
+        var firewall = new StrictHttpFirewall();
+        ReflectionTestUtils.setField(firewall, "encodedUrlBlocklist", null);
+
+        assertUnknownFirewallPreservesIndependentFindings(firewall);
+    }
+
+    @Test
+    void customNativeFirewallBlocklistStaysUnknownWithoutCollectionCallbacks() {
+        var firewall = new StrictHttpFirewall();
+        ReflectionTestUtils.setField(firewall, "encodedUrlBlocklist", new HashSet<String>() {
+            @Override
+            public boolean contains(Object token) {
+                throw new AssertionError("Must not invoke custom blocklist callbacks");
+            }
+        });
+
+        assertUnknownFirewallPreservesIndependentFindings(firewall);
+    }
+
+    private static void assertUnknownFirewallPreservesIndependentFindings(HttpFirewall firewall) {
+        var proxy = filterChainProxy(SingleResultAuthorizationManager.permitAll());
+        SecurityScanner scanner = scannerFor(proxy, new DefaultListableBeanFactory());
+        SecurityReport baseline = scanner.scan();
+        proxy.setFirewall(firewall);
+
+        SecurityReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations())
+                .anyMatch(value -> value.startsWith("SEC-CONFIG-008:") && value.contains("firewall"));
+        assertThat(report.results()).isEqualTo(baseline.results());
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-AUTHZ-002");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-CONFIG-008");
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.CapturedEmail;
@@ -13,6 +14,7 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -41,6 +43,46 @@ class CorrelationStampingTests {
         assertThat(source.requestId()).isEqualTo("fedcba9876543210");
         source.set(null);
         assertThat(source.requestId()).isNull();
+    }
+
+    @Test
+    void failureAwareOwnershipReadsDistinguishFailedAndNullProvidersFromLegitimateBackgroundWork() {
+        CorrelationSource source = new CorrelationSource();
+        AtomicInteger calls = new AtomicInteger();
+        CorrelationContext owned = CorrelationContext.forRequest(REQUEST_ID);
+        source.set(() -> {
+            calls.incrementAndGet();
+            return owned;
+        });
+        CorrelationSource.Read active = source.read();
+        assertThat(calls.get()).isEqualTo(1);
+        assertThat(active.context()).isSameAs(owned);
+        assertThat(active.failed()).isFalse();
+        source.set(() -> CorrelationContext.NONE);
+        assertThat(source.read()).isEqualTo(new CorrelationSource.Read(CorrelationContext.NONE, false));
+        source.set(() -> null);
+        assertThat(source.read()).isEqualTo(new CorrelationSource.Read(CorrelationContext.NONE, true));
+        assertThat(source.current()).isSameAs(CorrelationContext.NONE);
+        source.set(() -> {
+            throw new IllegalStateException("private provider failure");
+        });
+        CorrelationSource.Read failed = source.read();
+        assertThat(failed.context()).isSameAs(CorrelationContext.NONE);
+        assertThat(failed.failed()).isTrue();
+        assertThat(failed.toString()).doesNotContain("private provider failure");
+        assertThat(source.current()).isSameAs(CorrelationContext.NONE);
+        source.set(() -> owned);
+        assertThat(source.read()).isEqualTo(new CorrelationSource.Read(owned, false));
+    }
+
+    @Test
+    void failureAwareAndLegacyOwnershipReadsStillPropagateErrors() {
+        CorrelationSource source = new CorrelationSource();
+        source.set(() -> {
+            throw new AssertionError("fatal sentinel");
+        });
+        assertThatThrownBy(source::read).isInstanceOf(AssertionError.class).hasMessage("fatal sentinel");
+        assertThatThrownBy(source::current).isInstanceOf(AssertionError.class).hasMessage("fatal sentinel");
     }
 
     @Test

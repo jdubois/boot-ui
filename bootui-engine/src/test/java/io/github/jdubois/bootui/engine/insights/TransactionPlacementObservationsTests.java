@@ -1,11 +1,16 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
@@ -18,14 +23,23 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class TransactionPlacementObservationsTests {
 
@@ -75,7 +89,7 @@ class TransactionPlacementObservationsTests {
     }
 
     @Test
-    void writesCommittedByTwoIndependentUnitsAreReportedAndJoinedOrRolledBackOnesAreNot() {
+    void writesAcrossIndependentBoundaryCandidatesAreReportedAndJoinedOrRolledBackOnesAreNot() {
         // A transaction, then an autocommit write after it.
         request(
                 "POST",
@@ -113,9 +127,9 @@ class TransactionPlacementObservationsTests {
 
         assertThat(byKind(report, SplitTransactionWrites.KIND)).singleElement().satisfies(observation -> {
             assertThat(observation.sentence())
-                    .isEqualTo("`POST /api/orders` committed its writes in 2 independent units in 2 of 4 requests"
-                            + " that wrote: if these writes must succeed together, one may persist while another"
-                            + " fails.");
+                    .isEqualTo("`POST /api/orders` recorded writes in 2 groups across data sources or recorded"
+                            + " transaction boundaries in 2 of 4 requests that wrote; their required atomicity"
+                            + " needs verification.");
             assertThat(observation.exemplarRequestIds()).containsExactly("r1", "r2");
         });
         assertThat(service(InsightsStack.SPRING_MVC)
@@ -124,11 +138,323 @@ class TransactionPlacementObservationsTests {
                         .get(1)
                         .cells()
                         .get(2))
-                .isEqualTo("OrderService.place: 2 writes, first `insert into orders values (?)`; AuditService.log"
-                        + " (nested): 1 write, first `insert into audit values (?)`");
+                .contains(
+                        "`db`, recorded physical boundary",
+                        ": 2 writes, first `insert into orders values (?)`",
+                        ": 1 write, first `insert into audit values (?)`")
+                .doesNotContain("OrderService.place", "AuditService.log", "committed");
         assertThat(check(service(InsightsStack.QUARKUS).report(), SplitTransactionWrites.KIND)
                         .status())
                 .isEqualTo("NOT_APPLICABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void writesToTwoNamedSourcesInsideOneWindowAskAboutAtomicityWithoutInventingResourceOwnership(
+            boolean boundaryKnown) {
+        request(
+                "POST",
+                "/api/resources",
+                new Child(
+                        JournalSource.TRANSACTION,
+                        100,
+                        new TransactionPayload(
+                                "OrderService.place",
+                                false,
+                                false,
+                                false,
+                                100,
+                                false,
+                                null,
+                                false,
+                                null,
+                                -1,
+                                -1,
+                                -1,
+                                true,
+                                boundaryKnown),
+                        null),
+                write("ordersDataSource", 140),
+                write("auditDataSource", 150));
+
+        for (InsightsStack stack : List.of(InsightsStack.SPRING_MVC, InsightsStack.SPRING_WEBFLUX)) {
+            RuntimeInsightsService insights = service(stack);
+            assertThat(check(insights.report(), SplitTransactionWrites.KIND).title())
+                    .isEqualTo("Write atomicity to verify");
+            assertThat(byKind(insights.report(), SplitTransactionWrites.KIND))
+                    .singleElement()
+                    .satisfies(observation -> {
+                        assertThat(observation.sentence())
+                                .contains("data sources", "atomicity")
+                                .doesNotContain("2 independent units", "committed its writes", "one may persist");
+                        assertThat(observation.eligible()).isEqualTo(1);
+                        assertThat(observation.affected()).isEqualTo(1);
+                        assertThat(insights.insight(observation.id()).rows())
+                                .singleElement()
+                                .satisfies(row -> assertThat(String.join(" ", row.cells()))
+                                        .contains("ordersDataSource", "auditDataSource")
+                                        .doesNotContain("autocommit", "OrderService.place"));
+                        assertThat(observation.limitations())
+                                .anyMatch(limit -> limit.contains("XA") && limit.contains("ownership"));
+                    });
+        }
+    }
+
+    @Test
+    void oneKnownSourceOrAnUnknownSourceDoesNotInventAMultiResourceBoundary() {
+        request(
+                "POST",
+                "/api/one-resource",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                write("ordersDataSource", 140),
+                write("ordersDataSource", 150));
+        request(
+                "POST",
+                "/api/unknown-resource",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                write("ordersDataSource", 140),
+                write(null, 150));
+
+        RuntimeInsightsReportDto report = service(InsightsStack.SPRING_MVC).report();
+
+        assertThat(byKind(report, SplitTransactionWrites.KIND)).isEmpty();
+        assertThat(check(report, SplitTransactionWrites.KIND).eligibleRequests())
+                .isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rolledBackOrSavepointWindowsDoNotProveTheOwnershipOfTwoNamedSources(boolean rolledBack) {
+        request(
+                "POST",
+                "/api/resources",
+                transaction("OrderService.place", false, false, rolledBack, 100, 200),
+                transaction("StockService.reserve", true, true, false, 130, 170),
+                write("ordersDataSource", 140),
+                write("auditDataSource", 150));
+
+        assertThat(byKind(service(InsightsStack.SPRING_MVC).report(), SplitTransactionWrites.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.sentence())
+                        .contains("atomicity")
+                        .doesNotContain("2 independent units", "committed its writes", "one may persist"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"no-window", "unknown-window-time", "unknown-statement-time"})
+    void namedResourceFactsDoNotRequireInventedTransactionPlacement(String missing) {
+        if (!missing.equals("no-window")) {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.TRANSACTION,
+                    1_000,
+                    100,
+                    CorrelationContext.forRequest("r1"),
+                    "http-1",
+                    null,
+                    false,
+                    new TransactionPayload(
+                            "OrderService.place",
+                            false,
+                            false,
+                            false,
+                            missing.equals("unknown-window-time") ? -1 : 100)));
+        }
+        request(
+                "POST",
+                "/api/resources",
+                write("ordersDataSource", 140),
+                write("auditDataSource", missing.equals("unknown-statement-time") ? -1 : 150));
+
+        assertThat(byKind(service(InsightsStack.SPRING_MVC).report(), SplitTransactionWrites.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.eligible()).isEqualTo(1);
+                    assertThat(observation.affected()).isEqualTo(1);
+                    assertThat(observation.sentence()).contains("atomicity");
+                    assertThat(observation.limitations())
+                            .anyMatch(limit -> limit.contains("not proven physical-resource"));
+                });
+    }
+
+    @Test
+    void anUnprovenBoundaryIsNotAutocommitOrAnEligibleAbsenceOfSplitWrites() {
+        request(
+                "POST",
+                "/api/unknown-boundary",
+                new Child(
+                        JournalSource.TRANSACTION,
+                        100,
+                        new TransactionPayload(
+                                "OrderService.place",
+                                false,
+                                false,
+                                false,
+                                100,
+                                false,
+                                null,
+                                false,
+                                null,
+                                -1,
+                                -1,
+                                -1,
+                                true,
+                                false),
+                        null),
+                write("ordersDataSource", 140),
+                write("ordersDataSource", 150));
+
+        RuntimeInsightsReportDto report = service(InsightsStack.SPRING_MVC).report();
+
+        assertThat(byKind(report, SplitTransactionWrites.KIND)).isEmpty();
+        assertThat(check(report, SplitTransactionWrites.KIND).eligibleRequests())
+                .isZero();
+        assertThat(check(report, SplitTransactionWrites.KIND).reason()).contains("boundary ownership");
+    }
+
+    @Test
+    void mixedSourcesAndKnownSplitBoundariesKeepOneRouteIdentityAndRetainedFacts() {
+        request(
+                "POST",
+                "/api/resources",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                write("ordersDataSource", 140),
+                write("auditDataSource", 150));
+        request(
+                "POST",
+                "/api/resources",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                write("ordersDataSource", 140),
+                write("ordersDataSource", 250));
+        request(
+                "POST",
+                "/api/resources",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                write("ordersDataSource", 140),
+                write("ordersDataSource", 150));
+        request("POST", "/api/resources", write("ordersDataSource", -1));
+        RuntimeInsightsService insights = service(InsightsStack.SPRING_MVC);
+        RuntimeObservationDto before =
+                byKind(insights.report(), SplitTransactionWrites.KIND).get(0);
+        long sequence = journal.status().lastSequence();
+        insights.setSqlCapture(() -> {
+            throw new IllegalStateException("controlled current capture-status failure");
+        });
+
+        assertThat(byKind(insights.report(), SplitTransactionWrites.KIND))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.id()).isEqualTo(before.id());
+                    assertThat(observation.id())
+                            .isEqualTo(RuntimeInsightsService.idOf(SplitTransactionWrites.KIND, "POST /api/resources"));
+                    assertThat(observation.eligible()).isEqualTo(3);
+                    assertThat(observation.affected()).isEqualTo(2);
+                    assertThat(observation.exemplarRequestIds()).containsExactly("r1", "r2");
+                    assertThat(insights.insight(observation.id()).rows()).hasSize(2);
+                });
+        assertThat(journal.status().lastSequence()).isEqualTo(sequence);
+    }
+
+    @Test
+    void nativeExecutedWritesKeepTheirDataSourcesEvenWhenOneTransactionWindowContainsBoth() throws Exception {
+        SqlTraceRecorder sqlRecorder = new SqlTraceRecorder(true, true, false, false, 20, 100, 2_000, 200, 5);
+        sqlRecorder.setRuntimeEventSink(journal);
+        TransactionRecorder transactions = new TransactionRecorder(true, true, 20, 100, 100, sqlRecorder);
+        transactions.setRuntimeEventSink(journal);
+        List<DataSource> sources = new ArrayList<>();
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+            long boundary = transactions.beginTransaction(
+                    "OrderService.place", false, null, Thread.currentThread().getName(), null);
+            for (String name : List.of("ordersDataSource", "auditDataSource")) {
+                DataSource source = mock(DataSource.class);
+                sources.add(source);
+                Connection connection = mock(Connection.class);
+                Statement statement = mock(Statement.class);
+                when(source.getConnection()).thenReturn(connection);
+                when(connection.createStatement()).thenReturn(statement);
+                when(statement.executeUpdate("insert into audit values (1)")).thenReturn(1);
+                try (Connection traced =
+                        SqlTracingProxies.wrapNamed(source, sqlRecorder, name).getConnection()) {
+                    traced.createStatement().executeUpdate("insert into audit values (1)");
+                }
+            }
+            transactions.completeTransaction(boundary, TransactionRecorder.Status.COMMITTED, null);
+        }
+        request("POST", "/api/native-resources");
+        List<RuntimeEvent> events =
+                journal.entries().stream().map(entry -> entry.event()).toList();
+        List<RuntimeEvent> writes =
+                events.stream().filter(SplitTransactionWrites::committedWrite).toList();
+        RuntimeEvent boundary = events.stream()
+                .filter(event -> event.payload() instanceof TransactionPayload)
+                .findFirst()
+                .orElseThrow();
+        assertThat(events.stream().filter(event -> event.payload() instanceof TransactionPayload))
+                .hasSize(1);
+        assertThat(writes).hasSize(2).allSatisfy(event -> {
+            SqlPayload sql = (SqlPayload) event.payload();
+            TransactionPayload transaction = (TransactionPayload) boundary.payload();
+            assertThat(sql.executed()).isTrue();
+            assertThat(sql.completedNanos())
+                    .isBetween(transaction.startNanos(), transaction.startNanos() + boundary.durationNanos());
+        });
+        assertThat(writes.stream().map(event -> ((SqlPayload) event.payload()).dataSource()))
+                .containsExactlyInAnyOrder("ordersDataSource", "auditDataSource");
+        assertThat(byKind(service(InsightsStack.SPRING_MVC).report(), SplitTransactionWrites.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.sentence())
+                        .contains("data sources", "atomicity")
+                        .doesNotContain("independent units", "committed its writes"));
+        for (DataSource source : sources) {
+            verify(source).getConnection();
+            verifyNoMoreInteractions(source);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "/* Hibernate insert */ insert into orders values (?)",
+                "-- Hibernate update\nupdate orders set shipped = ?",
+                "/* Hibernate delete */ delete from orders where id = ?",
+                "/* Hibernate merge */ merge into orders using incoming on orders.id = incoming.id when matched then"
+                        + " update set shipped = ?",
+                "replace into orders values (?)",
+                "/* Hibernate replace */ replace into orders values (?)"
+            })
+    void commentedWritesAndReplaceKeepTheirTransactionUnitsWhileCommentedReadsDoNotWrite(String statement) {
+        request(
+                "POST",
+                "/api/orders",
+                transaction("OrderService.place", false, false, false, 100, 200),
+                sql(statement, RequestPhase.HANDLER, 150),
+                sql("insert into audit values (?)", RequestPhase.HANDLER, 250),
+                sql("/* delete from orders */ select * from orders", RequestPhase.HANDLER, 260),
+                sql("-- update orders set shipped = ?\nselect * from orders", RequestPhase.HANDLER, 270));
+        request(
+                "GET",
+                "/api/read-only",
+                sql("/* insert into orders values (?) */ select * from orders", RequestPhase.HANDLER, 150),
+                sql("select 'delete from orders' from orders", RequestPhase.HANDLER, 250));
+
+        for (InsightsStack stack : List.of(InsightsStack.SPRING_MVC, InsightsStack.SPRING_WEBFLUX)) {
+            RuntimeInsightsService insights = service(stack);
+            assertThat(byKind(insights.report(), SplitTransactionWrites.KIND))
+                    .singleElement()
+                    .satisfies(observation -> {
+                        assertThat(observation.subject()).isEqualTo("POST /api/orders");
+                        assertThat(observation.sentence())
+                                .contains("recorded writes in 2 groups", "in 1 of 1 request", "atomicity");
+                        assertThat(observation.exemplarRequestIds()).containsExactly("r1");
+                        assertThat(insights.insight(observation.id()).rows())
+                                .singleElement()
+                                .satisfies(row -> {
+                                    assertThat(row.cells().subList(0, 2)).containsExactly("r1", "2");
+                                    assertThat(row.cells().get(2))
+                                            .contains("recorded physical boundary", "autocommit candidate")
+                                            .doesNotContain("OrderService.place");
+                                });
+                    });
+        }
     }
 
     @Test
@@ -292,6 +618,23 @@ class TransactionPlacementObservationsTests {
                 JournalSource.SQL,
                 1,
                 new SqlPayload(sql, "Repo.run:1", "db", false, null, phase, completedNanos),
+                null);
+    }
+
+    private static Child write(String dataSource, long completedNanos) {
+        return new Child(
+                JournalSource.SQL,
+                0,
+                new SqlPayload(
+                        "insert into audit values (?)",
+                        "Repo.run:1",
+                        dataSource,
+                        false,
+                        null,
+                        RequestPhase.HANDLER,
+                        completedNanos,
+                        0,
+                        SqlPayload.Provenance.EXECUTION),
                 null);
     }
 

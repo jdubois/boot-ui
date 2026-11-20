@@ -9,12 +9,187 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,
+  preserves independent SQL and client evidence, and keeps matrix parameters out of fallback site identity.
+  Thread names no longer diagnose `@Async` proxy bypass; unassessed async frames retain independently judgeable
+  transaction and cache boundaries ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Resource attribution** keeps observed connection overlap without inferring nested waiting or an exhaustion
+  estimate, and asks about write atomicity across captured data sources and boundaries without claiming physical
+  ownership or independent commits ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Authorization target evidence** distinguishes request-route restrictions from object-level method decisions.
+  Genuine request findings retain exposure-controlled paths and separately labeled method context without
+  exposing method rules ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Cache capture proof** brackets retained journal reads again, so a concurrent capture change cannot manufacture
+  an absence finding or hide newly retained work. Current SQL capture gaps still preserve known facts
+  ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Runtime capture qualification** retains observed SQL and log facts when live capture is unavailable, without
+  treating preparation-only or unassessed work as healthy absence. Native logging defaults, per-unit coverage,
+  request denominators and captured-fact exports remain explicit
+  ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Filtered collection fetches** add a bounded MEDIUM review for supported static queries that may initialize
+  only part of a managed collection, without running queries. Unsupported shapes stay unassessed; query text and
+  values are not exposed ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
+- **Production logger declarations** include explicit Hibernate bind and SQL category levels only when their
+  captured category minimum permits them. Unobserved production configuration stays incomplete; global logger
+  evidence is not assigned to a persistence unit ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md)).
+- **Actuator endpoint identity** survives root and remapped MVC paths through bounded, passive native metadata.
+  Additional health paths retain their proven health identity and actual evidence URLs; endpoint presence alone
+  does not establish exposure ([Pentesting checks](docs/PENTEST-CHECKS.md)).
+- **Gradle cache coordinates** recognize eligible local main JARs without searching caches or starting scans.
+  Shipped SBOM, descriptor and identified classpath matches retain precedence; newly identified cache archives do
+  not rescue conflicting excluded-SBOM coordinates. Path-derived coordinates remain unassessed, not publication
+  authentication ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
+- **Captured management-port references** support `management.server.port=${server.port}` only when the matching
+  literal value was already captured with consistent provenance. Other expressions and uncertain sources remain
+  unassessed ([Security checks](docs/SECURITY-CHECKS.md)).
+- **Active Hibernate grades** follow the remaining known findings after a per-finding dismissal when retention is
+  complete. Raw snapshots, all-active grading, identities and strict CI suppression guards are unchanged; incomplete
+  retention remains conservative ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
+- **Nested validation evidence** requires reachable constraints rather than bare cascade markers or constraint-free
+  cycles. Missing metadata stays incomplete under the existing strict policy; finding identities and grouping are
+  unchanged ([REST API checks](docs/REST-API-CHECKS.md)).
+- **Reactive CSRF evidence** distinguishes the supported default matcher from filter presence alone. Relevant
+  custom matcher policies remain unassessed without invoking them, while known missing-filter findings and
+  unrelated assessed observations remain visible ([Security checks](docs/SECURITY-CHECKS.md)).
+- **PostgreSQL foreign-key evidence** checks native trigger activation instead of inferring enforcement from
+  validation declarations. Unsupported layouts remain unknown, and active SET NULL actions retain their findings
+  even when other constraint triggers are disabled ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md)).
+- **Hibernate JDBC value logging** also detects effective result-extraction TRACE logging without reading log
+  messages or JDBC values. Separate finding identities preserve existing bind-only dismissals; whole-rule dismissals
+  still cover both channels, and unknown observations remain incomplete
+  ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
+- **Servlet firewall evidence** leaves unsupported or unreadable native policy unassessed instead of certifying it
+  safe. Known findings remain visible; incomplete assessments follow the existing strict CI policy
+  ([Security checks](docs/SECURITY-CHECKS.md)).
+- **GitHub fork context** keeps origin as the cached default and offers explicit upstream selection, with separate
+  host-scoped data and read-only cache recovery. Invalid remote queries are rejected before cache or external work;
+  MCP, CLI and Scorecard remain origin-only ([GitHub](docs/features/developer-tools.md#github)).
+- **CRaC field cleanup evidence** recognizes narrowly proven self-registration and field-bound cleanup only as an
+  unverified MEDIUM review, not checkpoint safety. Unknown or overridden callbacks retain HIGH; existing review
+  severity and scores can change ([CRaC checks](docs/CRAC-READINESS-CHECKS.md)).
+- **Request validation relevance** reports missing validation at MEDIUM only for positively observed reachable
+  payload constraints, retaining unknown metadata as unassessed. Existing MEDIUM-or-higher CI gates can newly apply;
+  validation triggers and groups are not execution proof ([REST API checks](docs/REST-API-CHECKS.md)).
+- **JVM percentage context** shows the modeled heap and assumed memory limit beside the emitted percentages, with
+  recalculation and image-launcher guidance rather than an effective-heap guarantee
+  ([JVM tuning](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **Heap-content reviews** use bounded absolute/share thresholds and avoid attributing the same reported collection
+  row to two checks. Missing histogram totals remain unassessed beside retained known observations
+  ([Memory checks](docs/MEMORY-CHECKS.md)).
+- **Shared JDK state** checks include cryptographic engines, regex matchers and positively identified subtypes under
+  the existing MEDIUM rule. Unresolved ancestry stays unknown rather than proving safe concurrent use
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-019---classes-should-not-store-stateful-jdk-processors-in-static-or-shared-bean-fields)).
+- **Database index comparisons** use complete ordinary InnoDB catalog evidence on MySQL and MariaDB, retaining
+  unknown definitions and avoiding unrelated primary-key-overlap warnings. Newly assessed LOW findings use unchanged
+  severity and strict CI policies ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md)).
+- **Spring REST handler discovery** retains inherited and composed MVC/WebFlux mappings, concrete dispatch and
+  independent inherited binding/status evidence without counting implemented interface blueprints twice. Newly
+  observable findings use existing IDs, severities, dismissals and strict CI gates; unresolved mappings remain partial
+  ([REST API checks](docs/REST-API-CHECKS.md#what-bootui-does)).
+- **Unassessed advisory candidates** remain discoverable when OSV detail requests fail or hit scan bounds, without
+  inventing interpreted vulnerabilities, severities or confirmed-vulnerable counts
+  ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
+- **Memory scan control** can omit the GC-triggering histogram while preserving honest unassessed content checks;
+  Scorecard scans use this cheaper mode and explicit Memory scans disclose their selection
+  ([Memory checks](docs/MEMORY-CHECKS.md)).
+- **GraalVM dependency hint sources** distinguish bundled JSON, Spring AOT contributor declarations and repository
+  matches. Bundled sources avoid redundant lookups without claiming native-image compatibility
+  ([GraalVM readiness](docs/GRAALVM-READINESS-CHECKS.md#dependency-survey)).
+- **Spring health-probe defaults** honor native endpoint access settings and warn that development-time Actuator
+  does not prove deployment dependencies or endpoint reachability
+  ([JVM tuning](docs/JVM-TUNING-CHECKS.md#platform-behavior-and-limitations)).
+- **CRaC resource inventory** distinguishes datasource observations from proven pools and recognizes additional exact
+  Spring-managed factories without invoking clients or certifying checkpoint safety
+  ([CRaC checks](docs/CRAC-READINESS-CHECKS.md#crac-pool-001---non-hikari-resources-need-verified-checkpoint-lifecycle-support)).
+- **Runtime Insights write classification** recognizes leading-comment DML and `REPLACE` consistently in safe-method,
+  split-transaction and after-completion-listener observations, without treating commented SELECTs as writes or
+  changing captured execution/transaction provenance. CTE-headed writes and procedure calls remain outside the
+  lexical classifier ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Composed Spring roles** are recognized by the async-configuration and async-event-listener Architecture checks,
+  including `@SpringBootApplication` and `@TransactionalEventListener`. Newly detected MEDIUM findings use the existing
+  severity, dismissal and CI policies ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-013---async-should-not-be-used-in-configuration-classes)).
+- **Architecture application scope** excludes known local test output without losing genuine production findings or
+  borrowing test-only callers and subclasses. Archives, unknown layouts and production dependencies stay eligible
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#static-analysis-limits)).
+- **Generated-code evidence** recognizes Spring AOT's retained class marker, including classes imported from archives,
+  under the existing coding-rule and generated HTTP-client exemptions. It does not trust name suffixes or load Spring
+  APIs ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#generated-application-code)).
+- **ARCH-CODE-013 test-library detection** also flags production references to Spring Mock, Spring Security Test,
+  Reactor Test, TestNG and MockK. New MEDIUM findings use unchanged scoring and CI severity policies
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-013---application-classes-should-not-depend-on-test-frameworks)).
+- **Dependency risk labels** keep unassessed evidence neutral instead of showing green `NONE`; completed packages
+  and known finding severities retain their meaning ([Vulnerability checks](docs/VULNERABILITIES-CHECKS.md)).
+- **Servlet method-inventory evidence** uses the application class loader and distinguishes observed singletons,
+  cached factory producers/products, proven static proxy targets and bound final factory declarations from opaque
+  or inherited creation paths without executing callbacks or creating early singleton references. Native creator
+  eligibility qualifies advisor activation; legacy configuration has independent evidence and passive field hints
+  cover the added readers. Unresolved targets and bindings remain unknown, including class-based targets on GraalVM.
+  A failed application type lookup preserves other observations. Rule IDs, severities and dismissals are unchanged. Existing
+  `SEC-AUTHZ-001`/`SEC-AUTHZ-002` findings stay HIGH when metadata is incomplete; assessment eligibility and strict CI
+  verdicts can change ([scope and verdict impact](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
+- **Ignored security paths** use new SEC-AUTHZ-006 instead of filterless-chain SEC-AUTHZ-001 findings;
+  existing SEC-AUTHZ-001 dismissals are not copied ([Security checks](docs/SECURITY-CHECKS.md)).
+- **Hibernate query coverage** excludes narrowly proven static bulk DML from HIB-QUERY-007; discharging the last gap can expose existing findings to unchanged strict CI gates
+  ([scope and gate impact](docs/HIBERNATE-CHECKS.md#hib-query-007---queries-should-not-join-fetch-more-than-one-collection)).
+- **Explicit GitHub refresh** opens cached data without contacting GitHub, requires opt-in polling, preserves cached
+  data on HTTP and report errors, and supports cache-only read-only retries ([GitHub](docs/features/developer-tools.md#github)).
+- **Host-bound GitHub credentials** prevent public or other Enterprise tokens from authenticating a different host
+  ([GitHub](docs/features/developer-tools.md#github)).
+- **Consistent CSP reviews** keep weak script policies at the missing-policy LOW baseline across all advisors without double-counting hardening gaps
+  ([Advisor checks](docs/features/advisors.md#security)).
+- **JVM default heap floor** accounts for observed direct memory, headroom and rounding, and keeps untouched UI
+  refreshes in default mode ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **Scheduling advisor precision** separates MEDIUM `SPRING-WIRING-012` reviews without copying old `SPRING-WIRING-011` dismissals; other infrastructure checks stay HIGH
+  ([Spring checks](docs/SPRING-CHECKS.md)).
+- **GitHub response integrity** keeps malformed alert responses unavailable rather than reporting zero, marks failed
+  alert signals partial, and preserves HTTP status without exposing response bodies
+  ([GitHub](docs/features/developer-tools.md#github)).
+- **Cache proxy-bypass accuracy** no longer treats disabled or unavailable cache capture as a bypass on Spring MVC and WebFlux
+  ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Architecture self-proxy precision** clears recognized lazy self-proxy calls while retaining direct self-call findings
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods)).
+- **JVM heap recommendations** reject options below observed heap used and give untouched host defaults a documented
+  20% starting allowance, without inflating explicit budgets ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **JVM Metaspace recommendations** reserve at least observed committed metadata plus a documented 25% starting
+  allowance, retain larger class estimates, and reject insufficient budgets without emitting options or YAML
+  ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **Opt-in Burstable memory requests** cover the modeled heap plus observed non-heap commitment while
+  retaining the snapshot margin. Infeasible floors produce no Kubernetes options or YAML, without inflating the limit
+  or changing default emitted request/limit, QoS, or YAML. The informational Burstable alternative is also floored when
+  opt-in is off ([model](docs/JVM-TUNING-CHECKS.md#kubernetes-behavior)).
+- **Quarkus producer-proxy precision** avoids HIGH findings for proxyable JDK types such as abstract `Clock` and
+  retains native ArC unproxyability errors without inferring their failure stage from type shape
+  ([Quarkus client-proxy checks](docs/QUARKUS-ADVISOR-CHECKS.md#qa-cdi-005---normal-scoped-bean-cannot-be-client-proxied)).
+- **H2 foreign-key access-path evidence** recognizes catalog-confirmed ordinary MVStore secondary indexes instead of
+  leaving their JDBC `tableIndexOther` access method unknown. Spatial, hash, custom and unreadable definitions remain
+  unverified, as do primary-key implementations. The catalog read preserves the borrowed session's exact query timeout
+  and JDBC getter cache; an unverifiable physical close target leaves the refinement unknown.
+  If every other required check is complete, an H2 Database assessment can now become eligible for strict CI
+  and its existing severity gates; incomplete comparison or mapping evidence still prevents that promotion.
+  No severity, finding identity, dismissal or CI policy changes are made
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#db-schema-002---foreign-key-access-path-review)).
+- **Bounded GitHub alert pagination** validates named and metadata-bound repository-ID links, preserves baseline
+  request capacity, and keeps incomplete totals unknown while retaining bounded evidence
+  ([GitHub](docs/features/developer-tools.md#github)).
+- **External explicit-GC findings clear on rescans without new pauses**, with severity based only on the current
+  observation interval and incomplete notification coverage kept explicit
+  ([Memory checks](docs/MEMORY-CHECKS.md#time-and-collector-boundaries)).
 - **Hibernate CI coverage** no longer treats verified fetch-free SELECT entity joins as unknown collection-fetch
   evidence, or inherited `JpaRepository.saveAll` compiler bridges as custom entity-newness strategies.
 - **CI failure explanations** include bounded diagnostic-level counts and syntax-checked Hibernate rule identifiers
   without exposing diagnostic messages, persistence-unit names, or raw limitation text. Strict coverage gates and
   saved JSON bundle contracts remain unchanged.
 
+### Changed
+
+- **JUL advice moves to INFO** on Spring, retaining detection, IDs, and dismissals without score penalties or LOW-gate failures
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-003---classes-should-not-use-javautillogging)).
+- **Hibernate eager-fetch guidance** lowers to-one HIB-FETCH-001 from HIGH to MEDIUM; new HIB-FETCH-010 keeps collections
+  HIGH. Old HIB-FETCH-001 dismissals are not copied, so hidden collection findings reappear on rescan. Unreadable fetch
+  declarations now report incomplete evidence rather than silently passing
+  ([migration and gate impact](docs/HIBERNATE-CHECKS.md#hib-fetch-001---review-eager-to-one-fetch-plans)).
+- **Servlet authorization findings** use MEDIUM coverage review for observed method-annotation use with matching activation for every used family; HTTP gaps remain and endpoint protection is not proven
+  ([Security checks](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
 ## [2.5.0] - 2026-11-17
 
 This release makes slow requests easier to investigate with same-route baselines and clearer request profiles.

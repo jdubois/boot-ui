@@ -4,17 +4,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -27,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class SchemaIntrospectorTests {
@@ -530,6 +538,465 @@ class SchemaIntrospectorTests {
         assertThat(snapshot.truncated()).isTrue();
         assertThat(snapshot.tables().get(0).metadata().indexesRead()).isFalse();
         assertThat(snapshot.tables().get(0).indexes()).isEmpty();
+    }
+
+    @Test
+    void realH2CatalogDistinguishesOrdinaryForeignKeyIndexesFromSpatialTableIndexOther() throws Exception {
+        String url = "jdbc:h2:mem:index-methods-" + System.nanoTime();
+        try (Connection connection = DriverManager.getConnection(url);
+                Statement statement = connection.createStatement()) {
+            statement.execute("create table parent (a int, b int, primary key (a, b))");
+            statement.execute("create table child (id int primary key, a int, b int, shape geometry)");
+            statement.execute("create index ordinary_fk on child (a desc, b asc)");
+            statement.execute("create unique index ordinary_unique on child (a desc, b asc)");
+            statement.execute("alter table child add constraint fk_child foreign key (a, b) references parent (a, b)");
+            statement.execute("create spatial index spatial_shape on child (shape)");
+            boolean spatialObserved = false;
+            try (ResultSet rs =
+                    connection.getMetaData().getIndexInfo(connection.getCatalog(), "PUBLIC", "CHILD", false, true)) {
+                while (rs.next()) {
+                    if ("SPATIAL_SHAPE".equals(rs.getString("INDEX_NAME"))) {
+                        spatialObserved = true;
+                        assertThat(rs.getInt("TYPE")).isEqualTo(DatabaseMetaData.tableIndexOther);
+                        assertThat(rs.getString("COLUMN_NAME")).isEqualTo("SHAPE");
+                        assertThat(rs.getString("FILTER_CONDITION")).isNull();
+                    }
+                }
+            }
+            assertThat(spatialObserved).isTrue();
+
+            SchemaSnapshot snapshot =
+                    SchemaIntrospector.introspect("h2", () -> DriverManager.getConnection(url), budget(), limits());
+
+            assertThat(snapshot.available()).isTrue();
+            assertThat(snapshot.complete()).isTrue();
+            TableModel child = snapshot.table("CHILD");
+            assertThat(child).isNotNull();
+            assertThat(child.indexes())
+                    .filteredOn(index -> index.name().equals("ORDINARY_UNIQUE"))
+                    .singleElement()
+                    .satisfies(index -> {
+                        assertThat(index.method()).isEqualTo("btree");
+                        assertThat(index.unique()).isTrue();
+                        assertThat(index.comparisonComplete()).isFalse();
+                    });
+            assertThat(child.indexes())
+                    .filteredOn(index -> index.columnNames().equals(List.of("ID")))
+                    .singleElement()
+                    .satisfies(index -> assertThat(index.method()).isNull());
+            assertThat(child.indexes())
+                    .filteredOn(index -> index.name().equals("ORDINARY_FK"))
+                    .singleElement()
+                    .satisfies(index -> {
+                        assertThat(index.method()).isEqualTo("btree");
+                        assertThat(index.keyParts())
+                                .containsExactly(IndexKeyPart.column("A", false), IndexKeyPart.column("B", true));
+                        assertThat(index.comparisonComplete()).isFalse();
+                        assertThat(index.validity()).isEqualTo(IndexModel.Validity.UNKNOWN);
+                        assertThat(index.visibility()).isEqualTo(IndexModel.Visibility.UNKNOWN);
+                    });
+            assertThat(child.indexes())
+                    .filteredOn(index -> index.name().equals("SPATIAL_SHAPE"))
+                    .singleElement()
+                    .satisfies(index -> assertThat(index.method()).isNull());
+            DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(snapshot);
+            assertThat(new MissingForeignKeyIndexRule().evaluate(context).status())
+                    .isEqualTo("PASS");
+            assertThat(context.evaluationDiagnostics()).isEmpty();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "spatial",
+                "hash",
+                "custom",
+                "filtered",
+                "expression",
+                "wrong-scope",
+                "wrong-catalog",
+                "wrong-table",
+                "wrong-index-schema",
+                "blank-name",
+                "duplicate-name",
+                "case-name",
+                "other-product",
+                "other-driver",
+                "unknown-version"
+            })
+    void h2RefinementDoesNotPromoteUnsupportedOrUnidentifiedIndexEvidence(String shape) throws Exception {
+        Connection connection = h2Connection();
+        Map<String, Object> jdbc = indexRow("idx", "a", 1);
+        Map<String, Object> catalog = h2IndexRow("idx");
+        switch (shape) {
+            case "spatial" -> catalog.put("INDEX_TYPE_NAME", "SPATIAL INDEX");
+            case "hash" -> jdbc.put("TYPE", DatabaseMetaData.tableIndexHashed);
+            case "custom" -> catalog.put("INDEX_CLASS", "example.CustomIndex");
+            case "filtered" -> jdbc.put("FILTER_CONDITION", "a > 0");
+            case "expression" -> jdbc.remove("COLUMN_NAME");
+            case "wrong-scope" -> catalog.put("TABLE_SCHEMA", "another");
+            case "wrong-catalog" -> catalog.put("TABLE_CATALOG", "another");
+            case "wrong-table" -> catalog.put("TABLE_NAME", "another");
+            case "wrong-index-schema" -> catalog.put("INDEX_SCHEMA", "another");
+            case "blank-name" -> catalog.put("INDEX_NAME", " ");
+            case "case-name" -> catalog.put("INDEX_NAME", "IDX");
+            case "duplicate-name" -> {}
+            case "other-product" ->
+                when(connection.getMetaData().getDatabaseProductName()).thenReturn("Other");
+            case "other-driver" ->
+                when(connection.getMetaData().getDriverName()).thenReturn("Other JDBC Driver");
+            case "unknown-version" ->
+                when(connection.getMetaData().getDatabaseMajorVersion()).thenThrow(new SQLException("unknown"));
+            default -> throw new AssertionError(shape);
+        }
+        when(connection.getMetaData().getIndexInfo(any(), any(), any(), anyBoolean(), anyBoolean()))
+                .thenReturn(rows(jdbc));
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(connection.prepareStatement(contains("FROM INFORMATION_SCHEMA.INDEXES")))
+                .thenReturn(statement);
+        when(statement.executeQuery())
+                .thenReturn(shape.equals("duplicate-name") ? rows(catalog, catalog) : rows(catalog));
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.available()).isTrue();
+        DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(snapshot);
+        assertThat(new MissingForeignKeyIndexRule().evaluate(context).status())
+                .as(shape)
+                .isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-002"));
+        if (List.of("other-product", "other-driver", "unknown-version", "filtered", "expression", "hash")
+                .contains(shape)) {
+            verify(connection, never()).prepareStatement(any());
+        }
+    }
+
+    @Test
+    void failedH2CatalogDiscardsItsRowsButRetainsJdbcIndexesAndRequiredUnknown() throws Exception {
+        Connection connection = h2Connection();
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(connection.prepareStatement(contains("FROM INFORMATION_SCHEMA.INDEXES")))
+                .thenReturn(statement);
+        ResultSet failing = mock(ResultSet.class);
+        when(failing.next()).thenReturn(true).thenThrow(new SQLException("password=hunter2"));
+        when(failing.getString(anyString()))
+                .thenAnswer(invocation -> h2IndexRow("idx").get(invocation.getArgument(0)));
+        when(statement.executeQuery()).thenReturn(failing);
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.complete()).isFalse();
+        assertThat(snapshot.tables()).singleElement().satisfies(table -> {
+            assertThat(table.metadata().indexesRead()).isTrue();
+            assertThat(table.indexes())
+                    .singleElement()
+                    .satisfies(index -> assertThat(index.method()).isNull());
+        });
+        assertThat(snapshot.diagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message())
+                        .contains("H2 index access methods", "could not be read")
+                        .doesNotContain("hunter2"));
+        DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(snapshot);
+        assertThat(new MissingForeignKeyIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics()).isNotEmpty();
+        verify(statement, never()).setQueryTimeout(anyInt());
+        verify(statement).setMaxRows(limits().maxIndexesPerTable() + 1);
+        verify(statement).setString(1, "app");
+        verify(statement).setString(2, "public");
+        verify(statement).setString(3, "t");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void boundedH2CatalogRetainsOnlyObservedMethodsWithoutClaimingCompleteCoverage(boolean observed) throws Exception {
+        Connection connection = h2Connection();
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(connection.prepareStatement(contains("FROM INFORMATION_SCHEMA.INDEXES")))
+                .thenReturn(statement);
+        when(statement.executeQuery())
+                .thenReturn(rows(h2IndexRow(observed ? "idx" : "another"), h2IndexRow("overflow")));
+        DatabaseAdvisorLimits limits =
+                new DatabaseAdvisorLimits(10, 10, 1, 10, Duration.ofSeconds(30), Duration.ofSeconds(5));
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits);
+
+        assertThat(snapshot.truncated()).isTrue();
+        assertThat(snapshot.complete()).isFalse();
+        DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(snapshot);
+        assertThat(new MissingForeignKeyIndexRule().evaluate(context).status())
+                .isEqualTo(observed ? "PASS" : "SKIPPED");
+        assertThat(context.evaluationDiagnostics().isEmpty()).isEqualTo(observed);
+        assertThat(snapshot.tables().get(0).indexes().get(0).method()).isEqualTo(observed ? "btree" : null);
+        verify(statement).setMaxRows(2);
+        verify(statement).setInt(4, 2);
+    }
+
+    private static Connection h2Connection() throws Exception {
+        Connection connection = connection();
+        DatabaseMetaData metadata = connection.getMetaData();
+        when(metadata.getDatabaseProductName()).thenReturn("H2");
+        when(metadata.getDriverName()).thenReturn("H2 JDBC Driver");
+        when(metadata.getDatabaseMajorVersion()).thenReturn(2);
+        when(metadata.getDatabaseMinorVersion()).thenReturn(5);
+        when(metadata.getImportedKeys(any(), any(), any())).thenReturn(rows(fkRow("fk", 1, "a", "x")));
+        when(metadata.getIndexInfo(any(), any(), any(), anyBoolean(), anyBoolean()))
+                .thenReturn(rows(indexRow("idx", "a", 1)));
+        when(connection.unwrap(Connection.class)).thenReturn(mock(org.h2.jdbc.JdbcConnection.class));
+        PreparedStatement timeoutRead = mock(PreparedStatement.class);
+        when(connection.prepareStatement(contains("FROM INFORMATION_SCHEMA.SETTINGS")))
+                .thenReturn(timeoutRead);
+        when(timeoutRead.executeQuery()).thenAnswer(ignored -> rows(Map.of("SETTING_VALUE", 0)));
+        when(connection.prepareStatement("SET QUERY_TIMEOUT ?")).thenReturn(mock(PreparedStatement.class));
+        return connection;
+    }
+
+    @Test
+    void unavailableDriverEvidenceRetainsTheSchemaWithoutAttemptingH2Refinement() throws Exception {
+        Connection connection = h2Connection();
+        try (var evidence = mockStatic(DriverEvidenceReader.class)) {
+            evidence.when(() -> DriverEvidenceReader.read(any(), any(), any(), any()))
+                    .thenThrow(new IllegalArgumentException("unavailable"));
+
+            SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+            assertThat(snapshot.available()).isTrue();
+            assertThat(snapshot.driver()).isNull();
+            assertThat(snapshot.complete()).isFalse();
+            assertThat(snapshot.tables()).singleElement().satisfies(table -> {
+                assertThat(table.metadata().indexesRead()).isTrue();
+                assertThat(table.indexes())
+                        .singleElement()
+                        .satisfies(index -> assertThat(index.method()).isNull());
+            });
+            assertThat(snapshot.diagnostics())
+                    .anySatisfy(diagnostic ->
+                            assertThat(diagnostic.message()).contains("JDBC driver settings could not be evaluated"));
+            verify(connection, never()).prepareStatement(any());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "0, false, false", "0, false, true", "0, true, false", "0, true, true",
+        "1234, false, false", "1234, false, true", "1234, true, false", "1234, true, true",
+        "7501, false, false", "7501, false, true", "7501, true, false", "7501, true, true"
+    })
+    void h2RefinementPreservesExactSessionTimeoutAndJdbcCacheOnTheSamePhysicalConnection(
+            int originalTimeout, boolean cached, boolean catalogFailure) throws Exception {
+        try (Connection physical = DriverManager.getConnection("jdbc:h2:mem:timeout-" + System.nanoTime())) {
+            createH2TimeoutSchema(physical);
+            if (cached) {
+                try (Statement statement = physical.createStatement()) {
+                    statement.setQueryTimeout(7);
+                }
+            }
+            setNativeH2Timeout(physical, originalTimeout);
+            AtomicInteger duringCatalog = new AtomicInteger(-1);
+            AtomicInteger releases = new AtomicInteger();
+            Connection borrowed = borrowedH2Connection(
+                    physical, originalTimeout, catalogFailure, false, true, duringCatalog, releases);
+
+            SchemaSnapshot snapshot = SchemaIntrospector.introspect("h2", () -> borrowed, budget(), limits());
+
+            assertThat(snapshot.available()).isTrue();
+            assertThat(snapshot.complete()).isEqualTo(!catalogFailure);
+            assertThat(nativeH2Timeout(physical)).isEqualTo(originalTimeout);
+            try (Statement applicationStatement = physical.createStatement()) {
+                assertThat(applicationStatement.getQueryTimeout())
+                        .isEqualTo(cached ? 7 : (originalTimeout + 999) / 1_000);
+            }
+            assertThat(duringCatalog.get()).isEqualTo(originalTimeout > 0 ? Math.min(originalTimeout, 5_000) : 5_000);
+            assertThat(releases.get()).isEqualTo(1);
+            assertThat(physical.isClosed()).isFalse();
+            assertThat(snapshot.table("CHILD").indexes())
+                    .filteredOn(index -> index.columnNames().equals(List.of("PARENT_ID")))
+                    .singleElement()
+                    .satisfies(index -> assertThat(index.method()).isEqualTo(catalogFailure ? null : "btree"));
+        }
+    }
+
+    @Test
+    void unverifiablePhysicalH2ConnectionSkipsRefinementWithoutMutatingOrLeakingTheBorrowedHandle() throws Exception {
+        try (Connection physical = DriverManager.getConnection("jdbc:h2:mem:opaque-" + System.nanoTime())) {
+            createH2TimeoutSchema(physical);
+            setNativeH2Timeout(physical, 7_501);
+            AtomicInteger duringCatalog = new AtomicInteger(-1);
+            AtomicInteger releases = new AtomicInteger();
+            Connection borrowed = borrowedH2Connection(physical, 7_501, false, false, false, duringCatalog, releases);
+
+            SchemaSnapshot snapshot = SchemaIntrospector.introspect("h2", () -> borrowed, budget(), limits());
+
+            assertThat(snapshot.available()).isTrue();
+            assertThat(snapshot.complete()).isFalse();
+            assertThat(nativeH2Timeout(physical)).isEqualTo(7_501);
+            assertThat(duringCatalog.get()).isEqualTo(-1);
+            assertThat(releases.get()).isEqualTo(1);
+            assertThat(physical.isClosed()).isFalse();
+            assertThat(snapshot.diagnostics())
+                    .anySatisfy(diagnostic -> assertThat(diagnostic.message())
+                            .contains("verifiable physical H2 connection", "not changed"));
+            DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(snapshot);
+            assertThat(new MissingForeignKeyIndexRule().evaluate(context).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evaluationDiagnostics()).isNotEmpty();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void h2TimeoutRestorationFailureClosesTheVerifiedPhysicalConnectionAndDiscardsPromotedEvidence(
+            boolean catalogFailure) throws Exception {
+        try (Connection physical = DriverManager.getConnection("jdbc:h2:mem:restore-failure-" + System.nanoTime())) {
+            createH2TimeoutSchema(physical);
+            AtomicInteger duringCatalog = new AtomicInteger(-1);
+            AtomicInteger releases = new AtomicInteger();
+            Connection borrowed =
+                    borrowedH2Connection(physical, 0, catalogFailure, true, true, duringCatalog, releases);
+
+            SchemaSnapshot snapshot = SchemaIntrospector.introspect("h2", () -> borrowed, budget(), limits());
+
+            assertThat(snapshot.available()).isFalse();
+            assertThat(snapshot.tables()).isEmpty();
+            assertThat(snapshot.error())
+                    .contains("H2 session query timeout", "could not be restored")
+                    .doesNotContain("hunter2");
+            assertThat(physical.isClosed()).isTrue();
+            assertThat(releases.get()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void h2PhysicalCloseFailureReportsSafeCleanupFailureAndReleasesTheLogicalHandleOnce() throws Exception {
+        String secret = "synthetic-h2-physical-close-secret";
+        try (Connection physical = DriverManager.getConnection("jdbc:h2:mem:close-failure-" + System.nanoTime())) {
+            createH2TimeoutSchema(physical);
+            AtomicInteger releases = new AtomicInteger();
+            Connection borrowed = borrowedH2Connection(physical, 0, false, true, true, new AtomicInteger(-1), releases);
+            Connection closeTarget = mock(org.h2.jdbc.JdbcConnection.class);
+            doThrow(new SQLException(secret)).when(closeTarget).close();
+            Connection failingClose = (Connection) Proxy.newProxyInstance(
+                    Connection.class.getClassLoader(), new Class<?>[] {Connection.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("unwrap") && args[0] == Connection.class) {
+                            return closeTarget;
+                        }
+                        return invokeJdbc(borrowed, method, args);
+                    });
+
+            SchemaSnapshot snapshot = SchemaIntrospector.introspect("h2", () -> failingClose, budget(), limits());
+
+            assertThat(snapshot.available()).isFalse();
+            assertThat(snapshot.tables()).isEmpty();
+            assertThat(snapshot.error())
+                    .contains("H2 session query timeout", "could not be restored", "cleanup also failed")
+                    .doesNotContain(secret);
+            assertThat(snapshot.diagnostics())
+                    .allSatisfy(diagnostic -> assertThat(diagnostic.message()).doesNotContain(secret));
+            verify(closeTarget).close();
+            assertThat(releases.get()).isEqualTo(1);
+        }
+    }
+
+    private static void createH2TimeoutSchema(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("create table parent (id int primary key)");
+            statement.execute("create table child (id int primary key, parent_id int references parent(id))");
+        }
+    }
+
+    private static int nativeH2Timeout(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet rs = statement.executeQuery(
+                        "SELECT SETTING_VALUE FROM INFORMATION_SCHEMA.SETTINGS WHERE SETTING_NAME='QUERY_TIMEOUT'")) {
+            assertThat(rs.next()).isTrue();
+            return rs.getInt(1);
+        }
+    }
+
+    private static void setNativeH2Timeout(Connection connection, int milliseconds) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SET QUERY_TIMEOUT ?")) {
+            statement.setInt(1, milliseconds);
+            statement.executeUpdate();
+        }
+    }
+
+    private static Connection borrowedH2Connection(
+            Connection physical,
+            int originalTimeout,
+            boolean catalogFailure,
+            boolean restorationFailure,
+            boolean exposePhysical,
+            AtomicInteger duringCatalog,
+            AtomicInteger releases) {
+        return (Connection) Proxy.newProxyInstance(
+                Connection.class.getClassLoader(), new Class<?>[] {Connection.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("close")) {
+                        releases.incrementAndGet();
+                        return null;
+                    }
+                    if (method.getName().equals("unwrap") && args[0] == Connection.class) {
+                        return exposePhysical ? physical : proxy;
+                    }
+                    Object result = invokeJdbc(physical, method, args);
+                    if (!method.getName().equals("prepareStatement")) {
+                        return result;
+                    }
+                    String sql = (String) args[0];
+                    if (!sql.contains("FROM INFORMATION_SCHEMA.INDEXES") && !sql.equals("SET QUERY_TIMEOUT ?")) {
+                        return result;
+                    }
+                    PreparedStatement statement = (PreparedStatement) result;
+                    AtomicInteger value = new AtomicInteger(-1);
+                    return Proxy.newProxyInstance(
+                            PreparedStatement.class.getClassLoader(),
+                            new Class<?>[] {PreparedStatement.class},
+                            (inner, call, arguments) -> {
+                                if (call.getName().equals("setInt")) {
+                                    value.set((int) arguments[1]);
+                                }
+                                if (sql.contains("FROM INFORMATION_SCHEMA.INDEXES")
+                                        && call.getName().equals("executeQuery")) {
+                                    duringCatalog.set(nativeH2Timeout(physical));
+                                    if (catalogFailure) {
+                                        throw new SQLException("password=hunter2");
+                                    }
+                                }
+                                if (sql.equals("SET QUERY_TIMEOUT ?")
+                                        && call.getName().equals("executeUpdate")
+                                        && restorationFailure
+                                        && value.get() == originalTimeout) {
+                                    throw new SQLException("password=hunter2");
+                                }
+                                return invokeJdbc(statement, call, arguments);
+                            });
+                });
+    }
+
+    private static Object invokeJdbc(Object target, Method method, Object[] arguments) throws Throwable {
+        try {
+            return method.invoke(target, arguments);
+        } catch (InvocationTargetException ex) {
+            throw ex.getCause();
+        }
+    }
+
+    private static Map<String, Object> h2IndexRow(String name) {
+        return new HashMap<>(Map.of(
+                "TABLE_CATALOG",
+                "app",
+                "TABLE_SCHEMA",
+                "public",
+                "TABLE_NAME",
+                "t",
+                "INDEX_SCHEMA",
+                "public",
+                "INDEX_NAME",
+                name,
+                "INDEX_TYPE_NAME",
+                "INDEX",
+                "INDEX_CLASS",
+                "org.h2.mvstore.db.MVSecondaryIndex"));
     }
 
     @Test

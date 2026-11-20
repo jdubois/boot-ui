@@ -32,6 +32,38 @@ final class MemoryKubernetesSizer {
             boolean burstableEnabled,
             boolean healthProbesEnabled,
             HealthProbeManifest healthProbeManifest) {
+        return recommend(
+                calculation,
+                heapCommittedBytes,
+                nonHeapCommittedBytes,
+                directBufferMemoryUsedBytes,
+                nativeMemoryTrackingEnabled,
+                detectedContainerLimitBytes,
+                detectedContainerCurrentUsageBytes,
+                maxRamPercentage,
+                initialRamPercentage,
+                javaToolOptions,
+                burstableEnabled,
+                healthProbesEnabled,
+                healthProbeManifest,
+                -1);
+    }
+
+    static KubernetesMemoryRecommendationDto recommend(
+            MemoryCalculationDto calculation,
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            long directBufferMemoryUsedBytes,
+            boolean nativeMemoryTrackingEnabled,
+            Long detectedContainerLimitBytes,
+            Long detectedContainerCurrentUsageBytes,
+            double maxRamPercentage,
+            double initialRamPercentage,
+            String javaToolOptions,
+            boolean burstableEnabled,
+            boolean healthProbesEnabled,
+            HealthProbeManifest healthProbeManifest,
+            long observedMetaspaceCommittedBytes) {
 
         long currentSnapshotBytes = estimateCurrentSnapshotBytes(
                 heapCommittedBytes,
@@ -40,10 +72,16 @@ final class MemoryKubernetesSizer {
                 detectedContainerCurrentUsageBytes);
         String detectedContainerLimitMemory =
                 detectedContainerLimitBytes == null ? null : formatMi(detectedContainerLimitBytes);
+        long limitBytes = calculation.totalMemoryBytes();
+        long modeledHeapAndNonHeapBytes =
+                saturatedAdd(nonNegative(calculation.heapBytes()), nonNegative(nonHeapCommittedBytes));
 
-        if (!calculation.valid()) {
+        if (!calculation.valid() || (burstableEnabled && modeledHeapAndNonHeapBytes > limitBytes)) {
             List<String> warnings = new ArrayList<>();
-            warnings.add(calculation.error());
+            warnings.add(
+                    calculation.valid()
+                            ? "Insufficient Kubernetes memory budget: the modeled heap plus observed non-heap commitment exceeds the selected memory limit. Review modeled headroom and reservations, or disable Burstable to keep equal memory request and limit."
+                            : calculation.error());
             return new KubernetesMemoryRecommendationDto(
                     0,
                     calculation.totalMemoryBytes(),
@@ -66,8 +104,8 @@ final class MemoryKubernetesSizer {
                     healthProbesEnabled);
         }
 
-        long limitBytes = calculation.totalMemoryBytes();
-        long burstableRequestBytes = estimateBurstableRequestBytes(limitBytes, currentSnapshotBytes);
+        long burstableRequestBytes =
+                estimateBurstableRequestBytes(limitBytes, currentSnapshotBytes, modeledHeapAndNonHeapBytes);
         long requestBytes = burstableEnabled ? burstableRequestBytes : limitBytes;
         List<String> warnings = buildWarnings(
                 calculation,
@@ -78,7 +116,8 @@ final class MemoryKubernetesSizer {
                 limitBytes,
                 burstableEnabled,
                 healthProbesEnabled,
-                healthProbeManifest);
+                healthProbeManifest,
+                observedMetaspaceCommittedBytes);
         String confidence = confidence(calculation, detectedContainerLimitBytes, detectedContainerCurrentUsageBytes);
         String qosClass = requestBytes < limitBytes ? "Burstable" : "Depends on CPU";
         String yaml = buildYaml(
@@ -131,13 +170,15 @@ final class MemoryKubernetesSizer {
         return saturatedAdd(committedPools, nonNegative(directBufferMemoryUsedBytes));
     }
 
-    private static long estimateBurstableRequestBytes(long limitBytes, long currentSnapshotBytes) {
+    private static long estimateBurstableRequestBytes(
+            long limitBytes, long currentSnapshotBytes, long modeledHeapAndNonHeapBytes) {
         long marginBytes =
                 Math.max(MIN_SNAPSHOT_MARGIN_BYTES, Math.round(currentSnapshotBytes * SNAPSHOT_MARGIN_FACTOR));
         long snapshotWithMargin = currentSnapshotBytes > Long.MAX_VALUE - marginBytes
                 ? Long.MAX_VALUE
                 : currentSnapshotBytes + marginBytes;
-        long requestWithFloor = Math.max(MIN_BURSTABLE_REQUEST_BYTES, snapshotWithMargin);
+        long requestWithFloor =
+                Math.max(Math.max(MIN_BURSTABLE_REQUEST_BYTES, snapshotWithMargin), modeledHeapAndNonHeapBytes);
         if (requestWithFloor >= limitBytes) {
             return limitBytes;
         }
@@ -154,7 +195,8 @@ final class MemoryKubernetesSizer {
             long limitBytes,
             boolean burstableEnabled,
             boolean healthProbesEnabled,
-            HealthProbeManifest healthProbeManifest) {
+            HealthProbeManifest healthProbeManifest,
+            long observedMetaspaceCommittedBytes) {
 
         List<String> warnings = new ArrayList<>();
         boolean memoryRequestBelowLimit = burstableEnabled && burstableRequestBytes < limitBytes;
@@ -166,8 +208,12 @@ final class MemoryKubernetesSizer {
                     "Memory request equals memory limit. Kubernetes Guaranteed QoS additionally requires equal, non-zero CPU request and limit for every container in the Pod.");
             if (burstableEnabled) {
                 warnings.add(
-                        "Burstable mode did not lower requests.memory because the current snapshot plus its safety margin reaches the selected limit.");
+                        "Burstable mode did not lower requests.memory because the snapshot margin or modeled-heap/non-heap floor reaches the selected limit.");
             }
+        }
+        if (burstableEnabled) {
+            warnings.add(
+                    "Burstable sizing keeps the current snapshot plus the larger of 15% and 64 MiB, floored at the modeled heap plus observed non-heap committed. The modeled heap also covers the downward-rounded InitialRAMPercentage target against the selected limit. These are starting bounds, not effective aligned heap or peak demand.");
         }
         if (!healthProbesEnabled) {
             warnings.add(healthProbeManifest.probesOmittedWarning());
@@ -175,12 +221,23 @@ final class MemoryKubernetesSizer {
             warnings.add(
                     "Health probes use the framework's default paths and the named container port \"http\"; verify both against custom application or management-server settings.");
         }
+        if (healthProbeManifest.deploymentWarning() != null) {
+            warnings.add(healthProbeManifest.deploymentWarning());
+        }
         warnings.add(
-                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. Verify container support and the generated limit; existing -Xmx, -Xms, or RAM-sizing overrides can change the result.");
+                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. The percentages assume the selected memory limit: recalculate and replace the snippet whenever that limit changes. Verify container support; existing -Xmx, -Xms, or RAM-sizing overrides can change the result.");
+        warnings.add(
+                "Image launchers such as Paketo Java buildpacks' memory calculator and Red Hat UBI OpenJDK run-java.sh can add heap flags. Review the final merged JVM command and environment; using Spring Boot or Quarkus alone does not imply either launcher.");
         warnings.add(
                 "Generated heap values are requests: collector and platform alignment can raise the effective heap. Model validity checks generic flag constraints, not JVM startup or workload sufficiency; verify effective settings on the target JVM.");
         warnings.add(
                 "Fixed metaspace, code-cache, and stack settings do not cap total process memory. Unmodeled native allocations and container charges can exceed selected headroom; validate after warmup and under representative peak load.");
+        warnings.add(
+                observedMetaspaceCommittedBytes >= 0
+                        ? "Metaspace reserves the larger of the class-count model and current Metaspace committed plus 25%, rounded up to MiB. This starting allowance is not peak demand or a live-after-GC measurement."
+                        : "Metaspace committed is unavailable; the reservation uses only the class-count model with its 25% allowance, not measured metadata demand.");
+        warnings.add(
+                "Exceeding the generated MaxMetaspaceSize hard cap can cause OutOfMemoryError: Metaspace. Validate class loading after warmup and under representative peak load.");
         warnings.add(
                 "Direct memory is modeled at "
                         + formatMi(calculation.directMemoryBytes())
@@ -206,10 +263,10 @@ final class MemoryKubernetesSizer {
         if (burstableRequestBytes < limitBytes) {
             if (detectedContainerCurrentUsageBytes != null) {
                 warnings.add(
-                        "The burstable request starts from the current cgroup memory.current snapshot and can still be too low after warmup or a workload change.");
+                        "The Burstable snapshot term uses the current cgroup memory.current observation alongside the modeled-heap/non-heap floor; neither predicts demand after warmup or a workload change.");
             } else {
                 warnings.add(
-                        "cgroup memory.current is unavailable, so the burstable request falls back to committed JVM pools plus observed direct buffers and can be too low after warmup.");
+                        "cgroup memory.current is unavailable, so the Burstable snapshot term uses committed JVM pools plus observed direct buffers alongside the modeled-heap/non-heap floor; neither predicts demand after warmup.");
             }
         }
         return warnings;
