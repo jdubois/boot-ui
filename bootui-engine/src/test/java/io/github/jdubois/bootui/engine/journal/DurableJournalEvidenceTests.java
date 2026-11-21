@@ -342,6 +342,59 @@ class DurableJournalEvidenceTests {
     }
 
     @Test
+    void recoveringOffloadedWorkDoesNotHideItsLaterUnlinkedLog() {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        assertThat(journal.offer(requestHttp("lost", 1_000, "earlier-thread"))).isTrue();
+        assertThat(journal.offloadRetainedData()).isEqualTo(1);
+
+        assertThat(journal.offer(unlinkedError(1_010, "earlier-thread"))).isTrue();
+        assertThat(journal.offer(requestHttp("recovered", 3_000))).isTrue();
+        assertThat(journal.offer(unlinkedError(3_010, "http-1"))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> retained = journal.entries();
+        assertThat(journal.offloadRetainedData()).isEqualTo(3);
+
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(
+                scope, 1, 1, "RUNNING", null, journal.lastSequence(), identity.instanceId(), metadata));
+        persist(store, scope, retained);
+
+        JournalEvidenceSnapshot snapshot =
+                new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.omittedEvents()).isZero();
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).reportFrom(snapshot);
+        assertThat(report.coverage())
+                .filteredOn(coverage -> coverage.source().equals("log"))
+                .singleElement()
+                .satisfies(logs -> assertThat(logs.unlinked()).isEqualTo(1));
+        assertThat(snapshot.lossHorizonMillis()).isEqualTo(1_000L);
+        assertThat(snapshot.lostRequestEndMillis()).isEqualTo(1_001L);
+        assertThat(snapshot.lostARequestOn("earlier-thread")).isTrue();
+        assertThat(snapshot.lostARequestOn("http-1")).isFalse();
+        assertThat(snapshot.lostMillis(JournalSource.HTTP)).isEqualTo(1_000L);
+        assertThat(snapshot.lostMillis(JournalSource.LOG)).isNull();
+        assertThat(journal.lostRequestEndMillis()).isEqualTo(3_001L);
+        assertThat(journal.lostARequestOn("http-1")).isTrue();
+        assertThat(journal.lostMillis(JournalSource.LOG)).isEqualTo(3_010L);
+    }
+
+    @Test
     void historicalTypedPayloadsDriveInsightsAndARequestProfileAfterOffload() {
         RuntimeJournal journal = journal(100, 10_000_000);
         journal.registerSqlCapture("orders", SqlPayload.Provenance.EXECUTION);
@@ -737,12 +790,16 @@ class DurableJournalEvidenceTests {
     }
 
     private static RuntimeEvent requestHttp(String requestId, long start) {
+        return requestHttp(requestId, start, "http-1");
+    }
+
+    private static RuntimeEvent requestHttp(String requestId, long start, String thread) {
         return RuntimeEvent.of(
                 JournalSource.HTTP,
                 start,
                 1_000_000,
                 CorrelationContext.forRequest(requestId),
-                "http-1",
+                thread,
                 ThreadKind.WORKER,
                 false,
                 new HttpPayload(
@@ -753,5 +810,17 @@ class DurableJournalEvidenceTests {
                         200,
                         new ResourceUsage(
                                 1_000, 100, 1, 0, null, 1, List.of(new GcPauseRange("G1 Young", 6, 7)), false)));
+    }
+
+    private static RuntimeEvent unlinkedError(long start, String thread) {
+        return RuntimeEvent.of(
+                JournalSource.LOG,
+                start,
+                0,
+                null,
+                thread,
+                ThreadKind.WORKER,
+                false,
+                new LogPayload("org.springframework.web.DispatcherServlet", "ERROR", "Synthetic dispatch error", null));
     }
 }

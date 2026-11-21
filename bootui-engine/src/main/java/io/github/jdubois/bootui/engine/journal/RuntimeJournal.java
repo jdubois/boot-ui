@@ -780,11 +780,11 @@ public final class RuntimeJournal
      * started later is complete, since its events start no earlier than it does.
      */
     public Long lossHorizonMillis() {
-        return ring.lossHorizonMillis();
+        return lossHorizonMillis(false);
     }
 
-    Long lossHorizonWithoutMemoryOffload() {
-        return ring.lossHorizonWithoutMemoryOffload();
+    Long lossHorizonMillis(boolean recoveredOffload) {
+        return ring.lossHorizonMillis(recoveredOffload);
     }
 
     /**
@@ -793,7 +793,11 @@ public final class RuntimeJournal
      * logs a failure once the request's id is gone, may have been that request's.
      */
     public Long lostRequestEndMillis() {
-        return ring.lostRequestEndMillis();
+        return lostRequestEndMillis(false);
+    }
+
+    Long lostRequestEndMillis(boolean recoveredOffload) {
+        return ring.lostRequestEndMillis(recoveredOffload);
     }
 
     /**
@@ -802,7 +806,11 @@ public final class RuntimeJournal
      * a request id on such a thread may have been that request's.
      */
     public boolean lostARequestOn(String thread) {
-        return ring.lostARequestOn(thread);
+        return lostARequestOn(thread, false);
+    }
+
+    boolean lostARequestOn(String thread, boolean recoveredOffload) {
+        return ring.lostARequestOn(thread, recoveredOffload);
     }
 
     public List<String> lostRequestTraces() {
@@ -820,7 +828,11 @@ public final class RuntimeJournal
      * not logged, knows its evidence is complete only when this is earlier.
      */
     public Long lostMillis(JournalSource source) {
-        Long evicted = ring.lostMillis(source);
+        return lostMillis(source, false);
+    }
+
+    Long lostMillis(JournalSource source, boolean recoveredOffload) {
+        Long evicted = ring.lostMillis(source, recoveredOffload);
         long drop = droppedAt.get(source.ordinal());
         if (drop == 0L) {
             return evicted;

@@ -277,7 +277,7 @@ public final class DurableJournalEvidence {
                 if (recoveredOffload) {
                     // Both the hot and saved horizon include memory-only discards; the complete sequence merge
                     // recovered those rows. Keep actual loss, including admissions without a sequence.
-                    return journal.lossHorizonWithoutMemoryOffload();
+                    return journal.lossHorizonMillis(true);
                 }
                 return maximum(
                         sameRun ? journal.lossHorizonMillis() : null,
@@ -289,6 +289,9 @@ public final class DurableJournalEvidence {
                 if (durableComplete) {
                     return null;
                 }
+                if (recoveredOffload) {
+                    return journal.lostRequestEndMillis(true);
+                }
                 return maximum(
                         sameRun ? journal.lostRequestEndMillis() : null,
                         metadata == null ? null : metadata.lostRequestEndMillis());
@@ -296,6 +299,9 @@ public final class DurableJournalEvidence {
 
             @Override
             public boolean lostARequestOn(String thread) {
+                if (recoveredOffload) {
+                    return !durableComplete && journal.lostARequestOn(thread, true);
+                }
                 return !durableComplete && (lostThreads.contains(thread) || sameRun && journal.lostARequestOn(thread));
             }
 
@@ -309,6 +315,9 @@ public final class DurableJournalEvidence {
             public Long lostMillis(JournalSource source) {
                 if (durableComplete) {
                     return null;
+                }
+                if (recoveredOffload) {
+                    return journal.lostMillis(source, true);
                 }
                 Long durable = metadata == null ? null : metadata.lostBySource().get(source);
                 return maximum(sameRun ? journal.lostMillis(source) : null, durable);
