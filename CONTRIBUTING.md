@@ -463,7 +463,9 @@ on noise alone. Those initial measurements are historical; the budget enforcemen
 The 30 % alarm is not the only gate. The extra legs also enforce budgets for sensors that ship on by default:
 `AgentOverheadBenchmarkIT`'s `bootui.benchmark.agent.enforce-when-default` and `...gate=interval` enforce the
 10 % cumulative budget and the 3 % increment for `files` when the lower bound of the median's 95 % interval exceeds
-the budget. `resources` has its own increment/cumulative checks. Opt-in `environment`, `caught-exceptions`,
+the budget. `resources` also enforces its 3 % increment budget on the median interval's lower bound, not on a noisy
+median alone; its cumulative check remains report-only. Both the median and interval are printed.
+Opt-in `environment`, `caught-exceptions`,
 `thread-activity`, `thread-locals`, request-value matching and security-sinks JDK checks have dedicated A/B and cumulative
 legs; their default-sensor enforcement activates only if the named sensor joins the defaults. A green alarm-only
 opt-in leg is not proof that its 3 % or 10 % budget passed.
