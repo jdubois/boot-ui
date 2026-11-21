@@ -1516,6 +1516,54 @@ describe('LiveActivity', () => {
     expect(drawer.text()).toContain('+102.0 ms')
   })
 
+  it.each([
+    ['Tab', false],
+    ['Shift+Tab', true]
+  ])('wraps request drawer focus with %s on a filtered profile', async (_key, shiftKey) => {
+    vi.stubGlobal('requestAnimationFrame', (callback) => callback())
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile({sqlGroups: [], timing: null})))
+
+    // jsdom has no layout. Model the missing boxes under the drawer's inline v-show styles.
+    const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function () {
+      for (let element = this; element; element = element.parentElement) {
+        if (element.style.display === 'none') return []
+      }
+      return [new DOMRect(0, 0, 48, 48)]
+    })
+    onTestFinished(() => rects.mockRestore())
+
+    wrapper = mountLiveActivity({
+      attachTo: document.body,
+      global: {stubs: {RouterLink: {template: '<a href="/"><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('[role="dialog"][aria-modal="true"][aria-label="Request profile"]')
+    const footerLink = drawer.get('.request-code-path a[href]')
+    expect(footerLink.isVisible()).toBe(true)
+
+    const all = drawer.get('#request-profile-tab-all')
+    const journal = drawer.get('#request-profile-tab-journal')
+    const sql = drawer.get('#request-profile-tab-sql')
+    all.element.focus()
+    await all.trigger('keydown', {key: 'ArrowRight'})
+    await journal.trigger('keydown', {key: 'ArrowRight'})
+    expect(document.activeElement).toBe(sql.element)
+    expect(drawer.findAll('[role="tab"][tabindex="0"]').map((tab) => tab.element)).toEqual([sql.element])
+    expect(footerLink.isVisible()).toBe(false)
+
+    const first = drawer.get('.activity-drawer-expand').element
+    const last = sql.element
+    const [from, to] = shiftKey ? [first, last] : [last, first]
+    from.focus()
+    const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+    from.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(to)
+  })
+
   it('restores focus to the drawer opener after close button, Escape, and backdrop closes', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback) => callback())
     vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
