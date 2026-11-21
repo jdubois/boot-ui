@@ -2348,9 +2348,10 @@ Data sources:
 
 Acceptance criteria:
 
-- Available whenever a `KafkaTemplate` bean is present on Spring, or the Quarkus `KAFKA` capability is present in a
-  non-production launch; configured channels determine whether Quarkus records activity but do not gate panel
-  availability. Otherwise the panel reports a clear unavailable reason instead of an empty list.
+- Available whenever a `KafkaTemplate` bean is present on Spring, or the SmallRye Kafka connector
+  (`quarkus-messaging-kafka`) is present in a non-production Quarkus launch. The low-level `quarkus-kafka-client`
+  alone does not enable capture. Configured channels determine whether Quarkus records activity but do not gate panel
+  availability. When the integration is absent, the panel reports an unavailable reason.
 - Only metadata is ever captured — direction (`PRODUCE`/`CONSUME`), topic, partition, offset, duration,
   success/failure, consumer group id when the adapter exposes it (Spring), and listener/channel id. The message
   value/payload is never captured at all, regardless of configuration, since it is an arbitrary, potentially large

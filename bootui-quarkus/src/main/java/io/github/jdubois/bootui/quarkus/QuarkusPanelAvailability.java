@@ -242,12 +242,9 @@ public class QuarkusPanelAvailability {
     public static final String EMAIL_PRESENT_KEY = "bootui.internal.email-present";
 
     /**
-     * Runtime-config key carrying the build-time Kafka capability decision. The deployment processor emits it
-     * (default {@code false}) only when {@code Capability.KAFKA} is present at build time and the launch mode
-     * is non-production; this bean reads it back to decide whether the dedicated Kafka panel is lit up,
-     * mirroring {@link #HIBERNATE_PRESENT_KEY}. The recorder backing it ({@code KafkaActivityRecorder}) is
-     * produced unconditionally either way (see {@code BootUiEngineProducer}) — this key only gates the
-     * panel's own <em>availability</em>, exactly as {@link #EMAIL_PRESENT_KEY} does for the Email panel.
+     * Runtime-config key emitted when the SmallRye Kafka connector is present and capture interceptors
+     * are wired in a non-production launch. The low-level Kafka client alone leaves this flag unset
+     * (default {@code false}) and the panel unavailable. The recorder backing the panel is produced either way.
      */
     public static final String KAFKA_PRESENT_KEY = "bootui.internal.kafka-present";
 

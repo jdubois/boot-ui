@@ -171,6 +171,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Bounded GitHub alert pagination** validates named and metadata-bound repository-ID links, preserves baseline
   request capacity, and keeps incomplete totals unknown while retaining bounded evidence
   ([GitHub](docs/features/developer-tools.md#github)).
+- **Quarkus Kafka client-only apps** start without SmallRye Messaging and report the Kafka panel as unavailable.
 - **External explicit-GC findings clear on rescans without new pauses**, with severity based only on the current
   observation interval and incomplete notification coverage kept explicit
   ([Memory checks](docs/MEMORY-CHECKS.md#time-and-collector-boundaries)).

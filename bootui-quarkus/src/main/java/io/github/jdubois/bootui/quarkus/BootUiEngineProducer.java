@@ -1614,7 +1614,7 @@ public class BootUiEngineProducer {
      * The Live Activity Kafka capture buffer. Produced <em>unconditionally</em> because
      * {@link KafkaActivityRecorder} holds no Kafka-client or messaging type of its own (only JDK types):
      * the {@code io.smallrye.reactive.messaging}-importing capture beans ({@code QuarkusKafkaProducerCapture}
-     * / {@code QuarkusKafkaConsumerCapture}) that feed it live behind the {@code KAFKA} capability gate (R2),
+     * / {@code QuarkusKafkaConsumerCapture}) that feed it are gated on the SmallRye Kafka connector (R2),
      * and {@code LiveActivityResource} reads it directly. When {@code quarkus-messaging-kafka} is absent the
      * capture beans are not wired, so nothing is ever recorded and the recorder simply stays empty —
      * Live Activity renders no {@code MESSAGING} entries, exactly as on Spring without {@code spring-kafka}.

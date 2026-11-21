@@ -23,8 +23,8 @@ import org.jboss.logging.Logger;
  * <p><strong>This class (with {@link QuarkusKafkaConsumerCapture}) is the sole importer of
  * {@code io.smallrye.reactive.messaging.*} and Kafka-connector metadata types in the Quarkus adapter's
  * capture path (R2).</strong> The framework-neutral engine and the always-produced
- * {@link KafkaActivityRecorder} never import these; this bean is capability-gated (registered only when
- * {@code Capability.KAFKA} is present, and excluded from bean discovery with {@code
+ * {@link KafkaActivityRecorder} never import these; this bean is registered only in non-production launches
+ * with the SmallRye Kafka connector (and excluded from bean discovery with {@code
  * ExcludedTypeBuildItem} otherwise) so Arc never links the messaging API in an app without
  * {@code quarkus-messaging-kafka} — mirroring the Cache/Flyway/Liquibase optional-dependency boundary.</p>
  *
