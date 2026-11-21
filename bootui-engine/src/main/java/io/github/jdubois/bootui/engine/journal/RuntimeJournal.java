@@ -820,7 +820,10 @@ public final class RuntimeJournal
         return ring.lostRequestTraces();
     }
 
-    record DurableTraceSnapshot(JournalStatus status, DurableJournalRunMetadata.OffloadTraceLoss offloadTraceLoss) {}
+    record DurableTraceSnapshot(
+            JournalStatus status,
+            DurableJournalRunMetadata.OffloadTraceLoss offloadTraceLoss,
+            Long deferredSqlLossHorizonMillis) {}
 
     DurableTraceSnapshot durableTraceSnapshot(DurableJournalScope scope) {
         JournalStatus status;
@@ -830,7 +833,7 @@ public final class RuntimeJournal
             status = status();
             traceLoss = ring.offloadTraceSnapshot();
         }
-        return new DurableTraceSnapshot(status, traceLoss.fingerprint(scope));
+        return new DurableTraceSnapshot(status, traceLoss.fingerprint(scope), traceLoss.deferredSqlLossHorizonMillis());
     }
 
     public List<String> lostRequestThreads() {

@@ -58,7 +58,7 @@ final class EvidenceRing {
     private boolean archiveLostUntracedRequest;
     private Object recording = new Object();
     private long clearedThrough;
-    private boolean deferredSqlLoss;
+    private long deferredSqlLossHorizon = Long.MIN_VALUE;
     private long writerLosses;
 
     /** The most thread names of requests that lost events remembered. */
@@ -181,7 +181,7 @@ final class EvidenceRing {
     synchronized Object beginRecording(long sequence) {
         recording = new Object();
         clearedThrough = sequence;
-        deferredSqlLoss = false;
+        deferredSqlLossHorizon = Long.MIN_VALUE;
         writerLosses = 0;
         archiveLostTraces = null;
         archiveLostTraceOverflow = false;
@@ -192,12 +192,15 @@ final class EvidenceRing {
     synchronized void lostDeferred(RuntimeEvent event, Object expectedRecording) {
         if (recording == expectedRecording && event != null) {
             lost(event, false);
-            deferredSqlLoss |= event.source() == JournalSource.SQL;
+            if (event.source() == JournalSource.SQL) {
+                long started = Math.max(0, Math.min(event.epochMillis(), System.currentTimeMillis()));
+                deferredSqlLossHorizon = Math.max(deferredSqlLossHorizon, started);
+            }
         }
     }
 
     synchronized boolean hasDeferredSqlLoss() {
-        return deferredSqlLoss;
+        return deferredSqlLossHorizon != Long.MIN_VALUE;
     }
 
     synchronized long writerLosses() {
@@ -208,10 +211,12 @@ final class EvidenceRing {
         return new OffloadTraceSnapshot(
                 archiveLostTraces == null ? List.of() : List.copyOf(archiveLostTraces),
                 archiveLostTraceOverflow,
-                archiveLostUntracedRequest);
+                archiveLostUntracedRequest,
+                hasDeferredSqlLoss() ? deferredSqlLossHorizon : null);
     }
 
-    record OffloadTraceSnapshot(List<String> traceIds, boolean overflowed, boolean untracedRequest) {
+    record OffloadTraceSnapshot(
+            List<String> traceIds, boolean overflowed, boolean untracedRequest, Long deferredSqlLossHorizonMillis) {
         DurableJournalRunMetadata.OffloadTraceLoss fingerprint(DurableJournalScope scope) {
             if (overflowed) {
                 return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;

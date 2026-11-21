@@ -58,6 +58,8 @@ class DurableJournalRunMetadataCodecTests {
         assertThat(ByteBuffer.wrap(v2).getInt(4)).isEqualTo(2);
         assertThat(DurableJournalRunMetadataCodec.decode(v2).offloadTraceLoss().isEmpty())
                 .isTrue();
+        assertThat(DurableJournalRunMetadataCodec.decode(v2).deferredSqlLossHorizonMillis())
+                .isNull();
 
         // V1 did not store the two durable-compaction longs at the end of JournalStatus.
         byte[] compaction = ByteBuffer.allocate(16).putLong(11).putLong(42).array();
@@ -76,6 +78,7 @@ class DurableJournalRunMetadataCodecTests {
         assertThat(decoded.journalStatus().durableOffloadedThrough()).isZero();
         assertThat(decoded.lostRequestTraces()).containsExactly("trace-latest", "trace-next");
         assertThat(decoded.offloadTraceLoss().isEmpty()).isTrue();
+        assertThat(decoded.deferredSqlLossHorizonMillis()).isNull();
     }
 
     @Test
@@ -93,6 +96,7 @@ class DurableJournalRunMetadataCodecTests {
         assertThat(decoded.offloadTraceLoss().matches(new DurableJournalScope("other", "orders", "run-1"), trace))
                 .isFalse();
         assertThat(decoded.lostRequestTraces()).isEqualTo(value.lostRequestTraces());
+        assertThat(decoded.deferredSqlLossHorizonMillis()).isNull();
         assertThat(DurableJournalRunMetadataCodec.encode(decoded)).isEqualTo(one);
         assertThat(new String(one, StandardCharsets.ISO_8859_1)).doesNotContain(trace);
 
@@ -130,6 +134,37 @@ class DurableJournalRunMetadataCodecTests {
             bytes.put(fingerprint);
         }
         return bytes.array();
+    }
+
+    @Test
+    void v3CanQualifyDeferredSqlLossWithoutTraceLossOrAlongsideIt() {
+        byte[] v2 = DurableJournalRunMetadataCodec.encode(metadata(DurableJournalRunMetadata.Phase.END, null));
+        for (int traceCount : List.of(0, -1, -2)) {
+            byte[] v3 = v3SqlLoss(v2, 1_234, traceCount);
+            var decoded = DurableJournalRunMetadataCodec.decode(v3);
+            assertThat(decoded.deferredSqlLossHorizonMillis()).isEqualTo(1_234L);
+            assertThat(decoded.offloadTraceLoss().isEmpty()).isEqualTo(traceCount == 0);
+            assertThat(DurableJournalRunMetadataCodec.encode(decoded)).isEqualTo(v3);
+        }
+        byte[] v3 = v3SqlLoss(v2, 1_234, 0);
+        for (byte[] malformed : List.of(
+                v3SqlLoss(v2, -1, 0),
+                v3SqlLoss(v2, 1_234, -3),
+                Arrays.copyOf(v3, v3.length - 1),
+                Arrays.copyOf(v3, v3.length + 1))) {
+            assertThatThrownBy(() -> DurableJournalRunMetadataCodec.decode(malformed))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    private static byte[] v3SqlLoss(byte[] v2, long horizon, int traceCount) {
+        return ByteBuffer.allocate(v2.length + 2 * Integer.BYTES + Long.BYTES)
+                .put(v2)
+                .putInt(-3)
+                .putLong(horizon)
+                .putInt(traceCount)
+                .putInt(4, 3)
+                .array();
     }
 
     @Test

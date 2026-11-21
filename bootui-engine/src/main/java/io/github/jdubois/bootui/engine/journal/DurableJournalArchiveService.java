@@ -521,6 +521,9 @@ public final class DurableJournalArchiveService {
                 "HTTP requests are missing from durable history: memory offload discarded them before sequencing "
                         + "or the durable writer lost them. This archive is incomplete; affected trace-only calls are "
                         + "not attributed to a request.";
+        private static final String DEFERRED_SQL_LOSS =
+                "Deferred SQL was lost before it could be recorded. This archive is incomplete; absence of SQL for "
+                        + "affected requests does not mean it did not run.";
 
         List<String> profileLimitations() {
             List<String> result = new ArrayList<>();
@@ -539,6 +542,9 @@ public final class DurableJournalArchiveService {
             }
             if (!metadata.offloadTraceLoss().isEmpty()) {
                 result.add(OFFLOAD_TRACE_LOSS);
+            }
+            if (metadata.deferredSqlLossHorizonMillis() != null) {
+                result.add(DEFERRED_SQL_LOSS);
             }
             if (missingDetails) {
                 result.add("Safe durable detail rows are absent for part of this history, so request and exception"
@@ -568,6 +574,9 @@ public final class DurableJournalArchiveService {
             }
             if (!metadata.offloadTraceLoss().isEmpty()) {
                 result.add(OFFLOAD_TRACE_LOSS);
+            }
+            if (metadata.deferredSqlLossHorizonMillis() != null) {
+                result.add(DEFERRED_SQL_LOSS);
             }
             if (missingDetails) {
                 result.add("Safe durable detail rows are absent for part of the retained history; exception metadata is"
@@ -610,7 +619,8 @@ public final class DurableJournalArchiveService {
                     && metadata.runSummary() != null
                     && metadata.durableDroppedEvents() == 0
                     && metadata.durableQuarantinedEvents() == 0
-                    && metadata.offloadTraceLoss().isEmpty();
+                    && metadata.offloadTraceLoss().isEmpty()
+                    && metadata.deferredSqlLossHorizonMillis() == null;
         }
     }
 }

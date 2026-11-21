@@ -171,7 +171,10 @@ class DurableJournalEvidenceTests {
         RuntimeJournal journal = journal(100, 1_000_000);
         var deferred = journal.beginCapture(JournalSource.SQL);
         assertThat(deferred).isNotNull();
-        assertThat(journal.offer(requestHttp("request", 2_000))).isTrue();
+        if (clear) {
+            journal.clear();
+        }
+        assertThat(journal.offer(requestHttp("request", clear ? 3_000 : 2_000))).isTrue();
         journal.dispatchPending();
         var store = store();
         var scope = scope(journal);
@@ -187,14 +190,6 @@ class DurableJournalEvidenceTests {
                 runMetadata(journal, identity, DurableJournalRunMetadata.Phase.CHECKPOINT)));
         persist(store, scope, journal.entries());
         assertThat(journal.offloadRetainedData()).isOne();
-        if (clear) {
-            journal.clear();
-            store.clearRunThrough(scope, 1);
-            assertThat(journal.offer(requestHttp("request", 3_000))).isTrue();
-            journal.dispatchPending();
-            persist(store, scope, journal.entries());
-            assertThat(journal.offloadRetainedData()).isOne();
-        }
         var accepted = journal.status().accepted();
         var completion = requestSql("request", clear ? 3_010 : 2_010);
         if (discardedByRecorder) {
@@ -206,8 +201,7 @@ class DurableJournalEvidenceTests {
         assertThat(journal.status().dropped()).isEmpty();
         assertThat(journal.awaitDrained(Duration.ZERO)).isTrue();
 
-        var snapshot = new DurableJournalEvidence(store)
-                .read(scope, journal, new DurableJournalCapture.ReadWindow(clear ? 1 : 0));
+        var snapshot = new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
         assertThat(snapshot.omittedEvents()).isZero();
         assertThat(snapshot.lossHorizonMillis()).isEqualTo(clear ? null : 2_010L);
         assertThat(new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null)
@@ -215,6 +209,42 @@ class DurableJournalEvidenceTests {
                         .window()
                         .requests())
                 .isEqualTo(clear ? 1 : 0);
+
+        assertThat(journal.offer(requestHttp("unrelated", 4_000))).isTrue();
+        journal.dispatchPending();
+        persist(store, scope, journal.entries());
+        assertThat(journal.offloadRetainedData()).isOne();
+        for (long sequence = 1; sequence <= journal.lastSequence(); sequence++) {
+            store.upsertDetail(DurableJournalDetail.request(scope, sequence, "GET", "/orders/{id}", "get", 200));
+        }
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.END,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                RunSummary.of(
+                        journal.run(),
+                        new JournalAggregates().snapshot(),
+                        journal.run().startedAtEpochMillis()));
+        store.upsertRun(new DurableJournalRun(
+                scope, 1, 2, "STOPPED", null, journal.lastSequence(), identity.instanceId(), metadata));
+        assertThat(store.findRunMetadata(scope).phase()).isEqualTo(DurableJournalRunMetadata.Phase.END);
+
+        var archive = DurableJournalArchiveService.forNamespace(store, null, scope.namespace());
+        var archived = archive.multiRunInsights(List.of(scope)).runs().get(0);
+        assertThat(archived.completeness().omittedEvents()).isZero();
+        assertThat(archived.insights().window().requests())
+                .as("archived Insights must exclude the request whose deferred SQL was lost, not the later request")
+                .isEqualTo(clear ? 2 : 1);
+        assertThat(archived.completeness().complete()).isEqualTo(clear);
+        var evidence = new DurableJournalEvidence(store).read(scope);
+        assertThat(evidence.lostMillis(JournalSource.SQL)).isEqualTo(clear ? null : 2_010L);
+        assertThat(evidence.evictedARequestOf("unrelated-trace")).isFalse();
+        assertThat(archive.profile(scope, "request").notes().stream()
+                        .anyMatch(note -> note.startsWith("Deferred SQL was lost before it could be recorded")))
+                .isEqualTo(!clear);
     }
 
     @Test

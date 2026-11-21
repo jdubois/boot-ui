@@ -375,6 +375,8 @@ Historical profiles do not assign calls linked only by an affected trace to anot
 bound is exceeded, trace-only attribution is withheld for that recording until **Clear recording**. Historical
 profiles and Runtime Insights report this loss as incomplete evidence, without counting it as missing database rows.
 An HTTP request lost without a trace also makes the archive incomplete but does not affect unrelated trace attribution.
+If a deferred SQL capture is lost in the same recording, archived Runtime Insights treats requests that may have
+lost that SQL as incomplete even when every sequenced event was recovered. Later unaffected requests remain eligible.
 When the archive also has gaps in its sequenced events, Runtime Insights may leave out otherwise retained requests
 rather than treat missing work as evidence that it never happened.
 

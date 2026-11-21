@@ -40,7 +40,8 @@ public record DurableJournalRunMetadata(
         long durableDroppedEvents,
         long durableQuarantinedEvents,
         long durableClearedThrough,
-        OffloadTraceLoss offloadTraceLoss) {
+        OffloadTraceLoss offloadTraceLoss,
+        Long deferredSqlLossHorizonMillis) {
 
     public static DurableJournalRunMetadata snapshot(
             Phase phase,
@@ -81,7 +82,8 @@ public record DurableJournalRunMetadata(
                 0,
                 0,
                 0,
-                traceSnapshot.offloadTraceLoss());
+                traceSnapshot.offloadTraceLoss(),
+                traceSnapshot.deferredSqlLossHorizonMillis());
     }
 
     private static List<String> boundedRecentValid(List<String> values, int limit) {
@@ -135,6 +137,9 @@ public record DurableJournalRunMetadata(
             throw new IllegalArgumentException("durable capture loss counters must not be negative");
         }
         Objects.requireNonNull(offloadTraceLoss, "offloadTraceLoss must not be null");
+        if (deferredSqlLossHorizonMillis != null && deferredSqlLossHorizonMillis < 0) {
+            throw new IllegalArgumentException("deferredSqlLossHorizonMillis must not be negative");
+        }
     }
 
     /** A snapshot using the enum name as its durable stack name. */
@@ -176,7 +181,8 @@ public record DurableJournalRunMetadata(
                 0,
                 0,
                 0,
-                OffloadTraceLoss.NONE);
+                OffloadTraceLoss.NONE,
+                null);
     }
 
     /** Compatibility constructor before durable-capture loss counters were persisted. */
@@ -219,7 +225,8 @@ public record DurableJournalRunMetadata(
                 0,
                 0,
                 0,
-                OffloadTraceLoss.NONE);
+                OffloadTraceLoss.NONE,
+                null);
     }
 
     /** This metadata with the capture queue's acknowledged loss and poison-row counts. */
@@ -245,7 +252,8 @@ public record DurableJournalRunMetadata(
                 dropped,
                 quarantined,
                 clearedThrough,
-                offloadTraceLoss);
+                offloadTraceLoss,
+                deferredSqlLossHorizonMillis);
     }
 
     /** Run-scoped fingerprints; untraced loss affects completeness but never vetoes an unrelated trace. */

@@ -266,6 +266,11 @@ public final class DurableJournalEvidence {
             boolean recoveredOffload) {
         Set<String> lostTraces = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestTraces());
         Set<String> lostThreads = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestThreads());
+        Long archivedSqlLoss = !sameRun
+                        && metadata != null
+                        && scope.run().equals(metadata.journalStatus().runId())
+                ? metadata.deferredSqlLossHorizonMillis()
+                : null;
         return new JournalEvidenceSnapshot.Completeness() {
             @Override
             public boolean records(JournalSource source) {
@@ -278,7 +283,7 @@ public final class DurableJournalEvidence {
             @Override
             public Long lossHorizonMillis() {
                 if (durableComplete) {
-                    return null;
+                    return archivedSqlLoss;
                 }
                 if (recoveredOffload) {
                     // Both the hot and saved horizon include memory-only discards; the complete sequence merge
@@ -287,7 +292,7 @@ public final class DurableJournalEvidence {
                 }
                 return maximum(
                         sameRun ? journal.lossHorizonMillis() : null,
-                        metadata == null ? null : metadata.lossHorizonMillis());
+                        maximum(archivedSqlLoss, metadata == null ? null : metadata.lossHorizonMillis()));
             }
 
             @Override
@@ -329,14 +334,15 @@ public final class DurableJournalEvidence {
 
             @Override
             public Long lostMillis(JournalSource source) {
+                Long sqlLoss = source == JournalSource.SQL ? archivedSqlLoss : null;
                 if (durableComplete) {
-                    return null;
+                    return sqlLoss;
                 }
                 if (recoveredOffload) {
                     return journal.lostMillis(source, true);
                 }
                 Long durable = metadata == null ? null : metadata.lostBySource().get(source);
-                return maximum(sameRun ? journal.lostMillis(source) : null, durable);
+                return maximum(sameRun ? journal.lostMillis(source) : null, maximum(sqlLoss, durable));
             }
 
             @Override
