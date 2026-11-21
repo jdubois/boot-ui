@@ -55,11 +55,17 @@ public final class DurableJournalEvidence {
 
     /** Reads the requested run and merges its matching hot tail. */
     public JournalEvidenceSnapshot read(DurableJournalScope scope, RuntimeJournal journal) {
+        return read(scope, journal, null);
+    }
+
+    JournalEvidenceSnapshot read(
+            DurableJournalScope scope, RuntimeJournal journal, DurableJournalCapture.ReadWindow liveWindow) {
         Objects.requireNonNull(scope, "scope must not be null");
         boolean sameRun = journal != null && scope.run().equals(journal.run().id());
         JournalEvidenceSnapshot hot = sameRun ? JournalEvidenceSnapshot.hot(journal) : null;
         JournalStatus hotStatus = hot == null ? null : hot.status();
         if (sameRun
+                && liveWindow == null
                 && hotStatus.offloadedEvents() == 0
                 && hotStatus.evictedByCount() + hotStatus.evictedByBytes() == 0
                 && hotStatus.clears() == 0) {
@@ -87,11 +93,17 @@ public final class DurableJournalEvidence {
         long overlap = 0;
         BoundedEntries bounded = new BoundedEntries(eventBound, byteBound);
         long clearedThrough = metadata == null ? 0 : metadata.durableClearedThrough();
+        if (liveWindow != null) {
+            clearedThrough = Math.max(clearedThrough, liveWindow.clearedThrough());
+        }
         long firstSequence = clearedThrough;
         if (!sameRun && metadata != null) {
             firstSequence = Math.max(0, metadata.journalStatus().lastSequence() - (long) eventBound);
         } else if (sameRun) {
             firstSequence = Math.max(0, durableThrough - (long) eventBound);
+        }
+        if (liveWindow != null) {
+            firstSequence = Math.max(firstSequence, clearedThrough);
         }
         durableOmitted = Math.max(0, firstSequence - clearedThrough);
         DurableJournalCursor cursor = firstSequence == 0 ? null : new DurableJournalCursor(firstSequence);
@@ -135,14 +147,18 @@ public final class DurableJournalEvidence {
         }
         long unique = durableCount + hotEntries.size() - overlap;
         long omitted = Math.max(0, durableOmitted + unique - entries.size()) + missingSequences;
-        boolean durableComplete = metadata != null
+        // Memory offload also discards undispatched events, which have no sequence to check against disk.
+        boolean durableComplete = (liveWindow == null || !journal.hasUnsequencedLoss())
+                && metadata != null
                 && omitted == 0
                 && base.droppedTotal() == 0
                 && metadata.durableDroppedEvents() == 0
                 && metadata.durableQuarantinedEvents() == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
+        boolean currentArchive = sameRun && liveWindow != null;
+        boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
         JournalEvidenceSnapshot.Completeness completeness =
-                completeness(journal, sameRun, metadata, settings, durableComplete);
+                completeness(journal, sameRun, metadata, settings, durableComplete, currentArchive, recoveredOffload);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
@@ -241,7 +257,9 @@ public final class DurableJournalEvidence {
             boolean sameRun,
             DurableJournalRunMetadata metadata,
             RuntimeJournalSettings settings,
-            boolean durableComplete) {
+            boolean durableComplete,
+            boolean currentArchive,
+            boolean recoveredOffload) {
         Set<String> lostTraces = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestTraces());
         Set<String> lostThreads = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestThreads());
         return new JournalEvidenceSnapshot.Completeness() {
@@ -258,6 +276,11 @@ public final class DurableJournalEvidence {
                 if (durableComplete) {
                     return null;
                 }
+                if (recoveredOffload) {
+                    // Both the hot and saved horizon include memory-only discards; the complete sequence merge
+                    // recovered those rows. Keep actual loss, including admissions without a sequence.
+                    return journal.lossHorizonMillis(true);
+                }
                 return maximum(
                         sameRun ? journal.lossHorizonMillis() : null,
                         metadata == null ? null : metadata.lossHorizonMillis());
@@ -268,6 +291,9 @@ public final class DurableJournalEvidence {
                 if (durableComplete) {
                     return null;
                 }
+                if (recoveredOffload) {
+                    return journal.lostRequestEndMillis(true);
+                }
                 return maximum(
                         sameRun ? journal.lostRequestEndMillis() : null,
                         metadata == null ? null : metadata.lostRequestEndMillis());
@@ -275,19 +301,26 @@ public final class DurableJournalEvidence {
 
             @Override
             public boolean lostARequestOn(String thread) {
+                if (recoveredOffload) {
+                    return !durableComplete && journal.lostARequestOn(thread, true);
+                }
                 return !durableComplete && (lostThreads.contains(thread) || sameRun && journal.lostARequestOn(thread));
             }
 
             @Override
             public boolean evictedARequestOf(String traceId) {
                 return !durableComplete
-                        && (lostTraces.contains(traceId) || sameRun && journal.evictedARequestOf(traceId));
+                        && (lostTraces.contains(traceId)
+                                || sameRun && journal.evictedARequestOf(traceId, currentArchive));
             }
 
             @Override
             public Long lostMillis(JournalSource source) {
                 if (durableComplete) {
                     return null;
+                }
+                if (recoveredOffload) {
+                    return journal.lostMillis(source, true);
                 }
                 Long durable = metadata == null ? null : metadata.lostBySource().get(source);
                 return maximum(sameRun ? journal.lostMillis(source) : null, durable);

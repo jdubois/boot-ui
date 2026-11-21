@@ -43,6 +43,8 @@ final class JournalQueue {
     private int putIndex;
     private int count;
     private boolean detached;
+    // Only read or set under the journal's processing lock; zero for ordinary clear or shutdown.
+    private long memoryOffloadGeneration;
 
     /**
      * @param capacity the most events queued at once
@@ -166,11 +168,19 @@ final class JournalQueue {
         }
     }
 
-    /**
-     * Detaches this queue for a clear, in constant time: it takes no more events, drops those it holds, and wakes a
-     * dispatcher waiting on it. Returns what it dropped, to be visited after the lock is released.
-     */
+    long memoryOffloadGeneration() {
+        return memoryOffloadGeneration;
+    }
+
     Detached detach() {
+        return detach(0);
+    }
+
+    /**
+     * Detaches this queue in constant time and returns what it dropped. The generation lets the dispatcher identify
+     * an offload when it already holds a polled event; ordinary clear and shutdown pass zero.
+     */
+    Detached detach(long memoryOffloadGeneration) {
         ReentrantLock lock = this.lock;
         lock.lock();
         try {
@@ -178,6 +188,9 @@ final class JournalQueue {
                 return Detached.NONE;
             }
             detached = true;
+            if (memoryOffloadGeneration != 0) {
+                this.memoryOffloadGeneration = memoryOffloadGeneration;
+            }
             Detached dropped = new Detached(items, takeIndex, count);
             items = new RuntimeEvent[0];
             takeIndex = 0;

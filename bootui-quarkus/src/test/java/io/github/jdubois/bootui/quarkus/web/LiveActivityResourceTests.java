@@ -3,8 +3,11 @@ package io.github.jdubois.bootui.quarkus.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -43,6 +46,7 @@ import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -76,10 +80,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Pins {@link LiveActivityResource}'s persistence wiring: byte-identical behavior when the (always
@@ -1044,23 +1052,43 @@ class LiveActivityResourceTests {
         }
     }
 
-    @Test
-    void anOffloadedCurrentRequestProfileReadsDurableEvidence() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aCurrentRequestProfileReadsDurableEvidenceAfterEitherKindOfOffload(boolean memoryOffload) throws Exception {
         RunIdentity currentRun = RunIdentity.start();
         RuntimeJournal current = new RuntimeJournal(RuntimeJournalSettings.defaults(), currentRun);
-        JdbcDurableJournalStore store = newDurableStore();
-        try {
+        JdbcDurableJournalStore store = spy(newDurableStore());
+        CountDownLatch checkpointed = new CountDownLatch(1);
+        CountDownLatch allowDeletion = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    Object result = invocation.callRealMethod();
+                    checkpointed.countDown();
+                    return result;
+                })
+                .when(store)
+                .checkpoint(any(), anyLong());
+        doAnswer(invocation -> {
+                    assertThat(allowDeletion.await(5, TimeUnit.SECONDS)).isTrue();
+                    return invocation.callRealMethod();
+                })
+                .when(store)
+                .clearRunThrough(any(), anyLong());
+        DurableJournalSettings settings = durableSettings(currentRun, "namespace-quarkus");
+        try (DurableJournalCapture capture =
+                DurableJournalCapture.start(current, settings, store, new JournalActivityFeed(0, 2, null))) {
             current.offer(request("offloaded-request"));
             assertThat(current.awaitDrained(Duration.ofSeconds(5))).isTrue();
-            DurableJournalSettings settings = durableSettings(currentRun, "namespace-quarkus");
-            JournalEvidenceSnapshot hot = JournalEvidenceSnapshot.hot(current);
-            persistMetadata(store, settings.scope(), current, settings.instanceId());
-            store.appendBatch(settings.scope(), hot.entries());
-            assertThat(current.offloadDurableThrough(current.lastSequence(), 0)).isEqualTo(1);
-            persistMetadata(store, settings.scope(), current, settings.instanceId());
+            capture.flushNow();
+            assertThat(checkpointed.await(5, TimeUnit.SECONDS)).isTrue();
+            if (memoryOffload) {
+                assertThat(current.offloadRetainedData()).isEqualTo(1);
+                assertThat(current.status().offloadedEvents()).isZero();
+            } else {
+                assertThat(current.offloadDurableThrough(current.lastSequence(), 0))
+                        .isEqualTo(1);
+            }
             DurableJournalRuntime runtime = new DurableJournalRuntime();
-            assertThat(runtime.activate(store, mock(DurableJournalCapture.class)))
-                    .isTrue();
+            assertThat(runtime.activate(store, capture)).isTrue();
 
             LiveActivityResource resource =
                     resourceWith(new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings());
@@ -1072,6 +1100,14 @@ class LiveActivityResourceTests {
                 assertThat(profile.available()).isTrue();
                 assertThat(profile.requestId()).isEqualTo("offloaded-request");
             });
+            try {
+                current.clear();
+                assertThat(store.query(settings.scope()).entries()).hasSize(1);
+                assertThat(resource.requestJournal("offloaded-request").available())
+                        .isFalse();
+            } finally {
+                allowDeletion.countDown();
+            }
         } finally {
             current.close();
         }

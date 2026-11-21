@@ -111,6 +111,7 @@ public final class RuntimeJournal
     private final LongAdder acceptedTotal = new LongAdder();
     private final AtomicLong processed = new AtomicLong();
     private final AtomicLong lastSequence = new AtomicLong();
+    private volatile boolean unsequencedLoss;
     private final long[] processedSources = new long[JournalSource.values().length];
     private final LongAdder listenerFailures = new LongAdder();
     private final CorrelationSource correlation = new CorrelationSource();
@@ -152,6 +153,7 @@ public final class RuntimeJournal
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
     private volatile ClearBoundary clearBoundary = new ClearBoundary(0, 0, Map.of());
+    private long lastExplicitClearGeneration;
     private volatile long offloadedEvents;
     private volatile long durableOffloadedThrough;
     private final Object offloadState = new Object();
@@ -164,6 +166,12 @@ public final class RuntimeJournal
 
     ClearBoundary clearBoundary() {
         return clearBoundary;
+    }
+
+    /** The current clear generation, or {@code -1} while its listeners and hot reset may still be running. */
+    long stableClearGeneration() {
+        long completed = clearsCompleted;
+        return clearBoundary.clears() == completed ? completed : -1;
     }
 
     Map<JournalSource, Long> droppedCounts() {
@@ -510,8 +518,12 @@ public final class RuntimeJournal
                 synchronized (processing) {
                     if (queue != admission) {
                         // Offered before a clear that ran while the dispatcher held it: cleared with the recording.
-                        ring.lost(first);
-                        processed.incrementAndGet();
+                        if (queue.memoryOffloadGeneration() > lastExplicitClearGeneration) {
+                            ring.lostBeforeOffload(first);
+                        } else {
+                            ring.lost(first);
+                        }
+                        finishDiscarded(1);
                         continue;
                     }
                     batch.add(first);
@@ -553,6 +565,7 @@ public final class RuntimeJournal
 
     private void process(List<RuntimeEvent> batch) {
         List<JournalEntry> entries = new ArrayList<>(batch.size());
+        int sequenced = 0;
         try {
             for (RuntimeEvent offered : batch) {
                 RuntimeEvent event = interned(offered);
@@ -560,6 +573,7 @@ public final class RuntimeJournal
                 JournalEntry entry = new JournalEntry(sequence, event, event.estimatedBytes(dictionary));
                 ring.add(entry);
                 lastSequence.set(sequence);
+                sequenced++;
                 processedSources[event.source().ordinal()]++;
                 entries.add(entry);
             }
@@ -576,6 +590,9 @@ public final class RuntimeJournal
                 }
             }
         } finally {
+            if (sequenced < batch.size()) {
+                unsequencedLoss = true;
+            }
             processed.addAndGet(batch.size());
         }
     }
@@ -758,7 +775,11 @@ public final class RuntimeJournal
      * AI call linked only by that trace ({@link AiCallOwners}): the evicted request may have made it.
      */
     public boolean evictedARequestOf(String traceId) {
-        return ring.evictedARequestOf(traceId);
+        return evictedARequestOf(traceId, false);
+    }
+
+    boolean evictedARequestOf(String traceId, boolean currentArchive) {
+        return ring.evictedARequestOf(traceId, currentArchive);
     }
 
     /**
@@ -768,7 +789,11 @@ public final class RuntimeJournal
      * started later is complete, since its events start no earlier than it does.
      */
     public Long lossHorizonMillis() {
-        return ring.lossHorizonMillis();
+        return lossHorizonMillis(false);
+    }
+
+    Long lossHorizonMillis(boolean recoveredOffload) {
+        return ring.lossHorizonMillis(recoveredOffload);
     }
 
     /**
@@ -777,7 +802,11 @@ public final class RuntimeJournal
      * logs a failure once the request's id is gone, may have been that request's.
      */
     public Long lostRequestEndMillis() {
-        return ring.lostRequestEndMillis();
+        return lostRequestEndMillis(false);
+    }
+
+    Long lostRequestEndMillis(boolean recoveredOffload) {
+        return ring.lostRequestEndMillis(recoveredOffload);
     }
 
     /**
@@ -786,7 +815,11 @@ public final class RuntimeJournal
      * a request id on such a thread may have been that request's.
      */
     public boolean lostARequestOn(String thread) {
-        return ring.lostARequestOn(thread);
+        return lostARequestOn(thread, false);
+    }
+
+    boolean lostARequestOn(String thread, boolean recoveredOffload) {
+        return ring.lostARequestOn(thread, recoveredOffload);
     }
 
     public List<String> lostRequestTraces() {
@@ -804,7 +837,11 @@ public final class RuntimeJournal
      * not logged, knows its evidence is complete only when this is earlier.
      */
     public Long lostMillis(JournalSource source) {
-        Long evicted = ring.lostMillis(source);
+        return lostMillis(source, false);
+    }
+
+    Long lostMillis(JournalSource source, boolean recoveredOffload) {
+        Long evicted = ring.lostMillis(source, recoveredOffload);
         long drop = droppedAt.get(source.ordinal());
         if (drop == 0L) {
             return evicted;
@@ -962,12 +999,12 @@ public final class RuntimeJournal
     }
 
     /**
-     * Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>, and counts the retained and still-queued events
-     * it discarded; recording settings are kept.
+     * Drops the hot recording for <b>Free BootUI memory</b> and counts the retained and still-queued events it
+     * discarded. Recording settings, durable history, and work already submitted to the durable writer are kept.
      */
     @Override
     public long offloadRetainedData() {
-        return clearAndCount();
+        return clearAndCount(true);
     }
 
     /**
@@ -978,7 +1015,7 @@ public final class RuntimeJournal
      * It waits for a batch being processed, so no event recorded before the clear is processed after it.
      */
     public void clear() {
-        clearAndCount();
+        clearAndCount(false);
     }
 
     /**
@@ -1012,13 +1049,32 @@ public final class RuntimeJournal
         ring.durableCaptureLost(entry);
     }
 
-    /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
-    private long clearAndCount() {
+    long compactedEventCount() {
+        return offloadedEvents;
+    }
+
+    /** An admission in this run was lost before it received a sequence the archive can account for. */
+    boolean hasUnsequencedLoss() {
+        return unsequencedLoss;
+    }
+
+    private void finishDiscarded(int count) {
+        if (count > 0) {
+            unsequencedLoss = true;
+            processed.addAndGet(count);
+        }
+    }
+
+    /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
+    private long clearAndCount(boolean memoryOffload) {
         synchronized (processing) {
             ClearBoundary boundary = new ClearBoundary(
                     clearsCompleted + 1,
                     Math.max(System.currentTimeMillis(), clearBoundary.epochMillis()),
                     perSource(dropped));
+            if (!memoryOffload) {
+                lastExplicitClearGeneration = boundary.clears();
+            }
             JournalQueue detached = admission;
             int queued = 0;
             // A closed journal's queue stays: compare-and-set, since a close with a stuck dispatcher installs it
@@ -1026,24 +1082,28 @@ public final class RuntimeJournal
             if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue())) {
                 // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
                 // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
-                JournalQueue.Detached cleared = detached.detach();
+                JournalQueue.Detached cleared = detached.detach(memoryOffload ? boundary.clears() : 0);
                 queued = cleared.count();
                 // Outside the queue's lock: their requests and executions lost them to the clear.
-                cleared.forEach(ring::lost);
+                cleared.forEach(memoryOffload ? ring::lostBeforeOffload : ring::lost);
             }
             clearBoundary = boundary;
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);
             }
-            processed.addAndGet(queued);
+            finishDiscarded(queued);
             long dropped = ring.counts().retained() + queued;
-            ring.clear();
+            ring.clear(memoryOffload);
             dictionary.clear();
             SqlShapes.clear();
             Arrays.fill(processedSources, 0);
             for (JournalListener listener : listeners) {
                 try {
-                    listener.onClear();
+                    if (memoryOffload) {
+                        listener.onMemoryOffload();
+                    } else {
+                        listener.onClear();
+                    }
                 } catch (RuntimeException ex) {
                     listenerFailures.increment();
                     if (listener instanceof JournalAggregates aggregates) {
@@ -1145,9 +1205,9 @@ public final class RuntimeJournal
             // and the events still queued are dropped with their frames, counted as processed as a clear counts them.
             JournalQueue last = (JournalQueue) ADMISSION.getAndSet(this, JournalQueue.closed());
             JournalQueue.Detached discarded = last.detach();
-            processed.addAndGet(discarded.count());
             // Counted as processed, not dropped, so no check is made partial by them: their work lost them instead.
             discarded.forEach(ring::lost);
+            finishDiscarded(discarded.count());
             return;
         }
         if (settings.enabled()) {

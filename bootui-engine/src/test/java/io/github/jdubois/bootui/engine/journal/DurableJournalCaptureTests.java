@@ -297,6 +297,41 @@ class DurableJournalCaptureTests {
     }
 
     @Test
+    void memoryOffloadDropsHotEvidenceButKeepsPersistedAndPendingWrites() throws Exception {
+        RuntimeJournal journal = journal();
+        RecordingWriter writer = new RecordingWriter();
+        DurableJournalCapture capture = capture(journal, writer, settings(64, 16_000, 64, 8, seconds(60), seconds(60)));
+        journal.offer(event(10, "persisted"));
+        journal.dispatchPending();
+        capture.flushNow();
+        assertThat(writer.checkpointReached.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(1L);
+
+        journal.offer(event(20, "pending"));
+        journal.dispatchPending();
+        assertThat(capture.status().pending()).isEqualTo(1);
+        journal.offer(event(30, "not-dispatched"));
+
+        assertThat(journal.offloadRetainedData()).isEqualTo(3);
+        assertThat(journal.entries()).isEmpty();
+        assertThat(journal.status().queueDepth()).isZero();
+        assertThat(journal.lossHorizonMillis()).isEqualTo(30L);
+
+        journal.offer(event(40, "after-offload"));
+        journal.dispatchPending();
+        capture.close();
+
+        assertThat(writer.clearAttempts)
+                .as("offload must not schedule a durable clear")
+                .hasValue(0);
+        assertThat(capture.status().finalFlushCompleted()).isTrue();
+        assertThat(writer.entries)
+                .extracting(entry -> entry.event().requestId())
+                .containsExactly("persisted", "pending", "after-offload");
+        assertThat(capture.status().durableWatermark()).isEqualTo(3);
+    }
+
+    @Test
     void clearWaitsBehindAnInFlightAppendDropsPendingOldRowsAndPreservesFutureRows() throws Exception {
         RuntimeJournal journal = journal();
         RecordingWriter writer = new RecordingWriter();
@@ -307,15 +342,19 @@ class DurableJournalCaptureTests {
         capture.flushNow();
         assertThat(writer.appendStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
+        journal.offer(event(15, "pending"));
+        journal.dispatchPending();
+        assertThat(capture.status().pending()).isEqualTo(2);
+
         journal.clear();
         assertThat(capture.status().pending()).isZero();
-        assertThat(capture.status().durableWatermark()).isEqualTo(1);
+        assertThat(capture.status().durableWatermark()).isEqualTo(2);
         journal.offer(event(20, "future"));
         journal.dispatchPending();
 
         writer.blockAppend.countDown();
-        await(() -> writer.entries.stream().map(JournalEntry::sequence).toList().equals(List.of(2L)));
-        await(() -> capture.status().durableWatermark() == 2);
+        await(() -> writer.entries.stream().map(JournalEntry::sequence).toList().equals(List.of(3L)));
+        await(() -> capture.status().durableWatermark() == 3);
 
         assertThat(writer.clearAttempts).hasValue(1);
         assertThat(writer.operations.indexOf("clear")).isGreaterThan(writer.operations.indexOf("append"));
@@ -568,6 +607,7 @@ class DurableJournalCaptureTests {
         private final AtomicInteger failClears = new AtomicInteger();
         private final AtomicInteger failRunErrors = new AtomicInteger();
         private final CountDownLatch appendStarted = new CountDownLatch(1);
+        private final CountDownLatch checkpointReached = new CountDownLatch(1);
         private volatile CountDownLatch blockAppend;
 
         @Override
@@ -639,6 +679,7 @@ class DurableJournalCaptureTests {
         public DurableJournalRun checkpoint(DurableJournalScope scope, long sequence) {
             operations.add("checkpoint");
             checkpoints.add(sequence);
+            checkpointReached.countDown();
             DurableJournalRun run =
                     new DurableJournalRun(scope, 1, System.currentTimeMillis(), "RUNNING", null, sequence, "instance");
             return run;

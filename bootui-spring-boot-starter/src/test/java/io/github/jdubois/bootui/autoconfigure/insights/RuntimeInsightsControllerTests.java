@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -24,6 +26,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.insights.CacheCapture;
 import io.github.jdubois.bootui.engine.insights.EventLoopBlocking;
+import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ProxyBypass;
 import io.github.jdubois.bootui.engine.insights.RepeatedSelects;
 import io.github.jdubois.bootui.engine.insights.RouteTimeBreakdown;
@@ -31,6 +34,7 @@ import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.DurableJournalCapture;
+import io.github.jdubois.bootui.engine.journal.DurableJournalCaptureSettings;
 import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
 import io.github.jdubois.bootui.engine.journal.DurableJournalPage;
 import io.github.jdubois.bootui.engine.journal.DurableJournalRun;
@@ -40,6 +44,8 @@ import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
 import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
 import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -56,11 +62,14 @@ import io.github.jdubois.bootui.spi.MappingProvider;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import javax.sql.DataSource;
+import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -350,6 +359,64 @@ class RuntimeInsightsControllerTests {
 
             assertThat(controller.report().available()).isTrue();
             verifyNoInteractions(store);
+        }
+    }
+
+    @Test
+    void currentReportRecoversPersistedRequestsAfterMemoryOffloadBeforeAnyCompaction() throws Exception {
+        DurableJournalSettings settings =
+                durableSettings(journal.run().id(), journal.status().instanceId(), false);
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL("jdbc:h2:mem:insights-offload;DB_CLOSE_DELAY=-1");
+        JdbcDurableJournalStore store = spy(new JdbcDurableJournalStore(dataSource, "journal"));
+        store.verifySchema();
+        CountDownLatch checkpointed = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    Object result = invocation.callRealMethod();
+                    checkpointed.countDown();
+                    return result;
+                })
+                .when(store)
+                .checkpoint(any(), anyLong());
+        DurableJournalRuntime runtime = new DurableJournalRuntime();
+        try (DurableJournalCapture capture = DurableJournalCapture.start(
+                        journal,
+                        settings,
+                        store,
+                        new JournalActivityFeed(0, 2, null),
+                        DurableJournalCaptureSettings.of(settings),
+                        List.of(),
+                        phase -> DurableJournalRunMetadata.snapshot(
+                                phase, journal, settings.identity(), InsightsStack.SPRING_MVC, Map.of(), null, null));
+                GenericApplicationContext context = new GenericApplicationContext()) {
+            assertThat(runtime.activate(store, capture)).isTrue();
+            context.registerBean(RuntimeJournal.class, () -> journal);
+            context.registerBean(DurableJournalSettings.class, () -> settings);
+            context.registerBean(DurableJournalRuntime.class, () -> runtime);
+            context.refresh();
+            RuntimeInsightsController controller = controller(context);
+
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    1_000_000,
+                    CorrelationContext.forRequest("persisted"),
+                    "worker",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/persisted", "/persisted", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            capture.flushNow();
+            assertThat(checkpointed.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(store.findRunMetadata(settings.scope())).isNotNull();
+
+            assertThat(journal.offloadRetainedData()).isEqualTo(1);
+            assertThat(journal.status().offloadedEvents()).isZero();
+            assertThat(store.query(settings.scope()).entries()).hasSize(1);
+            assertThat(controller.report().window().requests()).isEqualTo(1);
+
+            journal.clear();
+            assertThat(controller.report().window().requests()).isZero();
         }
     }
 

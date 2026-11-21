@@ -300,11 +300,11 @@ public final class AgentEvidence implements JournalListener {
 
     /** Clears every store, each on its own: a store that fails is logged and skipped. */
     @Override
-    public void onClear() {
+    public void onMemoryOffload() {
         clear();
     }
 
-    /** {@link #onClear()}, returning what was dropped; {@code null} when nothing was. */
+    /** {@link #onMemoryOffload()}, returning what was dropped; {@code null} when nothing was. */
     public String clear() {
         List<Store> current;
         synchronized (this) {

@@ -1,6 +1,12 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
@@ -14,13 +20,19 @@ import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class DurableJournalEvidenceTests {
 
@@ -116,6 +128,59 @@ class DurableJournalEvidenceTests {
     }
 
     @Test
+    void contiguousSequencesDoNotHideAnUndispatchedDiscardDuringLaterDispatch() throws Exception {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        journal.offer(requestHttp("request-1", 1_100));
+        journal.dispatchPending();
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        DurableJournalRunMetadata metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 1, identity.instanceId(), metadata));
+        persist(store, scope, journal.entries());
+
+        journal.offer(requestSql("request-1", 1_200));
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        CountDownLatch inListener = new CountDownLatch(1);
+        CountDownLatch finishDispatch = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            inListener.countDown();
+            try {
+                assertThat(finishDispatch.await(10, TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(ex);
+            }
+        });
+        assertThat(journal.offer(requestHttp("request-2", 1_300))).isTrue();
+        CompletableFuture<Void> dispatch = CompletableFuture.runAsync(journal::dispatchPending);
+        try {
+            assertThat(inListener.await(5, TimeUnit.SECONDS)).isTrue();
+            JournalEvidenceSnapshot snapshot =
+                    new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+            assertThat(snapshot.entries()).extracting(JournalEntry::sequence).containsExactly(2L, 1L);
+            assertThat(snapshot.omittedEvents()).isZero();
+            assertThat(snapshot.lossHorizonMillis()).isEqualTo(1_200L);
+        } finally {
+            finishDispatch.countDown();
+            dispatch.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void anActiveRequestIsReconstructedFromDurableAndUnacknowledgedHotEvidence() {
         RuntimeJournal journal = journal(100, 1_000_000);
         JdbcDurableJournalStore store = store();
@@ -141,6 +206,307 @@ class DurableJournalEvidenceTests {
         assertThat(profile.timeline()).extracting(item -> item.source()).contains("sql");
         assertThat(snapshot.status().evictedByCount()).isZero();
         assertThat(snapshot.lossHorizonMillis()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anEarlierDiscardDoesNotHideALaterOffloadedRequestUnlessItsEvidenceIsMissing(boolean missingChild) {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        assertThat(journal.offer(requestHttp("earlier", 1_000))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> earlier = journal.entries();
+        assertThat(journal.offer(requestSql("earlier", 1_010))).isTrue();
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        assertThat(journal.offer(requestSql("later", 2_010))).isTrue();
+        assertThat(journal.offer(requestHttp("later", 2_000))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> later = journal.entries();
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(
+                scope, 1, 1, "RUNNING", null, journal.lastSequence(), identity.instanceId(), metadata));
+        persist(store, scope, earlier);
+        persist(
+                store,
+                scope,
+                later.stream()
+                        .filter(entry -> !missingChild || entry.event().source() != JournalSource.SQL)
+                        .toList());
+
+        DurableJournalEvidence evidence = new DurableJournalEvidence(store);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(2_010L);
+        assertThat(evidence.read(scope).lossHorizonMillis()).isEqualTo(missingChild ? 2_010L : null);
+        JournalEvidenceSnapshot snapshot = evidence.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.omittedEvents()).isEqualTo(missingChild ? 1 : 0);
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).reportFrom(snapshot);
+        assertThat(report.window().requests()).isEqualTo(missingChild ? 0 : 1);
+        assertThat(snapshot.lossHorizonMillis()).isEqualTo(missingChild ? 2_010L : 1_010L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void currentReadNeverReturnsArchiveEvidenceAcrossAClearBlockedBeforeTheWriter(boolean readStartsFirst)
+            throws Exception {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        DurableJournalScope scope = scope(journal);
+        JdbcDurableJournalStore store = spy(store());
+        CountDownLatch checkpointed = new CountDownLatch(1);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch finishRead = new CountDownLatch(readStartsFirst ? 1 : 0);
+        CountDownLatch clearing = new CountDownLatch(1);
+        CountDownLatch finishClear = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    Object result = invocation.callRealMethod();
+                    checkpointed.countDown();
+                    return result;
+                })
+                .when(store)
+                .checkpoint(any(), anyLong());
+        doAnswer(invocation -> {
+                    reading.countDown();
+                    assertThat(finishRead.await(10, TimeUnit.SECONDS)).isTrue();
+                    return invocation.callRealMethod();
+                })
+                .when(store)
+                .query(any(DurableJournalQuery.class));
+        journal.addListener(new JournalListener() {
+            @Override
+            public void onEntries(List<JournalEntry> entries) {}
+
+            @Override
+            public void onClear() {
+                clearing.countDown();
+                try {
+                    assertThat(finishClear.await(10, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(ex);
+                }
+            }
+        });
+        var settings = new DurableJournalCaptureSettings(
+                64, 16_000, 64, 16_000, 8, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (DurableJournalCapture capture = DurableJournalCapture.start(journal, scope, store, settings)) {
+            DurableJournalRuntime runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, capture)).isTrue();
+            assertThat(journal.offer(requestHttp("request-1", 1_100))).isTrue();
+            journal.dispatchPending();
+            capture.flushNow();
+            assertThat(checkpointed.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(journal.offloadRetainedData()).isEqualTo(1);
+
+            CompletableFuture<JournalEvidenceSnapshot> read = readStartsFirst
+                    ? CompletableFuture.supplyAsync(() -> runtime.readCurrentEvidence(journal, scope))
+                    : null;
+            CompletableFuture<Void> clear = null;
+            try {
+                if (readStartsFirst) {
+                    assertThat(reading.await(5, TimeUnit.SECONDS)).isTrue();
+                }
+                clear = CompletableFuture.runAsync(journal::clear);
+                assertThat(clearing.await(5, TimeUnit.SECONDS)).isTrue();
+                finishRead.countDown();
+                if (read == null) {
+                    read = CompletableFuture.supplyAsync(() -> runtime.readCurrentEvidence(journal, scope));
+                }
+                assertThat(read.get(5, TimeUnit.SECONDS)).isNull();
+                if (!readStartsFirst) {
+                    verify(store, never()).query(any(DurableJournalQuery.class));
+                }
+            } finally {
+                finishRead.countDown();
+                finishClear.countDown();
+                if (clear != null) {
+                    clear.get(5, TimeUnit.SECONDS);
+                }
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void offloadPreservesTheLiveTraceVetoUnlessTheArchiveRecoversTheRequest(boolean requestMissing) {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        String traceId = "shared-trace";
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        assertThat(journal.offer(tracedHttp("first", 1_000, traceId))).isTrue();
+        assertThat(journal.offer(requestHttp("next", 2_000))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> entries = journal.entries();
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 2, identity.instanceId(), metadata));
+        persist(
+                store,
+                scope,
+                entries.stream()
+                        .filter(entry -> !requestMissing || entry.sequence() != 1)
+                        .toList());
+
+        journal.durableCaptureLost(entries.get(1));
+        assertThat(journal.evictedARequestOf(traceId)).isTrue();
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+        assertThat(store.findRunMetadata(scope).lostRequestTraces()).isEmpty();
+        assertThat(journal.evictedARequestOf(traceId)).isFalse();
+
+        DurableJournalEvidence reader = new DurableJournalEvidence(store);
+        JournalEvidenceSnapshot snapshot = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.omittedEvents()).isEqualTo(requestMissing ? 1 : 0);
+        assertThat(snapshot.evictedARequestOf(traceId)).isEqualTo(requestMissing);
+
+        journal.clear();
+        assertThat(journal.offer(requestHttp("not-persisted", 3_000))).isTrue();
+        journal.dispatchPending();
+        assertThat(journal.offloadRetainedData()).isEqualTo(1);
+        JournalEvidenceSnapshot afterClear = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(2));
+        assertThat(afterClear.omittedEvents()).isOne();
+        assertThat(afterClear.evictedARequestOf(traceId)).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void onlyMemoryOffloadVetoesAttributionAfterDiscardingAnUndispatchedRequest(boolean memoryOffload) {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        String traceId = "shared-trace";
+        assertThat(journal.offer(tracedHttp("never-dispatched", 1_000, traceId)))
+                .isTrue();
+        if (memoryOffload) {
+            assertThat(journal.offloadRetainedData()).isOne();
+        } else {
+            journal.clear();
+        }
+        assertThat(journal.lastSequence()).isZero();
+
+        assertThat(journal.offer(tracedHttp("later", 2_000, traceId))).isTrue();
+        assertThat(journal.offer(RuntimeEvent.of(
+                        JournalSource.AI,
+                        2_000,
+                        1_000_000,
+                        CorrelationContext.NONE.withTrace(traceId, null),
+                        "ai-worker",
+                        ThreadKind.WORKER,
+                        false,
+                        new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false))))
+                .isTrue();
+        journal.dispatchPending();
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        assertThat(metadata.lostRequestTraces()).isEmpty();
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 2, identity.instanceId(), metadata));
+        persist(store, scope, journal.entries());
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        DurableJournalEvidence reader = new DurableJournalEvidence(store);
+        JournalEvidenceSnapshot current = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(current.omittedEvents()).isZero();
+        assertThat(current.lossHorizonMillis()).isEqualTo(1_000L);
+        var profiles = new RequestJournalProfiles(journal, null, 0, 2, null);
+        var profile = profiles.profileFrom(current, "later");
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.timeline().stream().anyMatch(item -> item.source().equals("ai")))
+                .as("the trace-only call must not be attached if another request with that trace was lost in offload")
+                .isEqualTo(!memoryOffload);
+        assertThat(profiles.profileFrom(reader.read(scope), "later").timeline())
+                .anyMatch(item -> item.source().equals("ai"));
+        assertThat(journal.evictedARequestOf(traceId)).isFalse();
+    }
+
+    @Test
+    void recoveringOffloadedWorkDoesNotHideItsLaterUnlinkedLog() {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        assertThat(journal.offer(requestHttp("lost", 1_000, "earlier-thread"))).isTrue();
+        assertThat(journal.offloadRetainedData()).isEqualTo(1);
+
+        assertThat(journal.offer(unlinkedError(1_010, "earlier-thread"))).isTrue();
+        assertThat(journal.offer(requestHttp("recovered", 3_000))).isTrue();
+        assertThat(journal.offer(unlinkedError(3_010, "http-1"))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> retained = journal.entries();
+        assertThat(journal.offloadRetainedData()).isEqualTo(3);
+
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(
+                scope, 1, 1, "RUNNING", null, journal.lastSequence(), identity.instanceId(), metadata));
+        persist(store, scope, retained);
+
+        JournalEvidenceSnapshot snapshot =
+                new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.omittedEvents()).isZero();
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).reportFrom(snapshot);
+        assertThat(report.coverage())
+                .filteredOn(coverage -> coverage.source().equals("log"))
+                .singleElement()
+                .satisfies(logs -> assertThat(logs.unlinked()).isEqualTo(1));
+        assertThat(snapshot.lossHorizonMillis()).isEqualTo(1_000L);
+        assertThat(snapshot.lostRequestEndMillis()).isEqualTo(1_001L);
+        assertThat(snapshot.lostARequestOn("earlier-thread")).isTrue();
+        assertThat(snapshot.lostARequestOn("http-1")).isFalse();
+        assertThat(snapshot.lostMillis(JournalSource.HTTP)).isEqualTo(1_000L);
+        assertThat(snapshot.lostMillis(JournalSource.LOG)).isNull();
+        assertThat(journal.lostRequestEndMillis()).isEqualTo(3_001L);
+        assertThat(journal.lostARequestOn("http-1")).isTrue();
+        assertThat(journal.lostMillis(JournalSource.LOG)).isEqualTo(3_010L);
     }
 
     @Test
@@ -538,13 +904,29 @@ class DurableJournalEvidenceTests {
                 new GcPayload("G1 Young", 7, "end minor", "evacuation", true, 1_000, 500));
     }
 
+    private static RuntimeEvent tracedHttp(String requestId, long start, String traceId) {
+        return RuntimeEvent.of(
+                JournalSource.HTTP,
+                start,
+                10_000_000,
+                CorrelationContext.forRequest(requestId).withTrace(traceId, null),
+                "http-1",
+                ThreadKind.WORKER,
+                false,
+                new HttpPayload("GET", "/orders/42", "/orders/{id}", null, 200));
+    }
+
     private static RuntimeEvent requestHttp(String requestId, long start) {
+        return requestHttp(requestId, start, "http-1");
+    }
+
+    private static RuntimeEvent requestHttp(String requestId, long start, String thread) {
         return RuntimeEvent.of(
                 JournalSource.HTTP,
                 start,
                 1_000_000,
                 CorrelationContext.forRequest(requestId),
-                "http-1",
+                thread,
                 ThreadKind.WORKER,
                 false,
                 new HttpPayload(
@@ -555,5 +937,17 @@ class DurableJournalEvidenceTests {
                         200,
                         new ResourceUsage(
                                 1_000, 100, 1, 0, null, 1, List.of(new GcPauseRange("G1 Young", 6, 7)), false)));
+    }
+
+    private static RuntimeEvent unlinkedError(long start, String thread) {
+        return RuntimeEvent.of(
+                JournalSource.LOG,
+                start,
+                0,
+                null,
+                thread,
+                ThreadKind.WORKER,
+                false,
+                new LogPayload("org.springframework.web.DispatcherServlet", "ERROR", "Synthetic dispatch error", null));
     }
 }
