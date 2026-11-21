@@ -221,6 +221,9 @@ class CoreDtoImmutabilityTests {
         Object[] arguments = new Object[components.length];
         for (int i = 0; i < components.length; i++) {
             arguments[i] = probeValue(components[i].getType());
+            if (type == DependencyAssessmentDto.class && components[i].getName().equals("unassessedAdvisoryCount")) {
+                arguments[i] = 1;
+            }
         }
 
         Object instance = canonicalConstructor(type).newInstance(arguments);

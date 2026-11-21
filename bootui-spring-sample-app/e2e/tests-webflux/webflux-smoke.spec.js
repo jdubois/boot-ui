@@ -4,12 +4,20 @@ import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
 import {registerThreadAnalysisTests} from '../scenarios/thread-analysis.js'
 import {registerActionPolicyTests} from '../scenarios/action-policy.js'
 import {registerButtonLinkTests} from '../scenarios/button-links.js'
+import {registerJvmSizingInputTests} from '../scenarios/jvm-sizing-inputs.js'
+import {registerGitHubRefreshTests} from '../scenarios/github-refresh.js'
+import {registerMemoryHistogramTests} from '../scenarios/memory-histogram.js'
+import {registerVulnerabilityCandidateTests} from '../scenarios/vulnerability-candidates.js'
 import {registerHomeGuideTests} from '../scenarios/home-guide.js'
 import {registerFeedbackPopoverTests} from '../scenarios/feedback-popover.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
 registerActionPolicyTests(test, expect)
 registerButtonLinkTests(test, expect)
+registerJvmSizingInputTests(test, expect)
+registerGitHubRefreshTests(test, expect)
+registerMemoryHistogramTests(test, expect)
+registerVulnerabilityCandidateTests(test, expect)
 registerHomeGuideTests(test, expect)
 registerFeedbackPopoverTests(test, expect)
 

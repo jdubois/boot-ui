@@ -266,7 +266,7 @@ final class QuarkusAppMetadataCollector {
                                 .filter(t -> t.kind() == AnnotationTarget.Kind.CLASS)
                                 .map(AnnotationTarget::asClass)
                                 .orElseGet(() -> combined.getClassByName(bean.getBeanClass()));
-                        if (beanClass != null && isUnproxyableNormalScopedClass(bean, beanClass, combined)) {
+                        if (beanClass != null && isUnproxyableNormalScopedClass(bean, beanClass, combined, state)) {
                             state.unproxyableBeans.add(name);
                         }
                     }
@@ -523,58 +523,57 @@ final class QuarkusAppMetadataCollector {
         try {
             if (bean.isProducerMethod() && target.kind() == AnnotationTarget.Kind.METHOD) {
                 MethodInfo method = target.asMethod();
-                if (isUnproxyableProducerReturnType(bean, method.returnType(), combined)) {
+                if (isUnproxyableProducerReturnType(bean, method.returnType(), combined, state)) {
                     String id = methodId(bean.getBeanClass().toString(), method);
                     addBoundedMethod(state.unproxyableBeans, id);
                 }
             } else if (bean.isProducerField() && target.kind() == AnnotationTarget.Kind.FIELD) {
                 FieldInfo field = target.asField();
-                if (isUnproxyableProducerReturnType(bean, field.type(), combined)) {
+                if (isUnproxyableProducerReturnType(bean, field.type(), combined, state)) {
                     String id = bean.getBeanClass().toString() + "." + field.name();
                     addBoundedMethod(state.unproxyableBeans, id);
                 }
             }
         } catch (LimitReached exception) {
             state.problem(List.of("QA-CDI-005"), QuarkusAppMetadataStore.INCOMPLETE);
+        } catch (RuntimeException | LinkageError exception) {
+            state.problem(List.of("QA-CDI-005"), QuarkusAppMetadataStore.UNRESOLVED);
         }
     }
 
-    private static boolean isUnproxyableProducerReturnType(BeanInfo bean, Type returnType, IndexView combined) {
+    private static boolean isUnproxyableProducerReturnType(
+            BeanInfo bean, Type returnType, IndexView combined, State state) {
         if (returnType == null
                 || returnType.kind() == Type.Kind.PRIMITIVE
                 || returnType.kind() == Type.Kind.ARRAY
                 || returnType.kind() == Type.Kind.VOID) {
             return false;
         }
-        DotName typeName = returnType.name();
-        ClassInfo typeInfo = combined == null ? null : combined.getClassByName(typeName);
-        if (typeName.toString().startsWith("java.")) {
-            if (typeInfo != null) {
-                return !Modifier.isInterface(typeInfo.flags());
-            }
-            try {
-                Class<?> clazz =
-                        Class.forName(typeName.toString(), false, QuarkusAppMetadataCollector.class.getClassLoader());
-                return !clazz.isInterface();
-            } catch (ClassNotFoundException | RuntimeException | LinkageError ignored) {
-                return false;
-            }
-        }
-        return typeInfo != null && isUnproxyableNormalScopedClass(bean, typeInfo, combined);
-    }
-
-    private static boolean isUnproxyableNormalScopedClass(BeanInfo bean, ClassInfo typeInfo, IndexView combined) {
-        if (Modifier.isInterface(typeInfo.flags())) {
-            return false;
-        }
-        if (typeInfo.name().toString().startsWith("java.")) {
-            return true;
-        }
         if (hasRuntimeDeferredUnproxyableError(bean)) {
             return true;
         }
-        if (typeInfo.isSealed()) {
+        DotName typeName = returnType.name();
+        ClassInfo typeInfo = combined == null ? null : combined.getClassByName(typeName);
+        if (typeName.toString().startsWith("java.")) {
+            return isUnproxyableJdkType(typeName, typeInfo, state);
+        }
+        if (typeInfo == null) {
+            state.problem(List.of("QA-CDI-005"), QuarkusAppMetadataStore.UNRESOLVED);
+            return false;
+        }
+        return isUnproxyableNormalScopedClass(bean, typeInfo, combined, state);
+    }
+
+    private static boolean isUnproxyableNormalScopedClass(
+            BeanInfo bean, ClassInfo typeInfo, IndexView combined, State state) {
+        if (hasRuntimeDeferredUnproxyableError(bean) || typeInfo.isSealed()) {
             return true;
+        }
+        if (typeInfo.name().toString().startsWith("java.")) {
+            return isUnproxyableJdkType(typeInfo.name(), typeInfo, state);
+        }
+        if (Modifier.isInterface(typeInfo.flags())) {
+            return false;
         }
         boolean transformUnproxyable = isTransformUnproxyableClasses(bean);
         if (typeInfo.isFinal() && !typeInfo.isRecord() && !transformUnproxyable) {
@@ -592,6 +591,37 @@ final class QuarkusAppMetadataCollector {
             return false;
         }
         return Modifier.isPrivate(noArgs.flags()) && !transformUnproxyable;
+    }
+
+    private static boolean isUnproxyableJdkType(DotName typeName, ClassInfo typeInfo, State state) {
+        // ArC places JDK client proxies outside java.*, so package-private constructors are inaccessible.
+        // Default mode can skip final methods; any positive strict-mode deferred error was already honored.
+        if (typeInfo != null) {
+            if (typeInfo.isFinal() || typeInfo.isSealed()) {
+                return true;
+            }
+            if (typeInfo.isInterface()) {
+                return false;
+            }
+            MethodInfo noArgs = typeInfo.method("<init>");
+            return noArgs == null || !(Modifier.isPublic(noArgs.flags()) || Modifier.isProtected(noArgs.flags()));
+        }
+        try {
+            Class<?> type = Class.forName(typeName.toString(), false, ClassLoader.getPlatformClassLoader());
+            if (Modifier.isFinal(type.getModifiers()) || type.isSealed()) {
+                return true;
+            }
+            if (type.isInterface()) {
+                return false;
+            }
+            int constructorModifiers = type.getDeclaredConstructor().getModifiers();
+            return !(Modifier.isPublic(constructorModifiers) || Modifier.isProtected(constructorModifiers));
+        } catch (NoSuchMethodException exception) {
+            return true;
+        } catch (ClassNotFoundException | RuntimeException | LinkageError exception) {
+            state.problem(List.of("QA-CDI-005"), QuarkusAppMetadataStore.UNRESOLVED);
+            return false;
+        }
     }
 
     private static boolean superHasAccessibleNoArgsConstructor(DotName superName, IndexView combined) {

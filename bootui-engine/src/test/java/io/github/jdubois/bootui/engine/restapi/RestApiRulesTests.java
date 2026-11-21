@@ -79,10 +79,10 @@ class RestApiRulesTests {
     }
 
     @Test
-    void validationRulesFlagUnvalidatedAndMassAssignment() {
+    void unconstrainedPayloadsDoNotAcquireValidationFindingsButEntitiesStillFlagMassAssignment() {
         RestApiContext context = context(false, FIXTURES);
 
-        assertThat(status(new RequestBodyIsValidatedRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new RequestBodyIsValidatedRule(), context)).isEqualTo("PASS");
         assertThat(status(new NoMassAssignmentViaEntitiesRule(), context)).isEqualTo("VIOLATION");
     }
 
@@ -232,10 +232,9 @@ class RestApiRulesTests {
     }
 
     @Test
-    void requestBodyValidationDistinguishesValidatedFromUnvalidatedBodies() {
-        // Unvalidated @RequestBody parameters are flagged; @Validated bodies pass.
+    void unconstrainedBodiesNeedNoCascadeAnnotation() {
         assertThat(status(new RequestBodyIsValidatedRule(), context(false, PHASE2_BAD)))
-                .isEqualTo("VIOLATION");
+                .isEqualTo("PASS");
         assertThat(status(new RequestBodyIsValidatedRule(), context(false, PHASE2_GOOD)))
                 .isEqualTo("PASS");
     }

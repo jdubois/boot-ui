@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
 import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
+import io.github.jdubois.bootui.engine.exceptions.LogCoverage;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.AiCallOwners;
@@ -28,6 +29,7 @@ import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
+import io.github.jdubois.bootui.engine.journal.SqlCaptureScopes;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
@@ -43,6 +45,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
@@ -119,6 +122,8 @@ public final class RuntimeInsightsService {
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
     private volatile Supplier<AppEventCapture> appEventCapture;
+    private volatile Supplier<CacheCapture> cacheCapture;
+    private volatile Supplier<LogCoverage> logCoverage;
     private volatile List<String> unrecordedWork = List.of();
     private volatile Function<String, String> panelUnavailable;
     private volatile LongSupplier codeInventoryFingerprint;
@@ -386,6 +391,21 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs the live cache-absence proof, separately from retained evidence, journal selection and panel visibility.
+     * Missing or discontinuous capture never establishes a proxy bypass.
+     */
+    public synchronized void setCacheCapture(Supplier<CacheCapture> cacheCapture) {
+        this.cacheCapture = cacheCapture;
+        this.cached = null;
+    }
+
+    /** Installs passive, already-created native coverage; a gap never hides retained log evidence. */
+    public synchronized void setLogCoverage(Supplier<LogCoverage> logCoverage) {
+        this.logCoverage = logCoverage;
+        this.cached = null;
+    }
+
+    /**
      * Installs what this application can run that the journal does not record ({@link UnrecordedWork}), which the
      * report names first among its limitations ({@code docs/PLAN-v2.md} M4-22).
      */
@@ -497,6 +517,8 @@ public final class RuntimeInsightsService {
             }
             PanelVisibility visibility = panelVisibility();
             SqlCapture capture = sqlCapture();
+            SqlCaptureScopes.Snapshot sqlScope =
+                    new SqlCaptureScopes.Snapshot(Set.of(), Set.of(), !evidence.sqlExecutionQualified());
             AppEventCapture appEvents = appEventCapture();
             JournalTextExposure text = JournalTextExposure.of(exposure);
             return project(
@@ -505,7 +527,10 @@ public final class RuntimeInsightsService {
                     evidence.status().evictedByCount() + evidence.status().evictedByBytes(),
                     visibility,
                     capture,
+                    sqlScope,
+                    logGaps(evidence.entries(), visibility),
                     appEvents,
+                    CacheCapture.read(cacheCapture),
                     text);
         } finally {
             codePathsRead = null;
@@ -656,7 +681,23 @@ public final class RuntimeInsightsService {
 
     private Cached currentUnderReads() {
         if (journal == null || !journal.settings().enabled()) {
-            return disabled();
+            return new Cached(
+                    -1,
+                    -1,
+                    0,
+                    new PanelVisibility(Map.of(), Map.of()),
+                    SqlCapture.capturing(),
+                    new SqlCaptureScopes.Snapshot(Set.of(), Set.of(), true),
+                    Map.of(),
+                    AppEventCapture.capturing(),
+                    CacheCapture.capturing(),
+                    null,
+                    new RuntimeInsightsReportDto(
+                            false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
+                    Map.of(),
+                    0,
+                    Map.of(),
+                    0);
         }
         JournalStatus status = journal.status();
         long watermark = status.lastSequence();
@@ -664,6 +705,11 @@ public final class RuntimeInsightsService {
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
         PanelVisibility visibility = panelVisibility();
         SqlCapture capture = sqlCapture();
+        SqlCaptureScopes.Snapshot sqlScope = journal.sqlCaptureScope();
+        boolean readLogs = journal.records(JournalSource.LOG) && visibility.visible(JournalSource.LOG);
+        CacheCapture caches = CacheCapture.read(cacheCapture);
+        List<JournalEntry> retained = journal.entries();
+        Map<Long, Optional<String>> logGaps = readLogs ? logGaps(retained, visibility) : Map.of();
         AppEventCapture appEvents = appEventCapture();
         // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
         JournalTextExposure text = JournalTextExposure.of(exposure);
@@ -676,14 +722,46 @@ public final class RuntimeInsightsService {
                 && cached.offloaded() == status.offloadedEvents()
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
+                && cached.sqlScope().equals(sqlScope)
+                && cached.logGaps().equals(logGaps)
                 && cached.appEventCapture().equals(appEvents)
+                && cached.cacheCapture().equals(caches)
                 && cached.clears() == status.clears()
                 && cached.dropped().equals(status.dropped())
                 && text.equals(cached.exposure())
                 && cached.inventory() == inventory) {
             return cached;
         }
-        cached = project(JournalEvidenceSnapshot.hot(journal), watermark, evicted, visibility, capture, appEvents, text)
+        if (!sqlScope.equals(journal.sqlCaptureScope())) {
+            sqlScope = new SqlCaptureScopes.Snapshot(Set.of(), Set.of(), true);
+        }
+        if (readLogs) {
+            Map<Long, Optional<String>> after = logGaps(retained, visibility);
+            if (!logGaps.equals(after)) {
+                Map<Long, Optional<String>> stable = new LinkedHashMap<>();
+                logGaps.forEach((start, gap) -> stable.put(
+                        start,
+                        gap.equals(after.get(start))
+                                ? gap
+                                : Optional.of("Log capture coverage changed while retained events were read.")));
+                logGaps = Map.copyOf(stable);
+            }
+        }
+        // Entries can be newer than status; their absence proof must remain stable while they are copied.
+        CacheCapture afterEntries = CacheCapture.read(cacheCapture);
+        CacheCapture stableCaches =
+                caches.equals(afterEntries) ? caches : caches.withReason(CacheCapture.CHANGED_DURING_READ);
+        cached = project(
+                        JournalEvidenceSnapshot.hot(journal),
+                        watermark,
+                        evicted,
+                        visibility,
+                        capture,
+                        sqlScope,
+                        logGaps,
+                        appEvents,
+                        stableCaches,
+                        text)
                 .withInventory(inventory);
         return cached;
     }
@@ -695,7 +773,10 @@ public final class RuntimeInsightsService {
                 0,
                 new PanelVisibility(Map.of(), Map.of()),
                 SqlCapture.capturing(),
+                new SqlCaptureScopes.Snapshot(Set.of(), Set.of(), true),
+                Map.of(),
                 AppEventCapture.capturing(),
+                CacheCapture.capturing(),
                 null,
                 new RuntimeInsightsReportDto(
                         false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
@@ -747,7 +828,9 @@ public final class RuntimeInsightsService {
         }
         try {
             SqlCapture capture = supplier.get();
-            return capture == null ? SqlCapture.capturing() : capture;
+            return capture == null
+                    ? SqlCapture.notRecorded("Whether this application's SQL is recorded is unavailable.")
+                    : capture;
         } catch (RuntimeException ex) {
             return SqlCapture.notRecorded("Whether this application's SQL is recorded could not be read ("
                     + ex.getClass().getSimpleName() + "), so no statement is counted.");
@@ -756,6 +839,48 @@ public final class RuntimeInsightsService {
 
     private AppEventCapture appEventCapture() {
         return AppEventCapture.read(appEventCapture);
+    }
+
+    private Map<Long, Optional<String>> logGaps(List<JournalEntry> retained, PanelVisibility visibility) {
+        Set<Long> starts = new LinkedHashSet<>();
+        for (JournalEntry entry : retained) {
+            RuntimeEvent event = entry.event();
+            if (visibility.visible(event)
+                    && (anchorsAUnitOfWork(event)
+                            || (event.requestId() == null
+                                    && event.executionId() == null
+                                    && event.payload() instanceof LogPayload log
+                                    && InsightsSnapshot.isError(log.level())))) {
+                starts.add(event.epochMillis());
+            }
+        }
+        if (starts.isEmpty()) {
+            return Map.of();
+        }
+        LogCoverage coverage = null;
+        String unavailable = null;
+        try {
+            coverage = logCoverage == null ? null : logCoverage.get();
+        } catch (RuntimeException | LinkageError ex) {
+            unavailable =
+                    "Log capture coverage could not be read (" + ex.getClass().getSimpleName() + ").";
+        }
+        LogCoverage nativeCoverage = coverage == null ? LogCoverage.UNREADABLE : coverage;
+        long now = System.currentTimeMillis();
+        Map<Long, Optional<String>> gaps = new LinkedHashMap<>();
+        for (long start : starts) {
+            String gap = unavailable;
+            if (gap == null) {
+                try {
+                    gap = nativeCoverage.passiveGap(start, now);
+                } catch (RuntimeException | LinkageError ex) {
+                    gap = "Log capture coverage could not be read ("
+                            + ex.getClass().getSimpleName() + ").";
+                }
+            }
+            gaps.put(start, Optional.ofNullable(gap));
+        }
+        return Map.copyOf(gaps);
     }
 
     /**
@@ -992,7 +1117,10 @@ public final class RuntimeInsightsService {
             long evicted,
             PanelVisibility visibility,
             SqlCapture capture,
+            SqlCaptureScopes.Snapshot sqlScope,
+            Map<Long, Optional<String>> logGaps,
             AppEventCapture appEvents,
+            CacheCapture caches,
             JournalTextExposure text) {
         JournalStatus status = evidence.status();
         List<JournalEntry> entries = evidence.entries();
@@ -1019,7 +1147,11 @@ public final class RuntimeInsightsService {
                         previousRun(status.runId()),
                         poolSizes,
                         evidence::evictedARequestOf)
+                .withCacheCapture(caches)
+                .withSqlCapture(capture, sqlScope)
+                .withLogGaps(logGaps)
                 .withExposure(text);
+        String logGap = snapshot.logGap();
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
@@ -1035,7 +1167,17 @@ public final class RuntimeInsightsService {
                 checks.add(check(observation, "NOT_APPLICABLE", 0, 0, missing));
                 continue;
             }
-            if (!capture.recorded() && readsSql(observation.reads())) {
+            boolean sqlOnlyEventLoop = EventLoopBlocking.KIND.equals(observation.kind())
+                    && (snapshot.stack() == InsightsStack.QUARKUS || !snapshot.available(JournalSource.REST_CLIENT));
+            if (!capture.recorded()
+                    && (readsSql(observation.reads()) || sqlOnlyEventLoop)
+                    && snapshot.requests().stream()
+                            .noneMatch(request -> (sqlOnlyEventLoop ? Set.of(JournalSource.SQL) : observation.reads())
+                                    .stream()
+                                            .filter(source ->
+                                                    source == JournalSource.SQL || source == JournalSource.CONNECTION)
+                                            .anyMatch(source ->
+                                                    !request.children(source).isEmpty()))) {
                 checks.add(check(observation, "UNAVAILABLE", 0, 0, capture.reason()));
                 continue;
             }
@@ -1051,7 +1193,15 @@ public final class RuntimeInsightsService {
                 unseen.add(
                         capture.recorded()
                                 ? capture.reason()
-                                : capture.reason() + " Its SQL and connection evidence is not counted.");
+                                : capture.reason() + " Retained SQL and connection evidence is still counted;"
+                                        + " missing work is not assessed.");
+            }
+            if (logGap != null
+                    && snapshot.available(JournalSource.LOG)
+                    && (observation.reads().contains(JournalSource.LOG)
+                            || observation.optionalReads(snapshot).contains(JournalSource.LOG))) {
+                unseen.add("Log capture is not proven complete: " + logGap
+                        + " Retained log events are still counted; missing logs are not assessed.");
             }
             if (!appEvents.recorded()
                     && snapshot.records(JournalSource.APP_EVENT)
@@ -1063,7 +1213,10 @@ public final class RuntimeInsightsService {
                 repeatedAt = checks.size();
             }
             // What it could not judge is the check's, while each finding names its own route's share.
-            List<String> reasons = partial != null ? new ArrayList<>(List.of(partial)) : new ArrayList<>(unseen);
+            List<String> reasons = new ArrayList<>(unseen);
+            if (partial != null) {
+                reasons.add(0, partial);
+            }
             if (evaluation.uncounted() != null) {
                 reasons.add(evaluation.uncounted());
             }
@@ -1194,7 +1347,10 @@ public final class RuntimeInsightsService {
                 status.offloadedEvents(),
                 visibility,
                 capture,
+                sqlScope,
+                logGaps,
                 appEvents,
+                caches,
                 text,
                 report,
                 details,
@@ -1657,7 +1813,10 @@ public final class RuntimeInsightsService {
             long offloaded,
             PanelVisibility visibility,
             SqlCapture sqlCapture,
+            SqlCaptureScopes.Snapshot sqlScope,
+            Map<Long, Optional<String>> logGaps,
             AppEventCapture appEventCapture,
+            CacheCapture cacheCapture,
             JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
@@ -1672,7 +1831,10 @@ public final class RuntimeInsightsService {
                     offloaded,
                     visibility,
                     sqlCapture,
+                    sqlScope,
+                    logGaps,
                     appEventCapture,
+                    cacheCapture,
                     exposure,
                     report,
                     details,

@@ -76,13 +76,14 @@ class DurableJournalDetailExternalReadTests {
     }
 
     @Test
-    void omittedExceptionDetailStaysOmittedAfterGroupEviction() {
+    void omittedExceptionDetailStaysOmittedAfterGroupEviction() throws Exception {
         ExceptionStore exceptions = new ExceptionStore(1, 10, 50);
         List<RuntimeEvent> events = new ArrayList<>();
         exceptions.setRuntimeEventSink(events::add);
         exceptions.record(
                 new IllegalStateException("first secret"), "worker", "GET", "/first", "First.handler", "handler", null);
         JournalEntry evicted = new JournalEntry(1, events.get(0), 256);
+        Thread.sleep(2);
         exceptions.record(
                 new IllegalArgumentException("second secret"),
                 "worker",

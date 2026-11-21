@@ -639,6 +639,26 @@ describe('insightMarkdown', () => {
     expect(markdown).toContain(detail.observation.limitations[0])
   })
 
+  it('exports captured warning facts without a counted ratio when the denominator is unassessed', () => {
+    const captured = {
+      ...detail,
+      observation: {
+        ...detail.observation,
+        kind: 'framework-warnings-by-route',
+        sentence: 'Captured 2 framework warnings in 2 requests.',
+        eligible: 0,
+        affected: 2,
+        limitations: ['Log capture coverage is not proven complete.']
+      }
+    }
+    const {markdown} = insightMarkdown(captured)
+
+    expect(markdown).toContain(captured.observation.sentence)
+    expect(markdown).toContain(captured.observation.limitations[0])
+    expect(markdown).not.toContain('**Counted:**')
+    expect(markdown).not.toContain('of 0 requests')
+  })
+
   it('says why an observation is unavailable instead of exporting nothing', () => {
     const {markdown} = insightMarkdown({available: false, unavailableReason: 'No observation x.'})
     expect(markdown).toContain('No observation x.')

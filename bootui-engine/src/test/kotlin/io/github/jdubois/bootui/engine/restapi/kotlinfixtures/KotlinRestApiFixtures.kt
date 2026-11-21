@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.restapi.kotlinfixtures
 
+import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -18,7 +19,7 @@ import reactor.core.publisher.Mono
  * builder has to read the declared result type out of the continuation rather than from the JVM
  * return type. Bytecode-scanned only, never executed.
  */
-data class KotlinOrderDto(val id: Long, val customer: String)
+data class KotlinOrderDto(val id: Long, @field:NotBlank val customer: String)
 
 @RestController
 @RequestMapping("/api/kotlin-orders")

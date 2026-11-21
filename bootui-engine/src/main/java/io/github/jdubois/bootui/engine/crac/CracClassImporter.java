@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.crac;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import java.util.List;
 
@@ -11,6 +12,10 @@ import java.util.List;
 interface CracClassImporter {
 
     JavaClasses importPackages(List<String> basePackages);
+
+    default ArchUnitBytecodeImports.Result importWithBytecode(List<String> basePackages) {
+        return ArchUnitBytecodeImports.Result.uncaptured(importPackages(basePackages));
+    }
 }
 
 /**
@@ -18,6 +23,11 @@ interface CracClassImporter {
  * packages so only the application's own code is analysed.
  */
 final class ClassFileCracImporter implements CracClassImporter {
+
+    @Override
+    public ArchUnitBytecodeImports.Result importWithBytecode(List<String> basePackages) {
+        return ArchUnitBytecodeImports.importPackages(basePackages);
+    }
 
     @Override
     public JavaClasses importPackages(List<String> basePackages) {

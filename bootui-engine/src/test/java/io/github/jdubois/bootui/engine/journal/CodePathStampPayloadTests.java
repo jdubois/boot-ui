@@ -85,7 +85,7 @@ class CodePathStampPayloadTests {
         SqlPayload sql = new SqlPayload("select 1", "A.b:1", "db", false, null, null, 5L, STAMP);
         SqlPayload countedSql = sql.withRowCount(3L);
         RestClientPayload rest = new RestClientPayload("GET", "h:1", "/", 200, "RestClient", false, null, 5L, STAMP);
-        CachePayload cache = new CachePayload("c", "HIT", null, STAMP);
+        CachePayload cache = new CachePayload("c", "HIT", null, STAMP, "primary");
         AiPayload ai = new AiPayload("chat", "openai", "gpt", 1L, 2L, "stop", false, "s1", 5L, STAMP);
 
         assertThat(((SqlPayload) sql.interned(dictionary)).codePathStamp()).isEqualTo(STAMP);
@@ -93,6 +93,7 @@ class CodePathStampPayloadTests {
         assertThat(((RestClientPayload) rest.interned(dictionary)).codePathStamp())
                 .isEqualTo(STAMP);
         assertThat(((CachePayload) cache.interned(dictionary)).codePathStamp()).isEqualTo(STAMP);
+        assertThat(((CachePayload) cache.interned(dictionary)).managerName()).isEqualTo("primary");
         assertThat(((AiPayload) ai.interned(dictionary)).codePathStamp()).isEqualTo(STAMP);
         assertThat(ai.withCodePathStamp(0L).codePathStamp()).isZero();
         assertThat(ai.withCodePathStamp(STAMP)).isSameAs(ai);
@@ -116,7 +117,10 @@ class CodePathStampPayloadTests {
                         + JournalDictionary.retained(null, "/")
                         + JournalDictionary.retained(null, "RestClient"));
         assertThat(cache.estimatedBytes())
-                .isEqualTo(24 + JournalDictionary.retained(null, "c") + JournalDictionary.retained(null, "HIT"));
+                .isEqualTo(32
+                        + JournalDictionary.retained(null, "c")
+                        + JournalDictionary.retained(null, "HIT")
+                        + JournalDictionary.retained(null, "primary"));
         assertThat(ai.estimatedBytes())
                 .isEqualTo(64
                         + JournalDictionary.retained(null, "chat")

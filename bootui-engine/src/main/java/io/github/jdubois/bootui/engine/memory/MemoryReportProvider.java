@@ -27,6 +27,9 @@ public class MemoryReportProvider {
     private final MemoryRuntimeConfig runtimeConfig;
     private final ExposurePolicy exposure;
     private final Supplier<List<String>> inputArgumentsSupplier;
+    private final Supplier<MemoryUsage> heapUsageSupplier;
+    private final Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier;
+    private final Supplier<MemoryUsage> nonHeapUsageSupplier;
 
     public MemoryReportProvider() {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS);
@@ -74,11 +77,68 @@ public class MemoryReportProvider {
             MemoryRuntimeConfig runtimeConfig,
             ExposurePolicy exposure,
             Supplier<List<String>> inputArgumentsSupplier) {
+        this(
+                calculator,
+                containerMemoryLimitDetector,
+                runtimeConfig,
+                exposure,
+                inputArgumentsSupplier,
+                () -> ManagementFactory.getMemoryMXBean().getHeapMemoryUsage());
+    }
+
+    MemoryReportProvider(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector containerMemoryLimitDetector,
+            MemoryRuntimeConfig runtimeConfig,
+            ExposurePolicy exposure,
+            Supplier<List<String>> inputArgumentsSupplier,
+            Supplier<MemoryUsage> heapUsageSupplier) {
+        this(
+                calculator,
+                containerMemoryLimitDetector,
+                runtimeConfig,
+                exposure,
+                inputArgumentsSupplier,
+                heapUsageSupplier,
+                ManagementFactory::getMemoryPoolMXBeans);
+    }
+
+    MemoryReportProvider(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector containerMemoryLimitDetector,
+            MemoryRuntimeConfig runtimeConfig,
+            ExposurePolicy exposure,
+            Supplier<List<String>> inputArgumentsSupplier,
+            Supplier<MemoryUsage> heapUsageSupplier,
+            Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier) {
+        this(
+                calculator,
+                containerMemoryLimitDetector,
+                runtimeConfig,
+                exposure,
+                inputArgumentsSupplier,
+                heapUsageSupplier,
+                memoryPoolsSupplier,
+                () -> ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage());
+    }
+
+    MemoryReportProvider(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector containerMemoryLimitDetector,
+            MemoryRuntimeConfig runtimeConfig,
+            ExposurePolicy exposure,
+            Supplier<List<String>> inputArgumentsSupplier,
+            Supplier<MemoryUsage> heapUsageSupplier,
+            Supplier<List<MemoryPoolMXBean>> memoryPoolsSupplier,
+            Supplier<MemoryUsage> nonHeapUsageSupplier) {
         this.calculator = calculator;
         this.containerMemoryLimitDetector = containerMemoryLimitDetector;
         this.runtimeConfig = runtimeConfig;
         this.exposure = exposure == null ? JvmInputArgumentMasking.MASKED_BY_DEFAULT : exposure;
         this.inputArgumentsSupplier = inputArgumentsSupplier;
+        this.heapUsageSupplier = heapUsageSupplier;
+        this.memoryPoolsSupplier = memoryPoolsSupplier;
+        this.nonHeapUsageSupplier = nonHeapUsageSupplier;
     }
 
     private static List<String> runtimeInputArguments() {
@@ -91,21 +151,25 @@ public class MemoryReportProvider {
             Integer headRoomPercent,
             Boolean kubernetesBurstableEnabled,
             Boolean kubernetesActuatorEnabled) {
-        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
         ClassLoadingMXBean classBean = ManagementFactory.getClassLoadingMXBean();
         ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
 
-        MemoryUsage heapUsage = memBean.getHeapMemoryUsage();
-        MemoryUsage nonHeapUsage = memBean.getNonHeapMemoryUsage();
+        MemoryUsage heapUsage = heapUsageSupplier.get();
+        MemoryUsage nonHeapUsage = nonHeapUsageSupplier.get();
 
         MemoryPoolDto heap = toDto("Heap", heapUsage);
         MemoryPoolDto nonHeap = toDto("Non-Heap", nonHeapUsage);
 
         List<MemoryPoolDto> pools = new ArrayList<>();
-        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+        long observedMetaspaceCommittedBytes = -1;
+        for (MemoryPoolMXBean pool : memoryPoolsSupplier.get()) {
             MemoryUsage usage = pool.getUsage();
             if (usage != null) {
-                pools.add(toDto(pool.getName(), usage));
+                String name = pool.getName();
+                pools.add(toDto(name, usage));
+                if ("Metaspace".equals(name)) {
+                    observedMetaspaceCommittedBytes = Math.max(observedMetaspaceCommittedBytes, usage.getCommitted());
+                }
             }
         }
 
@@ -124,13 +188,26 @@ public class MemoryReportProvider {
         boolean resolvedKubernetesBurstableEnabled = kubernetesBurstableEnabled != null && kubernetesBurstableEnabled;
         boolean resolvedKubernetesActuatorEnabled = resolveKubernetesActuatorEnabled(kubernetesActuatorEnabled);
         int defaultThreadCount = MemoryCalculator.defaultThreadCount(liveThreads);
+        boolean defaultHostPlan = totalMemoryMb == null
+                && detectedContainerMemoryLimit.isEmpty()
+                && threadCount == null
+                && headRoomPercent == null;
+        long observedHeapUsedBytes = heapUsage.getUsed();
+        long minimumRequestedHeapBytes =
+                MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsedBytes, defaultHostPlan);
 
         long resolvedTotalBytes = totalMemoryMb != null
                 ? totalMemoryBytes(totalMemoryMb)
                 : detectedContainerMemoryLimit.isPresent()
                         ? totalMemoryBytes(detectedContainerMemoryLimit.getAsLong() / MEBIBYTE)
                         : calculator.defaultTotalMemoryBytes(
-                                heapUsage.getCommitted(), nonHeapUsage.getCommitted(), defaultThreadCount, liveClasses);
+                                heapUsage.getCommitted(),
+                                nonHeapUsage.getCommitted(),
+                                defaultThreadCount,
+                                liveClasses,
+                                directBufferMemoryUsedBytes,
+                                MemoryCalculator.minimumRequestedHeapBytes(observedHeapUsedBytes, true),
+                                observedMetaspaceCommittedBytes);
         int resolvedThreads = threadCount != null ? threadCount : defaultThreadCount;
         int resolvedHeadRoom =
                 headRoomPercent != null ? headRoomPercent : MemoryKubernetesSizer.DEFAULT_HEADROOM_PERCENT;
@@ -144,7 +221,9 @@ public class MemoryReportProvider {
                 liveClasses,
                 resolvedVirtualThreadsEnabled,
                 runtimeConfig.virtualThreadsProperty(),
-                directBufferMemoryUsedBytes);
+                directBufferMemoryUsedBytes,
+                minimumRequestedHeapBytes,
+                observedMetaspaceCommittedBytes);
         Long detectedContainerMemoryLimitBytes =
                 detectedContainerMemoryLimit.isPresent() ? detectedContainerMemoryLimit.getAsLong() : null;
         Long detectedContainerCurrentUsageBytes =
@@ -166,7 +245,8 @@ public class MemoryReportProvider {
                 kubernetesJvmOptions,
                 resolvedKubernetesBurstableEnabled,
                 resolvedKubernetesActuatorEnabled,
-                runtimeConfig.healthProbeManifest());
+                runtimeConfig.healthProbeManifest(),
+                observedMetaspaceCommittedBytes);
 
         return new LiveMemoryReport(
                 heap,

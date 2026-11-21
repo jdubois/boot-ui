@@ -19,6 +19,18 @@ sequence, not additional unassessed JVM observations.
 
 ## Measurement quality, availability, and cost
 
+**Include heap histogram** in the Memory panel controls one explicit scan. The default remains enabled, matching
+`bootui.memory.include-histogram=true`; disabling it avoids the histogram command and its GC request, while the
+other JVM checks still run. Scorecard's **Run all scanners** and Memory card always omit the histogram. The REST
+override is `POST <api>/memory/scan?includeHistogram=true|false`. MCP `memory_scan` and `bootui memory scan` keep
+their argument-free contract and use the configured default. Every report, including compact tool answers,
+records the selection as `scan.includeHistogram`; `summary.histogramAvailable` separately reports acquisition.
+The panel initializes its choice from the latest report (the configured default before the first scan), then
+keeps the user's choice for subsequent clicks.
+
+An omitted histogram leaves `MEM-CONTENT-001`, `002`, `003`, and `005` unassessed, with explicit limitations and
+`coverageComplete=false`, not a clean heap-content assessment. No previous histogram rows are reused.
+
 Missing histogram, pool, maximum, or other required observations do not turn a no-finding result into a passing check.
 Usable known-findings scores retain these limitations under the shared
 [score eligibility policy](features/advisors.md#score-eligibility).
@@ -67,6 +79,10 @@ Recent-GC comparisons span the previous scan's **post-histogram counter sample**
 non-positive elapsed windows, decreased counters, or changed collector identities cannot become healthy zero
 activity. A valid zero timer delta is possible even when the collection count increases because timers are
 approximate milliseconds. Known counts remain usable when time is unknown, and vice versa.
+Without a histogram, the two samples are the **same boundary**: no diagnostic interval, GC delta, or post-histogram
+event is invented. Application GCs concurrent with the remaining collection work stay in the next observation
+window. Switching histogram → no histogram → histogram on the same scanner retains the previous GC sample,
+cumulative own-diagnostic exclusions, and explicit-GC window, including failure/reset safeguards.
 
 The time ratio is approximate **collection elapsed time**, not CPU utilization or an exact percentage of application
 pause time. ZGC/Shenandoah whole-cycle timers and legacy CMS concurrent timing are excluded to avoid adding
@@ -77,6 +93,42 @@ counters before `GC.class_histogram`, subtracts cumulative `(postHistogramGc - p
 times across scans, and excludes GCs triggered by BootUI's own **Free BootUI memory**, **Low-footprint mode**, and
 **Heap Dump** actions from `MEM-GC-002`, `MEM-GC-003`, `MEM-GC-005`, `MEM-GC-006`, and `MEM-GC-009`; startup and
 external diagnostic collections remain included.
+
+`MEM-GC-009` counts external stop-the-world `System.gc()` events whose **JVM-uptime end time** is strictly after
+the previous successful scan's post-histogram boundary and at or before this scan's post-histogram boundary.
+The first scan starts at tracker/listener initialization, not JVM startup. Counts, longest pause, and total pause
+time apply only to that interval: a later scan without new events clears the finding. BootUI diagnostic attribution
+and cumulative accounting for other GC rules are unchanged. A reset or unavailable/incomparable uptime starts a
+new baseline with unknown coverage rather than replaying old pauses. Failed collection does not advance this boundary.
+
+When an epoch changes **during collection**, lifetime GC time/count and the recent trend remain unknown for that frame:
+old pre-histogram counters cannot be combined with reset diagnostic exclusions. Other memory observations stay usable.
+A proven sole post-reset histogram collection identifies its count contribution. Attributing the whole post-reset
+MXBean timer also requires independent timer-rebase evidence: a count/id reset does not prove that the timer reset.
+Whole-timer attribution additionally requires the same sole relevant collector in both samples, using the normal
+concurrent-cycle exclusions. An extra relevant collector remains ambiguous even at zero count; missing, empty, or
+changed collector identities are not proof, and a net aggregate timer decrease is not enough with multiple collectors.
+Otherwise time stays unknown while independently proven count accounting remains usable. GcInfo duration is not a
+substitute for the accumulated MXBean timer. The same work is never excluded again when diagnostic accounting already
+represents it. Missing attribution, diagnostic history loss, or unresolved overlap keeps the affected lifetime
+time/count component unknown on later scans, not healthy zero.
+With multiple relevant collectors, lifetime GC time can remain unknown after an in-collection reset even while later
+event/trend checks and other observations are usable.
+An epoch change **between scans** can still leave the current pre/post samples comparable; those samples form the new
+counter baseline. Possible own-event identities retain end times for equality, but those old-clock values never become
+new-epoch high-water marks. Only a post-histogram event with comparable timing and collector-local identity can seed
+a new-epoch event baseline.
+Uncertain post-event metadata stays unknown rather than becoming a fresh pause or an old-clock high-water mark;
+a reused collector/id with a different end time is not treated as the same event.
+
+Notification history remains capped at 128 events. A bounded minimum/maximum end-time range conservatively marks
+possible eviction overlap with the interval; out-of-order delivery can overstate unknown coverage rather than
+produce a false clean pass. Untimed events and newly delivered notifications for an already assessed interval also
+make coverage incomplete, even if those late notifications were evicted before the scan. Known in-window findings
+remain visible. Late events outside the interval are not relabeled as new activity. Notifications for application
+GCs preceding a BootUI diagnostic action remain external even when delivered during that action; retained duplicates
+are not counted twice. Reset frames have unknown coverage; the following comparable window starts no earlier than
+the actual tracker reset, which can occur after the reset frame's last sampled uptime.
 
 Cross-scan old-generation and direct-buffer streak rules (`MEM-HEAP-008` and `MEM-POOL-007`) are retired: requiring
 four manual full-GC scans and firing on a 1-byte increase penalized normal allocations and NIO buffer pooling while
@@ -183,7 +235,7 @@ Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK c
 | MEM-GC-006 | Update | **MEDIUM** when the most recently completed event lasted at least 1,000 ms. Select by completion time, not historical maximum duration; suppress events from prior histograms and BootUI offload/low-footprint/heap-dump actions. Concurrent-cycle beans (ZGC/Shenandoah `Cycles`, legacy ConcurrentMarkSweep) are now excluded **before** selecting the latest event: their duration spans a whole concurrent cycle and routinely exceeded 1 s, a structural false positive. `G1 Concurrent GC` stays because it times remark/cleanup pauses. |
 | MEM-GC-007 | Update | **HIGH** when container awareness remains explicitly disabled despite a visible cgroup limit. Respect a later re-enable option. Keep supported-HotSpot and deliberate-override caveats; no automatic sizing changes. |
 | MEM-GC-008 | New | **INFO** when ZGC runs in non-generational mode (`ZGC Cycles`/`ZGC Pauses` beans) and the live `ZGenerational` option is readable and false. That combination exists only on JDK 21-22 (default) or JDK 23 with the deprecated `-XX:-ZGenerational`; the option is absent on 17-20 and obsolete from 24, so the rule cannot fire there. Generational ZGC (JEP 439) usually needs less heap headroom, became the default in JDK 23 (JEP 474), and replaced non-generational ZGC in JDK 24 (JEP 490). Some workloads deliberately prefer the old mode, hence INFO. The JVM Tuning calculator does not emit `ZGenerational` because it is not portable; this is a runtime observation. |
-| MEM-GC-009 | New | **LOW** when external stop-the-world `System.gc()` full collections (`G1 Old Generation`, `PS MarkSweep`, `MarkSweepCompact`) are observed via `GarbageCollectionNotificationInfo.getGcCause()` in `GcEventSource` (excluding `"Heap Inspection Initiated GC"`, `"Heap Dump Initiated GC"`, and BootUI's own memory-offload and low-footprint actions); **MEDIUM** when at least 3 pauses occurred or the longest pause lasted at least 500 ms. Skips when `-XX:+DisableExplicitGC` or `-XX:+ExplicitGCInvokesConcurrent` is active, or on concurrent collectors (ZGC/Shenandoah). |
+| MEM-GC-009 | Update | **LOW** for external stop-the-world `System.gc()` full collections (`G1 Old Generation`, `PS MarkSweep`, `MarkSweepCompact`) ending within the [current scan observation interval](#time-and-collector-boundaries), observed via GC cause notifications (excluding `"Heap Inspection Initiated GC"`, `"Heap Dump Initiated GC"`, and BootUI's own memory actions); **MEDIUM** when at least 3 pauses occurred or the longest pause lasted at least 500 ms **within that interval**. Later scans without new pauses clear the finding. Missing/evicted notification evidence stays unknown alongside known findings. Skips when `-XX:+DisableExplicitGC` or `-XX:+ExplicitGCInvokesConcurrent` is active, or on concurrent collectors (ZGC/Shenandoah). |
 | MEM-HEAP-005 | Retain | **INFO** for smaller initial than maximum heap with ZGC/Shenandoah. The collector uses the JVM's reported initial capacity rather than assuming an earlier argument is effective. Equal initial/max may suit latency-sensitive workloads but trades away footprint/uncommit flexibility. |
 
 Evidence: [GC counters][gc-bean], [event timing][gc-info], [G1 full-GC manager][g1-manager],
@@ -204,10 +256,17 @@ Evidence: [ThreadMXBean, including peak reset and deadlock support][threads], an
 | ID | Disposition | Current trigger, severity, and appropriate action |
 | --- | --- | --- |
 | MEM-CONTENT-001 | Retain | **INFO** for average shallow instance size at least 512 KiB and at least 10 MiB total. An average cannot prove an individual G1 humongous allocation; that also depends on region size. |
-| MEM-CONTENT-002 | Retain | Collection/node rows reaching 50 MiB or 10% shallow share receive **LOW**; a largest row of 100 MiB or combined selected share of 25% receives **MEDIUM**. This is not one identified collection, retained size, or proof of missing eviction. |
-| MEM-CONTENT-003 | Retain | **LOW** when the largest non-array class reaches 25% of total shallow histogram bytes. Arrays are excluded; unexpected retention requires reference-path evidence. |
+| MEM-CONTENT-002 | Update | Collection/node rows reaching 50 MiB, or both 16 MiB and 10% shallow share, receive **LOW**. The group receives **MEDIUM** when its largest row reaches 100 MiB, or selected rows combine to at least 64 MiB and 25% of histogram bytes. The byte floors avoid share-only warnings on tiny development heaps. This is not one identified collection, retained size, or proof of missing eviction. |
+| MEM-CONTENT-003 | Update | **LOW** when the largest remaining non-array class reaches both 16 MiB and 25% of total shallow histogram bytes. Excludes only collection rows actually reported by MEM-CONTENT-002, not every collection-like class name; another dominant class remains eligible. Unexpected retention requires reference-path evidence. |
 | MEM-CONTENT-005 | New | **LOW** when the full `GC.class_histogram` (aggregated before top-200 truncation) contains at least 50 live dynamic `ClassLoader` instances (excluding standard singleton JVM/framework loaders with `<= 5` instances) or at least 5,000 distinct generated proxy classes (`$$SpringCGLIB$$`, `$$EnhancerBy`, `$ByteBuddy$`, `$Proxy`); **MEDIUM** at 250 dynamic `ClassLoader` instances or 10,000 generated proxy classes. Catches classloader and proxy leaks that retain Metaspace/Compressed Class Space before loader rows reach the top 200 by shallow bytes. |
 | MEM-CLASS-001 | Update | **INFO** at 50,000 currently loaded classes, with framework-generation caveats. Historical unloads no longer exempt a large current population: unloading does not prove health or exclude a leak. |
+
+MEM-CONTENT-002 retains its single group severity and at most five counted/retrievable rows. All qualifying selected
+rows contribute to its combined-byte/share thresholds before that cap; each counted occurrence uses the group's
+severity, not an independently assigned row severity. MEM-CONTENT-003 does not take over a dismissed collection
+finding: existing rule IDs and dismissals are unchanged. Missing or omitted histograms remain unassessed.
+If rows are available but the total is unknown, the 50/100 MiB absolute collection branches retain known findings
+with an unavailable share and incomplete evidence; a missing share cannot produce a healthy assessment.
 
 Evidence: [histogram cost/shape][jcmd], [stable-workload leak investigation][leaks],
 [class-loading counters][classes], and [optional class unloading][unloading].

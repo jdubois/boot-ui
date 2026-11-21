@@ -49,7 +49,7 @@ public final class CacheActivityCacheManagerBeanPostProcessor implements BeanPos
         }
         try {
             CacheActivityCacheManager wrapped = new CacheActivityCacheManager(cacheManager, recorder, beanName);
-            recorder.markInstrumentedManager();
+            recorder.markInstrumentedManager(beanName);
             return wrapped;
         } catch (Throwable ex) {
             if (ex instanceof VirtualMachineError vme) {

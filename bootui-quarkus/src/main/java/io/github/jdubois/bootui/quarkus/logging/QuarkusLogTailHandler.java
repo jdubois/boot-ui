@@ -45,6 +45,10 @@ public final class QuarkusLogTailHandler extends Handler {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
+    boolean capturePaused() {
+        return buffer.paused();
+    }
+
     @Override
     public void publish(LogRecord record) {
         if (record == null || buffer.paused()) {

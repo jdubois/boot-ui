@@ -380,6 +380,10 @@ final class SecurityModel {
             return hasFilter("AuthorizationFilter") || hasFilter("FilterSecurityInterceptor");
         }
 
+        boolean isKnownFilterless() {
+            return details.chainSupported() && details.filtersKnown() && filterNames.isEmpty();
+        }
+
         boolean matchesAnyRequest() {
             return details.unconditional();
         }

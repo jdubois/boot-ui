@@ -753,8 +753,10 @@ final class BigObjectsRule extends AbstractMemoryRule {
 
 final class CollectionBloatRule extends AbstractMemoryRule {
 
+    private static final long MIN_SHARE_BYTES = 16L * MemoryFormat.MEGABYTE;
     private static final long ABSOLUTE_THRESHOLD = 50L * MemoryFormat.MEGABYTE;
     private static final int SHARE_PERCENT_THRESHOLD = 10;
+    private static final long MIN_MEDIUM_SHARE_BYTES = 64L * MemoryFormat.MEGABYTE;
     private static final long MEDIUM_ABSOLUTE_THRESHOLD = 100L * MemoryFormat.MEGABYTE;
     private static final int MEDIUM_SHARE_PERCENT = 25;
     private static final int MAX_REPORTED = 5;
@@ -785,9 +787,10 @@ final class CollectionBloatRule extends AbstractMemoryRule {
                 MemoryCategory.HEAP_CONTENT,
                 "MEDIUM",
                 "Flags JDK collection or map classes (including their node/entry backing structures) that occupy a"
-                        + " large amount of heap by shallow histogram bytes. Severity is raised when the combined"
-                        + " collection footprint is a large share of the sampled heap and softened when it is a single"
-                        + " shallow contributor, since a large collection is not necessarily an unbounded leak. Array"
+                        + " large amount of heap by shallow histogram bytes: at least 50 MiB, or 16 MiB and 10% of"
+                        + " sampled bytes. The group is MEDIUM when its largest row reaches 100 MiB, or its selected"
+                        + " rows combine to at least 64 MiB and 25% of sampled bytes; otherwise it is LOW. These are"
+                        + " review thresholds, not evidence of an unbounded leak. Array"
                         + " backing storage (for example ArrayList's Object[]) is not attributed to collections because"
                         + " a shallow histogram cannot tell which owner retains each array.",
                 "Confirm whether the offending collection is bounded; if it is meant to be a cache, give it an"
@@ -801,40 +804,58 @@ final class CollectionBloatRule extends AbstractMemoryRule {
             return skipped("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
         }
         long totalBytes = context.heapContent().totalBytes();
+        Selection selection = select(context.heapContent());
+        if (selection.entries().isEmpty()) {
+            if (totalBytes <= 0) {
+                return skipped("The sampled heap histogram has no usable total byte count.");
+            }
+            return selection.observed() ? pass() : noTargets();
+        }
+        if (selection.bytes() < 0) {
+            return skipped("Collection histogram bytes exceed the numeric range.");
+        }
+        long largest = selection.entries().get(0).bytes();
+        int combinedSharePercent = MemoryFormat.percentOf(selection.bytes(), totalBytes);
+        boolean corroborated = largest >= MEDIUM_ABSOLUTE_THRESHOLD
+                || (selection.bytes() >= MIN_MEDIUM_SHARE_BYTES && combinedSharePercent >= MEDIUM_SHARE_PERCENT);
+        String severity = corroborated ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW;
+        List<String> details = new ArrayList<>();
+        for (HeapClassHistogramEntryDto entry : selection.entries()) {
+            String share = totalBytes > 0
+                    ? MemoryFormat.percentOf(entry.bytes(), totalBytes) + "% of histogram bytes"
+                    : "histogram share unavailable";
+            details.add(entry.className() + " occupies " + MemoryFormat.bytes(entry.bytes()) + " (" + share
+                    + ", shallow) across " + entry.instances()
+                    + " instances; confirm this collection is bounded.");
+        }
+        MemoryEvaluation evaluation = violation(context, severity, details);
+        return totalBytes > 0 ? evaluation : evaluation.withMissingEvidence();
+    }
+
+    static Selection select(MemoryContext.HeapContentData heapContent) {
         List<HeapClassHistogramEntryDto> candidates = new ArrayList<>();
         long candidateBytes = 0;
-        int observed = 0;
-        for (HeapClassHistogramEntryDto entry : context.heapContent().histogram()) {
+        boolean observed = false;
+        for (HeapClassHistogramEntryDto entry : heapContent.histogram()) {
             if (!isCollectionClass(entry.className())) {
                 continue;
             }
-            if (entry.instances() > 0 && entry.bytes() >= 0) observed++;
-            int sharePercent = MemoryFormat.percentOf(entry.bytes(), totalBytes);
-            if (entry.bytes() >= ABSOLUTE_THRESHOLD || sharePercent >= SHARE_PERCENT_THRESHOLD) {
+            if (entry.instances() > 0 && entry.bytes() >= 0) observed = true;
+            int sharePercent = MemoryFormat.percentOf(entry.bytes(), heapContent.totalBytes());
+            if (entry.bytes() >= ABSOLUTE_THRESHOLD
+                    || (entry.bytes() >= MIN_SHARE_BYTES && sharePercent >= SHARE_PERCENT_THRESHOLD)) {
                 candidates.add(entry);
                 candidateBytes = MemoryFormat.sum(candidateBytes, entry.bytes());
             }
         }
-        if (candidates.isEmpty()) {
-            return observed == 0 ? noTargets() : pass();
-        }
-        if (candidateBytes < 0) {
-            return skipped("Collection histogram bytes exceed the numeric range.");
-        }
         candidates.sort((left, right) -> Long.compare(right.bytes(), left.bytes()));
-        long largest = candidates.get(0).bytes();
-        int combinedSharePercent = MemoryFormat.percentOf(candidateBytes, totalBytes);
-        boolean corroborated = largest >= MEDIUM_ABSOLUTE_THRESHOLD || combinedSharePercent >= MEDIUM_SHARE_PERCENT;
-        String severity = corroborated ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW;
-        List<String> details = new ArrayList<>();
-        for (HeapClassHistogramEntryDto entry : candidates.subList(0, Math.min(MAX_REPORTED, candidates.size()))) {
-            int sharePercent = MemoryFormat.percentOf(entry.bytes(), totalBytes);
-            details.add(entry.className() + " occupies " + MemoryFormat.bytes(entry.bytes()) + " (" + sharePercent
-                    + "% of histogram bytes, shallow) across " + entry.instances()
-                    + " instances; confirm this collection is bounded.");
-        }
-        return violation(context, severity, details);
+        return new Selection(
+                List.copyOf(candidates.subList(0, Math.min(MAX_REPORTED, candidates.size()))),
+                candidateBytes,
+                observed);
     }
+
+    record Selection(List<HeapClassHistogramEntryDto> entries, long bytes, boolean observed) {}
 
     private static boolean isCollectionClass(String className) {
         for (String prefix : COLLECTION_CLASS_PREFIXES) {
@@ -853,6 +874,7 @@ final class CollectionBloatRule extends AbstractMemoryRule {
 
 final class DominantClassRule extends AbstractMemoryRule {
 
+    private static final long MIN_BYTES = 16L * MemoryFormat.MEGABYTE;
     private static final int SHARE_PERCENT_THRESHOLD = 25;
 
     DominantClassRule() {
@@ -864,8 +886,9 @@ final class DominantClassRule extends AbstractMemoryRule {
                 "Flags when one class (excluding all array classes — primitive arrays such as byte[]/char[] and"
                         + " Object[] or other reference arrays — which routinely dominate a healthy heap) occupies a"
                         + " large fraction of the sampled heap by shallow bytes; HotSpot's synthetic GC filler objects"
-                        + " are excluded from the histogram. A strongly dominant top class is worth understanding even"
-                        + " if expected.",
+                        + " are excluded from the histogram. Requires at least 16 MiB and 25% of sampled bytes."
+                        + " Collection rows already reported by MEM-CONTENT-002 are excluded to avoid duplicate advice."
+                        + " A strongly dominant top class is worth understanding even if expected.",
                 "Confirm the dominant class is expected; if not, trace its references to find what keeps the instances"
                         + " alive.",
                 "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html"));
@@ -880,13 +903,21 @@ final class DominantClassRule extends AbstractMemoryRule {
         if (totalBytes <= 0) {
             return skipped("The sampled heap histogram is empty.");
         }
-        if (context.heapContent().histogram().stream().noneMatch(entry -> !isArrayClass(entry.className()))) {
+        CollectionBloatRule.Selection collections = CollectionBloatRule.select(context.heapContent());
+        if (collections.bytes() < 0) {
+            return skipped("Collection histogram bytes exceed the numeric range; dominant-class ownership is unknown.");
+        }
+        List<HeapClassHistogramEntryDto> candidates = context.heapContent().histogram().stream()
+                .filter(entry -> !isArrayClass(entry.className())
+                        && !collections.entries().contains(entry))
+                .toList();
+        if (candidates.isEmpty()) {
             return noTargets();
         }
-        return context.heapContent().histogram().stream()
-                .filter(entry -> !isArrayClass(entry.className()))
+        return candidates.stream()
                 .findFirst()
-                .filter(entry -> MemoryFormat.percentOf(entry.bytes(), totalBytes) >= SHARE_PERCENT_THRESHOLD)
+                .filter(entry -> entry.bytes() >= MIN_BYTES
+                        && MemoryFormat.percentOf(entry.bytes(), totalBytes) >= SHARE_PERCENT_THRESHOLD)
                 .map(entry -> violation(
                         context,
                         entry.className() + " occupies "
@@ -1158,7 +1189,8 @@ final class HighGcOverheadRule extends AbstractMemoryRule {
             return skipped("JVM uptime is too short to assess lifetime GC overhead.");
         }
         if (runtime.gcCollectionTimeMillis() < 0) {
-            return skipped("Cumulative GC time is not reported by this JVM.");
+            return skipped(
+                    "Cumulative GC time is unavailable from this JVM or unknown after counter-epoch normalization.");
         }
         int percent = MemoryFormat.percentOf(runtime.gcCollectionTimeMillis(), runtime.uptimeMillis());
         if (percent >= THRESHOLD_PERCENT) {
@@ -1967,7 +1999,8 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
                                 + " 'System.gc()' (excluding 'Heap Inspection Initiated GC', 'Heap Dump Initiated GC', and"
                                 + " BootUI's own memory offload and low-footprint actions). Unlike allocation-driven"
                                 + " collections, explicit System.gc() calls in application or library code force full-heap"
-                                + " pauses across all threads unless handled concurrently.",
+                                + " pauses across all threads unless handled concurrently. Counts and durations cover"
+                                + " only the current scan observation window, not lifetime activity.",
                         "Remove explicit System.gc() calls from application code, increase RMI DGC intervals if RMI triggers"
                                 + " periodic collections, or add -XX:+ExplicitGCInvokesConcurrent so explicit GC requests run"
                                 + " concurrently without disabling NIO direct-buffer reserve cleanup.",
@@ -1991,6 +2024,9 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
                     || memory.usesGarbageCollector("shenandoah")) {
                 return inapplicable("The active collector handles explicit GC cycles concurrently.");
             }
+            if (explicitGc.limitation() != null) {
+                return skipped(explicitGc.limitation());
+            }
             if (memory.gcCollectorNames().isEmpty()) {
                 return missingPass();
             }
@@ -2012,12 +2048,14 @@ final class ExternalExplicitGcRule extends AbstractMemoryRule {
                                 : "")
                         + ")"
                 : "";
-        return violation(
+        MemoryEvaluation finding = violation(
                 context,
                 mediumSeverity ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW,
                 "Observed " + explicitGc.count() + " external stop-the-world System.gc() pause(s)"
-                        + collectorNote + durationNote
+                        + " in this scan observation window" + collectorNote + durationNote
+                        + (explicitGc.limitation() == null ? "" : "; " + explicitGc.limitation())
                         + " (GC cause 'System.gc()', excluding Heap Inspection and BootUI memory actions); explicit"
                         + " Full GCs pause application threads across the entire heap.");
+        return explicitGc.limitation() == null ? finding : finding.withMissingEvidence();
     }
 }

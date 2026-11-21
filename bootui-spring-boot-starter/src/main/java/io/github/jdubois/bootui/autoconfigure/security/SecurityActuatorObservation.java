@@ -98,7 +98,9 @@ public final class SecurityActuatorObservation {
                 && applicationPort != null
                 && !disabled
                 && (!managementPort.equals(applicationPort)
-                        || managementPort == 0 && host(environment, "management.server.port") != null);
+                        || managementPort == 0
+                                && BootUiContributedProperties.hostProperty(environment, "management.server.port")
+                                        != null);
         Set<String> exposed = new LinkedHashSet<>();
         Set<String> sensitive = new LinkedHashSet<>();
         Set<String> candidates = new LinkedHashSet<>(KNOWN);
@@ -248,7 +250,17 @@ public final class SecurityActuatorObservation {
     }
 
     private static Integer port(Environment environment, String key, Integer fallback, List<String> errors) {
-        String value = host(environment, key);
+        environment = SecurityEnvironmentSnapshot.capture(environment);
+        String value = BootUiContributedProperties.hostProperty(environment, key);
+        if ("management.server.port".equals(key) && "${server.port}".equals(value)) {
+            String hostPort = BootUiContributedProperties.hostProperty(environment, "server.port");
+            String effectivePort = environment.getProperty("server.port");
+            if (hostPort == null || effectivePort == null || !hostPort.equals(effectivePort.trim())) {
+                throw new ObservationLimitException();
+            }
+            value = hostPort;
+        }
+        value = SecurityEnvironmentSnapshot.supportedText(value);
         if (value == null) return fallback;
         try {
             int port = Integer.parseInt(value);

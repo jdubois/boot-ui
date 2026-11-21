@@ -15,15 +15,21 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.insights.CacheCapture;
 import io.github.jdubois.bootui.engine.insights.EventLoopBlocking;
+import io.github.jdubois.bootui.engine.insights.ProxyBypass;
 import io.github.jdubois.bootui.engine.insights.RepeatedSelects;
 import io.github.jdubois.bootui.engine.insights.RouteTimeBreakdown;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
+import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.DurableJournalCapture;
 import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
 import io.github.jdubois.bootui.engine.journal.DurableJournalPage;
@@ -40,6 +46,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
@@ -49,10 +56,23 @@ import io.github.jdubois.bootui.spi.MappingProvider;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.context.annotation.AnnotatedBeanDefinitionReader;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -60,6 +80,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 class RuntimeInsightsControllerTests {
 
+    private final AtomicLong cacheTime = new AtomicLong(1_000);
     private final RuntimeJournal journal = new RuntimeJournal(
             new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()),
             RunIdentity.start());
@@ -108,6 +129,207 @@ class RuntimeInsightsControllerTests {
             assertThat(journal.status().lastSequence())
                     .as("reading the panel records nothing")
                     .isLessThanOrEqualTo(0);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void realCacheProxiesDoNotBecomeBypassesWhenCaptureIsDisabled(boolean reactive, boolean capture) throws Exception {
+        try (GenericApplicationContext context =
+                reactive ? new GenericReactiveWebApplicationContext() : new GenericApplicationContext()) {
+            CacheActivityRecorder recorder = new CacheActivityRecorder(capture, 100, cacheTime::get);
+            AtomicReference<CorrelationContext> active = new AtomicReference<>(CorrelationContext.NONE);
+            AtomicInteger calls = new AtomicInteger();
+            recorder.setRuntimeEventSink(journal);
+            recorder.setCorrelationContextProvider(active::get);
+            context.registerBean(RuntimeJournal.class, () -> journal);
+            context.registerBean(SqlTraceRecorder.class, RuntimeInsightsControllerTests::tracedRecorder);
+            context.registerBean(CacheActivityRecorder.class, () -> recorder);
+            context.registerBean(
+                    CacheActivityCacheManagerBeanPostProcessor.class,
+                    () -> new CacheActivityCacheManagerBeanPostProcessor(
+                            context.getBeanProvider(CacheActivityRecorder.class),
+                            context.getBeanProvider(BootUiSelfDataFilter.class)));
+            context.registerBean(
+                    "cacheManager", ConcurrentMapCacheManager.class, () -> new ConcurrentMapCacheManager("prices"));
+            context.registerBean(CachedPrices.class, () -> new CachedPrices(journal, active, calls, cacheTime::get));
+            new AnnotatedBeanDefinitionReader(context).register(CacheProxyConfiguration.class);
+            context.refresh();
+            CachedPrices prices = context.getBean(CachedPrices.class);
+            assertThat(AopUtils.isAopProxy(prices)).isTrue();
+            assertThat(recorder.hasInstrumentedManager()).isEqualTo(capture);
+
+            capturedCacheRequest(
+                    active, "proxied-miss", () -> assertThat(prices.price()).isEqualTo(1));
+            capturedCacheRequest(
+                    active, "proxied-hit", () -> assertThat(prices.price()).isEqualTo(1));
+            assertThat(calls.get())
+                    .as("Spring caching still works even without BootUI capture")
+                    .isEqualTo(1);
+            RuntimeInsightsController controller = controller(context);
+            RuntimeInsightsReportDto proxied = controller.report();
+            assertThat(proxied.observations()).noneMatch(row -> row.kind().equals(ProxyBypass.KIND));
+            if (!capture) {
+                assertThat(proxied.checks())
+                        .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                        .singleElement()
+                        .satisfies(check -> assertThat(check.reason()).contains(CacheCapture.DISABLED));
+            }
+
+            capturedCacheRequest(active, "self-invocation", prices::bypassed);
+            long watermark = journal.status().lastSequence();
+            RuntimeInsightsReportDto bypassed = controller.report();
+            if (capture) {
+                assertThat(bypassed.observations())
+                        .filteredOn(row -> row.kind().equals(ProxyBypass.KIND))
+                        .singleElement()
+                        .satisfies(row -> {
+                            assertThat(row.sentence()).contains("@Cacheable(prices)");
+                            assertThat(row.affected()).isEqualTo(1);
+                            assertThat(row.exemplarRequestIds()).containsExactly("self-invocation");
+                        });
+            } else {
+                assertThat(bypassed.observations()).noneMatch(row -> row.kind().equals(ProxyBypass.KIND));
+            }
+            assertThat(calls.get())
+                    .as("render never invokes an application method")
+                    .isEqualTo(2);
+            assertThat(journal.status().lastSequence()).isEqualTo(watermark);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void lateInstrumentationAndResumeNeverReclassifyEarlierRequests(boolean reactive) throws Exception {
+        try (GenericApplicationContext context =
+                reactive ? new GenericReactiveWebApplicationContext() : new GenericApplicationContext()) {
+            AtomicReference<CorrelationContext> active = new AtomicReference<>(CorrelationContext.NONE);
+            AtomicInteger calls = new AtomicInteger();
+            CachedPrices raw = new CachedPrices(journal, active, calls, cacheTime::get);
+            capturedCacheRequest(active, "uninstrumented", raw::price);
+            cacheTime.set(2_000);
+            CacheActivityRecorder recorder = new CacheActivityRecorder(true, 100, cacheTime::get);
+            recorder.setRuntimeEventSink(journal);
+            recorder.setCorrelationContextProvider(active::get);
+            context.registerBean(RuntimeJournal.class, () -> journal);
+            context.registerBean(SqlTraceRecorder.class, RuntimeInsightsControllerTests::tracedRecorder);
+            context.registerBean(CacheActivityRecorder.class, () -> recorder);
+            context.registerBean(
+                    CacheActivityCacheManagerBeanPostProcessor.class,
+                    () -> new CacheActivityCacheManagerBeanPostProcessor(
+                            context.getBeanProvider(CacheActivityRecorder.class),
+                            context.getBeanProvider(BootUiSelfDataFilter.class)));
+            context.registerBean(
+                    "cacheManager", ConcurrentMapCacheManager.class, () -> new ConcurrentMapCacheManager("prices"));
+            context.registerBean(CachedPrices.class, () -> new CachedPrices(journal, active, calls, cacheTime::get));
+            new AnnotatedBeanDefinitionReader(context).register(CacheProxyConfiguration.class);
+            context.refresh();
+            RuntimeInsightsController controller = controller(context);
+            RuntimeInsightsReportDto missing = controller.report();
+            assertThat(missing.observations()).noneMatch(row -> row.kind().equals(ProxyBypass.KIND));
+            assertThat(missing.checks())
+                    .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                    .singleElement()
+                    .satisfies(check -> assertThat(check.reason()).contains(CacheCapture.BEFORE_WINDOW));
+            CachedPrices prices = context.getBean(CachedPrices.class);
+            capturedCacheRequest(active, "supported-bypass", prices::bypassed);
+            var supported = controller.report().observations().stream()
+                    .filter(row -> row.kind().equals(ProxyBypass.KIND))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(supported.exemplarRequestIds()).containsExactly("supported-bypass");
+            cacheTime.set(3_000);
+            recorder.suspendForLowFootprint();
+            assertThat(controller.report().observations())
+                    .noneMatch(row -> row.kind().equals(ProxyBypass.KIND));
+            assertThat(controller.report().checks())
+                    .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                    .singleElement()
+                    .satisfies(check -> assertThat(check.reason()).contains(CacheCapture.PAUSED));
+            assertThat(controller.insight(supported.id()).available()).isFalse();
+            capturedCacheRequest(active, "paused", prices::bypassed);
+            cacheTime.set(4_000);
+            recorder.resumeFromLowFootprint();
+            assertThat(controller.report().observations())
+                    .noneMatch(row -> row.kind().equals(ProxyBypass.KIND));
+            capturedCacheRequest(active, "after-resume", prices::bypassed);
+            long watermark = journal.status().lastSequence();
+            assertThat(controller.report().observations())
+                    .filteredOn(row -> row.kind().equals(ProxyBypass.KIND))
+                    .singleElement()
+                    .satisfies(row -> assertThat(row.exemplarRequestIds()).containsExactly("after-resume"));
+            assertThat(calls.get()).isEqualTo(4);
+            assertThat(journal.status().lastSequence()).isEqualTo(watermark);
+        }
+    }
+
+    private void capturedCacheRequest(AtomicReference<CorrelationContext> active, String requestId, Runnable work)
+            throws InterruptedException {
+        long start = cacheTime.incrementAndGet();
+        active.set(CorrelationContext.forRequest(requestId));
+        try {
+            work.run();
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    start,
+                    5_000_000,
+                    active.get(),
+                    Thread.currentThread().getName(),
+                    null,
+                    false,
+                    new HttpPayload("GET", "/prices", "/prices", null, 200)));
+        } finally {
+            active.set(CorrelationContext.NONE);
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableCaching(proxyTargetClass = true)
+    static class CacheProxyConfiguration {}
+
+    static class CachedPrices {
+        private final RuntimeJournal journal;
+        private final AtomicReference<CorrelationContext> active;
+        private final AtomicInteger calls;
+        private final LongSupplier epochMillis;
+
+        CachedPrices(
+                RuntimeJournal journal,
+                AtomicReference<CorrelationContext> active,
+                AtomicInteger calls,
+                LongSupplier epochMillis) {
+            this.journal = journal;
+            this.active = active;
+            this.calls = calls;
+            this.epochMillis = epochMillis;
+        }
+
+        @Cacheable("prices")
+        public int price() {
+            calls.incrementAndGet();
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    epochMillis.getAsLong(),
+                    100,
+                    active.get(),
+                    Thread.currentThread().getName(),
+                    null,
+                    false,
+                    new SqlPayload(
+                            "select * from prices",
+                            null,
+                            "db",
+                            false,
+                            ApplicationFrames.of(List.of(
+                                    CachedPrices.class.getName() + ".price(RuntimeInsightsControllerTests.java:1)")),
+                            null,
+                            System.nanoTime())));
+            return 1;
+        }
+
+        public int bypassed() {
+            return price();
         }
     }
 
@@ -338,7 +560,11 @@ class RuntimeInsightsControllerTests {
             assertThat(check(reactive, RepeatedSelects.KIND))
                     .satisfies(check -> assertThat(check.status()).isEqualTo("UNAVAILABLE"))
                     .satisfies(check -> assertThat(check.reason()).isEqualTo(SqlCapture.NOT_RECORDED));
-            assertThat(check(reactive, EventLoopBlocking.KIND).status()).isEqualTo("UNAVAILABLE");
+            assertThat(check(reactive, EventLoopBlocking.KIND)).satisfies(check -> {
+                assertThat(check.status()).isEqualTo("INSUFFICIENT");
+                assertThat(check.eligibleRequests()).isZero();
+                assertThat(check.reason()).contains(SqlCapture.NOT_RECORDED);
+            });
             assertThat(check(disabled, RepeatedSelects.KIND).reason()).isEqualTo(SqlCapture.DISABLED);
             assertThat(check(traced, RepeatedSelects.KIND)).satisfies(check -> {
                 assertThat(check.status()).isEqualTo("INSUFFICIENT");

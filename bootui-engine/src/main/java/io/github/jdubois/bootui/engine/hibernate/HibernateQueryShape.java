@@ -20,6 +20,14 @@ final class HibernateQueryShape {
     private HibernateQueryShape() {}
 
     static String lexical(String query) {
+        return lexical(query, false);
+    }
+
+    private static String lexical(String query, boolean literalTokens) {
+        return lexical(query, literalTokens, true);
+    }
+
+    private static String lexical(String query, boolean literalTokens, boolean lineComments) {
         if (query == null || query.length() > 16_384) return null;
         StringBuilder result = new StringBuilder(query.length());
         for (int i = 0; i < query.length(); i++) {
@@ -27,7 +35,7 @@ final class HibernateQueryShape {
             if (c == '\'' || c == '"') {
                 char quote = c;
                 boolean closed = false;
-                result.append(' ');
+                result.append(literalTokens ? "''" : " ");
                 while (++i < query.length()) {
                     if (query.charAt(i) == quote) {
                         if (i + 1 < query.length() && query.charAt(i + 1) == quote) {
@@ -40,8 +48,16 @@ final class HibernateQueryShape {
                 }
                 if (!closed) return null;
             } else if (c == '-' && i + 1 < query.length() && query.charAt(i + 1) == '-') {
-                while (i + 1 < query.length() && query.charAt(i + 1) != '\n') i++;
-                result.append(' ');
+                if (!lineComments) return null;
+                if (i > 0
+                        && isHqlOperandEnd(query.charAt(i - 1))
+                        && i + 2 < query.length()
+                        && isHqlUnaryStart(query.charAt(i + 2))) {
+                    result.append(c);
+                } else {
+                    while (i + 1 < query.length() && query.charAt(i + 1) != '\n') i++;
+                    result.append(' ');
+                }
             } else if (c == '/' && i + 1 < query.length() && query.charAt(i + 1) == '*') {
                 int end = query.indexOf("*/", i + 2);
                 if (end < 0) return null;
@@ -54,8 +70,191 @@ final class HibernateQueryShape {
         return result.toString();
     }
 
+    private static boolean isHqlOperandEnd(char character) {
+        return Character.isLetterOrDigit(character) || character == '_' || character == ')' || character == ']';
+    }
+
+    private static boolean isHqlUnaryStart(char character) {
+        return Character.isLetterOrDigit(character)
+                || character == '_'
+                || character == '('
+                || character == '+'
+                || character == '-';
+    }
+
     static HibernateEntityModel entityRoot(HibernateContext context, HibernateRepositoryMethodModel method) {
         return root(context, method, true);
+    }
+
+    private static final Pattern FILTERED_FETCH =
+            Pattern.compile("(?is)^\\s*(?:select\\s+(?:distinct\\s+)?(?<selected>[A-Za-z_]\\w*)\\s+)?"
+                    + "from\\s+[\\w.$]+\\s+(?:as\\s+)?(?<root>[A-Za-z_]\\w*)\\s+"
+                    + "(?:(?:left(?:\\s+outer)?|inner)\\s+)?join\\s+fetch\\s+"
+                    + "(?<owner>[A-Za-z_]\\w*)\\.(?<collection>[A-Za-z_]\\w*)"
+                    + "(?:\\s+(?:as\\s+)?(?<fetched>(?!where\\b)[A-Za-z_]\\w*))?"
+                    + "(?:\\s+where\\s+(?<predicate>.+?))?\\s*$");
+    private static final Pattern FETCH_EQUALITY =
+            Pattern.compile("(?is)^(?<alias>[A-Za-z_]\\w*)\\.(?<attribute>[A-Za-z_]\\w*)\\s*=\\s*"
+                    + "(?::[A-Za-z_]\\w*|\\?[1-9]\\d*|-?\\d+|''|true|false)$");
+    private static final Pattern FETCH_ID_PRESENCE =
+            Pattern.compile("(?is)^(?<alias>[A-Za-z_]\\w*)\\.(?<attribute>[A-Za-z_]\\w*)\\s+is\\s+not\\s+null$");
+    private static final Pattern FETCH_JOIN_KEYWORD = Pattern.compile("(?i)\\bjoin\\s+fetch\\b");
+    private static final Pattern NON_FETCHING_PARAMETER_EXPRESSION =
+            Pattern.compile("(?is)^\\s*select\\s+(?:distinct\\s+)?(?<alias>[A-Za-z_]\\w*)\\s+"
+                    + "from\\s+[\\w.$]+\\s+(?:as\\s+)?(?-i:\\k<alias>)\\s+where\\s+"
+                    + "(?-i:\\k<alias>)\\.[A-Za-z_]\\w*\\s*=\\s*"
+                    + ":#\\{#[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*}\\s*$");
+
+    /** A single direct collection fetch and flat scalar equality conjunctions, not arbitrary WHERE alias mentions. */
+    static boolean filtersFetchedCollection(HibernateContext context, HibernateRepositoryMethodModel method) {
+        if (method.nativeQuery()) return false;
+        HibernateQueryEvidence evidence = method.evidence();
+        if (evidence.verifiedQueryMethod()
+                && evidence.derivedQueryVerified()
+                && !evidence.declaredQuery()
+                && !evidence.namedQuery()
+                && !evidence.queryRewriter()
+                && !method.hasQuery()) return false;
+        if (!evidence.verifiedQueryMethod()
+                || !evidence.declaredQuery()
+                || evidence.namedQuery()
+                || evidence.queryRewriter()) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE, method);
+            return false;
+        }
+        if (!method.hasQuery()) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            return false;
+        }
+        if (irrelevantToMultipleCollectionFetch(context, method)) return false;
+        String query = lexical(method.query(), true, false);
+        if (query == null) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            return false;
+        }
+        boolean parameterExpression =
+                NON_FETCHING_PARAMETER_EXPRESSION.matcher(query).matches();
+        if ((query.contains("#{") || query.contains("${")) && !parameterExpression) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            return false;
+        }
+        HibernateEntityModel root = entityRoot(context, method);
+        if (root == null) return false;
+        if (evidence.returnElementType() == null) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_RETURN_TYPE, method);
+            return false;
+        }
+        if (!root.javaType().equals(evidence.returnElementType())) return false;
+        if (parameterExpression) return false;
+        String rootAlias = HibernateRuleModelSupport.rootAlias(method.query());
+        List<String> fetchPaths = HibernateRuleModelSupport.joinFetchPaths(method.query());
+        if (FETCH_JOIN_KEYWORD.matcher(lexical(method.query())).results().count() != fetchPaths.size()) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_JOIN_PATH, method);
+            return false;
+        }
+        boolean fetchesCollection = false;
+        for (String path : fetchPaths) {
+            String name = HibernateRuleModelSupport.directAttribute(rootAlias, path);
+            HibernateAttributeModel attribute = filteredFetchAttribute(root, name);
+            if (attribute == null || !attribute.isAssociation() && !attribute.isElementCollection()) {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_JOIN_PATH, method);
+                return false;
+            }
+            fetchesCollection |= attribute.isCollectionAssociation();
+        }
+        if (!fetchesCollection) return false;
+        context.evidence().markApplicable(true);
+        Matcher fetch = FILTERED_FETCH.matcher(query);
+        if (!fetch.matches()
+                || !fetch.group("root").equals(fetch.group("owner"))
+                || fetch.group("root").equals(fetch.group("fetched"))
+                || fetch.group("selected") != null && !fetch.group("selected").equals(fetch.group("root"))) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            return false;
+        }
+        String predicate = fetch.group("predicate");
+        if (predicate == null) return false;
+        HibernateAttributeModel collection = filteredFetchAttribute(root, fetch.group("collection"));
+        if (collection == null || !collection.isCollectionAssociation()) {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_JOIN_PATH, method);
+            return false;
+        }
+        Class<?> targetType = HibernateRuleModelSupport.associationTargetType(collection);
+        List<HibernateEntityModel> targets = context.entities().stream()
+                .filter(entity -> targetType != null && targetType.equals(entity.javaType()))
+                .toList();
+        boolean restricting = false;
+        for (String term : predicate.split("(?i)\\s+and\\s+")) {
+            Matcher comparison = FETCH_EQUALITY.matcher(term.trim());
+            boolean equality = comparison.matches();
+            if (!equality) {
+                comparison = FETCH_ID_PRESENCE.matcher(term.trim());
+                if (!comparison.matches()) {
+                    context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+                    return false;
+                }
+            }
+            String alias = comparison.group("alias");
+            HibernateEntityModel owner;
+            if (alias.equals(fetch.group("root"))) {
+                owner = root;
+            } else if (alias.equals(fetch.group("fetched")) && targets.size() == 1) {
+                owner = targets.get(0);
+            } else {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_ENTITY, method);
+                return false;
+            }
+            String name = comparison.group("attribute");
+            HibernateAttributeModel attribute = filteredFetchAttribute(owner, name);
+            if (attribute == null
+                    || attribute.isAssociation()
+                    || attribute.isElementCollection()
+                    || HibernateEntityModel.isExpandableEmbedded(attribute)
+                    || attribute.annotation("jakarta.persistence.EmbeddedId") != null
+                    || !equality && !attribute.hasId()) {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+                return false;
+            }
+            restricting |= equality && alias.equals(fetch.group("fetched"));
+        }
+        return restricting;
+    }
+
+    private static HibernateAttributeModel filteredFetchAttribute(HibernateEntityModel entity, String name) {
+        List<HibernateAttributeModel> matches = entity.attributes().stream()
+                .filter(attribute -> attribute.propertyName().equals(name))
+                .toList();
+        if (matches.isEmpty()) return null;
+        HibernateAttributeModel selected = matches.get(0);
+        String kind = filteredFetchAttributeKind(selected);
+        for (HibernateAttributeModel candidate : matches) {
+            if (candidate.isTransient()
+                    || candidate.rawType() == null
+                    || !candidate.rawType().equals(selected.rawType())
+                    || !java.util.Objects.equals(candidate.genericType(), selected.genericType())) return null;
+            String candidateKind = filteredFetchAttributeKind(candidate);
+            if (kind != null && candidateKind != null && !kind.equals(candidateKind)) return null;
+            if (candidateKind != null && (kind == null || candidate.hasId())) {
+                selected = candidate;
+                kind = candidateKind;
+            }
+        }
+        return selected;
+    }
+
+    private static String filteredFetchAttributeKind(HibernateAttributeModel attribute) {
+        if (attribute.isOneToMany()) return "ONE_TO_MANY";
+        if (attribute.isManyToMany()) return "MANY_TO_MANY";
+        if (attribute.isToOneAssociation()) return "TO_ONE";
+        if (attribute.isElementCollection()) return "ELEMENT_COLLECTION";
+        if (HibernateEntityModel.isExpandableEmbedded(attribute)
+                || attribute.annotation("jakarta.persistence.EmbeddedId") != null) return "EMBEDDED";
+        if (attribute.persistentAttributeType() != null
+                || attribute.annotations().stream()
+                        .anyMatch(annotation ->
+                                annotation.annotationType().getName().startsWith("jakarta.persistence.")))
+            return "BASIC";
+        return null;
     }
 
     static HibernateEntityModel root(
@@ -127,6 +326,55 @@ final class HibernateQueryShape {
         return text != null && text.stripLeading().toLowerCase(Locale.ROOT).matches("(?s)^(update\\b|delete\\b).*");
     }
 
+    private static final String SIMPLE_BULK_TARGET =
+            "(?<entity>[A-Za-z_]\\w*(?:\\.[A-Za-z_$][\\w$]*)*)\\s+(?:as\\s+)?(?<alias>[A-Za-z])";
+    private static final String SIMPLE_BULK_VALUE = "(?::[A-Za-z_]\\w*|\\?[1-9]\\d*|\\d+)";
+    // HQL aliases can be case-sensitive; do not infer strict-JPA compliance.
+    private static final String SIMPLE_BULK_WHERE =
+            "(?:\\s+where\\s+(?-i:\\k<alias>)\\.(?<predicate>[A-Za-z_]\\w*)\\s*=\\s*" + SIMPLE_BULK_VALUE + ")?";
+    private static final Pattern SIMPLE_FETCH_FREE_UPDATE = Pattern.compile("(?is)^\\s*update\\s+"
+            + SIMPLE_BULK_TARGET + "\\s+set\\s+(?-i:\\k<alias>)\\.(?<assignment>[A-Za-z_]\\w*)\\s*=\\s*"
+            + SIMPLE_BULK_VALUE + SIMPLE_BULK_WHERE + "\\s*$");
+    private static final Pattern SIMPLE_FETCH_FREE_DELETE =
+            Pattern.compile("(?is)^\\s*delete\\s+from\\s+" + SIMPLE_BULK_TARGET + SIMPLE_BULK_WHERE + "\\s*$");
+
+    /** A narrow static DML subset, irrelevant to the multiple-collection and filtered-collection fetch checks. */
+    static boolean irrelevantToMultipleCollectionFetch(
+            HibernateContext context, HibernateRepositoryMethodModel method) {
+        HibernateQueryEvidence evidence = method.evidence();
+        if (method.nativeQuery()
+                || !evidence.verifiedQueryMethod()
+                || !evidence.declaredQuery()
+                || evidence.namedQuery()
+                || evidence.queryRewriter()) return false;
+        String query = lexical(method.query());
+        if (query == null
+                || method.query().indexOf('\'') >= 0
+                || method.query().indexOf('"') >= 0
+                || method.query().contains("#{")
+                || method.query().contains("${")
+                || method.query().contains("--")) return false;
+        Matcher statement = SIMPLE_FETCH_FREE_UPDATE.matcher(query);
+        boolean update = statement.matches();
+        if (!update) {
+            statement = SIMPLE_FETCH_FREE_DELETE.matcher(query);
+            if (!statement.matches()) return false;
+        }
+        HibernateEntityModel entity = findEntity(context, statement.group("entity"));
+        if (entity == null) return false;
+        String predicate = statement.group("predicate");
+        return (!update || mappedAttribute(entity, statement.group("assignment")))
+                && (predicate == null || mappedAttribute(entity, predicate))
+                && HibernateRuleModelSupport.joinFetchPaths(query).isEmpty();
+    }
+
+    private static boolean mappedAttribute(HibernateEntityModel entity, String name) {
+        return entity.attributes().stream()
+                .anyMatch(attribute -> name.equals(attribute.name())
+                        && !attribute.isTransient()
+                        && !attribute.isCollectionAssociation()
+                        && !attribute.isElementCollection());
+    }
     /** A bounded single-root static SELECT can exclude explicit collection fetching without following its joins. */
     static boolean verifiedFetchFreeSelect(HibernateContext context, HibernateRepositoryMethodModel method) {
         HibernateQueryEvidence evidence = method.evidence();

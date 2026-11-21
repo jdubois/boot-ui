@@ -21,6 +21,11 @@ final class ArchitectureGeneratedCodeFixtures {
     private ArchitectureGeneratedCodeFixtures() {}
 
     static JavaClasses compile(Path module, String output, Map<String, String> sources) throws IOException {
+        return compile(module, output, sources, "");
+    }
+
+    static JavaClasses compile(Path module, String output, Map<String, String> sources, String extraClasspath)
+            throws IOException {
         var compiler = ToolProvider.getSystemJavaCompiler();
         assertThat(compiler).as("Regression fixtures require a JDK").isNotNull();
         List<Path> files = new ArrayList<>();
@@ -40,7 +45,10 @@ final class ArchitectureGeneratedCodeFixtures {
                                     "-parameters",
                                     "-classpath",
                                     System.getProperty(
-                                            "surefire.test.class.path", System.getProperty("java.class.path")),
+                                                    "surefire.test.class.path", System.getProperty("java.class.path"))
+                                            + (extraClasspath.isEmpty()
+                                                    ? ""
+                                                    : java.io.File.pathSeparator + extraClasspath),
                                     "-d",
                                     classes.toString()),
                             null,

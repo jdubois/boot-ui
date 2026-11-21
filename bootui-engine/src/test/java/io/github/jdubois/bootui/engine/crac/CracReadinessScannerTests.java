@@ -2,10 +2,11 @@ package io.github.jdubois.bootui.engine.crac;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
 import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitBytecodeImports;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner.CracScanResult;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
@@ -31,20 +32,26 @@ class CracReadinessScannerTests {
     }
 
     private CracReadinessScanner scannerFor(String fixtureName) {
-        return new CracReadinessScanner(
-                () -> List.of(FIXTURES),
-                packages -> {
-                    try {
-                        return new ClassFileImporter()
-                                .importClasses(Class.forName(
-                                        FIXTURES + "." + fixtureName,
-                                        false,
-                                        getClass().getClassLoader()));
-                    } catch (ClassNotFoundException ex) {
-                        throw new AssertionError("Missing test fixture", ex);
-                    }
-                },
-                CLOCK);
+        try {
+            Class<?> fixture = Class.forName(
+                    FIXTURES + "." + fixtureName, false, getClass().getClassLoader());
+            return new CracReadinessScanner(
+                    () -> List.of(FIXTURES),
+                    new CracClassImporter() {
+                        @Override
+                        public JavaClasses importPackages(List<String> packages) {
+                            throw new AssertionError("Scanner must request import-time bytecode");
+                        }
+
+                        @Override
+                        public ArchUnitBytecodeImports.Result importWithBytecode(List<String> packages) {
+                            return ArchUnitBytecodeImports.importClasses(fixture);
+                        }
+                    },
+                    CLOCK);
+        } catch (ClassNotFoundException ex) {
+            throw new AssertionError("Missing test fixture", ex);
+        }
     }
 
     @Test
@@ -132,7 +139,7 @@ class CracReadinessScannerTests {
         CracReadinessScanner scanner = scannerFor("ManagedResourceLifecycle");
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
 
-        // Restore acquisition is exempt; compatible cleanup alone cannot prove field ownership/registration.
+        // Restore acquisition is exempt; field-specific cleanup alone cannot prove registration.
         assertThat(findingSamples(report, "CRAC-NET-001"))
                 .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
         assertThat(findingSamples(report, "CRAC-FILE-001"))
@@ -140,7 +147,7 @@ class CracReadinessScannerTests {
         assertThat(findingSamples(report, "CRAC-THREAD-001"))
                 .noneMatch(sample -> sample.contains("ManagedResourceLifecycle"));
         assertThat(findingSamples(report, "CRAC-RES-001"))
-                .allMatch(sample -> sample.contains("compatible cleanup observed"))
+                .allMatch(sample -> sample.contains("receiver-specific cleanup observed"))
                 .hasSize(2);
         assertThat(findingSamples(report, "CRAC-POOL-002"))
                 .anyMatch(sample -> sample.contains("ManagedResourceLifecycle"));
@@ -188,8 +195,8 @@ class CracReadinessScannerTests {
             assertThat(findingSamples(report, "CRAC-RES-001"))
                     .singleElement()
                     .asString()
-                    .contains("compatible cleanup observed")
-                    .contains("registration unverified");
+                    .contains("receiver-specific cleanup observed")
+                    .contains("callback/helper control flow unsupported");
         }
     }
 
@@ -212,7 +219,10 @@ class CracReadinessScannerTests {
         // Traversal is scoped to private helpers only; a public method could be called from
         // elsewhere for unrelated reasons, so it must not be trusted as checkpoint cleanup evidence.
         assertThat(findingSamples(report, "CRAC-RES-001"))
-                .anyMatch(sample -> sample.contains("ManagedPublicHelperNotRecognized"));
+                .singleElement()
+                .asString()
+                .contains("ManagedPublicHelperNotRecognized")
+                .contains("no supported receiver-specific lifecycle cleanup");
     }
 
     @Test
@@ -223,7 +233,10 @@ class CracReadinessScannerTests {
         // Only calls resolving to the same declaring class are followed; a collaborator class
         // performing the close is not visible ownership evidence for this class's field.
         assertThat(findingSamples(report, "CRAC-RES-001"))
-                .anyMatch(sample -> sample.contains("ManagedCrossClassHelperDelegation"));
+                .singleElement()
+                .asString()
+                .contains("ManagedCrossClassHelperDelegation")
+                .contains("no supported receiver-specific lifecycle cleanup");
     }
 
     @Test

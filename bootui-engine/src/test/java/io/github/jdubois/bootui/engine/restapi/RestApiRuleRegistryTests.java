@@ -120,7 +120,7 @@ class RestApiRuleRegistryTests {
                 Map.entry("RAPI-MAP-010", "INFO"), Map.entry("RAPI-NAME-001", "INFO"),
                 Map.entry("RAPI-NAME-003", "INFO"), Map.entry("RAPI-RESP-001", "LOW"),
                 Map.entry("RAPI-RESP-008", "INFO"), Map.entry("RAPI-RESP-009", "INFO"),
-                Map.entry("RAPI-VALID-001", "LOW"), Map.entry("RAPI-DTO-002", "LOW"),
+                Map.entry("RAPI-VALID-001", "MEDIUM"), Map.entry("RAPI-DTO-002", "LOW"),
                 Map.entry("RAPI-VER-003", "INFO"), Map.entry("RAPI-ERR-001", "INFO"),
                 Map.entry("RAPI-RESP-006", "MEDIUM"), Map.entry("RAPI-VER-002", "INFO"));
         for (RestApiRule rule : RestApiRuleRegistry.activeRules()) {

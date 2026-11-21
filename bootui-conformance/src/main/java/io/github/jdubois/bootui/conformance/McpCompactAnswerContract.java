@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.AdvisorRuleChangeDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyScanStatusDto;
 import io.github.jdubois.bootui.core.dto.DependencySeverityCountDto;
@@ -115,7 +116,7 @@ public final class McpCompactAnswerContract {
                 + "\",\"arguments\":" + arguments + "}}";
     }
 
-    /** {@value #VULNERABLE_DEPENDENCIES} vulnerable dependencies, each with eight long advisories. */
+    /** {@value #VULNERABLE_DEPENDENCIES} dependencies with eight long findings and a maximum candidate preview. */
     public static DependenciesReport vulnerabilities() {
         List<DependencyDto> dependencies = new ArrayList<>();
         for (int i = 0; i < VULNERABLE_DEPENDENCIES; i++) {
@@ -138,6 +139,10 @@ public final class McpCompactAnswerContract {
                         null,
                         null));
             }
+            List<String> candidates = new ArrayList<>();
+            for (int candidate = 0; candidate < 100; candidate++) {
+                candidates.add(candidateId(i, candidate));
+            }
             dependencies.add(new DependencyDto(
                     "org.example",
                     "library-" + i,
@@ -147,7 +152,7 @@ public final class McpCompactAnswerContract {
                     advisories.size(),
                     "CRITICAL",
                     advisories,
-                    null,
+                    new DependencyAssessmentDto(true, false, candidates, candidates.size()),
                     null));
         }
         return new DependenciesReport(
@@ -156,11 +161,29 @@ public final class McpCompactAnswerContract {
                 dependencies.size(),
                 List.of(new DependencySeverityCountDto("CRITICAL", dependencies.size())),
                 new DependencyScanStatusDto(
-                        "OSV", "COMPLETE", null, 1L, dependencies.size(), 0, dependencies.size() * 8),
+                        "OSV",
+                        "PARTIAL",
+                        "Some advisory details were not assessed.",
+                        1L,
+                        dependencies.size(),
+                        0,
+                        dependencies.size() * 8),
                 null,
                 dependencies,
-                new AdvisorEvidenceDto(true, true, List.of()),
+                new AdvisorEvidenceDto(true, false, List.of("Some advisory details were not assessed.")),
                 null);
+    }
+
+    /** Maximum-length retained IDs exercise both three-byte UTF-8 and JSON string/text-mirror escaping. */
+    public static String candidateId(int dependency, int candidate) {
+        String prefix = "CANDIDATE-" + dependency + "-" + candidate + "-";
+        String padding =
+                switch (candidate % 3) {
+                    case 0 -> "\u0800";
+                    case 1 -> "\"";
+                    default -> "\\";
+                };
+        return prefix + padding.repeat(240 - prefix.length());
     }
 
     /** {@value #HIBERNATE_RULES} violated rules, each with ten located sample violations. */

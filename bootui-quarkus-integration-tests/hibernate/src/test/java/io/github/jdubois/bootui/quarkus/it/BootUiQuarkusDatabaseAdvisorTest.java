@@ -112,16 +112,15 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 .isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("evidence").path("usable").asBoolean()).isTrue();
-        assertThat(scanned.path("evidence").path("coverageComplete").asBoolean(true))
-                .isFalse();
-        assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
+        assertThat(scanned.path("evidence").path("coverageComplete").asBoolean(false))
+                .isTrue();
+        assertThat(scanned.path("evidence").path("limitations")).isEmpty();
         assertThat(probe().get("/bootui/api/database-advisor").json().path("evidence"))
                 .isEqualTo(scanned.path("evidence"));
         assertThat(scanned.path("scan").path("status").asText())
                 .as("scan status; diagnostics: %s", scanned.path("diagnostics"))
-                .isEqualTo("PARTIAL");
-        assertThat(scanned.path("diagnostics").findValuesAsText("message"))
-                .anySatisfy(message -> assertThat(message).contains("access path", "cannot be established"));
+                .isEqualTo("SCANNED");
+        assertThat(scanned.path("diagnostics").findValuesAsText("source")).doesNotContain("DB-SCHEMA-002");
         assertThat(scanned.path("tablesAnalyzed").asInt())
                 .as("Category, Product and Tag are all read from DatabaseMetaData")
                 .isGreaterThanOrEqualTo(3);

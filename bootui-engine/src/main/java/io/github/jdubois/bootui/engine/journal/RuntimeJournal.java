@@ -96,7 +96,8 @@ public final class RuntimeJournal
         sqlCaptureScopes.register(dataSource, provenance);
     }
 
-    SqlCaptureScopes.Snapshot sqlCaptureScope() {
+    /** The installed feeders' declared scope, not a proof of universal or historical database coverage. */
+    public SqlCaptureScopes.Snapshot sqlCaptureScope() {
         return sqlCaptureScopes.snapshot();
     }
 

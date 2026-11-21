@@ -482,29 +482,75 @@ class ObservationHonestyHarnessTests {
                                         }))));
     }
 
-    /** Where the application's SQL is not recorded, as over R2DBC, every SQL reader is unavailable and silent. */
+    /** A current SQL capture gap preserves retained facts but cannot assess work with no SQL evidence. */
     @TestFactory
-    Stream<DynamicNode> unrecordedSqlMakesItsReadersUnavailable() {
+    Stream<DynamicNode> aSqlCaptureGapPreservesRetainedFactsButCannotAssessAbsentWork() {
         return positives()
-                .map(fixture -> DynamicTest.dynamicTest(fixture.toString(), () -> {
-                    RuntimeInsightsReportDto report = replay(
-                            fixture,
-                            Replay.whole()
-                                    .with(service -> service.setSqlCapture(
-                                            () -> SqlCapture.notRecorded(SqlCapture.R2DBC_ONLY))));
-                    for (Observation observation : KINDS.values()) {
-                        if (observation.reads().contains(JournalSource.SQL)
-                                || observation.reads().contains(JournalSource.CONNECTION)) {
-                            assertThat(check(report, observation.kind()).status())
-                                    .as(observation.kind())
-                                    .isIn("UNAVAILABLE", "NOT_APPLICABLE");
-                            assertThat(rows(report, observation.kind()))
-                                    .as(observation.kind())
-                                    .isEmpty();
-                        }
-                    }
-                    assertHonest(fixture, report, "sql not recorded");
-                }));
+                .map(fixture -> DynamicContainer.dynamicContainer(
+                        fixture.toString(),
+                        Stream.of(
+                                DynamicTest.dynamicTest("retained evidence", () -> {
+                                    RuntimeInsightsReportDto whole = replay(fixture, Replay.whole());
+                                    RuntimeInsightsReportDto report = replay(fixture, sqlUnavailable());
+                                    for (Observation observation : KINDS.values()) {
+                                        if (!readsSql(observation)) continue;
+                                        RuntimeInsightCheckDto check = check(report, observation.kind());
+                                        List<RuntimeObservationDto> retained = rows(report, observation.kind());
+                                        assertThat(retained)
+                                                .extracting(RuntimeObservationDto::id)
+                                                .as(observation.kind() + " keeps its known retained facts")
+                                                .containsAll(rows(whole, observation.kind()).stream()
+                                                        .map(RuntimeObservationDto::id)
+                                                        .toList());
+                                        if (Set.of("UNAVAILABLE", "NOT_APPLICABLE")
+                                                .contains(check.status())) {
+                                            assertThat(retained)
+                                                    .as(observation.kind())
+                                                    .isEmpty();
+                                        } else {
+                                            assertThat(check.reason())
+                                                    .as(observation.kind() + " qualifies current capture")
+                                                    .contains(SqlCapture.R2DBC_ONLY);
+                                        }
+                                    }
+                                    assertHonest(fixture, report, "current SQL capture unavailable");
+                                }),
+                                DynamicTest.dynamicTest("absent SQL evidence", () -> {
+                                    Fixture withoutSql = new Fixture(
+                                            fixture.kind(),
+                                            fixture.role(),
+                                            fixture.name(),
+                                            fixture.stack(),
+                                            fixture.alsoFires(),
+                                            fixture.tolerated(),
+                                            fixture.setup(),
+                                            fixture.events().stream()
+                                                    .filter(event -> event.source() != JournalSource.SQL
+                                                            && event.source() != JournalSource.CONNECTION)
+                                                    .toList());
+                                    RuntimeInsightsReportDto report = replay(withoutSql, sqlUnavailable());
+                                    for (Observation observation : KINDS.values()) {
+                                        if (!readsSql(observation)) continue;
+                                        assertThat(check(report, observation.kind())
+                                                        .status())
+                                                .as(observation.kind())
+                                                .isIn("UNAVAILABLE", "NOT_APPLICABLE");
+                                        assertThat(rows(report, observation.kind()))
+                                                .as(observation.kind())
+                                                .isEmpty();
+                                    }
+                                    assertHonest(fixture, report, "SQL capture and evidence unavailable");
+                                }))));
+    }
+
+    private static boolean readsSql(Observation observation) {
+        return observation.reads().contains(JournalSource.SQL)
+                || observation.reads().contains(JournalSource.CONNECTION);
+    }
+
+    private static Replay sqlUnavailable() {
+        return Replay.whole()
+                .with(service -> service.setSqlCapture(() -> SqlCapture.notRecorded(SqlCapture.R2DBC_ONLY)));
     }
 
     /** A source the journal does not record, or whose panel is disabled, makes its readers not applicable and silent. */

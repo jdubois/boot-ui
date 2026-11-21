@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class SqlExecutionEvidenceTests {
 
@@ -40,17 +42,58 @@ class SqlExecutionEvidenceTests {
         }
     }
 
-    @Test
-    void zeroDurationExecutedDmlIsNotAnOrmPreparationOnAnyStack() {
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "insert into audit values (?)",
+                "/* Hibernate insert */ insert into audit values (?)",
+                "-- Hibernate update\nupdate audit set seen = ?",
+                "/* Hibernate delete */ delete from audit where id = ?",
+                "/* Hibernate merge */ merge into audit using incoming on audit.id = incoming.id when matched then"
+                        + " update set seen = ?",
+                "replace into audit values (?)",
+                "/* Hibernate replace */ replace into audit values (?)"
+            })
+    void zeroDurationExecutedDmlIsNotAnOrmPreparationOnAnyStack(String statement) {
         for (InsightsStack stack : InsightsStack.values()) {
             Observation.Evaluation writes = new SafeMethodDml()
-                    .evaluate(snapshot(stack, sql("insert into audit values (?)", 0, Provenance.EXECUTION)));
+                    .evaluate(snapshot(
+                            stack,
+                            sql(statement, 0, Provenance.EXECUTION),
+                            sql("/* insert into audit values (?) */ select * from audit", 0, Provenance.EXECUTION),
+                            sql("-- update audit set seen = ?\nselect * from audit", 0, Provenance.EXECUTION),
+                            sql("select 'delete from audit' from audit", 0, Provenance.EXECUTION)));
 
             assertThat(writes.findings()).singleElement().satisfies(finding -> {
                 assertThat(finding.sentence()).contains(" executed ").doesNotContain(" prepared ");
                 assertThat(finding.columns()).contains("Executions");
+                assertThat(finding.rows()).containsExactly(List.of("r1", "200", "1", "Repo.run:1"));
             });
         }
+    }
+
+    @Test
+    void aCommentedWriteKeepsPreparationSeparateAndUnknownProvenanceUnreported() {
+        Observation.Evaluation writes = new SafeMethodDml()
+                .evaluate(snapshot(
+                        InsightsStack.QUARKUS,
+                        sql("/* Hibernate */ replace into audit values (?)", 0, Provenance.EXECUTION),
+                        sql("/* Hibernate */ replace into audit values (?)", 0, Provenance.PREPARATION),
+                        sql("/* Hibernate */ replace into audit values (?)", 0, Provenance.UNKNOWN)));
+
+        assertThat(writes.findings())
+                .hasSize(2)
+                .anySatisfy(finding -> {
+                    assertThat(finding.sentence()).contains(" executed ").doesNotContain(" prepared ");
+                    assertThat(finding.rows()).containsExactly(List.of("r1", "200", "1", "Repo.run:1"));
+                })
+                .anySatisfy(finding -> {
+                    assertThat(finding.sentence()).contains(" prepared ").doesNotContain(" executed ");
+                    assertThat(finding.columns()).contains("Prepared statements");
+                    assertThat(finding.rows()).containsExactly(List.of("r1", "200", "1", "Repo.run:1"));
+                    assertThat(finding.limitations())
+                            .anyMatch(text -> text.contains("cannot prove this particular statement"));
+                });
     }
 
     @Test

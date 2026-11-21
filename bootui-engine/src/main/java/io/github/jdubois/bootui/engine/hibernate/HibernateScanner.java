@@ -228,6 +228,7 @@ public final class HibernateScanner {
                 app.deferredDatasourceInitialization(),
                 logging,
                 app.bindLoggerEnabled(),
+                app.extractLoggerEnabled(),
                 app.panacheEnhancementVerified());
         HibernateContext global = HibernateContext.observed(
                 new HibernatePersistenceUnitObservation(
@@ -693,8 +694,21 @@ public final class HibernateScanner {
             texts.add(added.text());
             locations.add(added.location());
         }
-        return result.withSuppression(
-                rule.suppressedCount(), result.violationCount() - rule.suppressedCount(), texts, locations);
+        return new HibernateRuleResultDto(
+                result.id(),
+                result.name(),
+                result.category(),
+                rule.activeSeverity(result.severity(), result.violationCount()),
+                result.description(),
+                result.status(),
+                result.violationCount() - rule.suppressedCount(),
+                texts,
+                result.recommendation(),
+                result.learnMoreUrl(),
+                result.dismissed(),
+                result.coverageNote(),
+                locations,
+                rule.suppressedCount());
     }
 
     private EntityDiscovery safeEntityDiscovery() {

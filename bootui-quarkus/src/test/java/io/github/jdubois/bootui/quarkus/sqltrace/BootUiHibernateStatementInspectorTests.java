@@ -7,10 +7,15 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.insights.ConnectionsPerRequest;
 import io.github.jdubois.bootui.engine.insights.EventLoopBlocking;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
+import io.github.jdubois.bootui.engine.insights.RepeatedSelects;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -28,6 +33,43 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class BootUiHibernateStatementInspectorTests {
+
+    @Test
+    void actualPreparationOnlyCaptureDoesNotMakeExecutionOrConnectionAbsenceEligible() throws Exception {
+        try (RuntimeJournal journal = journal()) {
+            JournalAggregates aggregates = new JournalAggregates();
+            journal.addListener(aggregates);
+            SqlTraceRecorder recorder = recorder(journal);
+            BootUiHibernateStatementInspector inspector = inspector(recorder);
+            CorrelationContext request = CorrelationContext.forRequest("preparation-eligibility");
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
+                inspector.inspect("select * from orders");
+                for (int i = 0; i < 6; i++) {
+                    inspector.inspect("select * from lines where order_id = ?");
+                }
+            }
+            complete(journal, request);
+            assertThat(JournalCompleteness.sqlExecutionQualified(aggregates.snapshot()))
+                    .isFalse();
+            assertThat(journal.entries())
+                    .filteredOn(entry -> entry.event().source() == JournalSource.SQL)
+                    .hasSize(7)
+                    .allSatisfy(entry -> assertThat(((SqlPayload) entry.event().payload()).provenance())
+                            .isEqualTo(SqlPayload.Provenance.PREPARATION));
+            RuntimeInsightsService service =
+                    new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, List::of);
+            service.setSqlCapture(() -> SqlCapture.of(recorder, false, false));
+
+            assertThat(service.report().checks())
+                    .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND)
+                            || check.kind().equals(ConnectionsPerRequest.KIND))
+                    .hasSize(2)
+                    .allSatisfy(check -> {
+                        assertThat(check.eligibleRequests()).isZero();
+                        assertThat(check.status()).isNotEqualTo("EVALUATED");
+                    });
+        }
+    }
 
     @Test
     void preparationHonorsCapturePolicyAndStillPublishesWhenThePanelIsPaused() throws Exception {

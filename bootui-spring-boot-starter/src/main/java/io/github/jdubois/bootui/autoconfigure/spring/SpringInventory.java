@@ -199,7 +199,9 @@ final class SpringInventory {
         List<String> mutable = new ArrayList<>();
         List<String> dormantResilience = new ArrayList<>();
         List<String> dormantInfrastructure = new ArrayList<>();
-        int handlers = inspectApplicationTypes(defaultPackage, mutable, dormantResilience, dormantInfrastructure);
+        List<String> dormantScheduling = new ArrayList<>();
+        int handlers = inspectApplicationTypes(
+                defaultPackage, mutable, dormantResilience, dormantInfrastructure, dormantScheduling);
         boolean async = entry(ASYNC_PROCESSOR) != null;
         boolean scheduling = entry(SCHEDULED_PROCESSOR) != null;
         boolean taskExecutionPropertiesPresent = !typed(
@@ -274,6 +276,7 @@ final class SpringInventory {
                 .mutableSingletonFields(mutable)
                 .dormantResilienceBeans(dormantResilience)
                 .dormantInfrastructureBeans(dormantInfrastructure)
+                .dormantSchedulingBeans(dormantScheduling)
                 .taskExecutionPropertiesPresent(taskExecutionPropertiesPresent)
                 .applicationSecurityChainPresent(applicationSecurityChain)
                 .observations(new SpringObservations(facts, List.copyOf(incomplete)))
@@ -481,7 +484,8 @@ final class SpringInventory {
             List<String> packages,
             List<String> mutable,
             List<String> dormantResilience,
-            List<String> dormantInfrastructure) {
+            List<String> dormantInfrastructure,
+            List<String> dormantScheduling) {
         int handlers = 0;
         Map<Class<?>, List<Entry>> types = new LinkedHashMap<>();
         DormantAnnotationChecks dormantChecks = buildDormantAnnotationChecks();
@@ -492,7 +496,7 @@ final class SpringInventory {
                     && !type.getName().startsWith("org.springframework.")) {
                 if (dormantChecks.anyNeeded() && !type.getName().startsWith("java.")) {
                     inspectEntryDormantAnnotations(
-                            entry, type, dormantChecks, dormantResilience, dormantInfrastructure);
+                            entry, type, dormantChecks, dormantResilience, dormantInfrastructure, dormantScheduling);
                 }
                 if (!type.isInterface()) {
                     types.computeIfAbsent(type, ignored -> new ArrayList<>()).add(entry);
@@ -573,7 +577,8 @@ final class SpringInventory {
             Class<?> rawType,
             DormantAnnotationChecks checks,
             List<String> dormantResilience,
-            List<String> dormantInfrastructure) {
+            List<String> dormantInfrastructure,
+            List<String> dormantScheduling) {
         if (isType(rawType, "org.springframework.data.repository.Repository")) return;
         Class<?> targetType = rawType;
         if (java.lang.reflect.Proxy.isProxyClass(rawType)) {
@@ -591,7 +596,13 @@ final class SpringInventory {
             Method[] publicMethods = targetType.getMethods();
             if (!dormantBudget(publicMethods.length)) return;
             inspectDormantAnnotations(
-                    entry, targetType, publicMethods, checks, dormantResilience, dormantInfrastructure);
+                    entry,
+                    targetType,
+                    publicMethods,
+                    checks,
+                    dormantResilience,
+                    dormantInfrastructure,
+                    dormantScheduling);
         } catch (RuntimeException | LinkageError ex) {
             partial();
         }
@@ -603,7 +614,8 @@ final class SpringInventory {
             Method[] publicMethods,
             DormantAnnotationChecks checks,
             List<String> dormantResilience,
-            List<String> dormantInfrastructure) {
+            List<String> dormantInfrastructure,
+            List<String> dormantScheduling) {
         List<Method> methods = null;
         if (checks.coreRetryable() != null) {
             if (hasAnyAnnotation(type, List.of(checks.coreRetryable()))) {
@@ -678,21 +690,14 @@ final class SpringInventory {
             }
         }
         if (!checks.scheduledAnnotations().isEmpty()) {
+            String suffix =
+                    ": @Scheduled/@Schedules has no observed processor or ScheduledTaskHolder; review whether intentionally disabled.";
             if (hasAnyAnnotation(type, checks.scheduledAnnotations())) {
-                addBoundedFinding(
-                        dormantInfrastructure,
-                        entry.name() + " (" + type.getName()
-                                + "): @Scheduled is present without ScheduledAnnotationBeanPostProcessor; add @EnableScheduling.");
+                addBoundedFinding(dormantScheduling, entry.name() + " (" + type.getName() + ")" + suffix);
             } else {
                 methods = methods != null ? methods : candidateMethods(type, publicMethods);
                 recordMethodAnnotations(
-                        entry,
-                        type,
-                        methods,
-                        checks.scheduledAnnotations(),
-                        true,
-                        dormantInfrastructure,
-                        ": @Scheduled is present without ScheduledAnnotationBeanPostProcessor; add @EnableScheduling.");
+                        entry, type, methods, checks.scheduledAnnotations(), true, dormantScheduling, suffix);
             }
         }
         if (!checks.cacheAnnotations().isEmpty()) {
@@ -1095,7 +1100,8 @@ final class SpringInventory {
                 .contains(entry.type().getName())) return true;
         if (!MODULITH_STALENESS_CONFIGURER.equals(entry.type().getName())
                 || entry.type() != present(MODULITH_STALENESS_CONFIGURER)
-                || !"2.1.2".equals(entry.type().getPackage().getImplementationVersion())) return false;
+                || !("2.1.2".equals(entry.type().getPackage().getImplementationVersion())
+                        || "2.2.0".equals(entry.type().getPackage().getImplementationVersion()))) return false;
         Object singleton = factory.getSingleton(entry.name());
         return singleton != null && singleton.getClass() == entry.type();
     }

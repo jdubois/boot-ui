@@ -5,6 +5,7 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Shared entry point the engine advisor scanners (Architecture, REST API, GraalVM, CRaC) use to import the
@@ -55,12 +56,16 @@ public final class ArchUnitClassImports {
     // Visible for testing: the seam lets a test observe the ArchConfiguration that is active during the
     // import (and run the real importer) without reaching into ArchUnit's global state itself.
     static JavaClasses importPackages(List<String> basePackages, Function<List<String>, JavaClasses> importer) {
+        return withScopedConfiguration(() -> importer.apply(basePackages));
+    }
+
+    static <T> T withScopedConfiguration(Supplier<T> importer) {
         return ArchConfiguration.withThreadLocalScope(config -> {
             config.setClassResolver(OpenableLocationClassResolver.class);
             // Clear any inherited arguments: OpenableLocationClassResolver only has a no-arg constructor,
             // and ArchUnit would otherwise look for a List<String> constructor when arguments are present.
             config.setClassResolverArguments();
-            return importer.apply(basePackages);
+            return importer.get();
         });
     }
 }

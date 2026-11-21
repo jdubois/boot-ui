@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
@@ -67,6 +68,8 @@ class BootUiQuarkusGitHubResourceTest {
                 .as("render must never report a live connection")
                 .isFalse();
         assertThat(body.path("repository").path("fullName").asText()).isEqualTo("jdubois/boot-ui");
+        assertThat(body.path("repositoryContext").path("selectedRemote").asText())
+                .isEqualTo("origin");
     }
 
     @Test
@@ -86,5 +89,48 @@ class BootUiQuarkusGitHubResourceTest {
         assertThat(body.path("message").asText())
                 .as("the DISABLED message must point the operator at the enabling flag")
                 .contains("bootui.github.api-enabled=true");
+    }
+
+    @Test
+    void explicitSelectionIsAdditiveAndArbitraryTargetsAreRejected() {
+        Response selected = probe().get("/bootui/api/github?remote=upstream");
+        assertThat(selected.status()).isEqualTo(200);
+        assertThat(selected.json()
+                        .path("repositoryContext")
+                        .path("selectedRemote")
+                        .asText())
+                .isEqualTo("upstream");
+        assertThat(selected.json().path("status").asText()).isIn("READY", "DISABLED", "UNAVAILABLE");
+        assertThat(probe().get("/bootui/api/github?remote=other").status()).isEqualTo(400);
+        assertThat(probe().request("POST", "/bootui/api/github/refresh?remote=other", JSON_HEADERS, "")
+                        .status())
+                .isEqualTo(400);
+    }
+
+    @Test
+    void rawQueryRejectsEmptyBareAndDuplicateRemoteBeforeChangingCachedData() {
+        assertSoftly(soft -> {
+            for (String query : new String[] {
+                "?remote=",
+                "?remote",
+                "?remote=%20",
+                "?remote=Origin",
+                "?Remote=origin",
+                "?remote=origin&REMOTE=upstream",
+                "?remote=origin&remote=upstream",
+                "?remote=upstream&remote=upstream"
+            }) {
+                Response before = probe().get("/bootui/api/github");
+                Response get = probe().get("/bootui/api/github" + query);
+                Response post = probe().request("POST", "/bootui/api/github/refresh" + query, JSON_HEADERS, "");
+                Response after = probe().get("/bootui/api/github");
+
+                soft.assertThat(get.status()).as("native GET %s", query).isEqualTo(400);
+                soft.assertThat(post.status()).as("native POST %s", query).isEqualTo(400);
+                soft.assertThat(after.json())
+                        .as("invalid query must not change origin's cache")
+                        .isEqualTo(before.json());
+            }
+        });
     }
 }

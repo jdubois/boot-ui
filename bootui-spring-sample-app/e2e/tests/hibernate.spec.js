@@ -2,7 +2,7 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Hibernate Advisor view', () => {
-  test('runs mapped-entity checks and shows the sample advisor fixtures', async ({openView, page}) => {
+  test('runs mapped-entity checks and shows the sample advisor fixtures', async ({openView, page}, testInfo) => {
     await openView('hibernate', 'Hibernate')
 
     // The pre-scan empty state is not asserted because the advisor caches the last scan, so a
@@ -15,7 +15,10 @@ test.describe('Hibernate Advisor view', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(76)
+    await testInfo.attach('hibernate-report', {body: JSON.stringify(report), contentType: 'application/json'})
+    expect(report.rulesEvaluated).toBe(78)
+    expect(report.results.find((result) => result.id === 'HIB-FETCH-001')?.severity).toBe('MEDIUM')
+    expect(report.results.find((result) => result.id === 'HIB-FETCH-010')?.severity).toBe('HIGH')
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
     expect(Array.isArray(report.diagnostics)).toBe(true)
@@ -47,7 +50,11 @@ test.describe('Hibernate Advisor view', () => {
 
     // After the scan the findings render and the empty state disappears.
     await expect(page.getByText('No Hibernate Advisor data yet')).toHaveCount(0, {timeout: 30_000})
-    await expect(page.getByText('Eager fetching should stay explicit and bounded')).toBeVisible()
+    const toOneRow = page.locator('.list-group-item').filter({has: page.getByText('HIB-FETCH-001', {exact: true})})
+    const collectionRow = page.locator('.list-group-item').filter({has: page.getByText('HIB-FETCH-010', {exact: true})})
+    await expect(toOneRow).toContainText('Review eager to-one fetch plans')
+    await expect(toOneRow).not.toContainText('enabledFeatures')
+    await expect(collectionRow).toContainText('Eager collection fetching should stay bounded')
     for (const toggle of await page.locator('.advisor-rule-toggle').all()) await toggle.click()
 
     const diagnosticsToggle = page.getByRole('button', {name: 'Show diagnostics'})
@@ -63,7 +70,7 @@ test.describe('Hibernate Advisor view', () => {
     await hideDiagnostics.click()
     await expect(page.getByText(/SampleOrder#customer is mapped as FetchType.EAGER/)).toBeVisible()
     await expect(
-      page.getByText(/SampleAppPreferences#enabledFeatures is an @ElementCollection mapped as FetchType.EAGER/)
+      collectionRow.getByText(/SampleAppPreferences#enabledFeatures is an @ElementCollection mapped as FetchType.EAGER/)
     ).toBeVisible()
     await expect(page.locator('.list-group-item', {hasText: 'HIB-ID-001'})).toHaveCount(0)
     await expect(page.locator('.list-group-item', {hasText: 'HIB-ID-006'})).toContainText(

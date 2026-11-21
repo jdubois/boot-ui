@@ -47,6 +47,18 @@ class CspPolicyTests {
         assertThat(CspPolicy.analyze("script-src 'unsafe-inline' 'sha999-YWJjZA=='")
                         .unsafeInlineScript())
                 .isTrue();
+        assertThat(CspPolicy.analyze("script-src 'unsafe-inline' 'nonce-{nonce}'")
+                        .unsafeInlineScript())
+                .isTrue();
+        assertThat(CspPolicy.analyze("script-src 'unsafe-inline' 'nonce-{NONCE}'")
+                        .unsafeInlineScript())
+                .isTrue();
+    }
+
+    @Test
+    void verifiedRuntimeNonceExpansionSuppressesUnsafeInline() {
+        String expanded = CspPolicy.expandVerifiedNonceTemplate("script-src 'unsafe-inline' 'nonce-{nonce}'");
+        assertThat(CspPolicy.analyze(expanded).unsafeInlineScript()).isFalse();
     }
 
     @Test
@@ -68,6 +80,21 @@ class CspPolicyTests {
     void recognizesExplicitArbitrarySources(String source) {
         assertThat(CspPolicy.analyze("script-src " + source).unrestrictedScript())
                 .isTrue();
+    }
+
+    @Test
+    void absentScriptDirectiveIsUnrestrictedButAnEmptyDirectiveOrSandboxBlocksScripts() {
+        for (String policy : new String[] {"frame-ancestors 'self'", "script-src-attr 'none'", "object-src 'none'"}) {
+            assertThat(CspPolicy.analyze(policy).unrestrictedScript())
+                    .as(policy)
+                    .isTrue();
+        }
+        for (String policy :
+                new String[] {"script-src", "default-src", "script-src-elem 'self'", "sandbox allow-forms"}) {
+            assertThat(CspPolicy.analyze(policy).unrestrictedScript())
+                    .as(policy)
+                    .isFalse();
+        }
     }
 
     @Test

@@ -167,6 +167,26 @@ class McpScanSummariesTests {
     }
 
     @Test
+    void candidateAssociationsAreSummarizedSeparatelyFromFindings() {
+        var candidate = new DependencyDto(
+                "g",
+                "a",
+                "1",
+                "g:a",
+                "test",
+                0,
+                "NONE",
+                List.of(),
+                new io.github.jdubois.bootui.core.dto.DependencyAssessmentDto(true, false, List.of("UNFETCHED"), 1));
+        var report = io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports.report(
+                true, "PARTIAL", "Details unavailable", 1L, 1, List.of(candidate));
+        assertThat(McpScanSummaries.vulnerabilities(report))
+                .containsEntry("findingsFound", 0)
+                .containsEntry("unassessedAdvisoryCandidates", 1L)
+                .containsEntry("topFindings", List.of());
+    }
+
+    @Test
     void aVulnerabilityScanListsVulnerableDependenciesByTheirMostSevereActiveAdvisory() {
         DependencyDto risky = new DependencyDto(
                 "org.example",

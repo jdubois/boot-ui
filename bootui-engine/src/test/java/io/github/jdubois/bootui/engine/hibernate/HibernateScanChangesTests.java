@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Version;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -126,6 +127,141 @@ class HibernateScanChangesTests {
         assertThat(recovered.violationDetails().changes().unchangedCount()).isEqualTo(3);
     }
 
+    @Test
+    void dischargedBulkObligationAllowsResolutionButAnApplicableQueryGapKeepsItUnverified() {
+        for (boolean retainGap : List.of(false, true)) {
+            AtomicReference<String> query =
+                    new AtomicReference<>("select o from VersionedOrder o join fetch o.lines join fetch o.tags");
+            HibernateScanner scanner = new HibernateScanner(
+                    () -> new HibernateAdvisorObservation(
+                            List.of(fetchUnit(query.get())), HibernateApplicationFacts.unknown(List.of()), List.of()),
+                    Clock.systemUTC(),
+                    List.of(new MultipleCollectionJoinFetchRule(), new BulkUpdateVersionRule()));
+            HibernateReport first = scanner.scan();
+            assertThat(first.evidence().coverageComplete()).isTrue();
+            assertThat(first.results())
+                    .extracting(HibernateRuleResultDto::id)
+                    .containsExactlyInAnyOrder("HIB-QUERY-007", "HIB-QUERY-008");
+            assertThat(first.violationDetails().truncated()).isFalse();
+            assertThat(scanner.ruleViolations(
+                                    "HIB-QUERY-007", first.violationDetails().scanId(), 0, 10)
+                            .identities())
+                    .singleElement()
+                    .isNotNull();
+
+            query.set(
+                    retainGap
+                            ? "select o from VersionedOrder o join o.lines l join fetch l.tags"
+                            : "select o from VersionedOrder o join fetch o.lines");
+            HibernateReport second = scanner.scan();
+            assertThat(second.evidence().coverageComplete()).isEqualTo(!retainGap);
+            assertThat(second.evidence().usable()).isTrue();
+            assertThat(second.violationDetails().truncated()).isFalse();
+            AdvisorChangesDto changes = second.violationDetails().changes();
+            assertThat(changes.previousScanId())
+                    .isEqualTo(first.violationDetails().scanId());
+            assertThat(changes.complete()).isEqualTo(!retainGap);
+            assertThat(changes.resolvedCount()).isEqualTo(retainGap ? 0 : 1);
+            assertThat(changes.unverifiedCount()).isEqualTo(retainGap ? 1 : 0);
+            assertThat(changes.unchangedCount()).isEqualTo(1);
+            assertThat(scanner.ruleViolations(
+                                    "HIB-QUERY-008", second.violationDetails().scanId(), 0, 10)
+                            .changes())
+                    .containsExactly("UNCHANGED");
+            if (!retainGap) {
+                assertThat(changes.resolved())
+                        .singleElement()
+                        .satisfies(resolved -> assertThat(resolved.ruleId()).isEqualTo("HIB-QUERY-007"));
+            }
+        }
+    }
+
+    @Test
+    void advisorLimitOnlyComparisonExceptionDoesNotMakeAssessmentComplete() {
+        for (boolean additionalGap : List.of(false, true)) {
+            AtomicReference<Boolean> finding = new AtomicReference<>(true);
+            HibernateRule limited =
+                    new AbstractHibernateRule(new HibernateRuleDefinition(
+                            "HIB-TEST-LIMIT",
+                            "Limit comparison",
+                            HibernateCategory.CONFIGURATION,
+                            "LOW",
+                            "Test",
+                            "Test",
+                            null)) {
+                        @Override
+                        HibernateRuleResultDto evaluateRule(HibernateContext context) {
+                            context.evidence().markApplicable(true);
+                            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
+                            if (additionalGap) context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+                            var details = new io.github.jdubois.bootui.engine.advisor.AdvisorFindings();
+                            details.add("retained finding", null, HibernateIdentities.setting(context, "retained"));
+                            if (finding.get())
+                                details.add("known finding", null, HibernateIdentities.setting(context, "known"));
+                            return violation(context, details);
+                        }
+                    };
+            HibernateScanner scanner = scanner(limited, new BulkUpdateVersionRule());
+            HibernateReport first = scanner.scan();
+            assertThat(first.evidence().coverageComplete()).isFalse();
+            finding.set(false);
+            HibernateReport second = scanner.scan();
+            assertThat(second.scan().status()).isEqualTo("PARTIAL");
+            assertThat(second.evidence().coverageComplete()).isFalse();
+            assertThat(second.diagnostics())
+                    .singleElement()
+                    .satisfies(
+                            diagnostic -> assertThat(diagnostic.level()).isEqualTo(additionalGap ? "WARNING" : "INFO"));
+            AdvisorChangesDto changes = second.violationDetails().changes();
+            assertThat(changes.resolvedCount()).isEqualTo(additionalGap ? 0 : 1);
+            assertThat(changes.unverifiedCount()).isEqualTo(additionalGap ? 1 : 0);
+            assertThat(changes.unchangedCount()).isEqualTo(4);
+            assertThat(changes.complete()).isEqualTo(!additionalGap);
+        }
+    }
+
+    private HibernatePersistenceUnitObservation fetchUnit(String query) {
+        List<HibernateRepositoryMethodModel> queries = List.of(
+                new HibernateRepositoryMethodModel(
+                        "OrderRepository",
+                        "fetch",
+                        VersionedOrder.class,
+                        List.class,
+                        query,
+                        false,
+                        null,
+                        false,
+                        false,
+                        false,
+                        false,
+                        List.of(),
+                        new HibernateQueryEvidence(
+                                true, true, false, false, false, VersionedOrder.class, false, null, null, List.of())),
+                new HibernateRepositoryMethodModel(
+                        "OrderRepository",
+                        "bulk",
+                        VersionedOrder.class,
+                        int.class,
+                        "update VersionedOrder o set o.amount = 1",
+                        false,
+                        null,
+                        false,
+                        true,
+                        false,
+                        false,
+                        List.of(),
+                        new HibernateQueryEvidence(
+                                true, true, false, false, false, int.class, false, null, null, List.of())));
+        return new HibernatePersistenceUnitObservation(
+                "orders",
+                "orders",
+                List.of(HibernateEntityModel.fromClass(VersionedOrder.class)),
+                List.of(new HibernateRepositoryModel("OrderRepository", VersionedOrder.class, queries)),
+                "7.4.5.Final",
+                HibernateFactorySettings.unknown(),
+                false);
+    }
+
     private HibernateScanner scanner(HibernateRule... rules) {
         return new HibernateScanner(
                 () -> new HibernateAdvisorObservation(
@@ -172,6 +308,12 @@ class HibernateScanChangesTests {
         Long version;
 
         int amount;
+
+        @OneToMany
+        List<VersionedOrder> lines;
+
+        @OneToMany
+        List<VersionedOrder> tags;
     }
 
     private static final class AlwaysPassingRule extends AbstractHibernateRule {

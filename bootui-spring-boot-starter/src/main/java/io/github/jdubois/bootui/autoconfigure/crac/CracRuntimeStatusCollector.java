@@ -272,6 +272,12 @@ final class CracRuntimeStatusCollector {
                             + ". Definitions can be lazy or wrapped; these are not live connection counts. "
                             + "Review public lifecycle ownership and restore reconnection, not universal backend reachability.");
         }
+        if (!inventory.dataSourceObservations().isEmpty()) {
+            caveats.add("Cached datasource resource observations (CRAC-POOL-001): "
+                    + preview(inventory.dataSourceObservations())
+                    + ". These do not establish a connection pool or verified checkpoint handling; "
+                    + "delegating and unknown targets still require ownership review.");
+        }
         if (!inventory.managedConnectionPoolBeans().isEmpty()) {
             caveats.add("Cached existing singleton factories with documented lifecycle support (CRAC-POOL-001): "
                     + preview(inventory.managedConnectionPoolBeans())

@@ -35,7 +35,7 @@ record SecurityContext(
         boolean methodSecurityAnnotationsPresent,
         boolean customCorsSourcePresent,
         List<String> oauth2TokenValidatorTypes,
-        boolean strictHttpFirewallWeakened,
+        Boolean strictHttpFirewallWeakened,
         boolean hideUserNotFoundExceptionsDisabled,
         List<String> opaqueTokenIntrospectorTypes,
         boolean generatedUserDetailsManagerPresent,
@@ -54,7 +54,7 @@ record SecurityContext(
             boolean methodSecurityAnnotationsPresent,
             boolean customCorsSourcePresent,
             List<String> oauth2TokenValidatorTypes,
-            boolean strictHttpFirewallWeakened,
+            Boolean strictHttpFirewallWeakened,
             boolean hideUserNotFoundExceptionsDisabled,
             List<String> opaqueTokenIntrospectorTypes,
             boolean generatedUserDetailsManagerPresent,
@@ -121,6 +121,7 @@ record SecurityContext(
             Set<String> enabledMethodFamilies,
             Set<String> usedMethodFamilies,
             boolean methodFamiliesKnown,
+            boolean legacyMethodConfigurationKnown,
             SecurityEvaluation evaluation) {
         Evidence(
                 List<Operation> operations,
@@ -136,6 +137,26 @@ record SecurityContext(
                     enabledMethodFamilies,
                     usedMethodFamilies,
                     methodFamiliesKnown,
+                    methodFamiliesKnown,
+                    new SecurityEvaluation());
+        }
+
+        Evidence(
+                List<Operation> operations,
+                boolean operationsKnown,
+                boolean bootManagedJwt,
+                Set<String> enabledMethodFamilies,
+                Set<String> usedMethodFamilies,
+                boolean methodFamiliesKnown,
+                boolean legacyMethodConfigurationKnown) {
+            this(
+                    operations,
+                    operationsKnown,
+                    bootManagedJwt,
+                    enabledMethodFamilies,
+                    usedMethodFamilies,
+                    methodFamiliesKnown,
+                    legacyMethodConfigurationKnown,
                     new SecurityEvaluation());
         }
 
@@ -154,6 +175,12 @@ record SecurityContext(
         return evidence.evaluation().required(known);
     }
 
+    boolean allUsedMethodSecurityFamiliesEnabled() {
+        return evidence.methodFamiliesKnown()
+                && !evidence.usedMethodFamilies().isEmpty()
+                && evidence.enabledMethodFamilies().containsAll(evidence.usedMethodFamilies());
+    }
+
     <T> List<T> targets(List<T> targets) {
         applies(!targets.isEmpty());
         return targets;
@@ -170,7 +197,7 @@ record SecurityContext(
             boolean methodSecurityAnnotationsPresent,
             boolean customCorsSourcePresent,
             List<String> oauth2TokenValidatorTypes,
-            boolean strictHttpFirewallWeakened,
+            Boolean strictHttpFirewallWeakened,
             boolean hideUserNotFoundExceptionsDisabled,
             List<String> opaqueTokenIntrospectorTypes,
             boolean generatedUserDetailsManagerPresent,
@@ -223,7 +250,7 @@ record SecurityContext(
             boolean methodSecurityAnnotationsPresent,
             boolean customCorsSourcePresent,
             List<String> oauth2TokenValidatorTypes,
-            boolean strictHttpFirewallWeakened,
+            Boolean strictHttpFirewallWeakened,
             boolean hideUserNotFoundExceptionsDisabled,
             List<String> opaqueTokenIntrospectorTypes,
             boolean generatedUserDetailsManagerPresent,

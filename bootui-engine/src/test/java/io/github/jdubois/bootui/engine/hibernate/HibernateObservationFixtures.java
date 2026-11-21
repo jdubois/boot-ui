@@ -61,6 +61,7 @@ final class HibernateObservationFixtures {
                 context.isPropertyTrue("spring.jpa.defer-datasource-initialization"),
                 context.isStatementLoggingEnabled(),
                 context.isBindParameterLoggingEnabled(),
+                false,
                 false);
     }
 

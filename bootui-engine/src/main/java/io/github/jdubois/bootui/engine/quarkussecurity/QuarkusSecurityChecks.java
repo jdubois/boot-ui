@@ -519,9 +519,9 @@ final class QuarkusSecurityChecks {
                     "QS-HDR-002",
                     "Weak Content-Security-Policy",
                     "Headers",
-                    "MEDIUM",
+                    "LOW",
                     "The CSP allows 'unsafe-inline'/'unsafe-eval' or a wildcard script source, undermining its"
-                            + " XSS protection.",
+                            + " XSS protection, or does not restrict script sources.",
                     1,
                     List.of("configured enforcing CSP permits unsafe or unrestricted script execution"),
                     "Remove unsafe-inline/unsafe-eval and wildcard sources; use nonces/hashes for scripts."));

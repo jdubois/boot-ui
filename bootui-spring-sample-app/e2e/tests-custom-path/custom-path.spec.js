@@ -1,11 +1,15 @@
 // @ts-check
 import {expect, test} from '@playwright/test'
 import {registerAdvisorScoringTests} from '../scenarios/advisor-scoring.js'
+import {registerJvmSizingInputTests} from '../scenarios/jvm-sizing-inputs.js'
+import {registerGitHubRefreshTests} from '../scenarios/github-refresh.js'
 
 const UI_PATH = '/host/dev-console'
 const API_PATH = '/host/internal/bootui-api'
 
 registerAdvisorScoringTests(test, expect, {uiPath: UI_PATH, apiPath: API_PATH})
+registerJvmSizingInputTests(test, expect, {uiPath: UI_PATH, apiPath: API_PATH})
+registerGitHubRefreshTests(test, expect, {uiPath: UI_PATH, apiPath: API_PATH})
 
 test('loads the SPA and assets only from the configured path', async ({page, request}) => {
   const response = await page.goto(`${UI_PATH}/`)

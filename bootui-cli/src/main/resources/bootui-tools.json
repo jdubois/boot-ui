@@ -947,7 +947,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively analyze JVM memory and return prioritized findings.",
-      "description": "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram and full GC, so run only when memory evidence is needed. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_memory_report and page a rule's retained violations with get_memory_rule_violations, without scanning again.",
+      "description": "Actively analyze JVM memory and return prioritized findings. Uses bootui.memory.include-histogram (default true): the histogram requests full GC and may pause the JVM; false skips histogram-dependent checks without requesting GC. scan.includeHistogram records the selected mode. Run only when memory evidence is needed. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_memory_report and page a rule's retained violations with get_memory_rule_violations, without scanning again.",
       "example": "bootui memory scan"
     },
     {

@@ -27,6 +27,10 @@ final class CacheActivityCacheManager implements CacheManager, CacheActivityAwar
         this.managerName = managerName;
     }
 
+    String capturedManagerName(CacheActivityRecorder expected) {
+        return recorder == expected ? managerName : null;
+    }
+
     @Override
     public Cache getCache(String name) {
         Cache real = delegate.getCache(name);

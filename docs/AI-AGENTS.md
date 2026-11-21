@@ -351,6 +351,15 @@ user; BootUI's own panel and read-only gates still apply.
   says whether each dependency's classes, or a class its advisory names, loaded in this JVM; it is read when answered,
   never changes a severity, and `NOT_LOADED` means not loaded yet, not unreachable
   ([Runtime reach](features/advisors.md#runtime-reach)).
+  Dependency `assessment.unassessedAdvisoryIds` is a bounded preview of query-only candidates whose details were not
+  fetched; `unassessedAdvisoryCount` includes preview omissions. These are not interpreted findings or severity/count
+  evidence. Report queries match retained candidate IDs and prioritize candidate dependencies after parsed findings;
+  compact scan summaries count their associations separately as `unassessedAdvisoryCandidates`.
+  Report pages keep at most three candidate IDs per dependency, query matches first, without changing its original
+  candidate count or the full REST report's up-to-100-ID preview. Exact dependency queries keep this ID bound; query
+  a retained candidate ID to bring it into the preview.
+  The existing `advisories` object adds whole-report `unassessedCandidates` (before filtering/paging) and page-row
+  `candidateIdsListed`/`candidateIdsOmitted`; the totals describe candidates, not interpreted findings.
 - **Cached per-rule violations (reads):** `get_architecture_rule_violations`, `get_hibernate_rule_violations`,
   `get_spring_rule_violations`, `get_rest_api_rule_violations`, `get_memory_rule_violations`,
   `get_security_rule_violations`, and `get_database_advisor_rule_violations` page the retained details from that
@@ -1011,6 +1020,12 @@ answers with the same summary:
 | `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
 | `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations); `changes` is what a Hibernate or Database rescan [changed](#checking-what-a-fix-changed) |
 
+`memory_scan` keeps its argument-free schema and uses `bootui.memory.include-histogram` (default `true`).
+The histogram requests full GC and may pause the JVM. Set the property to `false` and restart to omit that
+diagnostic without losing the other JVM checks. `scan.includeHistogram` records the selected mode in both
+the summary and cached report; omitted heap-content checks leave explicit coverage limitations. Scorecard
+actions explicitly omit the histogram regardless of this default.
+
 A vulnerability row is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and `count`
 its advisory count. So for `vulnerabilities_scan`, `findingsFound` counts vulnerable dependencies while
 `severityCounts` counts advisories, as the Vulnerabilities report does. The summary adds the inventory's
@@ -1311,43 +1326,44 @@ Open <http://localhost:8080/bootui/#/mcp-server> and flip the toggle at the top 
 With the agent connected and the repository open in your editor, ask it:
 
 > Run the BootUI `hibernate_scan` tool against my running app at `http://localhost:8080`, then fix the
-> highest-severity finding on `SampleOrder#customer` in this codebase. Re-run the scan when you are done and tell me
-> what changed.
+> eager to-one declaration finding on `SampleOrder#customer` in this codebase after reviewing its fetch plan.
+> Re-run the scan when you are done and distinguish a declaration change from measured query behavior.
 
 ### 4. What the agent sees
 
 The agent calls `hibernate_scan` over MCP and gets back a summary of the scan, whose `topFindings` rank the violated
 rules, then reads the same report the [Hibernate panel](features/advisors.md#hibernate) shows with
 `get_hibernate_report`. Among the findings is a real
-[`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded) (severity
-`HIGH`, 3 violations), one of whose `sampleViolations` names
+[`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-review-eager-to-one-fetch-plans) (severity
+`MEDIUM`), one of whose `sampleViolations` names
 [`SampleOrder.customer`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/advisor/hibernate/SampleOrder.java):
-the field is mapped `@ManyToOne(fetch = FetchType.EAGER, ...)`, so every `SampleOrder` load also loads its
-`SampleCustomer`, whether or not the caller needs it.
+the field is mapped `@ManyToOne(fetch = FetchType.EAGER, ...)`. This is a review prompt, not proof of extra
+`SELECT`s or N+1 queries. Eager collections such as `SampleAppPreferences#enabledFeatures` are reported separately
+under HIB-FETCH-010 at HIGH.
 
 ### 5. What the agent changes
 
 Reading the finding's remediation hint, the agent edits `SampleOrder.java` and changes the association to
 `@ManyToOne(fetch = FetchType.LAZY, ...)`, keeping the other annotations on the field untouched. That is the whole
-fix — `SampleCustomer` is now loaded only when `order.getCustomer()` is actually called, or fetched explicitly with a
-join or entity graph where a use case needs it up front.
+declaration change, not a proven performance fix. This demo also has `@NotFound(IGNORE)`, which forces eager loading
+even with a `LAZY` declaration. Review that mapping and the actual queries separately; do not infer lazy runtime
+loading just because the declaration finding disappears.
 
 ### 6. Verify
 
 Rebuild and restart or let DevTools reload the edited application before scanning again. The agent re-runs
-`hibernate_scan`, whose summary counts `HIB-FETCH-001` at 2 instead of 3, then reads
-`get_hibernate_report`: the rule's `violationCount` is 2, and its `sampleViolations`
+`hibernate_scan`, then reads `get_hibernate_report`: HIB-FETCH-001 has one fewer finding, and its `sampleViolations`
 no longer mention `SampleOrder#customer` — confirmed against the actually running app, not by re-reading the source.
-`HIB-FETCH-001` itself does **not** disappear from the report: `SampleAppPreferences#enabledFeatures` and
-`SampleOrder#details` are separate, intentional eager-fetch fixtures the same rule also catches, so the rule keeps
-firing until those are fixed too. Confirm just the one violation is gone from a terminal with:
+`HIB-FETCH-001` itself does **not** disappear from the report: `SampleOrder#details` remains a default-eager to-one
+fixture. `SampleAppPreferences#enabledFeatures` remains under the independent HIB-FETCH-010; old HIB-FETCH-001
+dismissals do not hide it. Confirm just the one declaration finding is gone from a terminal with:
 
 ```bash
 bootui hibernate scan > /dev/null && bootui hibernate report --json \
   | jq '.results[] | select(.id == "HIB-FETCH-001") | .sampleViolations[] | select(contains("SampleOrder#customer"))'
 ```
 
-An empty result means the fix held.
+An empty result means the declaration finding is gone, not that query cost improved.
 
 `SampleOrder` intentionally ships with several other mappings that trip other Hibernate checks (see the comments in
 the source file), so a fresh clone has this finding to practice on. If you want to restore the exercise fixture,

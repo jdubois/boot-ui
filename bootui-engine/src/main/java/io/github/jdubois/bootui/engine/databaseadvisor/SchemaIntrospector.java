@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -19,7 +20,8 @@ import javax.sql.DataSource;
 /**
  * Reads the physical schema of one {@code DataSource} through plain {@code java.sql.DatabaseMetaData} —
  * tables, columns, primary keys, foreign keys, and indexes — and augments it, for PostgreSQL and
- * MySQL/MariaDB, with the read-only catalog facts the generic JDBC API cannot answer.
+ * MySQL/MariaDB, with the read-only catalog facts the generic JDBC API cannot answer. Identified H2
+ * datasources also provide narrowly scoped ordinary-index access-method evidence.
  *
  * <p>This is purely read-only: it never executes DDL and never queries application data, only driver catalog
  * metadata and system-catalog rows. Three properties matter as much as the data itself:</p>
@@ -32,8 +34,8 @@ import javax.sql.DataSource;
  *   <li><strong>Honest.</strong> A failure introspecting one datasource, one table, or one catalog
  *       augmentation is recorded as a diagnostic and leaves the rest of the scan intact; nothing that failed
  *       is ever presented as a clean result.</li>
- *   <li><strong>Non-invasive.</strong> The connection's original read-only flag is restored before it goes
- *       back to the pool, and no other connection state is touched.</li>
+ *   <li><strong>Non-invasive.</strong> The connection's original read-only flag and any temporary H2 session
+ *       timeout are restored before it goes back to the pool.</li>
  * </ul>
  */
 final class SchemaIntrospector {
@@ -113,6 +115,31 @@ final class SchemaIntrospector {
         }
     }
 
+    private static Connection h2PhysicalConnection(Connection connection) {
+        try {
+            Connection physical = connection.unwrap(Connection.class);
+            // H2 abort() is a no-op. Never mistake a pooled logical handle's close for physical disposal.
+            if (physical == null
+                    || !"org.h2.jdbc.JdbcConnection".equals(physical.getClass().getName())) {
+                return null;
+            }
+            return physical;
+        } catch (SQLException | RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static final class H2PhysicalConnectionUnavailableException extends SQLException {}
+
+    private static final class H2TimeoutRestorationException extends SQLException {
+        H2TimeoutRestorationException(boolean discarded) {
+            super("The original H2 session query timeout could not be restored; "
+                    + (discarded
+                            ? "the physical connection was discarded."
+                            : "physical connection cleanup also failed."));
+        }
+    }
+
     private static SchemaSnapshot introspect(
             String dataSourceName,
             Connection connection,
@@ -130,6 +157,8 @@ final class SchemaIntrospector {
         String restorationFailure = null;
         try {
             snapshot = read(dataSourceName, connection, budget, limits, poolDriverProperties);
+        } catch (H2TimeoutRestorationException ex) {
+            throw ex;
         } catch (SQLException | RuntimeException ex) {
             snapshot = SchemaSnapshot.failed(dataSourceName, describe(ex));
         } finally {
@@ -199,8 +228,16 @@ final class SchemaIntrospector {
                     dataSourceName, "Oracle CURRENT_SCHEMA could not be established; the scoped scan was not widened.");
         }
 
-        TableReadResult tableResult =
-                readTables(dataSourceName, connection, metaData, oracleSchema, budget, limits, diagnostics);
+        boolean h2IndexMethods = dialect == Dialect.GENERIC
+                && "H2".equals(productName)
+                && version.known()
+                && version.major() == 2
+                && driver != null
+                && "H2 JDBC Driver".equals(driver.driverName())
+                && url != null
+                && url.startsWith("jdbc:h2:");
+        TableReadResult tableResult = readTables(
+                dataSourceName, connection, metaData, oracleSchema, h2IndexMethods, budget, limits, diagnostics);
 
         VendorFindings.Builder vendorFindings = VendorFindings.builder();
         if (dialect == Dialect.POSTGRESQL) {
@@ -433,6 +470,7 @@ final class SchemaIntrospector {
             Connection connection,
             DatabaseMetaData metaData,
             String schemaPattern,
+            boolean h2IndexMethods,
             ScanBudget budget,
             DatabaseAdvisorLimits limits,
             List<SchemaDiagnostic> diagnostics)
@@ -463,7 +501,7 @@ final class SchemaIntrospector {
                                 + " tables; the remaining tables were not analyzed."));
                 break;
             }
-            TableModel table = readTable(metaData, ref, escape, limits, budget);
+            TableModel table = readTable(connection, metaData, ref, escape, h2IndexMethods, limits, budget);
             tables.add(table);
             truncated |= table.metadata().truncated();
             for (String issue : table.metadata().issues()) {
@@ -538,7 +576,14 @@ final class SchemaIntrospector {
     }
 
     private static TableModel readTable(
-            DatabaseMetaData metaData, TableRef ref, String escape, DatabaseAdvisorLimits limits, ScanBudget budget) {
+            Connection connection,
+            DatabaseMetaData metaData,
+            TableRef ref,
+            String escape,
+            boolean h2IndexMethods,
+            DatabaseAdvisorLimits limits,
+            ScanBudget budget)
+            throws SQLException {
         List<String> issues = new ArrayList<>();
         boolean truncated = false;
 
@@ -604,6 +649,31 @@ final class SchemaIntrospector {
             indexesRead = false;
             truncated |= ex instanceof MetadataBoundException;
             issues.add("Indexes of " + qualified(ref) + " could not be read: " + describe(ex));
+        }
+
+        if (h2IndexMethods
+                && !foreignKeys.isEmpty()
+                && indexes.stream().anyMatch(SchemaIntrospector::needsIndexMethod)) {
+            try {
+                IndexReadResult result = readH2IndexMethods(connection, ref, indexes, limits, budget);
+                indexes = result.indexes();
+                truncated |= result.truncated();
+                if (result.truncated()) {
+                    issues.add("H2 index access-method metadata for " + qualified(ref)
+                            + " reached its row bound or deadline; unobserved methods remain unknown.");
+                }
+            } catch (H2TimeoutRestorationException ex) {
+                throw ex;
+            } catch (SQLException | RuntimeException ex) {
+                truncated |= ex instanceof MetadataBoundException;
+                issues.add("H2 index access methods of " + qualified(ref) + " could not be read: "
+                        + (ex instanceof MetadataBoundException
+                                ? "the scan budget was exhausted."
+                                : ex instanceof H2PhysicalConnectionUnavailableException
+                                        ? "a verifiable physical H2 connection is unavailable; "
+                                                + "the session timeout was not changed."
+                                        : ex.getClass().getSimpleName() + "."));
+            }
         }
 
         TableMetadata metadata =
@@ -956,6 +1026,160 @@ final class SchemaIntrospector {
             case DatabaseMetaData.tableIndexOther -> null;
             default -> null;
         };
+    }
+
+    private static boolean needsIndexMethod(IndexModel index) {
+        return index.method() == null
+                && !index.keyParts().isEmpty()
+                && !index.partial()
+                && !index.hasExpressionKeyPart()
+                && !index.hasPrefixKeyPart();
+    }
+
+    /**
+     * H2 reports both ordinary and spatial indexes as tableIndexOther with no JDBC filter. Only its
+     * catalog-identified MVStore secondary implementation establishes an ordinary access method here;
+     * this does not establish the comparison/state/ownership evidence needed by other rules.
+     */
+    private static IndexReadResult readH2IndexMethods(
+            Connection connection,
+            TableRef ref,
+            List<IndexModel> indexes,
+            DatabaseAdvisorLimits limits,
+            ScanBudget budget)
+            throws SQLException {
+        requireBudget(budget);
+        Connection physical = h2PhysicalConnection(connection);
+        if (physical == null) {
+            throw new H2PhysicalConnectionUnavailableException();
+        }
+        int originalTimeout = readH2QueryTimeout(connection);
+        requireBudget(budget);
+        int timeout = (int)
+                Math.min(Integer.MAX_VALUE, 1_000L * budget.remainingSecondsAtMost(limits.statementTimeoutSeconds()));
+        if (originalTimeout > 0 && originalTimeout <= timeout) {
+            return readH2IndexCatalog(connection, ref, indexes, limits, budget);
+        }
+        try {
+            setH2QueryTimeout(connection, timeout);
+            return readH2IndexCatalog(connection, ref, indexes, limits, budget);
+        } finally {
+            try {
+                setH2QueryTimeout(connection, originalTimeout);
+            } catch (SQLException | RuntimeException ex) {
+                try {
+                    physical.close();
+                } catch (SQLException | RuntimeException closeFailure) {
+                    H2TimeoutRestorationException failure = new H2TimeoutRestorationException(false);
+                    failure.addSuppressed(closeFailure);
+                    throw failure;
+                }
+                throw new H2TimeoutRestorationException(true);
+            }
+        }
+    }
+
+    private static int readH2QueryTimeout(Connection connection) throws SQLException {
+        String sql = """
+                SELECT SETTING_VALUE FROM INFORMATION_SCHEMA.SETTINGS
+                WHERE SETTING_NAME = 'QUERY_TIMEOUT' FETCH FIRST 2 ROWS ONLY
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setMaxRows(2);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    throw new SQLException("The H2 session query timeout was not reported.");
+                }
+                int timeout = rs.getInt("SETTING_VALUE");
+                if (rs.wasNull() || timeout < 0 || rs.next()) {
+                    throw new SQLException("The H2 session query timeout was missing or ambiguous.");
+                }
+                return timeout;
+            }
+        }
+    }
+
+    private static void setH2QueryTimeout(Connection connection, int milliseconds) throws SQLException {
+        // SQL preserves H2's exact millisecond setting without mutating its connection-wide JDBC getter cache.
+        try (PreparedStatement statement = connection.prepareStatement("SET QUERY_TIMEOUT ?")) {
+            statement.setInt(1, milliseconds);
+            statement.executeUpdate();
+        }
+    }
+
+    private static IndexReadResult readH2IndexCatalog(
+            Connection connection,
+            TableRef ref,
+            List<IndexModel> indexes,
+            DatabaseAdvisorLimits limits,
+            ScanBudget budget)
+            throws SQLException {
+        String sql = """
+                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, INDEX_SCHEMA, INDEX_NAME, INDEX_TYPE_NAME, INDEX_CLASS
+                FROM INFORMATION_SCHEMA.INDEXES
+                WHERE TABLE_CATALOG = ? AND TABLE_SCHEMA = ? AND TABLE_NAME = ?
+                ORDER BY INDEX_NAME
+                FETCH FIRST ? ROWS ONLY
+                """;
+        Set<String> seen = new java.util.HashSet<>();
+        Set<String> ordinary = new java.util.HashSet<>();
+        boolean truncated = false;
+        requireBudget(budget);
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setMaxRows(limits.maxIndexesPerTable() + 1);
+            statement.setString(1, ref.catalog());
+            statement.setString(2, ref.schema());
+            statement.setString(3, ref.name());
+            statement.setInt(4, limits.maxIndexesPerTable() + 1);
+            requireBudget(budget);
+            try (ResultSet rs = statement.executeQuery()) {
+                int rows = 0;
+                while (rs.next()) {
+                    if (++rows > limits.maxIndexesPerTable() || budget.exhausted()) {
+                        truncated = true;
+                        break;
+                    }
+                    String name = rs.getString("INDEX_NAME");
+                    if (!Objects.equals(ref.catalog(), rs.getString("TABLE_CATALOG"))
+                            || !Objects.equals(ref.schema(), rs.getString("TABLE_SCHEMA"))
+                            || !Objects.equals(ref.name(), rs.getString("TABLE_NAME"))
+                            || !Objects.equals(ref.schema(), rs.getString("INDEX_SCHEMA"))
+                            || name == null
+                            || name.isBlank()
+                            || !seen.add(name)) {
+                        throw new SQLException("H2 index access-method identities are incomplete or ambiguous.");
+                    }
+                    String type = rs.getString("INDEX_TYPE_NAME");
+                    if (("INDEX".equals(type) || "UNIQUE INDEX".equals(type))
+                            && "org.h2.mvstore.db.MVSecondaryIndex".equals(rs.getString("INDEX_CLASS"))) {
+                        ordinary.add(name);
+                    }
+                }
+            }
+        }
+        return new IndexReadResult(
+                indexes.stream()
+                        .map(index -> !needsIndexMethod(index) || !ordinary.contains(index.name())
+                                ? index
+                                : new IndexModel(
+                                        index.name(),
+                                        index.keyParts(),
+                                        index.unique(),
+                                        "btree",
+                                        index.filterCondition(),
+                                        index.visibility(),
+                                        index.validity(),
+                                        index.nullsNotDistinct(),
+                                        index.automatic(),
+                                        index.partitioned(),
+                                        index.specialized(),
+                                        index.includedColumns(),
+                                        index.comparisonComplete(),
+                                        index.uniquenessKnown(),
+                                        index.backingConstraint(),
+                                        index.comparisonSemantics()))
+                        .toList(),
+                truncated);
     }
 
     private static ColumnModel.Nullability nullability(Integer reported) {

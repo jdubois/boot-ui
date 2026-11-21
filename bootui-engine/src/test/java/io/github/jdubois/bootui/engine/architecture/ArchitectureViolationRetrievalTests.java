@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
-import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
@@ -12,6 +11,7 @@ import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.architecture.cyclefixtures.alpha.Alpha;
 import io.github.jdubois.bootui.engine.architecture.cyclefixtures.beta.Beta;
 import io.github.jdubois.bootui.engine.architecture.pagingfixtures.AdvisorViolationFixture;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -24,14 +24,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class ArchitectureViolationRetrievalTests {
+    @TempDir
+    Path tempDir;
+
     private static final String ROOT = AdvisorViolationFixture.class.getPackageName();
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1700000000000L), ZoneOffset.UTC);
 
     @Test
     void twentyNineSelfCallsAndSixteenGenericExceptionsRemainCompletelyRetrievable() {
-        JavaClasses classes = new ClassFileImporter().importClasses(AdvisorViolationFixture.class);
+        JavaClasses classes =
+                CompiledOutputFixtures.importFrom(tempDir, "target/classes", AdvisorViolationFixture.class);
         List<ArchitectureRule> rules =
                 List.of(new NoSelfInvocationOfProxiedMethodsRule(), new NoGenericExceptionsRule());
         AtomicInteger imports = new AtomicInteger();
@@ -83,7 +88,8 @@ class ArchitectureViolationRetrievalTests {
 
     @Test
     void readersKeepTheCompletedSnapshotDuringAnActiveScan() throws Exception {
-        JavaClasses classes = new ClassFileImporter().importClasses(AdvisorViolationFixture.class);
+        JavaClasses classes =
+                CompiledOutputFixtures.importFrom(tempDir, "target/classes", AdvisorViolationFixture.class);
         AtomicInteger imports = new AtomicInteger();
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch finish = new CountDownLatch(1);
@@ -126,7 +132,8 @@ class ArchitectureViolationRetrievalTests {
 
     @Test
     void aCompletedFailureReplacesTheReportAndTheDetailIndexTogether() {
-        JavaClasses classes = new ClassFileImporter().importClasses(AdvisorViolationFixture.class);
+        JavaClasses classes =
+                CompiledOutputFixtures.importFrom(tempDir, "target/classes", AdvisorViolationFixture.class);
         AtomicInteger imports = new AtomicInteger();
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(ROOT),
@@ -157,7 +164,7 @@ class ArchitectureViolationRetrievalTests {
 
     @Test
     void packageCycleAggregationPreservesCountedMultiplicityPastThePreview() {
-        JavaClasses classes = new ClassFileImporter().importClasses(Alpha.class, Beta.class);
+        JavaClasses classes = CompiledOutputFixtures.importFrom(tempDir, "target/classes", Alpha.class, Beta.class);
         List<String> roots =
                 java.util.Collections.nCopies(12, "io.github.jdubois.bootui.engine.architecture.cyclefixtures");
         ArchitectureScanner scanner = new ArchitectureScanner(
@@ -181,7 +188,8 @@ class ArchitectureViolationRetrievalTests {
 
     @Test
     void exhaustedSharedRetentionKeepsAllCountsAndRejectsReplacedScanIds() {
-        JavaClasses classes = new ClassFileImporter().importClasses(AdvisorViolationFixture.class);
+        JavaClasses classes =
+                CompiledOutputFixtures.importFrom(tempDir, "target/classes", AdvisorViolationFixture.class);
         ArchitectureScanner scanner = new ArchitectureScanner(
                 () -> List.of(ROOT),
                 packages -> classes,

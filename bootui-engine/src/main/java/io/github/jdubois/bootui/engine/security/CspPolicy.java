@@ -28,6 +28,13 @@ public final class CspPolicy {
     private CspPolicy() {}
 
     /**
+     * Replaces a runtime placeholder only after the caller has verified that its framework expands that exact token.
+     */
+    public static String expandVerifiedNonceTemplate(String policy) {
+        return policy == null ? null : policy.replace("{nonce}", "bootui-verified-nonce");
+    }
+
+    /**
      * An incomplete result must not be used as proof of a missing or weak control. The result
      * deliberately retains no policy text, nonces, hashes, hosts or other configuration values.
      */
@@ -76,13 +83,17 @@ public final class CspPolicy {
         List<String> ancestors = directives.get("frame-ancestors");
         boolean scriptsBlocked =
                 directives.containsKey("sandbox") && !contains(directives.get("sandbox"), "allow-scripts");
+        boolean scriptElementsUnrestricted = !directives.containsKey("script-src-elem")
+                && !directives.containsKey("script-src")
+                && !directives.containsKey("default-src");
         return new Analysis(
                 true,
                 !scriptsBlocked && (allowsInline(elements) || allowsInline(attributes)),
                 !scriptsBlocked && contains(scripts, "'unsafe-eval'"),
                 !scriptsBlocked
-                        && !contains(elements, "'strict-dynamic'")
-                        && elements.stream().anyMatch(CspPolicy::arbitrarySource),
+                        && (scriptElementsUnrestricted
+                                || !contains(elements, "'strict-dynamic'")
+                                        && elements.stream().anyMatch(CspPolicy::arbitrarySource)),
                 restrictiveAncestors(ancestors),
                 ancestors != null);
     }

@@ -593,6 +593,40 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.text()).not.toContain('No HTTP requests recorded in this run yet')
   })
 
+  it('keeps captured warning facts without a request ratio when the denominator is unassessed', async () => {
+    const captured = {
+      ...report.observations[0],
+      id: 'framework-warnings-by-route:captured',
+      kind: 'framework-warnings-by-route',
+      sentence: 'Captured 2 framework warnings in 2 requests.',
+      eligible: 0,
+      affected: 2,
+      limitations: ['Log capture coverage is not proven complete.']
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? {...detail, observation: captured}
+              : {...report, observations: [captured]}
+          )
+        )
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    await openRow(wrapper)
+
+    const narrative = wrapper.get('.insight-sentence-card').text()
+    expect(narrative).toContain(captured.sentence)
+    expect(narrative).not.toContain('of 2 requests')
+    expect(narrative).not.toContain('of 0 requests')
+    expect(narrative).not.toContain('linked by')
+    expect(wrapper.text()).toContain(captured.limitations[0])
+  })
+
   it('filters observations by search', async () => {
     vi.stubGlobal(
       'fetch',

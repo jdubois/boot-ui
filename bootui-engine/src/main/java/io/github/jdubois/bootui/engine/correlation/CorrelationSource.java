@@ -24,13 +24,21 @@ public final class CorrelationSource {
 
     /** The current context, or {@link CorrelationContext#NONE} when nothing owns the work or the provider fails. */
     public CorrelationContext current() {
+        return read().context();
+    }
+
+    /** A guarded ownership read that distinguishes legitimate background work from failed or null provider results. */
+    public Read read() {
         try {
             CorrelationContext context = provider.current();
-            return context == null ? CorrelationContext.NONE : context;
+            return context == null ? new Read(CorrelationContext.NONE, true) : new Read(context, false);
         } catch (RuntimeException ex) {
-            return CorrelationContext.NONE;
+            return new Read(CorrelationContext.NONE, true);
         }
     }
+
+    /** Internal capture metadata only; no provider failure details or exception messages are retained. */
+    public record Read(CorrelationContext context, boolean failed) {}
 
     /** The current execution id, or {@code null} when no scheduled run or consumed message owns the work. */
     /**

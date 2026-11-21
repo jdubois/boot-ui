@@ -1,9 +1,9 @@
 <script>
 import {ref as pageRef} from 'vue'
 
-// Page-lifetime consent survives route unmounts, but never a reload or a new tab.
-// Neither cached server state nor persistent browser storage can grant it.
-const connectionConsent = pageRef(false)
+// Page-lifetime consent is scoped to one displayed host/repository and survives route unmounts,
+// but never a reload or a new tab. Cached state cannot grant it.
+const consentedTarget = pageRef(null)
 const externalRefreshPending = pageRef(false)
 </script>
 
@@ -35,6 +35,7 @@ const data = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
 const activeDrawer = ref(null)
+const selectedRemote = ref('origin')
 const active = ref(false)
 const visible = ref(document.visibilityState === 'visible')
 const refreshDisabled = ref(false)
@@ -58,19 +59,62 @@ const credential = computed(() => data.value?.credential)
 const copilotUsage = computed(() => data.value?.copilotUsage ?? null)
 const connected = computed(() => data.value?.connected === true)
 const unavailable = computed(() => data.value?.available === false)
+const repositoryContext = computed(() => data.value?.repositoryContext)
+const forkData = computed(() => repository.value?.fork === true)
+const hasConsent = computed(() => consentedTarget.value !== null)
+const connectionConsent = computed(() => {
+  const target = consentedTarget.value
+  return (
+    target !== null &&
+    target.remote === selectedRemote.value &&
+    target.host === (repository.value?.host || repositoryHost(repository.value?.htmlUrl)) &&
+    target.fullName === repository.value?.fullName
+  )
+})
 
 const canConnect = computed(
   () => manifestAvailable.value && !readOnly.value && data.value && !unavailable.value && !refreshDisabled.value
 )
 const refreshAllowed = computed(() => connectionConsent.value && canConnect.value && active.value && visible.value)
 
-async function fetchDashboard(liveRefresh) {
+async function fetchDashboard(liveRefresh, remote = selectedRemote.value, granting = false) {
   try {
-    const report = await getJson(liveRefresh ? 'api/github/refresh' : 'api/github', liveRefresh ? {method: 'POST'} : {})
+    const path = liveRefresh ? 'api/github/refresh' : 'api/github'
+    const parameters = new URLSearchParams()
+    if (remote !== 'origin') parameters.set('remote', remote)
+    const expected = consentedTarget.value
+    if (liveRefresh && expected?.remote === remote) {
+      parameters.set('expectedHost', expected.host)
+      parameters.set('expectedRepository', expected.fullName)
+    }
+    const query = parameters.size ? `?${parameters}` : ''
+    const report = await getJson(`${path}${query}`, liveRefresh ? {method: 'POST'} : {})
     // Permission belongs to the page, even after the requesting view has unmounted.
-    if (['BLOCKED', 'DISABLED'].includes(report.status)) connectionConsent.value = false
+    if (['BLOCKED', 'DISABLED'].includes(report.status) || (granting && report.status === 'ERROR')) {
+      consentedTarget.value = null
+    }
     if (disposed) return
     refreshDisabled.value = report.status === 'DISABLED'
+    if (
+      liveRefresh &&
+      report.available !== false &&
+      report.repository &&
+      !reportMatchesTarget(
+        report,
+        expected ?? {
+          remote,
+          host: repositoryContext.value?.[remote]?.host,
+          fullName: repositoryContext.value?.[remote]?.fullName
+        }
+      )
+    ) {
+      consentedTarget.value = null
+      error.value = describeLoadError(
+        new Error('The configured GitHub repository changed after permission was granted.'),
+        'GitHub refresh not authorized'
+      )
+      return
+    }
     if (['ERROR', 'BLOCKED', 'DISABLED'].includes(report.status)) {
       error.value = describeLoadError(
         new Error(report.message || `GitHub returned ${report.status}`),
@@ -81,20 +125,58 @@ async function fetchDashboard(liveRefresh) {
       return
     }
     data.value = report
+    selectedRemote.value = report?.repositoryContext?.selectedRemote ?? remote
     lastFetched.value = report.connected ? report.refreshedAt : null
     error.value = null
   } catch (e) {
-    if (e.status === 403) connectionConsent.value = false
+    if (e.status === 403) consentedTarget.value = null
     if (disposed) return
     error.value = describeLoadError(e, liveRefresh ? 'Unable to refresh GitHub' : 'Unable to load cached GitHub data')
   }
 }
 
+function targetFromReport(remote, report = data.value) {
+  const contextTarget = report?.repositoryContext?.[remote]
+  if (contextTarget?.host && contextTarget?.fullName) {
+    return {remote, host: contextTarget.host, fullName: contextTarget.fullName}
+  }
+  const repository = report?.repository
+  const host = repository?.host || repositoryHost(repository?.htmlUrl)
+  if (repository && selectedRemote.value === remote && host && repository.fullName) {
+    return {remote, host, fullName: repository.fullName}
+  }
+  return null
+}
+
+function reportMatchesTarget(report, target) {
+  const host = report?.repository?.host || repositoryHost(report?.repository?.htmlUrl)
+  return target && host === target.host && report.repository.fullName === target.fullName
+}
+
+function repositoryHost(url) {
+  try {
+    return url ? new URL(url).host : null
+  } catch {
+    return null
+  }
+}
+
+function connectRemote(remote) {
+  if (readOnly.value) {
+    load(false, remote)
+    return
+  }
+  const target = targetFromReport(remote)
+  if (!target) return
+  consentedTarget.value = target
+  load(true, remote, true)
+}
+
 const {loading, initialLoading, refresh} = useRefreshState(fetchDashboard)
 
-async function load(liveRefresh = false) {
+async function load(liveRefresh = false, remote = selectedRemote.value, explicit = false) {
   if (disposed || inFlight || !manifestAvailable.value) return
-  if (liveRefresh && (!refreshAllowed.value || externalRefreshPending.value)) return
+  if (liveRefresh && (externalRefreshPending.value || (explicit ? readOnly.value : !refreshAllowed.value))) return
   inFlight = true
   if (liveRefresh) {
     ownsExternalRefresh = true
@@ -103,7 +185,7 @@ async function load(liveRefresh = false) {
     completedCacheReadPending = false
   }
   try {
-    await refresh(liveRefresh)
+    await refresh(liveRefresh, remote, explicit)
   } finally {
     if (liveRefresh) {
       externalRefreshPending.value = false
@@ -132,12 +214,14 @@ watch(
 
 function connect() {
   if (!canConnect.value || loading.value || externalRefreshPending.value) return
-  connectionConsent.value = true
-  load(true)
+  const target = targetFromReport(selectedRemote.value)
+  if (!target) return
+  consentedTarget.value = target
+  load(true, selectedRemote.value, true)
 }
 
 function stop() {
-  connectionConsent.value = false
+  consentedTarget.value = null
 }
 
 function stopTimer() {
@@ -579,12 +663,12 @@ function securitySignalUrl(signal) {
           v-if="!readOnly && manifestAvailable"
           type="button"
           class="btn btn-sm"
-          :class="connectionConsent ? 'btn-outline-secondary' : 'btn-primary'"
-          :disabled="!connectionConsent && (!canConnect || loading || externalRefreshPending)"
+          :class="hasConsent ? 'btn-outline-secondary' : 'btn-primary'"
+          :disabled="!hasConsent && (!canConnect || loading || externalRefreshPending)"
           aria-describedby="github-connection-note"
-          @click="connectionConsent ? stop() : connect()"
+          @click="hasConsent ? stop() : connect()"
         >
-          {{ connectionConsent ? 'Stop' : 'Connect' }}
+          {{ hasConsent ? 'Stop' : 'Connect' }}
         </button>
       </template>
     </PanelHeader>
@@ -593,7 +677,7 @@ function securitySignalUrl(signal) {
       <i class="bi bi-shield-lock me-2" aria-hidden="true"></i>
       <div>
         <p class="mb-1">
-          <strong>{{ connectionConsent ? 'Automatic GitHub refresh enabled.' : 'Cached data only.' }}</strong>
+          <strong>{{ hasConsent ? 'Automatic GitHub refresh enabled.' : 'Cached data only.' }}</strong>
           Connect allows BootUI to contact GitHub now and every minute while this panel is active and visible, until you
           stop or reload this page. Returning to the panel reads cached data first.
         </p>
@@ -642,6 +726,14 @@ function securitySignalUrl(signal) {
                   </h3>
                   <div class="text-muted small">
                     {{ repository?.visibility || 'visibility unknown' }}
+                    · {{ repository?.host }} ·
+                    {{
+                      repository?.fork === true
+                        ? 'Fork'
+                        : repository?.fork === false
+                          ? 'Not a fork'
+                          : 'Fork status unknown'
+                    }}
                     <span v-if="repository?.defaultBranch">· default {{ repository.defaultBranch }}</span>
                     <span v-if="repository?.localBranch">· local {{ repository.localBranch }}</span>
                   </div>
@@ -685,6 +777,48 @@ function securitySignalUrl(signal) {
         </div>
       </div>
 
+      <div v-if="selectedRemote === 'upstream' || (!unavailable && forkData)" class="alert alert-info">
+        <p v-if="unavailable" class="mb-2">The selected configured upstream is unavailable.</p>
+        <p v-else-if="forkData" class="mb-2">
+          Security cards show fork data for <strong>{{ repository?.fullName }}</strong
+          >, not its upstream.
+        </p>
+        <p v-else class="mb-2">Showing the explicitly selected configured upstream remote.</p>
+        <template v-if="selectedRemote === 'origin'">
+          <template v-if="repositoryContext?.upstream">
+            <p class="mb-2">
+              Configured upstream:
+              <code>{{ repositoryContext.upstream.host }}/{{ repositoryContext.upstream.fullName }}</code
+              >. Its relationship to this fork has not been verified. Connecting requests live data from that host.
+            </p>
+            <button
+              type="button"
+              class="btn btn-outline-primary btn-sm"
+              :disabled="loading || readOnly"
+              @click="connectRemote('upstream')"
+            >
+              Connect to configured upstream
+            </button>
+          </template>
+          <p v-else class="mb-0">
+            {{
+              repositoryContext?.upstreamUnavailableReason ||
+              'Upstream context is unknown; no validated upstream remote is available.'
+            }}
+          </p>
+        </template>
+        <button
+          v-else
+          type="button"
+          class="btn btn-outline-primary btn-sm"
+          :disabled="loading"
+          @click="connectRemote('origin')"
+        >
+          {{ readOnly ? 'Read cached origin' : 'Connect to origin' }}
+        </button>
+        <div v-if="readOnly" class="small mt-2">{{ readOnlyReason }}</div>
+      </div>
+
       <div v-if="!unavailable && !connected" class="card border-dashed mb-3">
         <div class="card-body text-center text-muted py-4">
           <i class="bi bi-cloud-arrow-down fs-1 d-block mb-2"></i>
@@ -708,6 +842,9 @@ function securitySignalUrl(signal) {
             <span class="metric-card__icon"><i :class="['bi', metricIcon(metric)]"></i></span>
             <span class="card-body">
               <span class="text-muted small d-block">{{ metric.label }}</span>
+              <span v-if="drawerForMetric(metric)?.startsWith('security:') && forkData" class="badge text-bg-secondary"
+                >Fork data</span
+              >
               <span class="display-6 d-block">{{ metric.value }}</span>
               <span v-if="metric.detail" class="small text-muted d-block">{{ metric.detail }}</span>
               <span class="small fw-semibold d-block mt-2">

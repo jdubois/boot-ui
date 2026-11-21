@@ -127,20 +127,44 @@ public final class RepeatedSelects implements Observation {
         boolean transactionsPlaceable =
                 snapshot.available(JournalSource.TRANSACTION) && snapshot.dropped(JournalSource.TRANSACTION) == 0;
         List<Finding> findings = new ArrayList<>();
+        long eligible = 0;
+        long uncounted = 0;
+        long unverified = snapshot.requests().stream()
+                .flatMap(request -> request.children(JournalSource.SQL).stream())
+                .filter(RepeatedSelects::unverified)
+                .count();
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
+            List<ProjectedRequest> requests = route.getValue().stream()
+                    .filter(snapshot::sqlExecutionEligible)
+                    .toList();
+            eligible += requests.size();
+            uncounted += route.getValue().size() - requests.size();
             Map<String, List<Repeat>> byFingerprint = new LinkedHashMap<>();
-            for (ProjectedRequest request : route.getValue()) {
+            for (ProjectedRequest request : requests) {
                 for (Repeat repeat : repeats(request, transactionsPlaceable)) {
                     byFingerprint
                             .computeIfAbsent(repeat.fingerprint(), f -> new ArrayList<>())
                             .add(repeat);
                 }
             }
-            byFingerprint.forEach((fingerprint, repeats) -> findings.add(finding(
-                    route.getKey(), fingerprint, repeats, route.getValue().size(), snapshot)));
+            byFingerprint.forEach((fingerprint, repeats) ->
+                    findings.add(finding(route.getKey(), fingerprint, repeats, requests.size(), snapshot)));
         }
-        return new Evaluation(snapshot.requests().size(), findings);
+        List<String> limitations = new ArrayList<>();
+        if (uncounted > 0) {
+            limitations.add(uncounted + " requests or executions had no observed SQL execution or"
+                    + " zero-statement connection in a qualified execution-only feeder scope;"
+                    + " preparation and unknown SQL do not prove execution absence.");
+        }
+        if (unverified > 0) {
+            limitations.add(unverified + " preparation or unknown SQL events are not execution evidence.");
+        }
+        return new Evaluation(eligible, findings, limitations.isEmpty() ? null : String.join(" ", limitations));
+    }
+
+    private static boolean unverified(RuntimeEvent event) {
+        return event.payload() instanceof SqlPayload sql && !sql.executed();
     }
 
     /** The SELECTs one request repeated after a different statement, one per fingerprint. */
@@ -246,6 +270,11 @@ public final class RepeatedSelects implements Observation {
         }
         List<String> limitations = new ArrayList<>();
         limitations.add("Counts statements the request ran; a statement Hibernate batches counts once.");
+        if (repeats.stream()
+                .anyMatch(repeat ->
+                        repeat.request().children(JournalSource.SQL).stream().anyMatch(RepeatedSelects::unverified))) {
+            limitations.add("Preparation-only or unknown SQL in these requests is not counted as executions.");
+        }
         limitations.add(RESULT_SIZE_UNRECORDED);
         if (unknownTime) {
             limitations.add(UNKNOWN_REPEAT_TIME);

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
@@ -17,6 +18,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -110,6 +112,121 @@ class AnonymousAccessObservationsTests {
                 .extracting(RuntimeObservationRowDto::cells)
                 .extracting(cells -> cells.get(2) + " " + cells.get(3))
                 .containsExactly("granted ", "granted hasAnyAuthority(ROLE_ADMIN)");
+    }
+
+    @Test
+    void methodDecisionsDoNotTurnPublicAndDraftArticlesIntoARestrictedRequestRoute() {
+        request(
+                "GET",
+                "/api/articles/public",
+                "/api/articles/{id}",
+                200,
+                decision("ANONYMOUS", true, null),
+                methodDecision("ANONYMOUS", true, null));
+        request(
+                "GET",
+                "/api/articles/draft",
+                "/api/articles/{id}",
+                403,
+                decision("ANONYMOUS", true, null),
+                methodDecision("ANONYMOUS", false, null));
+        request("GET", "/api/catalog", 200, decision("ANONYMOUS", true, null), methodDecision("ANONYMOUS", true, null));
+        request(
+                "GET",
+                "/api/catalog",
+                200,
+                decision("AUTHENTICATED", true, null),
+                methodDecision("AUTHENTICATED", true, "hasAnyAuthority(ROLE_EDITOR)"));
+        request("GET", "/api/orders/{id}", 200, decision("ANONYMOUS", true, null));
+        request("GET", "/api/orders/{id}", 403, decision("ANONYMOUS", false, null));
+
+        assertThat(byKind(report(), AnonymousSuccessOnRestrictedRoute.KIND))
+                .extracting(RuntimeObservationDto::subject)
+                .containsExactly("GET /api/orders/{id}");
+    }
+
+    @Test
+    void aRealRequestRestrictionRetainsPathsAndSeparatelyLabeledMethodContext() {
+        request(
+                "GET",
+                "/api/articles/public;token=public-secret;variant=public-value",
+                "/api/articles/{id}",
+                200,
+                decision("ANONYMOUS", true, null),
+                methodDecision("ANONYMOUS", true, "@policy.canRead(#article, 'public-rule-secret')"));
+        request(
+                "GET",
+                "/api/articles/draft;token=draft-secret",
+                "/api/articles/{id}",
+                403,
+                decision("ANONYMOUS", false, "hasAnyAuthority(ROLE_ADMIN, password=draft-rule-secret)"),
+                methodDecision("ANONYMOUS", false, "@policy.canRead(#article, 'draft-rule-secret')"));
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto finding =
+                byKind(service.report(), AnonymousSuccessOnRestrictedRoute.KIND).get(0);
+        var detail = service.insight(finding.id());
+
+        assertThat(detail.columns()).contains("Path", "Method decisions (context only)");
+        assertThat(detail.rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .anySatisfy(cells -> assertThat(cells)
+                        .contains(
+                                "/api/articles/public;token=******;variant=public-value",
+                                "ArticleService#read: granted"))
+                .anySatisfy(cells ->
+                        assertThat(cells).contains("/api/articles/draft;token=******", "ArticleService#read: denied"))
+                .allSatisfy(cells -> assertThat(String.join(" ", cells))
+                        .doesNotContain("public-secret", "draft-secret", "public-rule-secret", "draft-rule-secret"));
+        ValueExposure[] mode = {ValueExposure.FULL};
+        service.setExposure(new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return mode[0];
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
+        assertThat(service.insight(finding.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .anySatisfy(cells ->
+                        assertThat(cells).contains("/api/articles/public;token=public-secret;variant=public-value"))
+                .allSatisfy(cells -> assertThat(String.join(" ", cells)).doesNotContain("public-rule-secret"));
+        mode[0] = ValueExposure.METADATA_ONLY;
+        assertThat(service.insight(finding.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .anySatisfy(cells -> assertThat(cells).contains("/api/articles/public;token=******;variant=******"))
+                .allSatisfy(cells -> assertThat(cells.get(3)).isEmpty())
+                .allSatisfy(cells -> assertThat(String.join(" ", cells))
+                        .doesNotContain(
+                                "public-secret",
+                                "draft-secret",
+                                "public-value",
+                                "public-rule-secret",
+                                "draft-rule-secret"));
+    }
+
+    @Test
+    void aMethodDecisionStillProvesAnonymityForCapturedWritesWithoutProvingARequestRestriction() {
+        request(
+                "POST",
+                "/api/contact",
+                201,
+                null,
+                methodDecision("ANONYMOUS", true, null),
+                sql("insert into contact_messages values (?)"));
+        request("POST", "/api/contact", 403, null, methodDecision("ANONYMOUS", false, null));
+
+        RuntimeInsightsReportDto report = report();
+
+        assertThat(byKind(report, AnonymousDataReach.KIND))
+                .singleElement()
+                .satisfies(finding -> assertThat(finding.subject()).isEqualTo("POST /api/contact"));
+        assertThat(byKind(report, AnonymousSuccessOnRestrictedRoute.KIND)).isEmpty();
     }
 
     @Test
@@ -311,6 +428,40 @@ class AnonymousAccessObservationsTests {
         }
     }
 
+    @Test
+    void hidingAuthorizationEvidenceRemovesBothChecksFindingsAndRetainedDetails() {
+        request(
+                "POST",
+                "/api/contact",
+                201,
+                decision("ANONYMOUS", true, null),
+                methodDecision("ANONYMOUS", true, null),
+                sql("insert into contact_messages values (?)"));
+        request("POST", "/api/contact", 403, decision("ANONYMOUS", false, null));
+        boolean[] visible = {true};
+        RuntimeInsightsService service = new RuntimeInsightsService(
+                journal,
+                null,
+                panel -> visible[0] || !panel.equals(BootUiPanels.SECURITY_LOGS),
+                InsightsStack.SPRING_MVC,
+                null);
+        var findings = service.report().observations().stream()
+                .filter(observation -> observation.kind().startsWith("anonymous-"))
+                .toList();
+        assertThat(findings).hasSize(2);
+
+        visible[0] = false;
+
+        assertThat(service.report().observations())
+                .noneMatch(observation -> observation.kind().startsWith("anonymous-"));
+        assertThat(service.report().checks())
+                .filteredOn(check -> check.kind().startsWith("anonymous-"))
+                .allSatisfy(check -> assertThat(check.status()).isEqualTo("NOT_APPLICABLE"));
+        assertThat(findings)
+                .allSatisfy(finding ->
+                        assertThat(service.insight(finding.id()).available()).isFalse());
+    }
+
     private RuntimeInsightsReportDto report() {
         return new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
     }
@@ -323,6 +474,10 @@ class AnonymousAccessObservationsTests {
 
     private static AuthorizationPayload decision(String authentication, boolean granted, String rule) {
         return new AuthorizationPayload("REQUEST", null, rule, authentication, granted, 0);
+    }
+
+    private static AuthorizationPayload methodDecision(String authentication, boolean granted, String rule) {
+        return new AuthorizationPayload("METHOD", "ArticleService#read", rule, authentication, granted, 0);
     }
 
     private static SqlPayload sql(String sql) {
@@ -391,6 +546,16 @@ class AnonymousAccessObservationsTests {
             int status,
             AuthorizationPayload decision,
             RuntimeEventPayload... children) {
+        request(method, template.replace("{id}", "42"), template, status, decision, children);
+    }
+
+    private void request(
+            String method,
+            String path,
+            String template,
+            int status,
+            AuthorizationPayload decision,
+            RuntimeEventPayload... children) {
         String requestId = "r" + (++requests);
         CorrelationContext context = CorrelationContext.forRequest(requestId);
         List<RuntimeEvent> events = new ArrayList<>();
@@ -399,7 +564,15 @@ class AnonymousAccessObservationsTests {
                     JournalSource.AUTHORIZATION, 1_000, 1_000, context, "http-1", null, false, decision));
         }
         for (RuntimeEventPayload child : children) {
-            events.add(RuntimeEvent.of(JournalSource.SQL, 1_000, 1_000_000, context, "http-1", null, false, child));
+            events.add(RuntimeEvent.of(
+                    child instanceof AuthorizationPayload ? JournalSource.AUTHORIZATION : JournalSource.SQL,
+                    1_000,
+                    1_000_000,
+                    context,
+                    "http-1",
+                    null,
+                    false,
+                    child));
         }
         events.add(RuntimeEvent.of(
                 JournalSource.HTTP,
@@ -409,7 +582,7 @@ class AnonymousAccessObservationsTests {
                 "http-1",
                 null,
                 false,
-                new HttpPayload(method, template.replace("{id}", "42"), template, null, status)));
+                new HttpPayload(method, path, template, null, status)));
         events.forEach(journal::offer);
         try {
             assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();

@@ -79,8 +79,20 @@ abstract class AbstractHibernateRule implements HibernateRule {
     private HibernateRuleResultDto record(
             HibernateContext context, String severityOverride, List<AdvisorViolation> details) {
         if (details.isEmpty()) return pass();
-        List<AdvisorViolation> samples = context.retainViolations(definition.id(), details);
-        return HibernateRuleSupport.violation(definition, severityOverride, details.size(), samples);
+        String severity = HibernateRuleSupport.severity(definition, severityOverride);
+        List<AdvisorViolation> graded = new java.util.AbstractList<>() {
+            @Override
+            public AdvisorViolation get(int index) {
+                return details.get(index).withEvaluationSeverity(severity);
+            }
+
+            @Override
+            public int size() {
+                return details.size();
+            }
+        };
+        List<AdvisorViolation> samples = context.retainViolations(definition.id(), graded);
+        return HibernateRuleSupport.violation(definition, severity, details.size(), samples);
     }
 }
 
@@ -105,6 +117,20 @@ final class HibernateRuleModelSupport {
     private static final String SPRING_DATA_PERSISTABLE = "org.springframework.data.domain.Persistable";
 
     private HibernateRuleModelSupport() {}
+
+    static boolean hasDeclaredEagerFetch(HibernateContext context, HibernateAttributeModel attribute) {
+        Annotation mapping = attribute.isElementCollection()
+                ? attribute.elementCollectionAnnotation()
+                : attribute.associationAnnotation();
+        String fetch = mapping == null ? null : attribute.annotationValueName(mapping, "fetch");
+        if ("EAGER".equals(fetch)) {
+            return true;
+        }
+        if (!"LAZY".equals(fetch)) {
+            context.missingEvidence(HibernateEvidenceGap.FETCH_MAPPING, attribute.description());
+        }
+        return false;
+    }
 
     /** The declared {@code targetEntity} of a {@code @OneToOne}, falling back to the attribute's Java type. */
     static Class<?> oneToOneTargetType(HibernateAttributeModel attribute, Annotation oneToOne) {
@@ -532,13 +558,46 @@ final class EagerFetchRule extends AbstractHibernateRule {
     EagerFetchRule() {
         super(new HibernateRuleDefinition(
                 "HIB-FETCH-001",
-                "Eager fetching should stay explicit and bounded",
+                "Review eager to-one fetch plans",
+                HibernateCategory.FETCHING,
+                "MEDIUM",
+                "Reviews @ManyToOne and @OneToOne mappings with FetchType.EAGER, including JPA's default."
+                        + " The declaration alone does not establish query counts or unbounded loading.",
+                "Review whether each use case needs the to-one association. Consider LAZY mappings with explicit"
+                        + " fetch joins, entity graphs, or DTO queries; verify the actual query plan.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute :
+                    context.targets(entity.attributes(), HibernateAttributeModel::isToOneAssociation)) {
+                if (HibernateRuleModelSupport.hasDeclaredEagerFetch(context, attribute)) {
+                    details.add(
+                            attribute.description() + " is mapped as FetchType.EAGER.",
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+}
+
+final class EagerCollectionFetchRule extends AbstractHibernateRule {
+
+    EagerCollectionFetchRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-FETCH-010",
+                "Eager collection fetching should stay bounded",
                 HibernateCategory.FETCHING,
                 "HIGH",
-                "Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER,"
-                        + " including default-eager to-one associations.",
-                "Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins,"
-                        + " entity graphs, or DTO queries.",
+                "Detects @OneToMany, @ManyToMany, and @ElementCollection mappings with FetchType.EAGER."
+                        + " Loading all collection members can amplify the fetched graph and payload.",
+                "Prefer LAZY collections and fetch required members explicitly with targeted queries, fetch joins,"
+                        + " entity graphs, or DTO queries. Bound collection loading to the use case.",
                 "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
     }
 
@@ -547,19 +606,14 @@ final class EagerFetchRule extends AbstractHibernateRule {
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
-                    entity.attributes(), candidate -> candidate.isAssociation() || candidate.isElementCollection())) {
-                Annotation association = attribute.associationAnnotation();
-                if (association != null && "EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
+                    entity.attributes(),
+                    candidate -> candidate.isCollectionAssociation() || candidate.isElementCollection())) {
+                if (HibernateRuleModelSupport.hasDeclaredEagerFetch(context, attribute)) {
                     details.add(
-                            attribute.description() + " is mapped as FetchType.EAGER.",
-                            HibernateLocations.of(attribute),
-                            HibernateIdentities.of(context, entity, attribute));
-                }
-                Annotation elementCollection = attribute.elementCollectionAnnotation();
-                if (elementCollection != null
-                        && "EAGER".equals(attribute.annotationValueName(elementCollection, "fetch"))) {
-                    details.add(
-                            attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.",
+                            attribute.description()
+                                    + (attribute.isElementCollection()
+                                            ? " is an @ElementCollection mapped as FetchType.EAGER."
+                                            : " is mapped as FetchType.EAGER."),
                             HibernateLocations.of(attribute),
                             HibernateIdentities.of(context, entity, attribute));
                 }
@@ -3022,16 +3076,15 @@ final class BindParameterLoggingInProductionRule extends AbstractHibernateRule {
     BindParameterLoggingInProductionRule() {
         super(new HibernateRuleDefinition(
                 "HIB-CONFIG-018",
-                "Bind-parameter logging should be off in production",
+                "JDBC value logging should be off in production",
                 HibernateCategory.CONFIGURATION,
                 "HIGH",
-                "Detects TRACE logging for org.hibernate.orm.jdbc.bind (or the legacy"
-                        + " org.hibernate.type.descriptor.sql.BasicBinder binder logger, or the Quarkus-native"
-                        + " quarkus.hibernate-orm.log.bind-parameters convenience flag) while a production-like profile is"
-                        + " active. At TRACE, Hibernate logs every bound parameter value, which can leak PII, credentials,"
-                        + " or tokens passed as query parameters into application logs.",
-                "Keep bind-parameter logging off in production; only enable it temporarily, in a non-production"
-                        + " environment, while diagnosing a specific issue.",
+                "Detects effective TRACE logging for org.hibernate.orm.jdbc.bind or org.hibernate.orm.jdbc.extract"
+                        + " while a production-like profile is active. These categories can log bound parameter"
+                        + " values or extracted result values, exposing sensitive data in application logs."
+                        + " Logger state establishes the exposure risk, not whether a value was actually logged.",
+                "Keep bind-parameter and result-value logging off in production; only enable it temporarily,"
+                        + " in a non-production environment, while diagnosing a specific issue.",
                 "https://quarkus.io/guides/hibernate-orm"));
     }
 
@@ -3040,13 +3093,29 @@ final class BindParameterLoggingInProductionRule extends AbstractHibernateRule {
         if (!context.isProductionProfileActive()) {
             return pass();
         }
-        if (context.isBindParameterLoggingEnabled()) {
-            return settingViolation(
-                    context,
-                    "hibernate.type.descriptor.sql.BasicBinder",
-                    "Bind-parameter logging is enabled at TRACE while a production profile is active.");
+        context.evidence().markApplicableIf(!context.entities().isEmpty());
+        Boolean bind = context.observed()
+                ? context.applicationFacts().bindLoggerEnabled()
+                : Boolean.valueOf(context.isBindParameterLoggingEnabled());
+        Boolean extract = context.observed() ? context.applicationFacts().extractLoggerEnabled() : null;
+        AdvisorFindings findings = new AdvisorFindings();
+        if (bind == null) {
+            context.missingEvidence(HibernateEvidenceGap.APPLICATION_SETTING, "org.hibernate.orm.jdbc.bind");
+        } else if (bind) {
+            findings.add(
+                    "Bind-parameter logging is enabled at TRACE while a production profile is active.",
+                    null,
+                    HibernateIdentities.setting(context, "hibernate.type.descriptor.sql.BasicBinder"));
         }
-        return pass();
+        if (extract == null) {
+            context.missingEvidence(HibernateEvidenceGap.APPLICATION_SETTING, "org.hibernate.orm.jdbc.extract");
+        } else if (extract) {
+            findings.add(
+                    "Result-value logging is enabled at TRACE while a production profile is active.",
+                    null,
+                    HibernateIdentities.setting(context, "org.hibernate.orm.jdbc.extract"));
+        }
+        return violation(context, findings);
     }
 }
 
@@ -3804,7 +3873,10 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
                 if (method.nativeQuery() || method.query() == null) {
                     continue;
                 }
-                if (HibernateQueryShape.verifiedFetchFreeSelect(context, method)) continue;
+                if (HibernateQueryShape.irrelevantToMultipleCollectionFetch(context, method)
+                        || HibernateQueryShape.verifiedFetchFreeSelect(context, method)) {
+                    continue;
+                }
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 Map<String, Boolean> collectionIsBag = new LinkedHashMap<>();
@@ -3857,6 +3929,42 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
             return violation(context, all);
         }
         return violation(context, collectionDetails);
+    }
+}
+
+final class FilteredCollectionJoinFetchRule extends AbstractHibernateRule {
+
+    FilteredCollectionJoinFetchRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-QUERY-010",
+                        "Review filtered collection fetch joins",
+                        HibernateCategory.QUERY,
+                        "MEDIUM",
+                        "A restricting fetched-alias predicate may initialize an incomplete managed collection."
+                                + " This depends on the data and existing persistence-context state, not just the query.",
+                        "For a filtered view, prefer a DTO or separate child query. When filtering roots, use a separate"
+                                + " non-fetching predicate and fetch the complete collection. Do not treat filtered contents"
+                                + " as the full association when making subsequent changes.",
+                        "https://docs.jboss.org/hibernate/orm/7.4/querylanguage/html_single/Hibernate_Query_Language.html#association-fetching"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (context.repositories().isEmpty()) return skipped("No repository metadata was detected.");
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (HibernateQueryShape.filtersFetchedCollection(context, method)) {
+                    details.add(
+                            method.description() + " restricts a fetched collection alias and may initialize an"
+                                    + " incomplete managed collection; review assumptions before subsequent changes.",
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
+                }
+            }
+        }
+        return violation(context, details);
     }
 }
 

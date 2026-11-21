@@ -4,18 +4,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.FactoryBean;
@@ -43,12 +48,15 @@ import org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandle
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.access.annotation.Secured;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.authorization.AuthorizationManager;
@@ -134,15 +142,20 @@ class SecurityAuditAccuracyTests {
                             new FilterChainProxy(new DefaultSecurityFilterChain(
                                     AnyRequestMatcher.INSTANCE,
                                     new AuthorizationFilter(SingleResultAuthorizationManager.permitAll()))));
-            SecurityReport report = scanExisting(
-                    application.getDefaultListableBeanFactory(),
-                    new MockEnvironment().withProperty("management.endpoints.web.exposure.include", "prometheus"));
-            assertThat(calls).hasValue(0);
-            assertThat(report.results())
-                    .filteredOn(result -> result.id().equals("SEC-ACT-003"))
-                    .hasSize(1)
-                    .allSatisfy(result ->
-                            assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("prometheus")));
+            for (String managementPort : List.of("9090", "${server.port}")) {
+                SecurityReport report = scanExisting(
+                        application.getDefaultListableBeanFactory(),
+                        new MockEnvironment()
+                                .withProperty("server.port", "9090")
+                                .withProperty("management.server.port", managementPort)
+                                .withProperty("management.endpoints.web.exposure.include", "prometheus"));
+                assertThat(calls).hasValue(0);
+                assertThat(report.results())
+                        .filteredOn(result -> result.id().equals("SEC-ACT-003"))
+                        .hasSize(1)
+                        .allSatisfy(result -> assertThat(result.sampleViolations())
+                                .anyMatch(detail -> detail.contains("prometheus")));
+            }
         }
     }
 
@@ -1056,6 +1069,107 @@ class SecurityAuditAccuracyTests {
     }
 
     @Test
+    void missingWeakAndStrongCspUseTheSameBrowserChainAndLowBaseline() throws Exception {
+        assertThat(browserCspResults(null, false)).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("SEC-HEAD-003");
+            assertThat(result.severity()).isEqualTo("LOW");
+        });
+        for (String policy : List.of(
+                "script-src 'unsafe-inline'",
+                "script-src 'unsafe-eval'",
+                "script-src *",
+                "script-src https:",
+                "frame-ancestors 'self'")) {
+            assertThat(browserCspResults(policy, false))
+                    .as(policy)
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.id()).isEqualTo("SEC-HEAD-009");
+                        assertThat(result.severity()).isEqualTo("LOW");
+                    });
+        }
+        for (String policy : List.of(
+                "script-src 'self'",
+                "script-src 'unsafe-inline' 'nonce-YWJjZA=='",
+                "script-src 'unsafe-inline' 'sha256-YWJjZA=='",
+                "script-src 'nonce-YWJjZA==' 'strict-dynamic' https: 'unsafe-inline'")) {
+            assertThat(browserCspResults(policy, false)).as(policy).isEmpty();
+        }
+        assertThat(browserCspResults("script-src 'unsafe-inline'", true))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.id()).isEqualTo("SEC-HEAD-003");
+                    assertThat(result.severity()).isEqualTo("LOW");
+                });
+    }
+
+    private static List<SecurityRuleResultDto> browserCspResults(String policy, boolean reportOnly) throws Exception {
+        List<org.springframework.security.web.header.HeaderWriter> writers = new java.util.ArrayList<>();
+        writers.add(new org.springframework.security.web.header.writers.frameoptions.XFrameOptionsHeaderWriter());
+        if (policy != null) {
+            var writer = new ContentSecurityPolicyHeaderWriter(policy);
+            writer.setReportOnly(reportOnly);
+            writers.add(writer);
+        }
+        var chain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new UsernamePasswordAuthenticationFilter(),
+                new HeaderWriterFilter(writers)));
+        return List.of(
+                        new ContentSecurityPolicyRule().evaluate(context(chain, new MockEnvironment())),
+                        new WeakContentSecurityPolicyRule().evaluate(context(chain, new MockEnvironment())))
+                .stream()
+                .filter(result -> "VIOLATION".equals(result.status()))
+                .toList();
+    }
+
+    @Test
+    void scopedCspDoesNotProveChainWideProtection() throws Exception {
+        var csp = new ContentSecurityPolicyHeaderWriter("frame-ancestors 'none'");
+        csp.setRequestMatcher(PathPatternRequestMatcher.pathPattern("/admin/**"));
+        FilterChainModel chain =
+                model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new HeaderWriterFilter(List.of(csp))));
+
+        assertThat(chain.details().headersKnown()).isFalse();
+        assertThat(chain.cspPolicyDirectives()).isNull();
+    }
+
+    @Test
+    void nativeCspNonceFilterIsARecognizedFrameworkFilter() throws Exception {
+        try (var application = new AnnotationConfigApplicationContext(NativeCspConfiguration.class)) {
+            FilterChainModel chain = model(application.getBean("applicationChain", SecurityFilterChain.class));
+            assertThat(chain.hasFilter("ContentSecurityPolicyNonceGeneratingFilter"))
+                    .isTrue();
+            assertThat(chain.details().filtersKnown()).isTrue();
+            assertThat(chain.details().headersKnown()).isTrue();
+            assertThat(chain.hasWeakCsp()).isFalse();
+            assertThat(chain.weakCspObservation()).isFalse();
+        }
+    }
+
+    @Test
+    void literalNonceTemplateIsWeakWithoutSpringNonceFilter() throws Exception {
+        var csp = new ContentSecurityPolicyHeaderWriter("script-src 'unsafe-inline' 'nonce-{nonce}'");
+        FilterChainModel chain =
+                model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new HeaderWriterFilter(List.of(csp))));
+
+        assertThat(chain.details().headersKnown()).isTrue();
+        assertThat(chain.hasWeakCsp()).isTrue();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebSecurity
+    static class NativeCspConfiguration {
+        @Bean
+        SecurityFilterChain applicationChain(HttpSecurity http) throws Exception {
+            return http.headers(headers -> headers.contentSecurityPolicy(csp ->
+                            csp.policyDirectives("script-src 'unsafe-inline' 'nonce-{nonce}'; frame-ancestors 'none'")))
+                    .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
+                    .build();
+        }
+    }
+
+    @Test
     void enforcingFrameAncestorsOverridesXfoAndUnknownCspCannotProveFallback() throws Exception {
         Map<String, String> policies = Map.of(
                 "frame-ancestors *", "VIOLATION",
@@ -1282,6 +1396,111 @@ class SecurityAuditAccuracyTests {
     }
 
     @Test
+    void capturedPortReferenceRetainsOrderedUnknownValueBarriersWithoutConvertingValues() {
+        AtomicInteger calls = new AtomicInteger();
+        Object unreadable = new Object() {
+            @Override
+            public String toString() {
+                calls.incrementAndGet();
+                throw new AssertionError("Application port value must not be converted");
+            }
+        };
+        var unknown = new MapPropertySource("unknown-port", Map.of("server.port", unreadable));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("server.port", "9090")
+                .withProperty("management.server.port", "${server.port}");
+        environment.getPropertySources().addLast(unknown);
+        assertThat(SecurityActuatorObservation.observe(environment).complete()).isTrue();
+        assertThat(SecurityActuatorObservation.observe(environment).separateManagementPort())
+                .isFalse();
+        environment.getPropertySources().addFirst(unknown);
+        environment
+                .getPropertySources()
+                .addFirst(new MapPropertySource("management-port", Map.of("management.server.port", "${server.port}")));
+        var blocked = SecurityActuatorObservation.observe(environment);
+        assertThat(blocked.complete()).isFalse();
+        assertThat(blocked.errors()).isEmpty();
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void capturedPortReferencePreservesHostDefaultFilteringAndRejectsDevToolsWinnerMismatch() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("server.port", "9090")
+                .withProperty("management.server.port", "${server.port}");
+        environment
+                .getPropertySources()
+                .addLast(new MapPropertySource(
+                        "defaultProperties",
+                        Map.of(
+                                "management.endpoints.web.exposure.include",
+                                BootUiActuatorDefaultsEnvironmentPostProcessor.REQUIRED_ENDPOINTS)));
+        var hostOnly = SecurityActuatorObservation.observe(environment);
+        assertThat(hostOnly.complete()).isTrue();
+        assertThat(hostOnly.exposedEndpoints()).containsExactly("health");
+        environment.getPropertySources().addFirst(new MapPropertySource("devtools", Map.of("server.port", "9191")));
+        var mismatch = SecurityActuatorObservation.observe(environment);
+        assertThat(mismatch.complete()).isFalse();
+        assertThat(mismatch.errors()).isEmpty();
+    }
+
+    @Test
+    void capturedPortReferenceStaysDetachedFromLaterValuesAndOpaqueProviders() {
+        AtomicInteger calls = new AtomicInteger();
+        Map<String, Object> values = new HashMap<>(Map.of(
+                "server.port", "9090",
+                "management.server.port", "${server.port}"));
+        MockEnvironment environment = new MockEnvironment();
+        environment.getPropertySources().addFirst(new MapPropertySource("ports", values));
+        Environment captured = SecurityEnvironmentSnapshot.capture(environment);
+        values.put("server.port", "${external.port}");
+        assertThat(SecurityActuatorObservation.observe(environment).complete()).isFalse();
+        environment.getPropertySources().addFirst(new org.springframework.core.env.PropertySource<>("external") {
+            @Override
+            public Object getProperty(String key) {
+                calls.incrementAndGet();
+                throw new AssertionError("Application property provider must not run");
+            }
+        });
+        var retained = SecurityActuatorObservation.observe(captured);
+        assertThat(retained.complete()).isTrue();
+        assertThat(retained.separateManagementPort()).isFalse();
+        assertThat(captured.getProperty("server.port")).isEqualTo("9090");
+        var current = SecurityActuatorObservation.observe(environment);
+        assertThat(current.complete()).isFalse();
+        assertThat(current.errors()).isEmpty();
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void capturedPortReferenceNeverInfersMissingDependenciesOrSupportsOtherExpressions() {
+        MockEnvironment missing = new MockEnvironment().withProperty("management.server.port", "${server.port}");
+        assertThat(SecurityActuatorObservation.observe(missing).complete()).isFalse();
+        for (String unsupported : List.of(
+                "${server.port:8080}",
+                "${SERVER_PORT}",
+                "${other.port}",
+                "${server.port}${server.port}",
+                "${${server.port}}",
+                "prefix${server.port}",
+                "\\${server.port}")) {
+            var observed = SecurityActuatorObservation.observe(new MockEnvironment()
+                    .withProperty("server.port", "9090")
+                    .withProperty("management.server.port", unsupported));
+            assertThat(observed.complete()).as(unsupported).isFalse();
+            assertThat(observed.errors()).isEmpty();
+        }
+        for (String unsupportedDependency :
+                List.of("${server.port}", "${management.server.port}", "${external:9090}")) {
+            var observed = SecurityActuatorObservation.observe(new MockEnvironment()
+                    .withProperty("server.port", unsupportedDependency)
+                    .withProperty("management.server.port", "${server.port}"));
+            assertThat(observed.complete()).as(unsupportedDependency).isFalse();
+            assertThat(observed.errors()).isEmpty();
+        }
+    }
+
+    @Test
     void actuatorAccessConflictIsAnErrorNotAFalseExposureVerdict() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("management.endpoint.shutdown.enabled", "true")
@@ -1415,6 +1634,331 @@ class SecurityAuditAccuracyTests {
                         .evaluate(withEvidence(base, evidence))
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void authorizationOmissionsStayHighWithoutCompleteMatchingMethodFamilies() {
+        List<SecurityContext.Evidence> observations = List.of(
+                new SecurityContext.Evidence(List.of(), true, false, Set.of(), Set.of(), true),
+                new SecurityContext.Evidence(List.of(), true, false, Set.of("pre-post"), Set.of(), true),
+                new SecurityContext.Evidence(List.of(), true, false, Set.of(), Set.of("pre-post"), true),
+                new SecurityContext.Evidence(List.of(), true, false, Set.of("pre-post"), Set.of("secured"), true),
+                new SecurityContext.Evidence(
+                        List.of(), true, false, Set.of("pre-post"), Set.of("pre-post", "secured"), true),
+                new SecurityContext.Evidence(List.of(), true, false, Set.of("pre-post"), Set.of("pre-post"), false));
+        for (var observation : observations) {
+            for (SecurityRule rule : List.of(new MissingAuthorizationFilterRule(), new PermitAllCatchAllRule())) {
+                var result = rule.evaluate(authorizationContext(observation));
+                assertThat(result.status())
+                        .as("%s: %s", result.id(), observation)
+                        .isEqualTo("VIOLATION");
+                assertThat(result.severity())
+                        .as("%s: %s", result.id(), observation)
+                        .isEqualTo("HIGH");
+                assertThat(result.violationCount()).isOne();
+            }
+        }
+    }
+
+    @Test
+    void authorizationOmissionsRemainMediumFindingsForEveryFullyActivatedUsedFamily() {
+        for (Set<String> families : List.of(
+                Set.of("pre-post"), Set.of("secured"), Set.of("jsr250"), Set.of("pre-post", "secured", "jsr250"))) {
+            var observation = new SecurityContext.Evidence(List.of(), true, false, families, families, true);
+            for (SecurityRule rule : List.of(new MissingAuthorizationFilterRule(), new PermitAllCatchAllRule())) {
+                var result = rule.evaluate(authorizationContext(observation));
+                assertThat(rule.definition().severity()).isEqualTo("HIGH");
+                assertThat(result.status()).as("%s: %s", result.id(), families).isEqualTo("VIOLATION");
+                assertThat(result.severity())
+                        .as("%s: %s", result.id(), families)
+                        .isEqualTo("MEDIUM");
+                assertThat(result.violationCount()).isOne();
+                assertThat(result.recommendation()).contains("annotation, proxy and invocation coverage", "HTTP");
+            }
+        }
+    }
+
+    @Test
+    void authorizationOmissionsRemainMediumWhenEnabledFamiliesStrictlyContainUsedFamilies() {
+        var observation = new SecurityContext.Evidence(
+                List.of(), true, false, Set.of("pre-post", "secured", "jsr250"), Set.of("pre-post"), true);
+        for (SecurityRule rule : List.of(new MissingAuthorizationFilterRule(), new PermitAllCatchAllRule())) {
+            var result = rule.evaluate(authorizationContext(observation));
+            assertThat(result.status()).as("%s", result.id()).isEqualTo("VIOLATION");
+            assertThat(result.severity()).as("%s", result.id()).isEqualTo("MEDIUM");
+            assertThat(result.violationCount()).isOne();
+        }
+    }
+
+    @Test
+    void authorizationCalibrationPreservesOccurrencesDetailsAndDismissalIdentity() {
+        var unqualified = new SecurityContext.Evidence(List.of(), true, false, Set.of(), Set.of(), true);
+        var qualified =
+                new SecurityContext.Evidence(List.of(), true, false, Set.of("pre-post"), Set.of("pre-post"), true);
+        var chains = authorizationContext(unqualified).chains().stream()
+                .flatMap(chain -> java.util.Collections.nCopies(12, chain).stream())
+                .toList();
+        var base = contextWithChains(chains, new MockEnvironment());
+        var highScanner = new SecurityScanner(withEvidence(base, unqualified), Clock.systemUTC());
+        var mediumScanner = new SecurityScanner(withEvidence(base, qualified), Clock.systemUTC());
+        var high = highScanner.scan();
+        var medium = mediumScanner.scan();
+
+        assertThat(medium.violationDetails().total())
+                .isEqualTo(high.violationDetails().total());
+        assertThat(medium.evidence()).isEqualTo(high.evidence());
+        Set<String> ids = Set.of("SEC-AUTHZ-001", "SEC-AUTHZ-002");
+        var expectedMediumCounts = new HashMap<>(severityCounts(high));
+        expectedMediumCounts.put("HIGH", expectedMediumCounts.get("HIGH") - 24);
+        expectedMediumCounts.put("MEDIUM", expectedMediumCounts.get("MEDIUM") + 24);
+        assertThat(severityCounts(medium)).containsExactlyInAnyOrderEntriesOf(expectedMediumCounts);
+        var dismissed = mediumScanner.applyDismissals(medium, ids);
+        var expectedDismissedCounts = new HashMap<>(expectedMediumCounts);
+        expectedDismissedCounts.put("MEDIUM", expectedDismissedCounts.get("MEDIUM") - 24);
+        assertThat(severityCounts(dismissed)).containsExactlyInAnyOrderEntriesOf(expectedDismissedCounts);
+        assertThat(dismissed.evidence()).isEqualTo(medium.evidence());
+        assertThat(dismissed.violationDetails()).isEqualTo(medium.violationDetails());
+        for (String id : ids) {
+            var prior = high.results().stream()
+                    .filter(result -> result.id().equals(id))
+                    .findFirst()
+                    .orElseThrow();
+            var calibrated = medium.results().stream()
+                    .filter(result -> result.id().equals(id))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(prior.severity()).isEqualTo("HIGH");
+            assertThat(calibrated.severity()).isEqualTo("MEDIUM");
+            assertThat(calibrated.status()).isEqualTo(prior.status()).isEqualTo("VIOLATION");
+            assertThat(calibrated.violationCount())
+                    .isEqualTo(prior.violationCount())
+                    .isEqualTo(12);
+            assertThat(calibrated.sampleViolations())
+                    .isEqualTo(prior.sampleViolations())
+                    .hasSize(10);
+            var highPage =
+                    highScanner.ruleViolations(id, high.violationDetails().scanId(), 0, 100);
+            var mediumPage =
+                    mediumScanner.ruleViolations(id, medium.violationDetails().scanId(), 0, 100);
+            assertThat(mediumPage.violations()).isEqualTo(highPage.violations()).hasSize(12);
+            assertThat(dismissed.results())
+                    .filteredOn(result -> result.id().equals(id))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.dismissed()).isTrue());
+            assertThat(mediumScanner.ruleViolations(
+                            id, dismissed.violationDetails().scanId(), 0, 100))
+                    .isEqualTo(mediumPage);
+        }
+    }
+
+    @Test
+    void nativeMethodSecurityFamiliesCalibrateBothHttpFindingsWithoutExecutingGuardedMethods() {
+        for (Class<?> methodConfiguration : List.of(
+                PrePostMethodConfiguration.class,
+                SecuredMethodConfiguration.class,
+                Jsr250MethodConfiguration.class,
+                AllEnabledMethodConfiguration.class)) {
+            try (var application = new AnnotationConfigApplicationContext(
+                    AuthorizationCalibrationConfiguration.class, methodConfiguration)) {
+                var report = scanExisting(application.getDefaultListableBeanFactory());
+                assertThat(report.results())
+                        .filteredOn(result ->
+                                Set.of("SEC-AUTHZ-001", "SEC-AUTHZ-002").contains(result.id()))
+                        .hasSize(2)
+                        .allSatisfy(result -> {
+                            assertThat(result.status()).isEqualTo("VIOLATION");
+                            assertThat(result.severity())
+                                    .as("%s", methodConfiguration)
+                                    .isEqualTo("MEDIUM");
+                            assertThat(result.violationCount()).isOne();
+                        });
+                assertThat(report.results())
+                        .extracting(SecurityRuleResultDto::id)
+                        .doesNotContain("SEC-METHOD-001");
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void nativeWrongAndPartlyDisabledMethodFamiliesKeepBothHttpFindingsHigh() {
+        for (Class<?>[] methodConfigurations : List.of(
+                new Class<?>[] {MethodFamilyConfiguration.class},
+                new Class<?>[] {MethodFamilyConfiguration.class, PrePostServiceConfiguration.class})) {
+            try (var application = new AnnotationConfigApplicationContext()) {
+                application.register(AuthorizationCalibrationConfiguration.class);
+                application.register(methodConfigurations);
+                application.refresh();
+                var report = scanExisting(application.getDefaultListableBeanFactory());
+                assertThat(report.results())
+                        .filteredOn(result -> Set.of("SEC-AUTHZ-001", "SEC-AUTHZ-002", "SEC-METHOD-001")
+                                .contains(result.id()))
+                        .hasSize(3)
+                        .allSatisfy(result -> {
+                            assertThat(result.severity()).isEqualTo("HIGH");
+                            assertThat(result.violationCount()).isOne();
+                        });
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void methodSecurityDoesNotCreateHttpFindingsForProtectedNativeAuthorization() {
+        try (var application = new AnnotationConfigApplicationContext(
+                NativeSecurityConfiguration.class, PrePostMethodConfiguration.class)) {
+            var report = scanExisting(application.getDefaultListableBeanFactory());
+            assertThat(report.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-AUTHZ-001", "SEC-AUTHZ-002", "SEC-METHOD-001");
+        }
+    }
+
+    @Test
+    void qualifiedKnownHttpFindingsDoNotCompleteUnknownChainCoverage() {
+        SecurityFilterChain unsupported = new SecurityFilterChain() {
+            @Override
+            public boolean matches(HttpServletRequest request) {
+                throw new AssertionError("Advisor must not execute application matchers");
+            }
+
+            @Override
+            public List<Filter> getFilters() {
+                throw new AssertionError("Advisor must not execute application chain callbacks");
+            }
+        };
+        try (var application = new AnnotationConfigApplicationContext(PrePostMethodConfiguration.class)) {
+            var report = scan(
+                    application.getDefaultListableBeanFactory(),
+                    unsupported,
+                    new DefaultSecurityFilterChain(
+                            AnyRequestMatcher.INSTANCE, new UsernamePasswordAuthenticationFilter()),
+                    new DefaultSecurityFilterChain(
+                            AnyRequestMatcher.INSTANCE,
+                            new UsernamePasswordAuthenticationFilter(),
+                            new AuthorizationFilter(SingleResultAuthorizationManager.permitAll())));
+            assertThat(report.filterChains()).hasSize(3);
+            assertThat(report.filterChains().get(0)).contains("unsupported");
+            assertThat(report.scan().status()).isEqualTo("PARTIAL");
+            assertThat(report.evidence().usable()).isTrue();
+            assertThat(report.evidence().coverageComplete()).isFalse();
+            assertThat(report.evidence().limitations()).anyMatch(value -> value.contains("SEC-AUTHZ-001"));
+            assertThat(report.results())
+                    .filteredOn(
+                            result -> Set.of("SEC-AUTHZ-001", "SEC-AUTHZ-002").contains(result.id()))
+                    .hasSize(2)
+                    .allSatisfy(result -> {
+                        assertThat(result.severity()).isEqualTo("MEDIUM");
+                        assertThat(result.violationCount()).isOne();
+                    });
+            assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-AUTHZ-003");
+        }
+    }
+
+    private static SecurityContext authorizationContext(SecurityContext.Evidence evidence) {
+        return withEvidence(
+                contextWithChains(
+                        List.of(
+                                new FilterChainModel(
+                                        0,
+                                        "/missing/**",
+                                        List.of("UsernamePasswordAuthenticationFilter"),
+                                        null,
+                                        null,
+                                        List.of()),
+                                new FilterChainModel(
+                                        1,
+                                        "/public/**",
+                                        List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"),
+                                        true,
+                                        null,
+                                        List.of())),
+                        new MockEnvironment()),
+                evidence);
+    }
+
+    private static Map<String, Integer> severityCounts(SecurityReport report) {
+        return report.severityCounts().stream()
+                .collect(Collectors.toMap(SecuritySeverityCountDto::severity, SecuritySeverityCountDto::count));
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebSecurity
+    static class AuthorizationCalibrationConfiguration {
+        @Bean
+        UserDetailsService calibrationUsers() {
+            return new InMemoryUserDetailsManager(User.withUsername("fixture")
+                    .password("{noop}unused")
+                    .authorities("USER")
+                    .build());
+        }
+
+        @Bean
+        @Order(0)
+        SecurityFilterChain missingAuthorizationChain(HttpSecurity http) throws Exception {
+            return http.securityMatcher("/missing/**")
+                    .httpBasic(Customizer.withDefaults())
+                    .build();
+        }
+
+        @Bean
+        @Order(1)
+        SecurityFilterChain blanketGrantChain(HttpSecurity http) throws Exception {
+            return http.authorizeHttpRequests(
+                            authorize -> authorize.anyRequest().permitAll())
+                    .httpBasic(Customizer.withDefaults())
+                    .build();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity
+    @Import(PrePostServiceConfiguration.class)
+    static class PrePostMethodConfiguration {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity(prePostEnabled = true, securedEnabled = true, jsr250Enabled = true)
+    @Import(PrePostServiceConfiguration.class)
+    static class AllEnabledMethodConfiguration {}
+
+    @Configuration(proxyBeanMethods = false)
+    static class PrePostServiceConfiguration {
+        @Bean
+        PrePostService prePostService() {
+            return new PrePostService();
+        }
+    }
+
+    static class PrePostService {
+        @PreAuthorize("hasRole('ADMIN')")
+        public void guarded() {
+            throw new AssertionError("Advisor must not execute application methods or SpEL");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity(prePostEnabled = false, securedEnabled = true)
+    static class SecuredMethodConfiguration {
+        @Bean
+        SecuredService securedService() {
+            return new SecuredService();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableMethodSecurity(prePostEnabled = false, jsr250Enabled = true)
+    static class Jsr250MethodConfiguration {
+        @Bean
+        Jsr250Service jsr250Service() {
+            return new Jsr250Service();
+        }
+    }
+
+    static class Jsr250Service {
+        @RolesAllowed("ADMIN")
+        public void guarded() {
+            throw new AssertionError("Advisor must not execute application methods");
+        }
     }
 
     @Test
@@ -1637,7 +2181,7 @@ class SecurityAuditAccuracyTests {
 
     @Test
     void approvedRetiredIdsStayAbsentAndStaticKeyIsInfo() {
-        assertThat(SecurityRuleRegistry.activeRules()).hasSize(50);
+        assertThat(SecurityRuleRegistry.activeRules()).hasSize(51);
         assertThat(SecurityRules.RETIRED_RULE_IDS)
                 .isEqualTo(SecurityRuleRegistry.RETIRED_RULE_IDS)
                 .containsExactlyInAnyOrder(
@@ -1688,8 +2232,12 @@ class SecurityAuditAccuracyTests {
     }
 
     private static SecurityContext context(FilterChainModel chain, Environment environment) {
+        return contextWithChains(chain == null ? List.of() : List.of(chain), environment);
+    }
+
+    private static SecurityContext contextWithChains(List<FilterChainModel> chains, Environment environment) {
         return new SecurityContext(
-                chain == null ? List.of() : List.of(chain),
+                chains,
                 List.of(),
                 List.of(),
                 false,

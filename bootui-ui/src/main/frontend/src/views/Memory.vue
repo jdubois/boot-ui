@@ -14,8 +14,10 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
+const includeHistogram = ref(true)
 const panel = useAdvisorPanel(props, {
   apiPath: 'api/memory',
+  scanPath: () => `api/memory/scan?includeHistogram=${includeHistogram.value}`,
   loadErrorMessage: 'Unable to load Memory Advisor report',
   scanErrorMessage: 'Unable to run memory checks',
   emptyScanPrompt: 'Run memory checks to see advisor findings',
@@ -24,6 +26,14 @@ const panel = useAdvisorPanel(props, {
 })
 
 const summary = computed(() => panel.report?.summary || null)
+watch(
+  () => panel.report,
+  (report, previous) => {
+    if (!previous && typeof report?.scan?.includeHistogram === 'boolean') {
+      includeHistogram.value = report.scan.includeHistogram
+    }
+  }
+)
 
 // Garbage collection and heap rows are left out of Runtime Insights' default list and reached from here
 // (docs/PLAN-v2.md M4-19), so this panel says how many there are. It reads the report Runtime Insights already serves,
@@ -82,15 +92,37 @@ function formatBytes(value) {
       :error="panel.error"
     >
       <template #actions>
-        <SpinnerButton
-          :loading="panel.loading"
-          :disabled="panel.actionsDisabled"
-          class="btn btn-primary"
-          type="button"
-          label="Run memory checks"
-          loading-label="Running..."
-          @click="panel.runScan"
-        />
+        <div>
+          <div class="form-check mb-2">
+            <label class="form-check-label">
+              <input
+                v-model="includeHistogram"
+                class="form-check-input"
+                type="checkbox"
+                :disabled="panel.actionsDisabled"
+                aria-describedby="memory-scan-cost"
+              />
+              Include heap histogram
+            </label>
+          </div>
+          <SpinnerButton
+            :loading="panel.loading"
+            :disabled="panel.actionsDisabled"
+            class="btn btn-primary"
+            type="button"
+            label="Run memory checks"
+            loading-label="Running..."
+            aria-describedby="memory-scan-cost"
+            @click="panel.runScan"
+          />
+          <p id="memory-scan-cost" class="small text-muted mt-2 mb-0">
+            {{
+              includeHistogram
+                ? 'Requests full GC and may pause the JVM. Cost grows with heap size.'
+                : 'No histogram or GC request. Heap-content checks will be skipped.'
+            }}
+          </p>
+        </div>
         <MemoryOffloadButton follow-up="Run memory checks again so the findings reflect the reduced heap." />
       </template>
     </PanelHeader>
@@ -185,6 +217,16 @@ function formatBytes(value) {
                   <span :class="summary.histogramAvailable ? 'text-bg-success' : 'text-bg-secondary'" class="badge">
                     {{ summary.histogramAvailable ? 'Collected' : 'Not collected' }}
                   </span>
+                </dd>
+                <dt class="col-6">Last scan selection</dt>
+                <dd class="col-6 text-end">
+                  {{
+                    panel.report.scan.includeHistogram === false
+                      ? 'Histogram omitted'
+                      : panel.report.scan.includeHistogram === true
+                        ? 'Histogram requested'
+                        : 'Not reported'
+                  }}
                 </dd>
               </dl>
               <p class="small text-muted mt-3 mb-0">

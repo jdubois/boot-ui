@@ -1341,7 +1341,7 @@ class SecurityRulesTests {
 
     @Test
     void strictHttpFirewallWeakenedFiresWhenADefaultProtectionWasReAllowed() {
-        SecurityContext context = context(new MockEnvironment(), List.of(), true, false, List.of(), false);
+        SecurityContext context = firewallContext(List.of(chain("any request", List.of("AuthorizationFilter"))), true);
 
         SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
 
@@ -1351,11 +1351,40 @@ class SecurityRulesTests {
 
     @Test
     void strictHttpFirewallWeakenedPassesWhenDefaultsAreUnchanged() {
-        SecurityContext context = context(new MockEnvironment(), List.of(), false, false, List.of(), false);
+        SecurityContext context = firewallContext(List.of(chain("any request", List.of("AuthorizationFilter"))), false);
 
         SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(context.evidence().evaluation().evidence(List.of()).usable()).isTrue();
+    }
+
+    @Test
+    void strictHttpFirewallUnknownDoesNotEstablishAPassOrUsableEvidence() {
+        SecurityContext context = firewallContext(List.of(chain("any request", List.of("AuthorizationFilter"))), null);
+
+        SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
+        assertThat(result.violationCount()).isZero();
+        var evidence = context.evidence().evaluation().evidence(List.of());
+        assertThat(evidence.usable()).isFalse();
+        assertThat(evidence.coverageComplete()).isFalse();
+        assertThat(evidence.limitations()).singleElement().asString().contains("SEC-CONFIG-008", "firewall");
+    }
+
+    @Test
+    void strictHttpFirewallUnknownWithoutChainsIsNeutral() {
+        SecurityContext context = firewallContext(List.of(), null);
+
+        SecurityRuleResultDto result = new StrictHttpFirewallWeakenedRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(result.violationCount()).isZero();
+        var evidence = context.evidence().evaluation().evidence(List.of());
+        assertThat(evidence.usable()).isFalse();
+        assertThat(evidence.coverageComplete()).isTrue();
+        assertThat(evidence.limitations()).isEmpty();
     }
 
     // --- SEC-CONFIG-001: @EnableWebSecurity debug filter ------------------------------------
@@ -1681,7 +1710,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.severity()).isEqualTo("LOW");
     }
 
     @Test
@@ -2054,6 +2083,25 @@ class SecurityRulesTests {
         return context(List.of(chain), new MockEnvironment());
     }
 
+    private static SecurityContext firewallContext(List<FilterChainModel> chains, Boolean weakened) {
+        return new SecurityContext(
+                chains,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                weakened,
+                false,
+                List.of(),
+                false,
+                new MockEnvironment());
+    }
+
     private static SecurityContext cors(CorsConfigModel cors) {
         return context(List.of(), List.of(), List.of(cors), List.of(), new MockEnvironment());
     }
@@ -2147,7 +2195,7 @@ class SecurityRulesTests {
     private static SecurityContext context(
             Environment environment,
             List<String> oauth2TokenValidatorTypes,
-            boolean strictHttpFirewallWeakened,
+            Boolean strictHttpFirewallWeakened,
             boolean hideUserNotFoundExceptionsDisabled,
             List<String> opaqueTokenIntrospectorTypes,
             boolean generatedUserDetailsManagerPresent) {

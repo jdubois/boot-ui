@@ -182,7 +182,7 @@ export function useAdvisorPanel(props, options) {
     loading.value = true
     actionMessage.value = null
     try {
-      report.value = await getJson(`${options.apiPath}/scan`, {method: 'POST'})
+      report.value = await getJson(options.scanPath?.() || `${options.apiPath}/scan`, {method: 'POST'})
       error.value = null
     } catch (e) {
       if (isActionBusyError(e)) {

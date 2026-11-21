@@ -5,12 +5,14 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaEnumConstant;
 import com.tngtech.archunit.core.domain.JavaField;
+import com.tngtech.archunit.core.domain.JavaGenericArrayType;
 import com.tngtech.archunit.core.domain.JavaMember;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
 import com.tngtech.archunit.core.domain.JavaType;
+import com.tngtech.archunit.core.domain.JavaTypeVariable;
 import com.tngtech.archunit.core.domain.JavaWildcardType;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.engine.archunit.ArchUnitLocations;
@@ -111,14 +113,6 @@ final class RestApiHandlerModelBuilder {
 
     private static final Set<String> STATE_CHANGING_PREFIXES =
             Set.of("create", "update", "delete", "remove", "save", "add", "insert", "modify", "register", "edit");
-
-    private static final List<String> MAPPING_ANNOTATIONS = List.of(
-            Types.GET_MAPPING,
-            Types.POST_MAPPING,
-            Types.PUT_MAPPING,
-            Types.DELETE_MAPPING,
-            Types.PATCH_MAPPING,
-            Types.REQUEST_MAPPING);
 
     /** Request-body parameter types where bean validation is meaningless (so VALID-001 should skip). */
     private static final Set<String> SIMPLE_BODY_TYPES = Set.of(
@@ -267,19 +261,36 @@ final class RestApiHandlerModelBuilder {
     private final List<ThrownExceptionModel> thrownExceptions = new ArrayList<>();
     private final IdentityHashMap<Object, RestApiLocations.Element> locations = new IdentityHashMap<>();
     private final Map<String, Map<String, Set<String>>> typeAnnotationsCache = new java.util.HashMap<>();
+    private final RequestPayloadConstraints requestPayloadConstraints;
     private boolean hasExceptionHandling;
     private boolean springDataPageViaDtoConfigured;
     private int springControllerCount;
     private int jaxRsResourceCount;
     private boolean incomplete;
 
-    private RestApiHandlerModelBuilder() {}
+    private RestApiHandlerModelBuilder(List<JavaClass> classes) {
+        requestPayloadConstraints = new RequestPayloadConstraints(classes);
+    }
 
     static RestApiHandlerModelBuilder build(JavaClasses classes) {
-        RestApiHandlerModelBuilder builder = new RestApiHandlerModelBuilder();
+        List<JavaClass> imported = new ArrayList<>();
         for (JavaClass type : classes) {
+            imported.add(type);
+        }
+        RestApiHandlerModelBuilder builder = new RestApiHandlerModelBuilder(imported);
+        Set<String> implementedControllerInterfaces = new LinkedHashSet<>();
+        for (JavaClass type : imported) {
             try {
-                builder.inspect(type);
+                if (!type.isInterface() && !type.getModifiers().contains(JavaModifier.ABSTRACT) && isController(type)) {
+                    implementedControllerInterfaces.addAll(SpringRequestMappings.implementedInterfaces(type));
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                builder.incomplete = true;
+            }
+        }
+        for (JavaClass type : imported) {
+            try {
+                builder.inspect(type, implementedControllerInterfaces);
             } catch (RuntimeException | LinkageError ex) {
                 builder.incomplete = true;
             }
@@ -356,14 +367,16 @@ final class RestApiHandlerModelBuilder {
                 : RestApiModel.Framework.SPRING;
     }
 
-    private void inspect(JavaClass type) {
+    private void inspect(JavaClass type, Set<String> implementedControllerInterfaces) {
         scanResponseStatusException(type);
         scanSpringDataWebSupport(type);
         collectExceptionHandlers(type);
         collectJaxRsExceptionMapper(type);
         collectServerExceptionMapperMethods(type);
         if (isController(type)) {
-            inspectSpringController(type);
+            if (!implementedControllerInterfaces.contains(type.getName())) {
+                inspectSpringController(type);
+            }
         } else if (isJaxRsResource(type)) {
             inspectJaxRsResource(type);
         }
@@ -376,39 +389,44 @@ final class RestApiHandlerModelBuilder {
         boolean hasTag = hasTagAnnotation(type);
         boolean hidden = hasHiddenAnnotation(type);
         boolean classResponseBody = annotated(type, Types.RESPONSE_BODY) || metaAnnotated(type, Types.RESPONSE_BODY);
-        Optional<? extends JavaAnnotation<?>> typeLevelMapping =
-                typeHierarchyMappingAnnotation(type, Types.REQUEST_MAPPING);
-        List<String> typeLevelPaths = typeLevelMapping
-                .map(annotation -> stringValues(annotation, "value", "path"))
-                .orElse(List.of());
+        Optional<SpringRequestMappings.Mapping> typeLevelMapping = SpringRequestMappings.typeMapping(type);
+        List<String> typeLevelPaths =
+                typeLevelMapping.map(SpringRequestMappings.Mapping::paths).orElse(List.of());
         List<String> typeLevelProduces = typeLevelMapping
-                .map(annotation -> stringValues(annotation, "produces"))
+                .map(annotation -> annotation.strings("produces"))
                 .orElse(List.of());
         List<String> typeLevelConsumes = typeLevelMapping
-                .map(annotation -> stringValues(annotation, "consumes"))
+                .map(annotation -> annotation.strings("consumes"))
                 .orElse(List.of());
-        List<String> typeLevelParams = typeLevelMapping
-                .map(annotation -> stringValues(annotation, "params"))
-                .orElse(List.of());
+        List<String> typeLevelParams =
+                typeLevelMapping.map(annotation -> annotation.strings("params")).orElse(List.of());
         List<String> typeLevelHeaders = typeLevelMapping
-                .map(annotation -> stringValues(annotation, "headers"))
+                .map(annotation -> annotation.strings("headers"))
                 .orElse(List.of());
-        List<String> typeLevelMethods = typeLevelMapping
-                .map(annotation -> enumValues(annotation, "method"))
-                .orElse(List.of());
-        String typeLevelVersion = typeLevelMapping
-                .map(annotation -> annotationString(annotation, "version"))
-                .orElse("");
+        List<String> typeLevelMethods =
+                typeLevelMapping.map(annotation -> annotation.strings("method")).orElse(List.of());
+        String typeLevelVersion =
+                typeLevelMapping.map(SpringRequestMappings.Mapping::version).orElse("");
 
         int handlerCount = 0;
-        Map<String, List<String>> classParameterNames = methodParameterNames(type);
-        for (JavaMethod method : KotlinBytecode.declaredMethods(type)) {
+        Map<String, Map<String, List<String>>> parameterNames = new java.util.HashMap<>();
+        SpringRequestMappings.Discovery discovery = SpringRequestMappings.handlers(type);
+        incomplete |= discovery.incomplete();
+        for (SpringRequestMappings.Handler handler : discovery.handlers()) {
+            JavaMethod method = handler.method();
             try {
-                List<String> methodParamNames =
-                        classParameterNames.getOrDefault(method.getName() + method.getDescriptor(), List.of());
+                if (!method.getOwner().equals(type)
+                        && (hasTypeVariable(declaredReturnType(method), 0)
+                                || method.getParameters().stream()
+                                        .anyMatch(parameter -> hasTypeVariable(parameter.getType(), 0)))) {
+                    throw new IllegalStateException("Inherited Spring signature requires generic substitution");
+                }
+                List<String> methodParamNames = parameterNames
+                        .computeIfAbsent(method.getOwner().getName(), name -> methodParameterNames(method.getOwner()))
+                        .getOrDefault(method.getName() + method.getDescriptor(), List.of());
                 HandlerMethodModel model = toHandler(
                         type,
-                        method,
+                        handler,
                         methodParamNames,
                         restController,
                         classValidated,
@@ -577,6 +595,7 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyValidated = false;
         boolean requestBodyIsEntity = false;
         boolean requestBodyIsSimple = false;
+        var requestBodyConstraints = RestApiModel.ValidationConstraints.ABSENT;
         boolean hasConstrainedSimpleParam = false;
         boolean hasPageable = false;
         boolean hasExplicitPageParam = false;
@@ -604,6 +623,9 @@ final class RestApiHandlerModelBuilder {
                 JavaClass payload = requestPayload(parameter);
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
+                if (!cascadeValidated && !isSimpleBodyType(payload)) {
+                    requestBodyConstraints = requestBodyConstraints.combine(requestPayloadConstraints.inspect(payload));
+                }
                 if (cascadeValidated) {
                     safeCollectMissingNestedValidFields(payload, missingNestedValidFields);
                 }
@@ -730,7 +752,8 @@ final class RestApiHandlerModelBuilder {
                 missingNestedValidFields,
                 hasMultipartOrFormParam,
                 false,
-                springDataPageViaDtoConfigured);
+                springDataPageViaDtoConfigured,
+                requestBodyConstraints);
     }
 
     /**
@@ -971,7 +994,7 @@ final class RestApiHandlerModelBuilder {
 
     private HandlerMethodModel toHandler(
             JavaClass type,
-            JavaMethod method,
+            SpringRequestMappings.Handler handler,
             List<String> methodParamNames,
             boolean restController,
             boolean classValidated,
@@ -985,36 +1008,12 @@ final class RestApiHandlerModelBuilder {
             List<String> typeLevelMethods,
             String typeLevelVersion) {
 
-        Set<String> httpMethods = new LinkedHashSet<>();
-        List<String> mappingPaths = new ArrayList<>();
-        List<String> produces = new ArrayList<>();
-        List<String> consumes = new ArrayList<>();
-        boolean isHandler = false;
-
-        isHandler |=
-                readSpecificMapping(method, Types.GET_MAPPING, "GET", httpMethods, mappingPaths, produces, consumes);
-        isHandler |=
-                readSpecificMapping(method, Types.POST_MAPPING, "POST", httpMethods, mappingPaths, produces, consumes);
-        isHandler |=
-                readSpecificMapping(method, Types.PUT_MAPPING, "PUT", httpMethods, mappingPaths, produces, consumes);
-        isHandler |= readSpecificMapping(
-                method, Types.DELETE_MAPPING, "DELETE", httpMethods, mappingPaths, produces, consumes);
-        isHandler |= readSpecificMapping(
-                method, Types.PATCH_MAPPING, "PATCH", httpMethods, mappingPaths, produces, consumes);
-
-        Optional<JavaAnnotation<JavaMethod>> requestMapping = method.tryGetAnnotationOfType(Types.REQUEST_MAPPING);
-        if (requestMapping.isPresent()) {
-            isHandler = true;
-            JavaAnnotation<JavaMethod> ann = requestMapping.get();
-            mappingPaths.addAll(stringValues(ann, "value", "path"));
-            produces.addAll(stringValues(ann, "produces"));
-            consumes.addAll(stringValues(ann, "consumes"));
-            httpMethods.addAll(enumValues(ann, "method"));
-        }
-
-        if (!isHandler) {
-            return null;
-        }
+        JavaMethod method = handler.method();
+        SpringRequestMappings.Mapping mapping = handler.mapping();
+        Set<String> httpMethods = new LinkedHashSet<>(mapping.strings("method"));
+        List<String> mappingPaths = mapping.paths();
+        List<String> produces = mapping.strings("produces");
+        List<String> consumes = mapping.strings("consumes");
 
         List<String> methodLevelHttpMethods = List.copyOf(httpMethods);
         httpMethods.addAll(typeLevelMethods);
@@ -1059,6 +1058,7 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyValidated = false;
         boolean requestBodyIsEntity = false;
         boolean requestBodyIsSimple = false;
+        var requestBodyConstraints = RestApiModel.ValidationConstraints.ABSENT;
         boolean hasConstrainedSimpleParam = false;
         boolean hasPageable = false;
         boolean hasUnboundedPrimitiveRequestParam = false;
@@ -1074,7 +1074,8 @@ final class RestApiHandlerModelBuilder {
         int requestBodyCount = 0;
         boolean hasBodyAccessParam = false;
         boolean hasMultipartOrFormParam = false;
-        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
+        List<JavaParameter> parameters = springParameters(handler);
+        for (JavaParameter parameter : parameters) {
             String paramTypeName = parameter.getRawType().getName();
             boolean multipartOrForm = safeIsMultipartOrFormParameter(parameter);
             hasMultipartOrFormParam |= multipartOrForm;
@@ -1094,6 +1095,9 @@ final class RestApiHandlerModelBuilder {
                 JavaClass payload = requestPayload(parameter);
                 requestBodyIsEntity |= safeAnnotated(payload, Types.ENTITY);
                 requestBodyIsSimple |= isSimpleBodyType(payload);
+                if (!cascadeValidated && !isSimpleBodyType(payload)) {
+                    requestBodyConstraints = requestBodyConstraints.combine(requestPayloadConstraints.inspect(payload));
+                }
                 if (cascadeValidated) {
                     safeCollectMissingNestedValidFields(payload, missingNestedValidFields);
                 }
@@ -1155,10 +1159,11 @@ final class RestApiHandlerModelBuilder {
                         .filter(name -> !allBoundPathVarNames.contains(name))
                         .toList();
 
-        boolean hasResponseStatus =
-                method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
-        boolean methodHasResponseStatus = method.isAnnotatedWith(Types.RESPONSE_STATUS);
-        String responseStatusValue = responseStatusValue(method, type);
+        JavaMethod responseStatusMethod = handler.annotationMethod(Types.RESPONSE_STATUS);
+        boolean hasResponseStatus = responseStatusMethod.isAnnotatedWith(Types.RESPONSE_STATUS)
+                || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+        boolean methodHasResponseStatus = responseStatusMethod.isAnnotatedWith(Types.RESPONSE_STATUS);
+        String responseStatusValue = responseStatusValue(responseStatusMethod, type);
         collectThrownExceptions(type, method);
         boolean hasOperation = hasOperationAnnotation(method);
         boolean stateChanging = nameLooksStateChanging(method.getName());
@@ -1172,18 +1177,18 @@ final class RestApiHandlerModelBuilder {
 
         boolean serializesBody = restController
                 || classResponseBody
-                || method.isAnnotatedWith(Types.RESPONSE_BODY)
+                || handler.annotationMethod(Types.RESPONSE_BODY).isAnnotatedWith(Types.RESPONSE_BODY)
                 || hasBodyEnvelope(returnType);
-        String mappingVersion = mappingString(method, "version");
+        String mappingVersion = mapping.version();
         if (mappingVersion.isBlank()) {
             mappingVersion = typeLevelVersion;
         }
         List<String> effectiveProduces = produces.isEmpty() ? List.copyOf(typeLevelProduces) : dedupe(produces);
         List<String> effectiveConsumes = consumes.isEmpty() ? List.copyOf(typeLevelConsumes) : dedupe(consumes);
-        List<String> params = union(typeLevelParams, mappingStrings(method, "params"));
-        List<String> headers = union(typeLevelHeaders, mappingStrings(method, "headers"));
+        List<String> params = union(typeLevelParams, mapping.strings("params"));
+        List<String> headers = union(typeLevelHeaders, mapping.strings("headers"));
         List<String> versionBindings = new ArrayList<>();
-        for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
+        for (JavaParameter parameter : parameters) {
             String query = resolvedBindingName(parameter, Types.REQUEST_PARAM, methodParamNames);
             if (query != null && RestApiRuleHelp.VERSION_PARAM_NAMES.contains(query.toLowerCase(Locale.ROOT))) {
                 versionBindings.add("query:" + query);
@@ -1259,7 +1264,7 @@ final class RestApiHandlerModelBuilder {
                 List.of(),
                 requestBodyCount,
                 hasBodyAccessParam,
-                responseStatusReason(method, type),
+                responseStatusReason(responseStatusMethod, type),
                 returnsOptional(returnType),
                 consumes.isEmpty() && !typeLevelConsumes.isEmpty(),
                 unannotatedSimpleParamNames,
@@ -1268,27 +1273,52 @@ final class RestApiHandlerModelBuilder {
                 missingNestedValidFields,
                 hasMultipartOrFormParam,
                 returnsSpringDataPage,
-                springDataPageViaDtoConfigured);
+                springDataPageViaDtoConfigured,
+                requestBodyConstraints);
     }
 
-    private static boolean readSpecificMapping(
-            JavaMethod method,
-            String annotationName,
-            String httpMethod,
-            Set<String> httpMethods,
-            List<String> mappingPaths,
-            List<String> produces,
-            List<String> consumes) {
-        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(annotationName);
-        if (annotation.isEmpty()) {
-            return false;
+    private static List<JavaParameter> springParameters(SpringRequestMappings.Handler handler) {
+        List<JavaParameter> parameters = KotlinBytecode.declaredParameters(handler.method());
+        List<JavaParameter> result = new ArrayList<>();
+        for (int i = 0; i < parameters.size(); i++) {
+            JavaParameter parameter = parameters.get(i);
+            JavaParameter selected = parameter;
+            for (JavaMethod declaration : handler.declarations()) {
+                JavaParameter source =
+                        KotlinBytecode.declaredParameters(declaration).get(i);
+                if (source.getAnnotations().isEmpty() || source.equals(parameter)) continue;
+                if (selected.getAnnotations().isEmpty()) {
+                    if (!parameter.getRawType().equals(source.getRawType()) || hasTypeVariable(source.getType(), 0)) {
+                        throw new IllegalStateException("Generic inherited Spring parameter requires substitution");
+                    }
+                    selected = source;
+                } else {
+                    JavaParameter current = selected;
+                    if (!source.getAnnotations().stream()
+                            .allMatch(annotation -> current.isAnnotatedWith(
+                                    annotation.getRawType().getName()))) {
+                        throw new IllegalStateException("Mixed inherited Spring parameter annotations require merging");
+                    }
+                }
+            }
+            result.add(selected);
         }
-        JavaAnnotation<JavaMethod> ann = annotation.get();
-        httpMethods.add(httpMethod);
-        mappingPaths.addAll(stringValues(ann, "value", "path"));
-        produces.addAll(stringValues(ann, "produces"));
-        consumes.addAll(stringValues(ann, "consumes"));
-        return true;
+        return result;
+    }
+
+    private static boolean hasTypeVariable(JavaType type, int depth) {
+        if (depth >= 10) throw new IllegalStateException("REST signature exceeds analysis bound");
+        if (type instanceof JavaTypeVariable<?>) return true;
+        if (type instanceof JavaGenericArrayType array) return hasTypeVariable(array.getComponentType(), depth + 1);
+        if (type instanceof JavaParameterizedType parameterized) {
+            return parameterized.getActualTypeArguments().stream()
+                    .anyMatch(argument -> hasTypeVariable(argument, depth + 1));
+        }
+        if (type instanceof JavaWildcardType wildcard) {
+            return wildcard.getUpperBounds().stream().anyMatch(bound -> hasTypeVariable(bound, depth + 1))
+                    || wildcard.getLowerBounds().stream().anyMatch(bound -> hasTypeVariable(bound, depth + 1));
+        }
+        return false;
     }
 
     private static boolean isController(JavaClass type) {
@@ -1304,46 +1334,6 @@ final class RestApiHandlerModelBuilder {
             return List.of();
         }
         return stringValues(annotation.get(), "value", "path");
-    }
-
-    /**
-     * Spring's request-mapping resolver searches the type hierarchy. Model the same bounded fallback so a
-     * concrete controller inherits type-level mapping facts from a base class or controller interface.
-     */
-    private static Optional<? extends JavaAnnotation<?>> typeHierarchyMappingAnnotation(
-            JavaClass type, String annotationName) {
-        return typeHierarchyMappingAnnotation(type, annotationName, new LinkedHashSet<>(), 0);
-    }
-
-    private static Optional<? extends JavaAnnotation<?>> typeHierarchyMappingAnnotation(
-            JavaClass type, String annotationName, Set<String> visited, int depth) {
-        if (!visited.add(type.getName())) {
-            return Optional.empty();
-        }
-        if (depth >= 10) {
-            throw new IllegalStateException("REST mapping hierarchy exceeds analysis bound");
-        }
-        Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
-        if (annotation.isPresent()) {
-            return annotation;
-        }
-        Optional<JavaClass> superclass = type.getRawSuperclass();
-        if (superclass.isPresent()
-                && !"java.lang.Object".equals(superclass.get().getName())) {
-            Optional<? extends JavaAnnotation<?>> inherited =
-                    typeHierarchyMappingAnnotation(superclass.get(), annotationName, visited, depth + 1);
-            if (inherited.isPresent()) {
-                return inherited;
-            }
-        }
-        for (JavaType interfaceType : type.getInterfaces()) {
-            Optional<? extends JavaAnnotation<?>> inherited =
-                    typeHierarchyMappingAnnotation(interfaceType.toErasure(), annotationName, visited, depth + 1);
-            if (inherited.isPresent()) {
-                return inherited;
-            }
-        }
-        return Optional.empty();
     }
 
     private static List<String> mappingAttribute(JavaClass type, String annotationName, String key) {
@@ -1363,33 +1353,6 @@ final class RestApiHandlerModelBuilder {
         return stringValues(annotation.get(), key);
     }
 
-    /** Collects a string attribute from whichever mapping annotation(s) a handler method declares. */
-    private static List<String> mappingStrings(JavaMethod method, String key) {
-        List<String> values = new ArrayList<>();
-        for (String annotationName : MAPPING_ANNOTATIONS) {
-            method.tryGetAnnotationOfType(annotationName).ifPresent(ann -> values.addAll(stringValues(ann, key)));
-        }
-        return values;
-    }
-
-    private static String mappingString(JavaMethod method, String key) {
-        for (String value : mappingStrings(method, key)) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return "";
-    }
-
-    private static String annotationString(JavaAnnotation<?> annotation, String key) {
-        for (String value : stringValues(annotation, key)) {
-            if (!value.isBlank()) {
-                return value;
-            }
-        }
-        return "";
-    }
-
     private static List<String> union(List<String> first, List<String> second) {
         List<String> values = new ArrayList<>(first);
         values.addAll(second);
@@ -1401,12 +1364,6 @@ final class RestApiHandlerModelBuilder {
         for (String key : keys) {
             annotation.get(key).ifPresent(value -> addStrings(values, value));
         }
-        return values;
-    }
-
-    private static List<String> enumValues(JavaAnnotation<?> annotation, String key) {
-        List<String> values = new ArrayList<>();
-        annotation.get(key).ifPresent(value -> addStrings(values, value));
         return values;
     }
 
@@ -2358,7 +2315,7 @@ final class RestApiHandlerModelBuilder {
                     boolean cascaded = hasValidCascadeOnField(cursor, field, candidate, typeAnnotations);
                     if (cascaded) {
                         collectMissingNestedValidFields(childType, sink, new LinkedHashSet<>(visited), depth + 1);
-                    } else if (declaresValidationConstraints(childType, new LinkedHashSet<>(visited), depth + 1)) {
+                    } else if (declaresValidationConstraints(childType)) {
                         sink.add(new MissingNestedValidField(
                                 safeSimpleName(currentDto) + "." + field.getName(),
                                 currentDto.getName(),
@@ -2440,76 +2397,12 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
-    private boolean declaresValidationConstraints(JavaClass type, Set<String> visited, int depth) {
-        if (depth > MAX_NESTED_DTO_DEPTH
-                || type == null
-                || !visited.add(type.getName())
-                || isFrameworkOrJdkType(type.getName())) {
-            return false;
+    private boolean declaresValidationConstraints(JavaClass type) {
+        var constraints = requestPayloadConstraints.inspect(type);
+        if (constraints == RestApiModel.ValidationConstraints.UNKNOWN) {
+            incomplete = true;
         }
-        JavaClass cursor = type;
-        for (int superDepth = 0;
-                superDepth < 5
-                        && cursor != null
-                        && !"java.lang.Object".equals(cursor.getName())
-                        && !"java.lang.Record".equals(cursor.getName());
-                superDepth++) {
-            Map<String, Set<String>> typeAnnotations = memberTypeAnnotations(cursor);
-            for (Set<String> names : typeAnnotations.values()) {
-                for (String name : names) {
-                    if (name.startsWith(Types.CONSTRAINT_PACKAGE) || Types.VALID.equals(name)) {
-                        return true;
-                    }
-                }
-            }
-            for (JavaField field : KotlinBytecode.declaredFields(cursor)) {
-                if (field.getModifiers().contains(JavaModifier.STATIC)
-                        || field.getModifiers().contains(JavaModifier.TRANSIENT)) {
-                    continue;
-                }
-                if (hasValidationConstraintOrCascade(field.getAnnotations())) {
-                    return true;
-                }
-            }
-            for (JavaMethod method : KotlinBytecode.declaredMethods(cursor)) {
-                if (method.getRawParameterTypes().isEmpty()
-                        && hasValidationConstraintOrCascade(method.getAnnotations())) {
-                    return true;
-                }
-            }
-            for (JavaField field : KotlinBytecode.declaredFields(cursor)) {
-                if (field.getModifiers().contains(JavaModifier.STATIC)
-                        || field.getModifiers().contains(JavaModifier.TRANSIENT)) {
-                    continue;
-                }
-                for (NestedCandidate child : nestedCandidateTypes(field)) {
-                    JavaClass childType = child.type();
-                    if (childType != null
-                            && !isSimpleBodyType(childType)
-                            && !safeIsInterface(childType)
-                            && !safeIsEnum(childType)
-                            && !isPrimitive(childType)
-                            && declaresValidationConstraints(childType, new LinkedHashSet<>(visited), depth + 1)) {
-                        return true;
-                    }
-                }
-            }
-            cursor = cursor.getRawSuperclass().orElse(null);
-        }
-        return false;
-    }
-
-    private static boolean hasValidationConstraintOrCascade(Set<? extends JavaAnnotation<?>> annotations) {
-        for (JavaAnnotation<?> annotation : annotations) {
-            JavaClass rawType = annotation.getRawType();
-            String name = rawType.getName();
-            if (name.startsWith(Types.CONSTRAINT_PACKAGE)
-                    || Types.VALID.equals(name)
-                    || rawType.isAnnotatedWith("jakarta.validation.Constraint")) {
-                return true;
-            }
-        }
-        return false;
+        return constraints == RestApiModel.ValidationConstraints.PRESENT;
     }
 
     private Map<String, Set<String>> memberTypeAnnotations(JavaClass type) {

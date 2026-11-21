@@ -70,7 +70,14 @@ the Spring starter supplies ArchUnit transitively.
   return does not prove an empty wire response. The scanner does not inspect builder chains, filters, advice, or
   emitted bytes to recover their status, headers, or body.
 - **Paths are declarations, not full route enumeration.** Root/leaf composition preserves meaningful interior and
-  trailing slashes. Spring type/method HTTP-method constraints combine by union. Required Spring
+  trailing slashes. On Spring MVC and WebFlux, bounded handler discovery includes unstereotyped superclasses,
+  interfaces, and default methods. The concrete override supplies return/body facts; compiler bridges and
+  unrelated overloads do not create extra handlers. Composed type/method `@RequestMapping` declarations and
+  explicit `@AliasFor` chains retain path alternatives, media types, and dispatch conditions. A concrete mapping
+  overrides its inherited declaration rather than adding the old route. Binding and response-status annotations
+  are discovered independently of the mapping declaration. When a concrete controller implements an imported
+  controller interface, handlers belong to the concrete controller, not also to that interface blueprint;
+  standalone interface-only imports remain supported. Spring type/method HTTP-method constraints combine by union. Required Spring
   path bindings (including `-parameters` bytecode parameter names when the annotation omits an explicit name) are
   checked against each complete mapping alternative; optional/`Optional` and aggregate map
   bindings do not establish a missing-required-variable failure. Unannotated Quarkus REST path parameters matching
@@ -134,8 +141,11 @@ counts, and status never depend on it.
 - It excludes MicroProfile `@RegisterRestClient` interfaces, which represent outbound clients rather than inbound resources.
 - It does not inspect actual response content, validation execution, database result limits, caching policy, retry
   deduplication, generated OpenAPI documents, or headers supplied elsewhere.
-- It does not resolve every Spring composed/inherited mapping, functional endpoint, runtime route registration,
-  arbitrary generic hierarchy, or dynamic JAX-RS subresource locator graph.
+- It does not enumerate functional endpoints, runtime route registration, arbitrary generic hierarchies, or dynamic
+  JAX-RS subresource locator graphs. Spring mapping/annotation ancestry is bounded to ten levels and cycle-safe.
+  Unsupported inherited parameter annotation merges or generic signature substitutions, conflicting mapping aliases,
+  unresolved cross-package package-private dispatch, and exceeded discovery bounds produce incomplete extraction,
+  not a confirmed empty handler set. A method-local discovery failure retains independently resolved sibling handlers.
 - It does not infer omitted parameter names from unavailable source metadata or interpret unresolved `${...}` and
   `#{...}` path expressions as literal naming violations.
 - It does not replace contract tests or scope/selector/precedence-aware exception resolution. The separate declared
@@ -442,14 +452,26 @@ dismissal ID remains reserved.
 
 ## Input validation & binding
 
-### RAPI-VALID-001 - Review request-payload cascade validation
+### RAPI-VALID-001 - Validate constrained request payloads at the web boundary
 
-- **Severity**: LOW
-- **Detects**: A complex request payload without a recognized cascade-validation declaration, including payloads
-  inside supported reactive wrappers. Spring annotation conventions are not imposed on JAX-RS.
-- **Recommendation**: If DTO field constraints should cascade, use the framework's supported validation trigger.
-  Missing `@Valid` does not prove unchecked input: direct constraints and programmatic validation may be intentional,
-  and a cascade annotation alone does not prove constraints exist or execute.
+- **Severity**: MEDIUM
+- **Detects**: A request payload with positively observed Bean Validation constraints but no recognized boundary
+  cascade-validation trigger, including supported MVC, WebFlux, and JAX-RS payload wrappers. Evidence includes
+  class, field, getter/record, and standard container-element constraints, plus constraints reachable through existing
+  `@Valid` cascades. A bare constraint on the handler parameter validates only the body reference; it does not
+  establish constraints on the payload. Transient fields still participate in Bean Validation; static fields do not.
+  Unconstrained payloads and empty cascades produce no finding.
+- **Coverage**: Unresolved payloads/parents, unavailable type-use or custom-annotation metadata, and exhausted
+  inspection bounds remain unknown, not a clean result. Held custom type-use constraint definitions are recognized;
+  ordinary JDK marker/root parents and JSpecify `@Nullable`/`@NonNull` do not imply missing validation evidence.
+  Other framework or annotation namespaces are not waived. A known finding is retained alongside incomplete evidence.
+  Missing nested cascades remain the separate `RAPI-VALID-007` concern; entity binding remains `RAPI-VALID-002`.
+- **Recommendation**: Use `@Valid` for Default-group validation, or the framework's supported group selection
+  (for example Spring `@Validated(Update.class)`). `@Valid` does not itself select arbitrary non-Default groups.
+  Verify any programmatic validation path. Spring's `@Validated` is not required on JAX-RS; static declarations
+  establish neither unchecked input nor actual constraint execution.
+- **CI impact**: Existing MEDIUM-or-higher finding gates include these constraint-bearing findings; the rule no longer
+  emits LOW findings for every complex payload. Generic CI eligibility, grouping, and counting policies are unchanged.
 - **Learn more**: [Spring validation annotation recognition][spring-validation]; [Jakarta REST entity validation][jaxrs-validation].
 
 ### RAPI-VALID-002 - Avoid binding requests directly to JPA entities
@@ -507,10 +529,14 @@ dismissal ID remains reserved.
 
 - **Severity**: HIGH
 - **Detects**: A request body parameter carries `@Valid` or `@Validated`, and its payload DTO has a non-static field
-  whose type (or `Collection`, `Map`, `Optional`, or array element type) in the application's base packages declares
-  `jakarta.validation.constraints.*` (or `@Valid`) while the parent field, accessor, and container type argument omit
-  `@Valid` (up to bounded depth 3). Jakarta Bean Validation silently skips constraints on nested objects unless `@Valid`
-  cascades into them.
+  whose type (or `Collection`, `Map`, `Optional`, or array element type) in the application's base packages has
+  positively observed Bean Validation constraints reachable through its own `@Valid` cascades, while the parent field,
+  accessor, and container type argument omit `@Valid` (up to bounded depth 3). Bare cascade markers, constraint-free
+  cycles and constraints behind another missing cascade do not establish this finding. Unavailable constraint
+  metadata leaves extraction incomplete rather than proving absence. Jakarta Bean Validation silently skips
+  constraints on nested objects unless `@Valid` cascades into them.
+- **Limit**: this does not diagnose a whole chain of missing cascades. If reaching a constraint would require adding
+  `@Valid` at several currently unannotated levels, that path is outside this check's positively observed targets.
 - **Recommendation**: Annotate the parent DTO field or container type argument (for example `List<@Valid LineItemDto>`)
   with `@Valid` so nested constraints execute during request validation.
 - **Learn more**: [Spring validation][spring-validation]; [Jakarta REST entity validation][jaxrs-validation].
@@ -881,7 +907,7 @@ adoption are not HTTP mandates.
 | RAPI-RESP-007 | Review status overlap; MEDIUM retained | [Spring ResponseStatus][spring-status], [entity processor][spring-entity-processor]. Async ResponseEntity counts, HttpEntity does not; reason-aware native dispatch prevents blanket precedence/removal advice. |
 | RAPI-RESP-008 | Reword; MEDIUM → INFO | [RFC 9110 201][http-created]. Target URI can identify resource; no runtime header-absence proof. |
 | RAPI-RESP-009 | Narrow; LOW → INFO | [RFC 9110 HEAD][http-head], [Spring HEAD suppression][spring-head]. Dedicated-handler efficiency only; shared GET/HEAD, headers, Void/Unit excluded. |
-| RAPI-VALID-001 | Correct payload/trigger facts; HIGH → LOW | [Spring validation][spring-validation], [Jakarta entity validation][jaxrs-validation]. Cascade prompt, not proof of unchecked input or executed constraints. |
+| RAPI-VALID-001 | Constraint-bearing payload evidence; MEDIUM | [Spring validation][spring-validation], [Jakarta entity validation][jaxrs-validation]. No finding for unconstrained payloads; incomplete metadata remains unknown. |
 | RAPI-VALID-002 | Correct reactive request shape; HIGH retained | [Spring binding guidance][spring-binding]. Entity coupling/over-posting risk, not proven writability of every field. |
 | RAPI-VALID-003 | Correct boolean/default/Kotlin handling; MEDIUM retained | [MVC resolver][spring-named-values], [WebFlux resolver][spring-reactive-named-values]. Java numeric null or blank-default conversion failure; false boolean default; uncertain Kotlin defaults skipped. |
 | RAPI-VALID-004 | Restrict to aggregate bindings; LOW retained | [Spring RequestParam][spring-requestparam]. Unnamed maps only; schemas and allowlists may exist elsewhere. |
@@ -948,8 +974,8 @@ declarations that break requests deterministically. No ID was reused or repurpos
 | RAPI-VER-001, RAPI-VER-006 | Fixed | A leading `/v3` segment no longer marks an API handler as documentation; only `api-docs`/`swagger-ui` paths do. |
 | All emitting rules | Metadata | Rule names now match these headings, and learn-more links point at the specific primary source instead of a generic page. |
 
-Considered and not added: server-side `@HttpExchange` controller mappings (Spring 6.1+) are usually declared on
-interfaces and need inherited-mapping resolution the bounded model lacks; an `Optional` rule for JAX-RS awaits verified
+Considered and not added: server-side `@HttpExchange` controller mappings require their own annotation-contract
+model and are not covered by the supported inherited `@RequestMapping` discovery; an `Optional` rule for JAX-RS awaits verified
 Quarkus REST semantics; and counting `HttpEntity` parameters toward RAPI-VALID-006 was left out to keep that rule's
 evidence to explicit `@RequestBody` declarations.
 

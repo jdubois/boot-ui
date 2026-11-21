@@ -124,6 +124,32 @@ class CracRuntimeStatusCollectorTests {
     }
 
     @Test
+    void surfacesDatasourceObservationsWithoutClaimingTheyArePools() {
+        CracRuntimeInventory inventory = new CracRuntimeInventory(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false,
+                false,
+                true,
+                List.of(),
+                true,
+                List.of(),
+                List.of(),
+                List.of(
+                        "embedded : example.EmbeddedDatabase - embedded DataSource; checkpoint handling is unverified"));
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(
+                new MockEnvironment(), List::of, className -> false, () -> inventory, () -> null);
+
+        assertThat(collector.collect().restoreCaveats())
+                .anySatisfy(caveat -> assertThat(caveat)
+                        .contains("Cached datasource resource observations", "CRAC-POOL-001", "do not establish"))
+                .noneMatch(caveat -> caveat.startsWith("Cached connection pool/type"));
+    }
+
+    @Test
     void surfacesHikariLifecycleIssuesAsRestoreCaveat() {
         CracRuntimeInventory inventory = new CracRuntimeInventory(
                 List.of(),

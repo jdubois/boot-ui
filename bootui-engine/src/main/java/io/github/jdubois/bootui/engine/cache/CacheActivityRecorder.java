@@ -18,9 +18,12 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 /**
  * Framework-neutral, in-memory, bounded ring buffer of cache accesses (hit/miss/put/evict/clear), feeding
@@ -39,8 +42,11 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class CacheActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
+    private static final int MAX_CAPTURE_MANAGERS = 256;
+    private static final AtomicLong CAPTURE_EPOCHS = new AtomicLong();
     private final boolean enabled;
     private final int maxEntries;
+    private final LongSupplier epochMillis;
     private final Deque<CacheActivityEvent> events = new ArrayDeque<>();
     private final Object lock = new Object();
     private final AtomicLong sequence = new AtomicLong();
@@ -48,20 +54,76 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
     private final CorrelationSource correlation = new CorrelationSource();
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private volatile boolean instrumentedManager;
+    private final Map<String, Long> continuousSince = new LinkedHashMap<>();
+    private long captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
+    private boolean captureManagersExceeded;
 
     public CacheActivityRecorder(boolean enabled, int maxEntries) {
-        this.enabled = enabled;
-        this.maxEntries = Math.max(1, maxEntries);
+        this(enabled, maxEntries, System::currentTimeMillis);
     }
 
-    /** Whether this recorder is capturing new events; {@code false} disables recording entirely. */
+    /** With an epoch-millisecond clock for deterministic capture-window tests. */
+    public CacheActivityRecorder(boolean enabled, int maxEntries, LongSupplier epochMillis) {
+        this.enabled = enabled;
+        this.maxEntries = Math.max(1, maxEntries);
+        this.epochMillis = java.util.Objects.requireNonNull(epochMillis);
+    }
+
+    /** Whether capture is configured on; low-footprint mode can still suspend it. */
     public boolean isEnabled() {
         return enabled;
     }
 
+    /** Whether capture is enabled and not suspended for low-footprint mode. */
+    public boolean isCapturing() {
+        return enabled && !lowFootprintPaused;
+    }
+
     /** Records that an adapter successfully installed capture around at least one cache manager. */
     public void markInstrumentedManager() {
-        instrumentedManager = true;
+        markInstrumentedManager("");
+    }
+
+    /** Marks this manager's first installation in the same epoch-millisecond domain as journal requests. */
+    public void markInstrumentedManager(String name) {
+        java.util.Objects.requireNonNull(name, "Cache manager name must not be null");
+        synchronized (lock) {
+            instrumentedManager = true;
+            if (captureManagersExceeded) {
+                return;
+            }
+            captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
+            if (!continuousSince.containsKey(name) && continuousSince.size() >= MAX_CAPTURE_MANAGERS) {
+                captureManagersExceeded = true;
+            } else {
+                continuousSince.put(name, epochMillis.getAsLong());
+            }
+        }
+    }
+
+    /** One coherent, passive read; never reads a clock, manager, cache, or application callback. */
+    public CaptureState captureState() {
+        synchronized (lock) {
+            return new CaptureState(
+                    enabled,
+                    lowFootprintPaused,
+                    journal != RuntimeEventSink.NONE,
+                    captureEpoch,
+                    Map.copyOf(continuousSince),
+                    captureManagersExceeded);
+        }
+    }
+
+    public record CaptureState(
+            boolean enabled,
+            boolean paused,
+            boolean journalInstalled,
+            long epoch,
+            Map<String, Long> continuousSince,
+            boolean exceeded) {
+        public CaptureState {
+            continuousSince = Map.copyOf(continuousSince);
+        }
     }
 
     /** Whether this recorder can receive events from at least one instrumented cache manager. */
@@ -70,21 +132,30 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
     }
 
     /**
-     * Replaces the source of the request id stamped on each capture ({@code docs/PLAN-v2.md} §5.1). Defaults to the
-     * thread's correlation scope; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
-     * {@code null} restores the default.
-     */
-    /**
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded access right after this
      * recorder retains it. {@code null} restores the default, which publishes nothing.
      */
     @Override
     public void setRuntimeEventSink(RuntimeEventSink journal) {
-        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+        RuntimeEventSink replacement = journal == null ? RuntimeEventSink.NONE : journal;
+        synchronized (lock) {
+            if (this.journal != replacement) {
+                long now = epochMillis.getAsLong();
+                continuousSince.replaceAll((name, since) -> now);
+                captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
+                this.journal = replacement;
+            }
+        }
     }
 
+    /** Replaces correlation binding and starts a new proof window; null restores the thread scope. */
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
-        correlation.set(correlationProvider);
+        synchronized (lock) {
+            long now = epochMillis.getAsLong();
+            continuousSince.replaceAll((name, since) -> now);
+            captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
+            correlation.set(correlationProvider);
+        }
     }
 
     /** Records a cache read that found a value. */
@@ -113,14 +184,18 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
     }
 
     private void record(String managerName, String cacheName, CacheActivityOperation operation, Object key) {
-        if (!enabled || lowFootprintPaused) {
+        if (!isCapturing()) {
             return;
         }
         try {
-            CorrelationContext context = correlation.current();
+            CorrelationSource.Read ownership = correlation.read();
+            if (ownership.failed()) {
+                invalidateCapture(managerName);
+            }
+            CorrelationContext context = ownership.context();
             CacheActivityEvent event = new CacheActivityEvent(
                     sequence.incrementAndGet(),
-                    System.currentTimeMillis(),
+                    epochMillis.getAsLong(),
                     managerName,
                     cacheName,
                     operation,
@@ -150,10 +225,20 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
                     event.thread(),
                     null,
                     false,
-                    new CachePayload(cacheName, operation.name(), frames, codePathStamp)));
+                    new CachePayload(cacheName, operation.name(), frames, codePathStamp, managerName)));
             notifyListeners();
         } catch (RuntimeException ex) {
-            // Recording must never disrupt the cache access it observes.
+            invalidateCapture(managerName);
+        }
+    }
+
+    private void invalidateCapture(String managerName) {
+        synchronized (lock) {
+            if (continuousSince.containsKey(managerName)) {
+                // No finite request start can prove continuous capture across this failed observation.
+                continuousSince.put(managerName, Long.MAX_VALUE);
+            }
+            captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
         }
     }
 
@@ -248,12 +333,24 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
     /** Stops recording and drops what is retained, for low-footprint mode. */
     @Override
     public void suspendForLowFootprint() {
-        lowFootprintPaused = true;
+        synchronized (lock) {
+            if (!lowFootprintPaused) {
+                lowFootprintPaused = true;
+                captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
+            }
+        }
         offloadRetainedData();
     }
 
     @Override
     public void resumeFromLowFootprint() {
-        lowFootprintPaused = false;
+        synchronized (lock) {
+            if (lowFootprintPaused) {
+                long now = epochMillis.getAsLong();
+                continuousSince.replaceAll((name, since) -> now);
+                captureEpoch = CAPTURE_EPOCHS.incrementAndGet();
+                lowFootprintPaused = false;
+            }
+        }
     }
 }

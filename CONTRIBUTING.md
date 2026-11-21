@@ -511,6 +511,12 @@ When upgrading ArchUnit, verify this internal API with `NoDirectThreadInstantiat
 `ThreadFactoryLambdaAnalysisTests`, and `ThreadFactoryReviewTests`, then run both packaged-runtime checks above.
 The Spring fixture's ASM 9.8 dependency must remain older than the reader so it continues to exercise isolation.
 
+Architecture receiver refinement also uses an optional, structurally checked bridge to ArchUnit's actual importer
+inputs. Its per-import frozen bytes preserve original source URIs; a later source read or ArchUnit's separately read
+source MD5 is not equivalent provenance. When upgrading ArchUnit, run `ArchUnitBytecodeImportsTests`,
+`ArchUnitClassImportsTests`, `ProxyReceiverEvidenceTests`, and `ArchitectureScannerTests`. An unavailable hook keeps the
+public importer and legacy receiver heuristic; it must not invent precise results or new required-evidence gaps.
+
 ### Live MySQL validation
 
 MySQL diagnostics require **real Oracle MySQL 8.4** evidence, not the existing MariaDB advisor tests or mocked JDBC

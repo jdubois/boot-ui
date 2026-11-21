@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -79,5 +80,95 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
                 .andExpect(jsonPath("$.violationsFound").value(3));
         verify(scanner).scan();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void scanForwardsAnExplicitHistogramSelection(boolean selected) throws Exception {
+        MemoryScanner scanner = mock(MemoryScanner.class);
+        DismissedRulesStore dismissals = mock(DismissedRulesStore.class);
+        MemoryReport report = report("SCANNED", 0);
+        when(scanner.scan(selected)).thenReturn(report);
+        when(dismissals.load()).thenReturn(Set.of());
+        when(scanner.applyDismissals(report, Set.of())).thenReturn(report);
+        standaloneSetup(new MemoryController(scanner, dismissals))
+                .build()
+                .perform(post("/bootui/api/memory/scan").param("includeHistogram", String.valueOf(selected)))
+                .andExpect(status().isOk());
+        verify(scanner).scan(selected);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", "invalid", "0", "1", "TRUE", " false "})
+    void malformedHistogramSelectionDoesNotStartAScan(String value) throws Exception {
+        MemoryScanner scanner = mock(MemoryScanner.class);
+        DismissedRulesStore dismissals = mock(DismissedRulesStore.class);
+        standaloneSetup(new MemoryController(scanner, dismissals))
+                .build()
+                .perform(post("/bootui/api/memory/scan").param("includeHistogram", value))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("includeHistogram must be true or false."));
+        verifyNoInteractions(scanner, dismissals);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(
+            strings = {
+                "includeHistogram",
+                "includeHistogram=",
+                "includeHistogram=false&includeHistogram=true",
+                "includeHistogram=true&includeHistogram=false",
+                "includeHistogram=false&includeHistogram=false",
+                "includeHistogram=false&includeHistogram=",
+                "includeHistogram=&includeHistogram=false"
+            })
+    void mvcAndWebfluxRejectPresentEmptyAndRepeatedParametersBeforeScanning(String query) throws Exception {
+        MemoryScanner scanner = mock(MemoryScanner.class);
+        DismissedRulesStore dismissals = mock(DismissedRulesStore.class);
+        MemoryController controller = new MemoryController(scanner, dismissals);
+        String uri = "/bootui/api/memory/scan?" + query;
+        standaloneSetup(controller)
+                .build()
+                .perform(post(uri))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("includeHistogram must be true or false."));
+        org.springframework.test.web.reactive.server.WebTestClient.bindToController(controller)
+                .build()
+                .post()
+                .uri(uri)
+                .exchange()
+                .expectStatus()
+                .isBadRequest()
+                .expectBody()
+                .jsonPath("$.message")
+                .isEqualTo("includeHistogram must be true or false.");
+        verifyNoInteractions(scanner, dismissals);
+    }
+
+    @Test
+    void webfluxUsesTheSameSelectionAndRejectionWithoutStartingInvalidScans() {
+        MemoryScanner scanner = mock(MemoryScanner.class);
+        DismissedRulesStore dismissals = mock(DismissedRulesStore.class);
+        MemoryReport report = report("SCANNED", 0);
+        when(scanner.scan(false)).thenReturn(report);
+        when(dismissals.load()).thenReturn(Set.of());
+        when(scanner.applyDismissals(report, Set.of())).thenReturn(report);
+        var client = org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                        new MemoryController(scanner, dismissals))
+                .build();
+        client.post()
+                .uri("/bootui/api/memory/scan?includeHistogram=false")
+                .exchange()
+                .expectStatus()
+                .isOk();
+        client.post()
+                .uri("/bootui/api/memory/scan?includeHistogram=invalid")
+                .exchange()
+                .expectStatus()
+                .isBadRequest()
+                .expectBody()
+                .jsonPath("$.message")
+                .isEqualTo("includeHistogram must be true or false.");
+        verify(scanner).scan(false);
     }
 }

@@ -18,8 +18,15 @@ import java.util.function.UnaryOperator;
  * @param text the finding text, sanitized once it has been recorded (raw text may be {@code null} before then)
  * @param location the code element the finding points at, or {@code null} when it has none
  * @param identity the canonical identity of the finding, or {@code null} when its rule provides none
+ * @param evaluationSeverity internal grade of the evaluation that produced this finding, or {@code null} when unknown;
+ *     never part of report or detail-page DTOs
  */
-public record AdvisorViolation(String text, AdvisorViolationLocationDto location, String identity) {
+public record AdvisorViolation(
+        String text, AdvisorViolationLocationDto location, String identity, String evaluationSeverity) {
+
+    public AdvisorViolation(String text, AdvisorViolationLocationDto location, String identity) {
+        this(text, location, identity, null);
+    }
 
     public AdvisorViolation(String text, AdvisorViolationLocationDto location) {
         this(text, location, null);
@@ -34,18 +41,23 @@ public record AdvisorViolation(String text, AdvisorViolationLocationDto location
     }
 
     public AdvisorViolation withIdentity(String identity) {
-        return new AdvisorViolation(text, location, identity);
+        return new AdvisorViolation(text, location, identity, evaluationSeverity);
+    }
+
+    public AdvisorViolation withEvaluationSeverity(String evaluationSeverity) {
+        return new AdvisorViolation(text, location, identity, evaluationSeverity);
     }
 
     AdvisorViolation sanitized(UnaryOperator<String> sanitizer) {
         return new AdvisorViolation(
                 Objects.requireNonNull(sanitizer.apply(text), "Advisor violation sanitizer must return non-null text."),
                 location,
-                identity);
+                identity,
+                evaluationSeverity);
     }
 
     AdvisorViolation withLocation(AdvisorViolationLocationDto location) {
-        return new AdvisorViolation(text, location, identity);
+        return new AdvisorViolation(text, location, identity, evaluationSeverity);
     }
 
     /** The texts of {@code violations}, in order. */

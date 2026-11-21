@@ -30,7 +30,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 76 rules. Twelve retired identifiers stay documented below so old links and persisted
+The active catalog contains 78 rules. Twelve retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -148,6 +148,10 @@ Quarkus and Jakarta `create` is create-only, unlike Hibernate `hbm2ddl.auto=crea
 The results panel lists only checks that found something, ordered by severity, finding count, and rule id. Each rule
 includes a few sample mapped members plus a remediation link.
 
+After a single-finding dismissal, a fully retained rule uses the highest grade of its remaining persistence-unit
+evaluations. Missing retained details or active grade evidence preserve the original grade conservatively; dismissal
+never completes unknown coverage.
+
 The advisor score applies the shared severity penalty to every concrete finding, not once per violated rule.
 Dismissing a rule removes all of its findings from the score.
 
@@ -155,17 +159,42 @@ Dismissing a rule removes all of its findings from the score.
 
 ## Fetching
 
-### HIB-FETCH-001 - Eager fetching should stay explicit and bounded
+<a id="hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded"></a>
+
+### HIB-FETCH-001 - Review eager to-one fetch plans
+
+- **Severity**: MEDIUM
+- **Inspects**: mapped `@ManyToOne` and `@OneToOne` attributes.
+- **Fires when**: the declaration is `FetchType.EAGER`, explicitly or through JPA's ordinary to-one default.
+- **Why it matters**: eager to-one declarations deserve a use-case review, but do not by themselves establish
+  unbounded loading, extra `SELECT`s, or N+1 queries. The actual fetch plan and workload determine the cost.
+- **Recommendation**: review whether each use case needs the association. Consider `LAZY` with explicit fetch joins,
+  entity graphs, or DTO queries, and verify the actual query plan.
+- **Ownership**: eager collections belong to HIB-FETCH-010 at HIGH, not to this rule. An unreadable fetch declaration
+  (including an XML-only mapping) is incomplete evidence, not a confirmed lazy mapping or a complete pass.
+
+::: warning Eager-fetch dismissal migration
+HIB-FETCH-001 now covers to-one mappings only. Existing rule and single-finding dismissals remain attached to
+HIB-FETCH-001 and are **not copied** to HIB-FETCH-010. Previously hidden eager collection findings therefore reappear
+at HIGH on the next explicit scan. Review and dismiss them under HIB-FETCH-010 separately if appropriate.
+:::
+
+A to-one-only HIB-FETCH-001 finding no longer trips a HIGH threshold. Unreadable fetch declarations leave coverage
+incomplete: under the default Action policy, Hibernate is then `SKIPPED` (`EVIDENCE_UNEVALUABLE`), so even retained HIGH
+findings do not gate. A required Hibernate assessment instead returns `NOT_ASSESSED`. Severity weights are unchanged;
+XML configuration alone is not a CI failure. See the [CI policy reference](ci/reference.md#policy).
+
+### HIB-FETCH-010 - Eager collection fetching should stay bounded
 
 - **Severity**: HIGH
-- **Inspects**: `@ManyToOne`, `@OneToOne`, `@OneToMany`, `@ManyToMany`, and `@ElementCollection` mappings on metamodel
-  attributes.
-- **Fires when**: a mapping resolves to `FetchType.EAGER`, including default-eager to-one associations where no `fetch`
-  attribute is declared and element collections that explicitly opt into eager fetching.
-- **Why it matters**: eager mappings are fetched whether or not the use case needs them, which can amplify query counts,
-  payload size, and accidental object graph or collection-table loading.
-- **Recommendation**: prefer `LAZY` mappings and fetch required data explicitly with joins, entity graphs, DTO
-  projections, or targeted collection-value queries.
+- **Inspects**: mapped `@OneToMany`, `@ManyToMany`, and `@ElementCollection` attributes.
+- **Fires when**: the collection declaration opts into `FetchType.EAGER`.
+- **Why it matters**: loading all collection members can amplify the fetched graph and payload even when the caller
+  does not need them. This is a mapping-risk prompt, not a measured query-count claim.
+- **Recommendation**: prefer `LAZY` collections and load needed members with targeted queries, fetch joins, entity
+  graphs, or DTO queries. Bound loading to the use case; do not directly page collection fetch joins.
+- **Evidence**: collection ownership uses relationship metadata, including map-valued element collections, not a Java
+  return-type guess. Unreadable fetch declarations remain incomplete; known findings and their counts are retained.
 
 ### HIB-FETCH-003 - Collection fetch joins should not be paged directly
 
@@ -903,6 +932,16 @@ legitimate domain reads that need managed entity state.
 - **Severity**: MEDIUM
 - **Inspects**: Spring Data repository `@Query` methods, resolvable JPQL `JOIN FETCH` paths, and collection/bag metadata
   on the repository domain entity.
+- **Scope**: verified declared static bulk `UPDATE`/`DELETE` statements in a small readable subset are irrelevant
+  to this rule, without requiring an entity-returning SELECT shape. The subset requires exactly one mapped target,
+  a single-letter alias, one parameter or unsigned-integer assignment for `UPDATE`, and at most one matching-alias
+  equality predicate. Both assignment and predicate attributes must be observed, non-transient and non-collection.
+  Keywords ignore case, but every alias reference must exactly match the declared alias's case; the proof does not
+  observe strict-JPA compliance settings. Only block comments free of quote/dynamic-expression delimiters and raw `--`
+  sequences are ignored. Raw `--` anywhere (including arithmetic such as `1--1` or text inside a block comment),
+  quote/dynamic-expression delimiters, more complex DML, malformed or oversized text, named queries and query
+  rewriters remain outside this proof. SQL-style line comments are not HQL comments.
+  Unsupported SELECT shapes still leave required evidence gaps even when no fetch path was recognized.
 - **Fires when**: a non-native JPQL query `JOIN FETCH`es two or more collection associations from the same root entity.
   Runtime bag classification is not established, so presumed bags do not receive a higher-severity exception prediction.
 - **Why it matters**: simultaneous fetching of actual bags is unsupported, while parallel collections can multiply the
@@ -911,6 +950,12 @@ legitimate domain reads that need managed entity state.
 - **Recommendation**: fetch at most one collection per query. Initialize the remaining collections with separate queries,
   or suitably bounded batch fetching. An entity graph requesting the same parallel collections is not a universal fix,
   and Set does not eliminate row multiplication.
+
+This scope proof is also used by HIB-QUERY-010; bulk statements can still matter to other rules. It does not erase
+findings or gaps in other methods or persistence units, nor the advisor's by-design pool limitations. If it discharges
+the last required gap, the unchanged strict [CI assessment](CI.md) can assess a previously skipped optional Hibernate
+advisor and gate an existing HIGH finding (exit 0 to 3). Remaining gaps still prevent strict assessment; this is not
+whole-catalogue completeness or relaxed CI policy.
 
 ### HIB-QUERY-008 - Bulk updates leave @Version unchanged
 
@@ -946,6 +991,29 @@ legitimate domain reads that need managed entity state.
   SpEL expression in memory.
 - **Recommendation**: replace `@Value` SpEL getters with closed projection property accessors and compute derived values
   in Java `default` interface methods.
+
+### HIB-QUERY-010 - Review filtered collection fetch joins
+
+- **Severity**: MEDIUM
+- **Inspects**: verified, declared static Spring Data JPA queries returning the whole mapped root entity, with one
+  direct-root `@OneToMany` or `@ManyToMany` fetch join.
+- **Fires when**: the supported `WHERE` conjunction includes a fetched-alias scalar attribute equality to a named or
+  numbered parameter, string literal, integer, or boolean. Every term must be a mapped scalar equality or an identifier
+  `IS NOT NULL` check; identifier presence alone does not fire. Root-only filters, ordinary non-fetching joins, singular
+  associations, projections, native queries and verified derived methods do not fire.
+- **Why it matters**: the query may initialize an incomplete managed collection. Later code can mistake those contents
+  for the complete association. The outcome depends on matching data and persistence-context state: an already
+  initialized full collection may remain full. This is not a prediction of deletion or corruption of unseen rows.
+- **Recommendation**: use a DTO or separate child query for a filtered view. If the intent is to filter roots, separate
+  that predicate from fetching the complete collection. Review assumptions before modifying the managed association.
+- **Bounds**: this pilot accepts one direct fetch join and flat conjunctions only. It does not infer restriction from
+  alias words in literals or comments, self-comparisons, tautologies, `OR`, subqueries (including shadowed aliases),
+  nested joins, functions, parenthesized predicates, or other unsupported shapes. Applicable unsupported shapes,
+  unreadable text, unknown entity/return metadata, named queries and query rewriters retain evidence gaps, not findings
+  or complete passes. The narrow static bulk-DML proof described for HIB-QUERY-007 also excludes those statements here.
+  Query text and literal or parameter values are never included in findings or diagnostics.
+- **Platforms**: shared engine logic, using existing verified Spring Data JPA metadata on MVC or WebFlux when present;
+  no new Panache or Quarkus repository-query capability is implied.
 
 ## Configuration
 
@@ -1091,8 +1159,9 @@ mode this rule could never emit a finding and only forced scans of applications 
   `org.hibernate.SQL` logger at DEBUG or finer.
 - **Fires when**: either is enabled while a profile named `prod`, `production`, `staging`, `prod-*`, or
   `*-prod` / `*-production` is active.
-- **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Parameter
-  values have a separate binding logger checked by HIB-CONFIG-018; no measured throughput loss is inferred.
+- **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Bound
+  parameter and extracted result values have separate loggers checked by HIB-CONFIG-018; no measured throughput loss is
+  inferred.
 - **Recommendation**: keep SQL logging off in production-like environments and rely on structured slow-query logging or
   the database's statement audit.
 
@@ -1164,18 +1233,33 @@ mode this rule could never emit a finding and only forced scans of applications 
 - **Quarkus**: `quarkus.hibernate-orm.log.format-sql` defaults to `true`, but it is inert unless
   `quarkus.hibernate-orm.log.sql` or an equivalent Hibernate SQL logger is enabled.
 
-### HIB-CONFIG-018 - Bind-parameter logging should be off in production
+<a id="hib-config-018-bind-parameter-logging-should-be-off-in-production"></a>
+<a id="hib-config-018---bind-parameter-logging-should-be-off-in-production"></a>
+
+### HIB-CONFIG-018 - JDBC value logging should be off in production
 
 - **Severity**: HIGH
-- **Inspects**: the live TRACE level of the `org.hibernate.orm.jdbc.bind` logger, plus the active Spring/Quarkus
-  profile. The legacy `org.hibernate.type.descriptor.sql.BasicBinder` logger is not inspected.
-- **Fires when**: a production-like profile is active and bind-parameter logging is enabled at TRACE.
-- **Why it matters**: at TRACE, Hibernate logs every bound parameter value - this can leak PII, credentials, or tokens
-  passed as query parameters into application logs.
-- **Recommendation**: keep bind-parameter logging off in production; only enable it temporarily, in a non-production
-  environment, while diagnosing a specific issue.
+- **Inspects**: the effective runtime TRACE state of `org.hibernate.orm.jdbc.bind` and
+  `org.hibernate.orm.jdbc.extract`, including inherited levels, plus the active Spring/Quarkus profile. Spring MVC and
+  WebFlux share the same observation source. The legacy `org.hibernate.type.descriptor.sql.BasicBinder` logger is not
+  inspected by the native adapters.
+- **Fires when**: a production-like profile is active and either category enables TRACE. One application-wide finding
+  is counted per enabled category, not per persistence unit. DEBUG and OFF do not enable value logging.
+- **Why it matters**: these categories can expose bound query parameters or extracted result values, including PII,
+  credentials, or tokens. Result logging can expose data even with bind logging off. Logger state establishes the risk,
+  not whether sensitive data was actually logged; BootUI reads no log messages, parameter values, or result values.
+- **Recommendation**: keep both categories off in production; only enable value logging temporarily in a
+  non-production environment while diagnosing a specific issue.
+- **Evidence limits**: only the current runtime logger state is observed, not inactive-profile configuration or
+  appender/filter behavior. An unavailable category leaves coverage incomplete without discarding a finding from the
+  other category. An absent finding is not proof of safe production configuration.
 - **Quarkus**: the Quarkus-native `quarkus.hibernate-orm.log.bind-parameters` convenience flag raises that same logger to
-  TRACE, so it is detected too - Quarkus's own guide explicitly warns against enabling this in production.
+  TRACE, so its effective runtime state is detected too - Quarkus's own guide explicitly warns against enabling this in
+  production.
+- **Compatibility**: the rule id and HIGH severity are unchanged. Existing bind findings
+  keep `unit=application|setting=hibernate.type.descriptor.sql.BasicBinder`. Result findings use the separate
+  `unit=application|setting=org.hibernate.orm.jdbc.extract` identity, so dismissing a bind finding cannot hide result
+  logging. A whole-rule dismissal continues to dismiss all HIB-CONFIG-018 findings, including result logging.
 
 ### HIB-CONFIG-019 - SQL comments should be enabled intentionally
 

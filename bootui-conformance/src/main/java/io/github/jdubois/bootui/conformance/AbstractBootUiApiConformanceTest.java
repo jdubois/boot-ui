@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.JsonType;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ReadContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.io.IOException;
 import java.io.InputStream;
@@ -199,6 +200,50 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     private String ui(String relativePath) {
         return uiPath() + relativePath;
+    }
+
+    @Test
+    void memoryScanCanExplicitlyOmitHistogramAndRejectsMalformedSelections() {
+        assumeTrue(isPanelUsableInLiveManifest("memory"));
+        BootUiHttpProbe probe = probe();
+        Map<String, String> headers = stateChangingHeaders(probe);
+        Response response = probe.post(api("/memory/scan?includeHistogram=false"), headers);
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        assertThat(report.path("scan").path("includeHistogram").isBoolean()).isTrue();
+        assertThat(report.path("scan").path("includeHistogram").asBoolean()).isFalse();
+        assertThat(report.path("summary").path("histogramAvailable").asBoolean())
+                .isFalse();
+        assertThat(report.path("evidence").path("usable").asBoolean()).isTrue();
+        assertThat(report.path("evidence").path("coverageComplete").asBoolean()).isFalse();
+        assertThat(report.path("evidence").path("limitations").toString())
+                .contains("MEM-CONTENT-001", "MEM-CONTENT-002", "MEM-CONTENT-003", "MEM-CONTENT-005");
+        String scanId = report.path("violationDetails").path("scanId").asText();
+        for (String query : List.of(
+                "includeHistogram=invalid",
+                "includeHistogram=",
+                "includeHistogram",
+                "includeHistogram=false&includeHistogram=true",
+                "includeHistogram=true&includeHistogram=false",
+                "includeHistogram=false&includeHistogram=false",
+                "includeHistogram=false&includeHistogram=",
+                "includeHistogram=&includeHistogram=false",
+                "INCLUDEHISTOGRAM=false",
+                "INCLUDEHISTOGRAM=true&includeHistogram=false",
+                "includeHistogram=false&INCLUDEHISTOGRAM=true")) {
+            Response invalid = probe.post(api("/memory/scan?" + query), headers);
+            assertThat(invalid.status()).as(query).isEqualTo(400);
+            assertThat(invalid.json().path("message").asText())
+                    .as(query)
+                    .isEqualTo("includeHistogram must be true or false.");
+            JsonNode cached = probe.get(api("/memory")).json();
+            assertThat(cached.path("violationDetails").path("scanId").asText())
+                    .as(query)
+                    .isEqualTo(scanId);
+            assertThat(cached.path("scan").path("includeHistogram").asBoolean())
+                    .as(query)
+                    .isFalse();
+        }
     }
 
     @Test
@@ -1087,6 +1132,26 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void ignoredSecurityRuleRegistrationMatchesTheNativePlatform() {
+        BootUiHttpProbe probe = probe();
+        String platform = probe.get(api("/panels")).json().path("platform").asText();
+        assertThat(platform).isIn("spring-boot", "spring-boot-reactive", "quarkus");
+        Response scanned = probe.request("POST", api("/security/scan"), stateChangingHeaders(probe), "");
+        assertThat(scanned.status()).isEqualTo(200);
+        JsonNode report = scanned.json();
+        String scanId = report.path("violationDetails").path("scanId").asText();
+        assertThat(scanId).isNotBlank();
+        Response detail = probe.get(api("/security/rules/SEC-AUTHZ-006/violations") + "?scanId="
+                + URLEncoder.encode(scanId, StandardCharsets.UTF_8));
+        assertThat(detail.status()).isEqualTo(404);
+        assertThat(detail.json().path("error").asText())
+                .isEqualTo(
+                        "spring-boot".equals(platform)
+                                ? AdvisorScanState.NO_FINDINGS_MESSAGE
+                                : AdvisorScanState.UNKNOWN_RULE_MESSAGE);
+    }
+
+    @Test
     void advisorViolationPagesStayBoundToTheCountedSnapshot() {
         for (String panel :
                 List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
@@ -1585,8 +1650,20 @@ public abstract class AbstractBootUiApiConformanceTest {
                     assertThat(assessment.path("queryComplete").isBoolean()).isTrue();
                     assertThat(assessment.path("detailAssessmentComplete").isBoolean())
                             .isTrue();
+                    assertThat(assessment.path("unassessedAdvisoryCount").isIntegralNumber())
+                            .isTrue();
+                    assertThat(assessment.path("unassessedAdvisoryCount").asInt())
+                            .isGreaterThanOrEqualTo(0);
+                    assertThat(assessment.path("unassessedAdvisoryIds").isArray())
+                            .isTrue();
+                    assertThat(assessment.path("unassessedAdvisoryIds").size()).isLessThanOrEqualTo(100);
+                    assertThat(assessment.path("unassessedAdvisoryIds").size())
+                            .isLessThanOrEqualTo(
+                                    assessment.path("unassessedAdvisoryCount").asInt());
                     if (assessment.path("detailAssessmentComplete").asBoolean()) {
                         assertThat(assessment.path("queryComplete").asBoolean()).isTrue();
+                        assertThat(assessment.path("unassessedAdvisoryCount").asInt())
+                                .isZero();
                     }
                 }
             }
@@ -3270,6 +3347,29 @@ public abstract class AbstractBootUiApiConformanceTest {
                             + " in the Surefire argLine")
                     .contains(masked);
         }
+    }
+
+    @Test
+    void jvmMetaspaceReservationMatchesBothOptionFormsAndExplainsTheHardCap() {
+        Response response = probe().get(api("/jvm-tuning?totalMemoryMb=65536&threadCount=250&headRoomPercent=10"));
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        JsonNode calculation = report.path("calculation");
+        long mebibyte = 1024L * 1024L;
+
+        assertThat(calculation.path("valid").asBoolean()).isTrue();
+        assertThat(calculation.path("totalMemoryBytes").asLong()).isEqualTo(65536 * mebibyte);
+        long metaspace = calculation.path("metaspaceBytes").asLong();
+        assertThat(metaspace).isPositive();
+        assertThat(metaspace % mebibyte).isZero();
+        String option = "-XX:MaxMetaspaceSize=" + metaspace / mebibyte + "m";
+        assertThat(report.path("suggestedJvmOptions").asText()).contains(option);
+        JsonNode kubernetes = report.path("kubernetes");
+        assertThat(kubernetes.path("javaToolOptions").asText()).contains(option);
+        assertThat(kubernetes.path("yaml").asText()).contains(option);
+        assertThat(kubernetes.path("warnings"))
+                .anySatisfy(
+                        warning -> assertThat(warning.asText()).contains("hard cap", "OutOfMemoryError: Metaspace"));
     }
 
     /**

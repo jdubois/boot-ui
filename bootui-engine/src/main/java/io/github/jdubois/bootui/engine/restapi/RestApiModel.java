@@ -17,6 +17,19 @@ final class RestApiModel {
         JAX_RS
     }
 
+    enum ValidationConstraints {
+        PRESENT,
+        ABSENT,
+        UNKNOWN;
+
+        ValidationConstraints combine(ValidationConstraints other) {
+            if (this == PRESENT || other == PRESENT) {
+                return PRESENT;
+            }
+            return this == UNKNOWN || other == UNKNOWN ? UNKNOWN : ABSENT;
+        }
+    }
+
     /** Well-known annotation / type names matched by string so BootUI need not depend on them. */
     static final class Types {
         private Types() {}
@@ -176,7 +189,11 @@ final class RestApiModel {
         }
     }
 
-    /** One request-handling method on a controller, with the facts the rules need pre-extracted. */
+    /**
+     * One request-handling method on a controller, including inherited Spring mappings. Controller identity
+     * belongs to the concrete inspected type; return/body facts come from the dispatched method, not a
+     * bridge or an overridden mapping declaration.
+     */
     record HandlerMethodModel(
             String controllerClassName,
             String controllerSimpleName,
@@ -245,7 +262,8 @@ final class RestApiModel {
             List<MissingNestedValidField> missingNestedValidFields,
             boolean hasMultipartOrFormParam,
             boolean returnsSpringDataPage,
-            boolean springDataPageViaDtoConfigured) {
+            boolean springDataPageViaDtoConfigured,
+            ValidationConstraints requestBodyConstraints) {
 
         HandlerMethodModel {
             declaredResponseHeaders = List.copyOf(declaredResponseHeaders);
@@ -339,7 +357,8 @@ final class RestApiModel {
                     missingNestedValidFields,
                     hasMultipartOrFormParam,
                     returnsSpringDataPage,
-                    configured);
+                    configured,
+                    requestBodyConstraints);
         }
 
         /** Whether a response header (case-insensitive) is declared on the method, e.g. Quarkus {@code @ResponseHeader}. */

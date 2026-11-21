@@ -373,8 +373,8 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
                 "Every filter chain should enforce authorization",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects a known chain without the standard HTTP authorization filter. Custom filters and method controls are outside this observation.",
-                "Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll) to the chain.",
+                "Detects a known nonempty chain without the standard HTTP authorization filter. Proven supported filterless chains are reviewed by SEC-AUTHZ-006 instead. MEDIUM requires known inspected bean method-family metadata, at least one observed used family and matching activation for all used families; it is a coverage review, not proof of endpoint protection.",
+                "Add authorizeHttpRequests(...) with at least anyRequest().authenticated() (or an explicit denyAll). If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization is still absent.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
 
@@ -383,6 +383,9 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         boolean unknown = false;
         for (FilterChainModel chain : context.chains()) {
+            if (chain.isKnownFilterless()) {
+                continue;
+            }
             if (chain.hasAuthorizationFilter()) {
                 context.applies(true);
             } else if (context.applies(chain.details().filtersKnown())) {
@@ -396,7 +399,8 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
         if (details.isEmpty() && unknown) {
             return skipped("Some ordered chains are unsupported; absence cannot be established.");
         }
-        return violation(context, details);
+        return violation(
+                context, context.allUsedMethodSecurityFamiliesEnabled() ? SecurityRuleSupport.MEDIUM : null, details);
     }
 }
 
@@ -408,8 +412,8 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
                 "Avoid blanket permitAll authorization",
                 SecurityCategory.AUTHORIZATION,
                 "HIGH",
-                "Detects a structurally supported unconditional grant in a chain that also configures authentication.",
-                "Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints.",
+                "Detects a structurally supported unconditional grant in a chain that also configures authentication. MEDIUM requires known inspected bean method-family metadata, at least one observed used family and matching activation for all used families; it is a coverage review, not proof of endpoint protection.",
+                "Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for genuinely public endpoints. If relying on method security, review annotation, proxy and invocation coverage; HTTP authorization still grants broadly.",
                 "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
     }
 
@@ -426,7 +430,8 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
                         + " grants all requests in its scope even though it configures authentication.");
             }
         }
-        return violation(context, details);
+        return violation(
+                context, context.allUsedMethodSecurityFamiliesEnabled() ? SecurityRuleSupport.MEDIUM : null, details);
     }
 }
 
@@ -557,6 +562,55 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
             return skipped("Authorization matcher order could not be inspected for any filter chain.");
         }
         return violation(context, permissiveShadow ? SecurityRuleSupport.HIGH : SecurityRuleSupport.INFO, details);
+    }
+}
+
+final class IgnoredSecurityPatternsRule extends AbstractSecurityRule {
+
+    IgnoredSecurityPatternsRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-AUTHZ-006",
+                "Prefer permitAll within a security chain to ignoring requests",
+                SecurityCategory.AUTHORIZATION,
+                "LOW",
+                "Reports one inventory-level finding for supported filterless chains, including web.ignoring patterns. A structurally proven unconditional ignored matcher raises severity to HIGH; unknown scope remains incomplete.",
+                "Prefer requestMatchers(...).permitAll() inside a real security chain so public requests retain its security headers and other applicable protections. Do not ignore every request.",
+                "https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> ignored = new ArrayList<>();
+        List<String> unconditionalScopes = new ArrayList<>();
+        boolean unknown = false;
+        boolean unconditional = false;
+        for (FilterChainModel chain : context.targets(context.chains())) {
+            if (chain.details().chainSupported() && !chain.filterNames().isEmpty()) {
+                continue;
+            }
+            if (!context.required(chain.isKnownFilterless())) {
+                unknown = true;
+                continue;
+            }
+            var matcher = chain.details().matcher();
+            context.required(matcher != null && matcher.complete());
+            if (matcher != null && matcher.unconditional()) {
+                unconditional = true;
+                unconditionalScopes.add(chain.describe());
+            } else {
+                ignored.add(chain.describe());
+            }
+        }
+        ignored.addAll(0, unconditionalScopes);
+        if (ignored.isEmpty()) {
+            return unknown
+                    ? skipped("Some filter inventories are unsupported; ignored requests cannot be excluded.")
+                    : pass();
+        }
+        return violation(
+                context,
+                unconditional ? SecurityRuleSupport.HIGH : null,
+                List.of("Requests bypass the security filter chain: " + String.join("; ", ignored) + "."));
     }
 }
 
@@ -1016,7 +1070,7 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
                 "SEC-HEAD-009",
                 "Review permissive CSP script execution",
                 SecurityCategory.HEADERS,
-                "MEDIUM",
+                "LOW",
                 "Inspects a supported single enforcing policy's effective script directives, including nonce/hash and strict-dynamic semantics. Framing is assessed separately.",
                 "Restrict script execution with application-specific nonce/hash or trusted sources and remove unnecessary eval permissions.",
                 "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp"));
@@ -1193,10 +1247,12 @@ final class LegacyGlobalMethodSecurityRule extends AbstractSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         context.applies(context.methodSecurityEnabled() || context.globalMethodSecurityLegacyPresent());
-        context.required(context.evidence().methodFamiliesKnown());
         if (context.globalMethodSecurityLegacyPresent()) {
             return violation(
                     context, List.of("@EnableGlobalMethodSecurity is in use; migrate to @EnableMethodSecurity."));
+        }
+        if (!context.required(context.evidence().legacyMethodConfigurationKnown())) {
+            return skipped("Method-security configuration metadata is incomplete.");
         }
         return pass();
     }
@@ -1723,14 +1779,17 @@ final class StrictHttpFirewallWeakenedRule extends AbstractSecurityRule {
                 "StrictHttpFirewall should not relax its default URL protections",
                 SecurityCategory.CONFIGURATION,
                 "HIGH",
-                "Reviews the actual FilterChainProxy's supported StrictHttpFirewall when normally blocked URL tokens have been allowed. Unused firewall beans do not establish effective policy.",
+                "Reviews the actual FilterChainProxy's supported StrictHttpFirewall when normally blocked URL tokens have been allowed. Custom firewalls and unreadable blocklists remain unknown; unused firewall beans do not establish effective policy.",
                 "Keep the StrictHttpFirewall defaults; only relax a specific token (e.g. setAllowUrlEncodedSlash(true)) after verifying every downstream matcher and handler safely tolerates it.",
                 "https://docs.spring.io/spring-security/reference/servlet/exploits/firewall.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        context.applies(!context.chains().isEmpty());
+        if (!context.applies(!context.chains().isEmpty())) return pass();
+        if (!context.required(context.strictHttpFirewallWeakened() != null)) {
+            return skipped("The active firewall or its URL blocklist is unsupported or unreadable.");
+        }
         if (context.strictHttpFirewallWeakened()) {
             return violation(
                     context,

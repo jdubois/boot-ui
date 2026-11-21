@@ -21,6 +21,7 @@ import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.env.OriginTrackedMapPropertySource;
 import org.springframework.boot.origin.OriginTrackedValue;
@@ -29,12 +30,15 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.OverridingClassLoader;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -48,6 +52,7 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.AuthenticationWebFilter;
 import org.springframework.security.web.server.authentication.ServerAuthenticationConverter;
 import org.springframework.security.web.server.context.SecurityContextServerWebExchangeWebFilter;
+import org.springframework.security.web.server.csrf.CsrfWebFilter;
 import org.springframework.security.web.server.header.CompositeServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.HttpHeaderWriterWebFilter;
@@ -123,6 +128,7 @@ class SpringReactiveSecurityObservationCollectorTests {
         assertThat(first.basicAuthentication()).isTrue();
         assertThat(first.formLoginAuthentication()).isFalse();
         assertThat(first.authenticationObserved()).isTrue();
+        assertThat(first.csrfProtectionMatcherObserved()).isTrue();
         assertThat(first.authorizationFilterPresent()).isTrue();
         assertThat(first.webFilterNames()).contains("CsrfWebFilter", "HttpHeaderWriterWebFilter");
         assertThat(first.headerWritersObserved()).isTrue();
@@ -130,10 +136,180 @@ class SpringReactiveSecurityObservationCollectorTests {
         assertThat(first.headerWriterNames()).doesNotContain("ContentSecurityPolicyServerHttpHeadersWriter");
         assertThat(first.hstsMaxAgeSeconds()).isEqualTo(31536000L);
         assertThat(observation.chains().get(1).formLoginAuthentication()).isTrue();
+        assertThat(observation.chains().get(1).csrfProtectionMatcherObserved()).isTrue();
         assertThat(scan(observation).results())
                 .extracting(SecurityRuleResultDto::id)
                 .contains("SEC-RXF-HEAD-004")
                 .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002");
+        assertThat(scan(observation).evidence().limitations()).noneMatch(limit -> limit.contains("SEC-RXF-CSRF-"));
+    }
+
+    @Test
+    void nativeDefaultRejectsMissingPostTokenWhileGetOnlyMatcherSkipsProtection() {
+        CsrfWebFilter standard = new CsrfWebFilter();
+        CsrfWebFilter getOnly = new CsrfWebFilter();
+        getOnly.setRequireCsrfProtectionMatcher(new PathPatternParserServerWebExchangeMatcher("/**", HttpMethod.GET));
+        AtomicInteger downstream = new AtomicInteger();
+        MockServerWebExchange defaultPost = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/transfer").build());
+        MockServerWebExchange getOnlyPost = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/transfer").build());
+
+        standard.filter(defaultPost, exchange -> {
+                    downstream.incrementAndGet();
+                    return Mono.empty();
+                })
+                .block(Duration.ofSeconds(2));
+        assertThat(defaultPost.getResponse().getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN);
+        assertThat(downstream).hasValue(0);
+
+        getOnly.filter(getOnlyPost, exchange -> {
+                    downstream.incrementAndGet();
+                    return Mono.empty();
+                })
+                .block(Duration.ofSeconds(2));
+        assertThat(getOnlyPost.getResponse().getStatusCode()).isNull();
+        assertThat(downstream).hasValue(1);
+    }
+
+    @Test
+    void nativeCsrfFilterWithCustomMatcherDoesNotEstablishProtectionOrExecuteCallbacks() {
+        ServerWebExchangeMatcher callbackTrap = exchange -> {
+            throw new AssertionError("CSRF matcher must not execute");
+        };
+        for (boolean basic : List.of(false, true)) {
+            for (ServerWebExchangeMatcher matcher :
+                    List.of(new PathPatternParserServerWebExchangeMatcher("/**", HttpMethod.GET), callbackTrap)) {
+                ServerHttpSecurity security = basic
+                        ? http().httpBasic(Customizer.withDefaults())
+                        : http().formLogin(Customizer.withDefaults());
+                SecurityWebFilterChain configured = security.csrf(csrf -> csrf.requireCsrfProtectionMatcher(matcher))
+                        .build();
+                ReactiveSecurityObservation observation = collect(new MockEnvironment(), configured);
+                assertThat(observation.chains()).singleElement().satisfies(chain -> {
+                    assertThat(chain.webFilterNames()).contains("CsrfWebFilter");
+                    assertThat(chain.authenticationObserved()).isTrue();
+                    assertThat(chain.csrfProtectionMatcherObserved()).isFalse();
+                });
+                String rule = basic ? "SEC-RXF-CSRF-002" : "SEC-RXF-CSRF-001";
+                SecurityReport report = scan(observation);
+                assertThat(report.results())
+                        .extracting(SecurityRuleResultDto::id)
+                        .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002");
+                assertThat(report.evidence().coverageComplete()).isFalse();
+                assertThat(report.evidence().limitations()).anyMatch(limit -> limit.startsWith(rule + ":"));
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void sameNamedCsrfFilterFromAnotherClassLoaderDoesNotEstablishKnownProtection() throws Exception {
+        ClassLoader isolated = new OverridingClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected boolean isEligibleForOverriding(String className) {
+                return className.equals(CsrfWebFilter.class.getName())
+                        || className.startsWith(CsrfWebFilter.class.getName() + "$");
+            }
+        };
+        WebFilter csrf = (WebFilter) Class.forName(CsrfWebFilter.class.getName(), true, isolated)
+                .getDeclaredConstructor()
+                .newInstance();
+        assertThat(csrf.getClass()).isNotEqualTo(CsrfWebFilter.class);
+        assertThat(csrf.getClass().getName()).isEqualTo(CsrfWebFilter.class.getName());
+        AuthenticationWebFilter form = new AuthenticationWebFilter(NO_AUTH);
+        form.setServerAuthenticationConverter(
+                new org.springframework.security.web.server.authentication.ServerFormLoginAuthenticationConverter());
+        ReactiveSecurityObservation observation = collect(new MockEnvironment(), chain(form, csrf));
+
+        assertThat(observation.chains()).singleElement().satisfies(chain -> {
+            assertThat(chain.webFilterNames()).contains("CsrfWebFilter");
+            assertThat(chain.authenticationObserved()).isTrue();
+            assertThat(chain.csrfProtectionMatcherObserved()).isFalse();
+        });
+        SecurityReport report = scan(observation);
+        assertThat(report.evidence().limitations()).anyMatch(limit -> limit.startsWith("SEC-RXF-CSRF-001:"));
+        assertThat(report.analysisErrors()).isEmpty();
+    }
+
+    @Test
+    void customCsrfMatcherDoesNotLimitBearerOnlyOrNoCredentialChains() {
+        CsrfWebFilter csrf = new CsrfWebFilter();
+        csrf.setRequireCsrfProtectionMatcher(exchange -> {
+            throw new AssertionError("Irrelevant CSRF matcher must not execute");
+        });
+        AuthenticationWebFilter bearer = new AuthenticationWebFilter(NO_AUTH);
+        bearer.setServerAuthenticationConverter(new org.springframework.security.oauth2.server.resource.web.server
+                .authentication.ServerBearerTokenAuthenticationConverter());
+        for (SecurityWebFilterChain configured : List.of(chain(csrf), chain(bearer, csrf))) {
+            ReactiveSecurityObservation observation = collect(new MockEnvironment(), configured);
+            assertThat(observation.chains().get(0).csrfProtectionMatcherObserved())
+                    .isFalse();
+            SecurityReport report = scan(observation);
+            assertThat(report.evidence().limitations()).noneMatch(limit -> limit.contains("SEC-RXF-CSRF-"));
+            assertThat(report.results())
+                    .extracting(SecurityRuleResultDto::id)
+                    .doesNotContain("SEC-RXF-CSRF-001", "SEC-RXF-CSRF-002");
+        }
+    }
+
+    @Test
+    void knownMissingCsrfFindingSurvivesAnotherChainsUnknownMatcher() {
+        for (boolean basic : List.of(false, true)) {
+            ServerHttpSecurity missing =
+                    basic ? http().httpBasic(Customizer.withDefaults()) : http().formLogin(Customizer.withDefaults());
+            ServerHttpSecurity unknown =
+                    basic ? http().httpBasic(Customizer.withDefaults()) : http().formLogin(Customizer.withDefaults());
+            SecurityWebFilterChain missingChain =
+                    missing.csrf(ServerHttpSecurity.CsrfSpec::disable).build();
+            SecurityWebFilterChain unknownChain = unknown.csrf(csrf -> csrf.requireCsrfProtectionMatcher(exchange -> {
+                        throw new AssertionError("CSRF matcher must not execute");
+                    }))
+                    .build();
+            for (List<SecurityWebFilterChain> chains :
+                    List.of(List.of(missingChain, unknownChain), List.of(unknownChain, missingChain))) {
+                ReactiveSecurityObservation observation =
+                        collect(new MockEnvironment(), chains.toArray(SecurityWebFilterChain[]::new));
+                String rule = basic ? "SEC-RXF-CSRF-002" : "SEC-RXF-CSRF-001";
+                SecurityReport report = scan(observation);
+                assertThat(report.results())
+                        .filteredOn(result -> result.id().equals(rule))
+                        .singleElement()
+                        .satisfies(result -> {
+                            assertThat(result.status()).isEqualTo("VIOLATION");
+                            assertThat(result.violationCount()).isOne();
+                            assertThat(result.severity()).isEqualTo(basic ? "MEDIUM" : "HIGH");
+                        });
+                assertThat(report.evidence().limitations()).anyMatch(limit -> limit.startsWith(rule + ":"));
+                assertThat(report.analysisErrors()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void nativeCspNonceFilterIsCompleteAndScopedCspRemainsUnknown() {
+        SecurityWebFilterChain nativeChain = http().headers(headers -> headers.contentSecurityPolicy(csp ->
+                        csp.policyDirectives("script-src 'unsafe-inline' 'nonce-{nonce}'; frame-ancestors 'none'")))
+                .authorizeExchange(exchange -> exchange.anyExchange().authenticated())
+                .build();
+        ReactiveSecurityObservation nativeObservation = collect(new MockEnvironment(), nativeChain);
+        assertThat(nativeObservation.chains().get(0).webFilterNames())
+                .contains("ContentSecurityPolicyNonceGeneratingWebFilter", "HttpHeaderWriterWebFilter")
+                .doesNotContain("custom:org.springframework.security.web.server.header."
+                        + "ContentSecurityPolicyNonceGeneratingWebFilter");
+        assertThat(nativeObservation.chains().get(0).headerWritersObserved()).isTrue();
+        assertThat(scan(nativeObservation).scan().status()).isEqualTo("SCANNED");
+        assertThat(scan(nativeObservation).results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-007");
+
+        ContentSecurityPolicyServerHttpHeadersWriter scoped = csp("frame-ancestors 'none'", false);
+        scoped.setExchangeMatcher(new PathPatternParserServerWebExchangeMatcher("/admin/**"));
+        ReactiveSecurityObservation scopedObservation =
+                collect(new MockEnvironment(), chain(new HttpHeaderWriterWebFilter(scoped)));
+        WebFilterChainObservation observed = scopedObservation.chains().get(0);
+        assertThat(observed.headerWritersObserved()).isFalse();
+        assertThat(observed.cspPolicies()).isEmpty();
     }
 
     @Test
@@ -363,6 +539,132 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void cachedReactiveFactoryBeanProductsSupplyMethodFamiliesWithoutExecutingCallbacks() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("securedService", new RootBeanDefinition(MethodSecurityFactory.class));
+        factory.registerSingleton("chain0", chain());
+        Object product = factory.getBean("securedService");
+        MethodSecurityFactory producer = (MethodSecurityFactory) factory.getBean("&securedService");
+        assertThat(product).isInstanceOf(PreAuthorizedReactiveService.class);
+        producer.callbacks.set(0);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isTrue();
+        assertThat(observation.usedMethodFamilies()).contains("pre-post");
+        assertThat(report.results()).anyMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
+    void uncachedApplicationFactoryBeanProductsKeepMethodFamiliesIncomplete() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        MethodSecurityFactory producer = new MethodSecurityFactory();
+        factory.registerSingleton("securedService", producer);
+        factory.registerSingleton("chain0", chain());
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(report.evidence().limitations())
+                .contains("SEC-RXF-METHOD-001: Method-security family metadata is incomplete.");
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
+    void cachedReactiveAdvisorFactoryBeanProductsParticipateInActivationEvidence() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        factory.registerBeanDefinition("advisorFactory", new RootBeanDefinition(ReactiveAdvisorFactory.class));
+        factory.getBean("advisorFactory");
+        ReactiveAdvisorFactory producer = (ReactiveAdvisorFactory) factory.getBean("&advisorFactory");
+        producer.callbacks.set(0);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isTrue();
+        assertThat(observation.enabledMethodFamilies()).contains("pre-post");
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
+    void uncachedReactiveAdvisorProductsCannotProveActivation() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        ReactiveAdvisorFactory producer = new ReactiveAdvisorFactory();
+        factory.registerSingleton("advisorFactory", producer);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(observation.enabledMethodFamilies()).isEmpty();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(producer.callbacks).hasValue(0);
+    }
+
+    @Test
+    void reactiveAdvisorInventoryOverflowKeepsMethodMetadataIncomplete() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        factory.registerSingleton("securedService", new PreAuthorizedReactiveService());
+        for (int index = 0; index <= 256; index++) {
+            factory.registerSingleton(
+                    "advisor" + index,
+                    org.springframework.security.authorization.method
+                            .AuthorizationManagerBeforeReactiveMethodInterceptor.preAuthorize());
+        }
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+        assertThat(report.evidence().limitations())
+                .contains("SEC-RXF-METHOD-001: Method-security family metadata is incomplete.");
+    }
+
+    @Test
+    void unresolvedOrdinaryReactiveBeanDefinitionsKeepMethodMetadataIncomplete() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("chain0", chain());
+        GenericBeanDefinition unresolved = new GenericBeanDefinition();
+        unresolved.setParentName("missingParent");
+        factory.registerBeanDefinition("unresolvedService", unresolved);
+
+        ReactiveSecurityObservation observation =
+                collector(factory, new MockEnvironment()).collect();
+        SecurityReport report = scan(observation);
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+        assertThat(report.results()).noneMatch(result -> result.id().equals("SEC-RXF-METHOD-001"));
+    }
+
+    @Test
+    void inheritedReactiveBeanFactoryKeepsMethodMetadataIncomplete() {
+        DefaultListableBeanFactory parent = new DefaultListableBeanFactory();
+        parent.registerSingleton("chain0", chain());
+        DefaultListableBeanFactory child = new DefaultListableBeanFactory(parent);
+
+        ReactiveSecurityObservation observation =
+                collector(child, new MockEnvironment()).collect();
+
+        assertThat(observation.methodFamiliesKnown()).isFalse();
+    }
+
+    @Test
     void initializedFactoryBeanProductTypeCallbacksNeverExecuteForEitherInventory() {
         AtomicInteger callbacks = new AtomicInteger();
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
@@ -575,6 +877,26 @@ class SpringReactiveSecurityObservationCollectorTests {
                     .doesNotContain("SEC-RXF-HEAD-002", "SEC-RXF-HEAD-003", "SEC-RXF-HEAD-004");
             assertThat(scan(observation).scan().status()).isEqualTo("PARTIAL");
         }
+    }
+
+    @Test
+    void literalStaticNonceTemplateIsWeakEvenWhenANonceFilterExists() {
+        var nonceFilter =
+                new org.springframework.security.web.server.header.ContentSecurityPolicyNonceGeneratingWebFilter();
+        HttpHeaderWriterWebFilter staticHeaders = new HttpHeaderWriterWebFilter(StaticServerHttpHeadersWriter.builder()
+                .header("Content-Security-Policy", "script-src 'unsafe-inline' 'nonce-{nonce}'")
+                .build());
+        SecurityReport report = scan(collect(new MockEnvironment(), chain(nonceFilter, staticHeaders)));
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-HEAD-007");
+    }
+
+    @Test
+    void nativeLiteralNonceTemplateIsWeakWithoutANonceFilter() {
+        ContentSecurityPolicyServerHttpHeadersWriter writer = csp("script-src 'unsafe-inline' 'nonce-{nonce}'", false);
+        SecurityReport report = scan(collect(new MockEnvironment(), chain(new HttpHeaderWriterWebFilter(writer))));
+
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-RXF-HEAD-007");
     }
 
     @Test
@@ -1052,6 +1374,47 @@ class SpringReactiveSecurityObservationCollectorTests {
         @Override
         public Class<?> getObjectType() {
             return SecurityWebFilterChain.class;
+        }
+    }
+
+    public static final class MethodSecurityFactory implements FactoryBean<PreAuthorizedReactiveService> {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public PreAuthorizedReactiveService getObject() {
+            callbacks.incrementAndGet();
+            return new PreAuthorizedReactiveService();
+        }
+
+        @Override
+        public Class<PreAuthorizedReactiveService> getObjectType() {
+            callbacks.incrementAndGet();
+            return PreAuthorizedReactiveService.class;
+        }
+    }
+
+    public static final class ReactiveAdvisorFactory
+            implements FactoryBean<
+                    org.springframework.security.authorization.method
+                            .AuthorizationManagerBeforeReactiveMethodInterceptor> {
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        @Override
+        public org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor
+                getObject() {
+            callbacks.incrementAndGet();
+            return org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor
+                    .preAuthorize();
+        }
+
+        @Override
+        public Class<
+                        org.springframework.security.authorization.method
+                                .AuthorizationManagerBeforeReactiveMethodInterceptor>
+                getObjectType() {
+            callbacks.incrementAndGet();
+            return org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor
+                    .class;
         }
     }
 

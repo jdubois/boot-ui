@@ -237,4 +237,20 @@ public final class ApplicationFixtures {
         @Async
         void runAsync();
     }
+
+    public static class SchedulingReviewTasks {
+        @Scheduled(initialDelay = 3_600_000, fixedDelay = 3_600_000)
+        private void privateTick() {}
+
+        @org.springframework.scheduling.annotation.Schedules({
+            @Scheduled(cron = Scheduled.CRON_DISABLED),
+            @Scheduled(cron = Scheduled.CRON_DISABLED)
+        })
+        public void repeatedTick() {}
+    }
+
+    public static class DisabledCronTasks {
+        @Scheduled(cron = Scheduled.CRON_DISABLED)
+        public void disabledTick() {}
+    }
 }

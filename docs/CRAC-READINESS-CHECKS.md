@@ -49,11 +49,11 @@ public JSON record shape. Retained checks remain conditional review prompts.
 
 | Check | Disposition | Decision |
 | --- | --- | --- |
-| `CRAC-RES-001` | UPDATE | Same-type cleanup cannot establish field identity or registration; keep it as lower-severity contextual evidence instead of suppressing fields. Include `DirectoryStream`. |
+| `CRAC-RES-001` | UPDATE | Same-type cleanup cannot establish field identity or registration. Lower severity only when every field has supported receiver-specific cleanup and constructor self-registration; retain every field as a review. Include `DirectoryStream`. |
 | `CRAC-FILE-001` | UPDATE | Add `Files.list`, `walk`, `find`, `lines`, and `newDirectoryStream`; distinguish acquisition from retained open state. |
 | `CRAC-NET-001` | RETAIN | Exact socket/channel acquisition, with only exact restore/start call-site exclusions. |
 | `CRAC-POOL-001` | UPDATE | Credit documented existing managed factories in the applicable running lifecycle; do not equate a generic factory or startup-phase presence with coverage. |
-| `CRAC-POOL-002` | UPDATE | Keep transport-owner fields and facade exclusions; remove same-type cleanup certainty and make shutdown guidance JDK/ownership-specific. |
+| `CRAC-POOL-002` | UPDATE | Keep transport-owner fields and facade exclusions; require RES-001's field-specific cleanup/registration evidence for lower severity and keep shutdown guidance JDK/ownership-specific. |
 | `CRAC-POOL-004` | UPDATE | Equal counts do not establish Hikari pairing; report suspension independently and preserve unknown/lazy observations. |
 | `CRAC-CACHE-001` | RETAIN | Known local managers only, LOW and conditional on time-sensitive retained entries. |
 | `CRAC-THREAD-001` | UPDATE | Add per-task executor/base builder APIs; ownership does not prove currently active unmanaged work. |
@@ -104,8 +104,9 @@ Import/collection failure remains an error even when independent checks produced
 describe evaluated checks, not a claim that every possible resource was inspected.
 
 The advisor does **not** establish object reachability, non-null fields, open file descriptors, active connections,
-currently executing tasks, successful unwrapping of arbitrary resources, third-party implementation bytecode, resource
-registration, callback correctness, native-code descriptors, custom context ordering, or eventual application readiness.
+currently executing tasks, successful unwrapping of arbitrary resources, third-party implementation bytecode,
+current runtime registration, callback correctness, native-code descriptors, custom context ordering, or eventual
+application readiness.
 It does not inspect `/proc`, invoke `lsof`, traverse private pool fields, close resources, or read heap/snapshot values.
 
 ### Registration, ordering and checkpoint phase
@@ -115,8 +116,9 @@ order and `afterRestore` in forward order. Keep a strong owner reference. Custom
 ordering; Spring lifecycle phases/dependencies are a separate ordering mechanism.
 
 After callbacks can also run following failed preparation without a real image, and callback failures can be suppressed
-exceptions. Callback execution alone is not successful restore evidence. BootUI does not infer correct registration or
-ordering from bytecode.
+exceptions. Callback execution alone is not successful restore evidence. BootUI can recognize a narrowly shaped
+constructor self-registration call, but does not infer current registration, strong retention or correct ordering from
+bytecode.
 
 The original `spring.context.checkpoint=onRefresh` checkpoint occurs after non-lazy singletons have initialized but
 **before lifecycle startup**. It is not a fully warmed traffic-tested application. Spring's stop-for-restart cycle
@@ -128,11 +130,33 @@ or restored process.
 
 ### CRAC-RES-001 - Resource fields need observable checkpoint cleanup
 
-**HIGH**, or **MEDIUM** when all matching fields have compatible callback cleanup evidence. Curated resource types
+**HIGH**, or **MEDIUM REVIEW** only when **every** matching field has supported receiver-specific callback cleanup and
+constructor self-registration evidence. Curated resource types
 include sockets, file streams/readers/writers, random-access and zip/jar files, channels/selectors/locks, WatchService,
-DirectoryStream, Process and JDBC Connection. A compatible cleanup call in the exact before/stop callback, including
-bounded private same-class helper traversal, is reported but **never proves which field instance is closed** or that the
-owner is registered. Review actual ownership before adding cleanup; preserve existing framework lifecycle handling.
+DirectoryStream, Process and JDBC Connection. Closing one field cannot lower the review for another same-typed field;
+merely reading or logging both beside an unrelated close is not receiver evidence.
+
+The bounded bytecode shape is an adjacent `this.field` read followed by a recognized no-argument cleanup call, directly
+in the exact callback or through private, no-argument, void helpers called on `this` (at most 64 visited methods).
+Lower severity requires that callback/helper path to contain no branches or exception handlers; conditional cleanup,
+including null guards, remains partial evidence at **HIGH** rather than assuming coverage of every path.
+Self-registration requires adjacent `Core.getGlobalContext().register(this)` instructions for the callback's CRaC API
+family in every constructor, without branches or exception handlers. Registering another Resource does not count.
+Aliases, static fields, external/helper-argument delegation, conditional or delegated constructor registration, and
+missing import-time bytecode remain uncredited. Field-specific cleanup without registration stays **HIGH** with an
+explicit partial-evidence explanation. Spring `Lifecycle` declarations and matching stop cleanup also stay **HIGH**:
+the inventory does not pair that owner instance with a running Spring lifecycle bean.
+
+Known callback overrides in imported subclasses or their resolved superclass hierarchy keep the declaring owner's
+fields **HIGH**, including an override inherited by an imported leaf class. An override is not credited merely because
+it might call `super`. Final owners/callbacks and subclasses that inherit the unchanged callback retain only bounded
+review credit. This is limited to the imported hierarchy and available metadata: it does not rule out unimported or
+unresolved subtypes. Samples lead with `UNVERIFIED` and no runtime/checkpoint guarantee, before their evidence and field.
+
+These are syntactic call-site observations, not proof that every path reaches cleanup, callbacks complete, resources
+are strongly retained, shutdown finishes, ordering is correct or restore recreates state. Findings are never removed
+or marked `OK` by cleanup evidence. Review actual ownership before changing handling; preserve existing framework
+lifecycle support. Ordinary-JDK tests inspect bytecode with the real org.crac API; they do not execute checkpoint/restore.
 
 ### CRAC-FILE-001 - Direct file handle acquisition needs checkpoint lifecycle review
 
@@ -148,24 +172,36 @@ deployed JDK's specific descriptor policy; never apply a blanket ignore policy.
 limits as FILE-001. Verify lifecycle ownership and close/recreate only where needed; a constructor does not establish
 an active connection at checkpoint.
 
-### CRAC-POOL-001 - Non-Hikari pools need verified checkpoint lifecycle support
+<a id="crac-pool-001---non-hikari-pools-need-verified-checkpoint-lifecycle-support"></a>
 
-**HIGH** for unverified generic pools/clients; **MEDIUM** when only known managed factories need startup/API review.
-The bounded inventory covers DataSource, R2DBC, Redis, RabbitMQ, Kafka, MongoDB, Cassandra, Elasticsearch and JMS.
-Specific existing Spring-managed Lettuce, Caching Rabbit, Default Kafka producer and JMS SingleConnectionFactory
-implementations have documented handling of their owned resources. A running lifecycle with the compatibility API
+### CRAC-POOL-001 - Non-Hikari resources need verified checkpoint lifecycle support
+
+**HIGH** for unverified generic pools, clients and datasource observations; **MEDIUM** when only known managed factories
+need startup/API review.
+The bounded inventory covers JDBC pools, R2DBC, Redis, RabbitMQ, Kafka producer factories, MongoDB, Cassandra,
+Elasticsearch and JMS. Kafka `ConsumerFactory` is a consumer-creation strategy, not pool evidence. Embedded,
+non-pooling, delegating and unknown JDBC datasources are reported separately as resource observations, not asserted
+to be pools; their checkpoint handling remains unverified. Unknown wrapper targets are never resolved for inspection.
+Specific existing Spring-managed Lettuce,
+[Jedis](https://github.com/spring-projects/spring-data-redis/blob/4.1.2/src/main/java/org/springframework/data/redis/connection/jedis/JedisConnectionFactory.java),
+Caching Rabbit, Default Kafka producer and JMS `SingleConnectionFactory` /
+[`CachingConnectionFactory`](https://github.com/spring-projects/spring-framework/blob/v7.0.10/spring-jms/src/main/java/org/springframework/jms/connection/CachingConnectionFactory.java)
+implementations have documented handling of their owned resources, credited only for the exact implementation with
+Spring's `Lifecycle` contract. A running lifecycle with the compatibility API
 receives that credit, but generic interfaces, unknown wrappers/subclasses, externally shared resources and original
 startup initialization do not become universally safe. Do not wrap/close managed resources twice or require every
-backing service to be reachable at checkpoint regardless of initialization behavior.
+backing service to be reachable at checkpoint regardless of initialization behavior. Neither managed classification nor
+ordinary-JDK inventory tests prove successful checkpoint/restore, resource pairing, or global resource coverage.
 
 ### CRAC-POOL-002 - Transport-owning client fields need checkpoint lifecycle review
 
-**HIGH**, or **MEDIUM** when all matching fields have compatible cleanup evidence. Matches JDK HttpClient, Apache
+**HIGH**, or **MEDIUM REVIEW** only when all matching fields satisfy RES-001's receiver-specific cleanup and constructor
+self-registration requirements. Matches JDK HttpClient, Apache
 CloseableHttpClient, OkHttpClient, Reactor ConnectionProvider, gRPC ManagedChannel, Kafka `KafkaProducer`/`KafkaConsumer`,
 Lettuce `AbstractRedisClient`, Jedis `JedisPool`/`UnifiedJedis` and Netty `EventLoopGroup` fields. Excludes Spring
 RestClient, WebClient, Reactor HttpClient, KafkaTemplate and RedisTemplate facades and the generic Kafka
 `Producer`/`Consumer` interfaces. A field may reference a Spring-managed or shared instance, such as a server event loop;
-never close what the application does not own. Cleanup has RES-001's identity/registration limits and recognizes
+never close what the application does not own. Cleanup has RES-001's bounded shapes and limitations and recognizes
 `shutdownGracefully`. JDK HttpClient shutdown APIs require Java 21 or later; unread response bodies/in-flight work can
 affect shutdown. No client is closed by a scan.
 

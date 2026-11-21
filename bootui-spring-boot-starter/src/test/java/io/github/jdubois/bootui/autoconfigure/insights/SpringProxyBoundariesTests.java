@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.insights.CacheCapture;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ProxyBoundaries.Boundary;
 import io.github.jdubois.bootui.engine.insights.ProxyBypass;
@@ -134,6 +135,7 @@ class SpringProxyBoundariesTests {
             RuntimeInsightsService service =
                     new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
             service.setProxyBoundaries(boundaries);
+            service.setCacheCapture(CacheCapture::capturing);
             var findings = service.report().observations().stream()
                     .filter(observation -> observation.kind().equals(ProxyBypass.KIND))
                     .toList();

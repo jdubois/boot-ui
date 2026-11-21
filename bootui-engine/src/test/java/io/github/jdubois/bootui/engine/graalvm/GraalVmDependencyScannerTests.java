@@ -13,12 +13,15 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GraalVmDependencyScannerTests {
 
@@ -77,6 +80,141 @@ class GraalVmDependencyScannerTests {
 
         assertThat(dependency.shipsMetadata()).isFalse();
         assertThat(dependency.note()).contains("No bundled reachability metadata");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void bundledSourcesAreDistinctAndSkipRepositoryLookup(boolean nested, @TempDir Path dir) throws IOException {
+        Map<String, Map<String, String>> resources = Map.of(
+                "unified", Map.of("META-INF/native-image/com.example/unified/reachability-metadata.json", "{}"),
+                "legacy", Map.of("META-INF/native-image/com.example/legacy/reflect-config.json", "[]"),
+                "aot",
+                        Map.of(
+                                "META-INF/spring/aot.factories",
+                                "org.springframework.aot.hint.RuntimeHintsRegistrar=com.example.Hints"),
+                "both",
+                        Map.of(
+                                "META-INF/native-image/com.example/both/reachability-metadata.json", "{}",
+                                "META-INF/spring/aot.factories", ""));
+        AtomicInteger lookups = new AtomicInteger();
+        for (var entry : resources.entrySet()) {
+            Path jar = dependencyJarWithResources(dir, entry.getKey(), entry.getValue(), nested);
+            GraalVmDependencyDto dependency = new GraalVmDependencyScanner(jar::toString, coordinates -> {
+                        lookups.incrementAndGet();
+                        return ReachabilityMetadataIndex.unavailable("unexpected lookup");
+                    })
+                    .scan()
+                    .dependencies()
+                    .get(0);
+
+            assertThat(dependency.name()).isEqualTo(entry.getKey() + "-1.0.jar");
+            assertThat(dependency.coordinates()).isEqualTo("com.example:" + entry.getKey() + ":1.0");
+            assertThat(dependency.shipsMetadata()).isEqualTo(!entry.getKey().equals("aot"));
+            boolean aot = entry.getKey().equals("aot") || entry.getKey().equals("both");
+            assertThat(dependency.shipsSpringAotFactories()).isEqualTo(aot);
+            assertThat(dependency.repositoryMetadata()).isFalse();
+            assertThat(dependency.repositoryMetadataVersion()).isNull();
+            assertThat(dependency.repositoryTestedVersions()).isNull();
+            assertThat(dependency.repositoryUrl()).isNull();
+            assertThat(dependency.repositoryMetadataUrl()).isNull();
+            assertThat(dependency.note()).contains("Repository lookup skipped", "native compatibility is not verified");
+            if (aot) {
+                assertThat(dependency.note())
+                        .contains("META-INF/spring/aot.factories", "does not verify contributor execution");
+            }
+        }
+        assertThat(lookups).hasValue(0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void absentOrUnrelatedBundledResourcesStillUseRepositoryLookup(boolean nested, @TempDir Path dir)
+            throws IOException {
+        Map<String, Map<String, String>> resources = Map.of(
+                "plain", Map.of("com/example/Plain.class", "data"),
+                "properties",
+                        Map.of("META-INF/native-image/com.example/properties/native-image.properties", "Args = -O2"),
+                "unrelated-json", Map.of("META-INF/native-image/com.example/unrelated-json/build-output.json", "{}"),
+                "spring-factories", Map.of("META-INF/spring.factories", "com.example.Key=com.example.Value"),
+                "wrong-path", Map.of("elsewhere/META-INF/spring/aot.factories", ""),
+                "aot-directory", Map.of("META-INF/spring/aot.factories/", ""));
+        AtomicInteger lookups = new AtomicInteger();
+        for (var entry : resources.entrySet()) {
+            Path jar = dependencyJarWithResources(dir, entry.getKey(), entry.getValue(), nested);
+            GraalVmDependencyDto dependency = new GraalVmDependencyScanner(jar::toString, coordinates -> {
+                        lookups.incrementAndGet();
+                        return ReachabilityMetadataIndex.of(java.util.List.of());
+                    })
+                    .scan()
+                    .dependencies()
+                    .get(0);
+
+            assertThat(dependency.name()).isEqualTo(entry.getKey() + "-1.0.jar");
+            assertThat(dependency.shipsMetadata()).isFalse();
+            assertThat(dependency.shipsSpringAotFactories()).isFalse();
+            assertThat(dependency.note())
+                    .contains("has no entry for this library")
+                    .doesNotContain("lookup skipped");
+        }
+        assertThat(lookups).hasValue(resources.size());
+    }
+
+    @Test
+    void bundledSourcesDoNotConsumeRepositoryLookupBudget(@TempDir Path dir) throws IOException {
+        Path metadata = dependencyJarWithResources(
+                dir, "metadata", Map.of("META-INF/native-image/reflect-config.json", "[]"), false);
+        Path aot = dependencyJarWithResources(dir, "aot", Map.of("META-INF/spring/aot.factories", ""), false);
+        Path plain = dependencyJar(dir, "plain-1.0.jar", "com.example", "plain", "1.0");
+        String classpath = metadata + File.pathSeparator + aot + File.pathSeparator + plain;
+        AtomicInteger lookups = new AtomicInteger();
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        () -> classpath,
+                        coordinates -> {
+                            lookups.incrementAndGet();
+                            assertThat(coordinates.artifactId()).isEqualTo("plain");
+                            return ReachabilityMetadataIndex.of(java.util.List.of(
+                                    new ReachabilityMetadataIndex.Entry("1.0", java.util.List.of(), true)));
+                        },
+                        new java.util.concurrent.atomic.AtomicReference<>(GraalVmDependencyScanner.Progress.idle()),
+                        new java.util.concurrent.atomic.AtomicBoolean(false),
+                        true,
+                        1)
+                .scan();
+
+        assertThat(lookups).hasValue(1);
+        assertThat(survey.dependencies())
+                .filteredOn(GraalVmDependencyDto::repositoryMetadata)
+                .extracting(GraalVmDependencyDto::name)
+                .containsExactly("plain-1.0.jar");
+    }
+
+    @Test
+    void bundledEvidenceDoesNotTransferToAnotherJarWithTheSameCoordinates(@TempDir Path dir) throws IOException {
+        Path bundled = dependencyJarWithResources(dir, "same", Map.of("META-INF/spring/aot.factories", ""), false);
+        Path plain = dependencyJar(dir, "different-name.jar", "com.example", "same", "1.0");
+        String classpath = bundled + File.pathSeparator + plain;
+        AtomicInteger lookups = new AtomicInteger();
+
+        DependencySurvey survey = new GraalVmDependencyScanner(() -> classpath, coordinates -> {
+                    lookups.incrementAndGet();
+                    return ReachabilityMetadataIndex.of(
+                            java.util.List.of(new ReachabilityMetadataIndex.Entry("1.0", java.util.List.of(), true)));
+                })
+                .scan();
+
+        assertThat(lookups).hasValue(1);
+        assertThat(survey.dependencies())
+                .filteredOn(GraalVmDependencyDto::shipsSpringAotFactories)
+                .singleElement()
+                .satisfies(dependency -> {
+                    assertThat(dependency.repositoryMetadata()).isFalse();
+                    assertThat(dependency.note()).contains("lookup skipped");
+                });
+        assertThat(survey.dependencies())
+                .filteredOn(GraalVmDependencyDto::repositoryMetadata)
+                .extracting(GraalVmDependencyDto::name)
+                .containsExactly("different-name.jar");
     }
 
     @Test
@@ -526,6 +664,25 @@ class GraalVmDependencyScannerTests {
                 Map.of(
                         "META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties",
                         "groupId=" + groupId + "\nartifactId=" + artifactId + "\nversion=" + version + "\n"));
+    }
+
+    private static Path dependencyJarWithResources(
+            Path dir, String artifactId, Map<String, String> resources, boolean nested) throws IOException {
+        Map<String, String> entries = new LinkedHashMap<>(resources);
+        entries.put(
+                "META-INF/maven/com.example/" + artifactId + "/pom.properties",
+                "groupId=com.example\nartifactId=" + artifactId + "\nversion=1.0\n");
+        String name = artifactId + "-1.0.jar";
+        if (!nested) {
+            return jar(dir, name, entries);
+        }
+        return jarWithNestedJars(
+                dir,
+                "launcher-" + name,
+                Map.of(
+                        "META-INF/spring/aot.factories", "outer launcher must not supply nested library evidence",
+                        "META-INF/native-image/reachability-metadata.json", "{}"),
+                Map.of("BOOT-INF/lib/" + name, jarBytes(entries)));
     }
 
     /** Builds a jar's raw bytes in memory, for embedding as a {@code BOOT-INF/lib/} nested entry. */

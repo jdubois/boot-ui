@@ -319,6 +319,20 @@ tab requires Connect again. Only `POST /bootui/api/github/refresh` reaches GitHu
 `bootui.github.api-enabled`, and the host allow-list. Failed refreshes keep the last cached report and its timestamp
 with a clear error.
 
+Origin remains the default. When GitHub reports `fork: true`, security cards are labelled **Fork data**, not upstream
+evidence. A validated, allowed local remote named `upstream` is offered as **Connect to configured upstream**, showing
+its host and repository before any request. This is a local configuration choice, not proof of the fork's parent.
+Clicking explicitly refreshes that target under the same page consent; **Connect to origin** returns to origin.
+Missing or malformed upstream metadata and unknown fork status remain unknown. Read-only mode blocks live connections.
+If upstream becomes unavailable, returning to origin stays available; **Read cached origin** uses only GET in read-only
+mode and never enables live refresh.
+
+The existing GET and refresh POST accept optional `remote=origin|upstream`; old callers still use origin. GET stays
+network-free for either selection. Additive `repositoryContext` metadata contains only sanitized identities, never
+raw remote URLs or user-info. Each target retains its own last successful cache, matched by API host and repository;
+an upstream refresh cannot replace origin's cached data, and an error retains the prior report. Credentials are
+resolved afresh for the selected host, never forwarded from origin to another host.
+
 The panel shows repository metadata and an eight-card summary grid, each card opening a detail drawer:
 
 - **Open pull requests** and **open issues**, with labels, staleness buckets, author, comment count, and last update.
@@ -330,14 +344,41 @@ The panel shows repository metadata and an eight-card summary grid, each card op
   `bootui.github.max-security-alerts`. Code scanning and secret scanning stay count-only and never show secret values or
   code snippets.
 
-Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, or an existing `gh auth token` login.
-The token is never sent to the browser, persisted by BootUI, or included in warnings. Without a token, public
-repositories use GitHub's unauthenticated rate limits.
+An unavailable alert signal has an unknown count, not zero, and makes the refresh **Partial** while retaining other
+successful sections. Malformed, blank, or non-array alert responses are unavailable; a valid empty array is a known
+zero. HTTP failures show only the status and section, never the response body. A 403 or 404 alone does not distinguish
+missing permission from a disabled feature. This behavior is the same on Spring MVC, WebFlux, and Quarkus.
+
+Counts sum all pages of a completed traversal, including next-only cursor pagination. Requests stay on the original
+repository API endpoint and preserve the open-state filter and page size. Repository-ID Link aliases are accepted only
+when their ID matches fetched repository metadata and their API origin, prefix and alert endpoint match; missing or
+invalid metadata IDs never authorize an alias. Named repository links do not need that ID.
+
+Failed, truncated or oversized first or later alert responses, unsafe or contradictory links, repeated pages/cursors,
+and bounded traversal stops leave the signal unavailable with a null total. A lower-bound reason and capped Dependabot
+details are retained only when complete pages were observed. Other independently loaded sections remain intact.
+Even a completed traversal is a non-atomic remote observation, not a transactionally consistent GitHub snapshot.
+
+Credentials are read from the current device only and bound to the detected repository host. For github.com
+(including its SSH alias), BootUI checks `GITHUB_TOKEN`, then `GH_TOKEN`. For an allow-listed Enterprise host,
+`GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, are used only when `GH_HOST` explicitly names that same host.
+Otherwise BootUI uses the host's stored CLI login through `gh auth token --hostname <host>`, with token environment
+variables removed from that subprocess so they cannot override its host-specific login. Generic tokens and another
+host's credentials are never reused for Enterprise. Host matching is case-insensitive; Git transport ports are not
+part of the detected host.
+
+The token is never sent to the browser, persisted by BootUI, or included in warnings. Missing credentials remain
+unauthenticated; public repositories use GitHub's unauthenticated rate limits. Custom legacy token providers remain
+usable for github.com, but must implement host-aware lookup to authenticate an Enterprise repository.
 
 ::: details Refresh bounds and Quarkus
 
-Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota safety threshold that skips
-optional sections before exhausting the core API quota. Best-effort cards for Actions cache, artifacts, and billing
+Refreshes are bounded by per-request timeouts, a 2 MiB response limit per request, a maximum API-call budget shared
+with alert pagination, and a quota safety threshold that skips optional sections before exhausting the core API quota.
+Optional alert continuation leaves request capacity for the remaining alert first pages, cache, artifacts, billing and
+applicable Copilot calls. This does not raise the hard budget or guarantee all sections under a very small budget;
+a traversal-budget reason distinguishes this stop from global exhaustion. `bootui.github.max-security-alerts` caps
+Dependabot details, not the number of pages counted. Best-effort cards for Actions cache, artifacts, and billing
 appear when the credential can reach those endpoints. The panel is identical on Quarkus, over the same
 `/bootui/api/github` contract.
 

@@ -15,18 +15,125 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.actuate.autoconfigure.web.server.ManagementContextAutoConfiguration;
+import org.springframework.boot.actuate.autoconfigure.web.server.ManagementPortType;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.boot.web.server.reactive.ReactiveWebServerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.server.reactive.HttpHandler;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import reactor.core.publisher.Mono;
 
 class ReactiveSecurityBootstrapTests {
+
+    @Test
+    void literalManagementPortControlRetainsNativeClassificationAndActuatorFinding() {
+        NativePortObservation observed = observeManagementPort("9090");
+        assertThat(observed.nativePortType()).isEqualTo(ManagementPortType.SAME);
+        assertThat(observed.capturedApplicationPort()).isEqualTo("9090");
+        assertThat(observed.actuator().complete()).isTrue();
+        assertThat(observed.actuator().separateManagementPort()).isFalse();
+        assertThat(observed.actuator().exposedEndpoints()).containsExactly("env");
+        assertThat(observed.observation().environment().actuatorObservationComplete())
+                .isTrue();
+        assertThat(observed.report().results())
+                .extracting(result -> result.id())
+                .contains("SEC-RXF-ACT-005", "SEC-RXF-CONFIG-003");
+        assertThat(observed.report().analysisErrors()).isEmpty();
+        assertThat(observed.report().scan().status()).isEqualTo("SCANNED");
+        assertThat(observed.report().evidence().coverageComplete()).isTrue();
+        assertThat(observed.report().toString()).doesNotContain("bootstrap-test-literal");
+    }
+
+    @Test
+    void capturedManagementPortReferenceRetainsNativeClassificationAndActuatorFinding() {
+        NativePortObservation observed = observeManagementPort("${server.port}");
+        assertThat(observed.nativePortType()).isEqualTo(ManagementPortType.SAME);
+        assertThat(observed.capturedApplicationPort()).isEqualTo("9090");
+        assertThat(observed.report().results())
+                .extracting(result -> result.id())
+                .contains("SEC-RXF-CONFIG-003");
+        assertThat(observed.report().analysisErrors()).isEmpty();
+        assertThat(observed.report().toString()).doesNotContain("bootstrap-test-literal");
+        assertThat(observed.actuator().complete())
+                .as(
+                        "Native mode %s; Actuator %s; report %s",
+                        observed.nativePortType(), observed.actuator(), observed.report())
+                .isTrue();
+        assertThat(observed.actuator().separateManagementPort()).isFalse();
+        assertThat(observed.actuator().exposedEndpoints()).containsExactly("env");
+        assertThat(observed.observation().environment().actuatorObservationComplete())
+                .isTrue();
+        assertThat(observed.report().results())
+                .extracting(result -> result.id())
+                .contains("SEC-RXF-ACT-005", "SEC-RXF-CONFIG-003");
+        assertThat(observed.report().scan().status()).isEqualTo("SCANNED");
+        assertThat(observed.report().evidence().coverageComplete()).isTrue();
+    }
+
+    @Test
+    void capturedRandomPortReferenceRetainsNativeSeparateListenerSemantics() {
+        MockEnvironment literal =
+                new MockEnvironment().withProperty("server.port", "0").withProperty("management.server.port", "0");
+        MockEnvironment reference = new MockEnvironment()
+                .withProperty("server.port", "0")
+                .withProperty("management.server.port", "${server.port}");
+        assertThat(ManagementPortType.get(literal)).isEqualTo(ManagementPortType.DIFFERENT);
+        assertThat(ManagementPortType.get(reference)).isEqualTo(ManagementPortType.get(literal));
+        var literalObservation = SecurityActuatorObservation.observe(literal);
+        assertThat(literalObservation.complete()).isTrue();
+        assertThat(literalObservation.separateManagementPort()).isTrue();
+        assertThat(SecurityActuatorObservation.observe(reference)).isEqualTo(literalObservation);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static NativePortObservation observeManagementPort(String managementPort) {
+        SpringApplication application = new SpringApplication(BootstrapConfiguration.class);
+        application.setWebApplicationType(WebApplicationType.REACTIVE);
+        application.setRegisterShutdownHook(false);
+        application.setDefaultProperties(Map.of(
+                "spring.config.location", "classpath:reactive-security-bootstrap.properties",
+                "bootui.enabled", "ON",
+                "spring.main.banner-mode", "off"));
+        try (var context = application.run(
+                "--server.port=9090",
+                "--management.server.port=" + managementPort,
+                "--management.endpoints.web.exposure.include=env",
+                "--management.endpoint.env.show-values=always")) {
+            var environment = context.getEnvironment();
+            assertThat(environment.getPropertySources().stream()
+                            .map(source -> source.getClass().getName()))
+                    .contains(
+                            "org.springframework.boot.env.OriginTrackedMapPropertySource",
+                            "org.springframework.core.env.SimpleCommandLinePropertySource");
+            Environment captured = SecurityEnvironmentSnapshot.capture(environment);
+            ObjectProvider<ListableBeanFactory> factories = mock(ObjectProvider.class);
+            when(factories.getIfAvailable()).thenReturn(context.getBeanFactory());
+            ReactiveSecurityObservation observation = new SpringReactiveSecurityObservationCollector(
+                            context.getBeanProvider(SecurityWebFilterChain.class), factories, environment)
+                    .collect();
+            SecurityReport report = ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC())
+                    .scan();
+            return new NativePortObservation(
+                    ManagementPortType.get(environment),
+                    SecurityActuatorObservation.observe(captured),
+                    observation,
+                    report,
+                    captured.getProperty("server.port"));
+        }
+    }
+
+    private record NativePortObservation(
+            ManagementPortType nativePortType,
+            SecurityActuatorObservation.Snapshot actuator,
+            ReactiveSecurityObservation observation,
+            SecurityReport report,
+            String capturedApplicationPort) {}
 
     @Test
     @SuppressWarnings("unchecked")

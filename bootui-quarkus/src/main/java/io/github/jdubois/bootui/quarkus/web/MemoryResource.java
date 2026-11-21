@@ -11,7 +11,12 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
+import java.util.Map;
 
 /**
  * JAX-RS resource for the Memory advisor panel ({@code GET /bootui/api/memory},
@@ -27,7 +32,7 @@ import jakarta.ws.rs.core.MediaType;
  *
  * <p>The scanner atomically owns the last report and its retained detail index.
  * {@code POST /scan} is {@code @Blocking}:
- * collecting the heap-content histogram forces a full GC, which must not run on the Vert.x event loop.
+ * a requested heap-content histogram requests GC and may pause the JVM, so it must not run on the Vert.x event loop.
  * The mutating scan is gated by the shared {@code LocalhostGuard} write floor enforced by
  * {@code BootUiQuarkusSafetyFilter}.</p>
  */
@@ -51,13 +56,27 @@ public class MemoryResource implements AdvisorViolationsEndpoint {
         return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
+    public MemoryReport scan() {
+        MemoryReport report = scanner.scan();
+        return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
     @POST
     @Path("/scan")
     @Blocking
     @Produces(MediaType.APPLICATION_JSON)
-    public MemoryReport scan() {
-        MemoryReport report = scanner.scan();
-        return scanner.applyDismissals(report, dismissedRules.load());
+    public MemoryReport scan(@Context UriInfo uriInfo) {
+        Boolean selected;
+        try {
+            selected = MemoryScanner.parseIncludeHistogram(uriInfo.getQueryParameters());
+        } catch (IllegalArgumentException exception) {
+            throw new WebApplicationException(Response.status(400)
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(Map.of("message", exception.getMessage()))
+                    .build());
+        }
+        if (selected == null) return scan();
+        return scanner.applyDismissals(scanner.scan(selected), dismissedRules.load());
     }
 
     @Override

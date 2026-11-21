@@ -1,5 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerVulnerabilityCandidateTests} from '../scenarios/vulnerability-candidates.js'
+
+registerVulnerabilityCandidateTests(test, expect)
 
 const inventoryReport = {
   scanningEnabled: true,

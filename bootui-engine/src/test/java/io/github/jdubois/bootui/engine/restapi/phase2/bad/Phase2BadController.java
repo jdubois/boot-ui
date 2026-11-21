@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Controller that intentionally trips the Phase 2 REST API Advisor additions and tightened rules:
  * RAPI-MAP-008 (mutation without an id), RAPI-RESP-008 (CREATED body with no Location),
- * RAPI-VER-005 (inconsistent produces), and RAPI-VALID-001 (bare {@code @NotNull} on a request body).
+ * and RAPI-VER-005 (inconsistent produces). Its unconstrained request DTOs do not need cascade validation.
  */
 @RestController
 @RequestMapping("/api/items")
@@ -42,9 +42,7 @@ public class Phase2BadController {
     }
 
     @PutMapping("/{id}")
-    public void replace(@PathVariable String id, @RequestBody ItemDto body) {
-        // RAPI-VALID-001: @RequestBody with no @Valid/@Validated is unvalidated.
-    }
+    public void replace(@PathVariable String id, @RequestBody ItemDto body) {}
 
     @PostMapping("/search")
     public List<ItemDto> search(@RequestBody ItemDto query) {

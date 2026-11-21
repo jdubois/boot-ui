@@ -1179,7 +1179,17 @@ record MemoryContext(
             long maxDurationMillis,
             long totalDurationMillis,
             String lastCollectorName,
-            boolean notificationsObserved) {
+            boolean notificationsObserved,
+            String limitation) {
+
+        ExplicitGcData(
+                long count,
+                long maxDurationMillis,
+                long totalDurationMillis,
+                String lastCollectorName,
+                boolean notificationsObserved) {
+            this(count, maxDurationMillis, totalDurationMillis, lastCollectorName, notificationsObserved, null);
+        }
 
         ExplicitGcData(long count, long maxDurationMillis, long totalDurationMillis, String lastCollectorName) {
             this(count, maxDurationMillis, totalDurationMillis, lastCollectorName, true);

@@ -43,12 +43,19 @@ public final class ConnectionsPerRequest implements Observation {
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
+        long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             Map<String, List<String[]>> byDataSource = new LinkedHashMap<>();
             Map<String, Integer> mostHeld = new LinkedHashMap<>();
+            Map<String, Integer> eligibleByDataSource = new LinkedHashMap<>();
             for (ProjectedRequest request : route.getValue()) {
-                maxHeldTogether(request).forEach((dataSource, held) -> {
+                Map<String, Integer> heldTogether = maxHeldTogether(request);
+                if (!heldTogether.isEmpty()) {
+                    eligible++;
+                }
+                heldTogether.forEach((dataSource, held) -> {
+                    eligibleByDataSource.merge(dataSource, 1, Integer::sum);
                     if (held >= 2) {
                         byDataSource
                                 .computeIfAbsent(dataSource, d -> new ArrayList<>())
@@ -59,14 +66,8 @@ public final class ConnectionsPerRequest implements Observation {
             }
             byDataSource.forEach((dataSource, rows) -> {
                 int held = mostHeld.get(dataSource);
+                int requests = eligibleByDataSource.get(dataSource);
                 Integer pool = snapshot.poolSize(dataSource).orElse(null);
-                String estimate = pool == null
-                        ? "With a pool of P connections, floor((P - 1) / " + (held - 1)
-                                + ") + 1 concurrent requests can exhaust the pool while waiting for another connection."
-                        : "With a pool of " + pool + " connections and the observed maximum of " + held
-                                + " held per request, " + ((pool - 1) / (held - 1) + 1)
-                                + " concurrent " + (pool <= held - 1 ? "request can" : "requests can")
-                                + " exhaust the pool while waiting for another connection.";
                 rows.sort(Comparator.comparingInt((String[] row) -> Integer.parseInt(row[1]))
                         .reversed());
                 findings.add(new Finding(
@@ -75,27 +76,40 @@ public final class ConnectionsPerRequest implements Observation {
                         true,
                         "`" + route.getKey() + "` held " + held + " connections of `" + dataSource
                                 + "` at the same time in " + rows.size() + " of "
-                                + InsightText.counted(route.getValue().size(), "request") + ".",
-                        route.getValue().size(),
+                                + InsightText.counted(requests, "request") + ".",
+                        requests,
                         rows.size(),
                         List.of(
-                                "Check for a REQUIRES_NEW transaction, or a second call to the data source, inside"
-                                        + " an open transaction (Transactions).",
-                                estimate + " This is a hold-and-wait estimate, not proof of a deadlock"
-                                        + " (Database Connection Pools)."),
+                                "Check whether these checkouts were nested, such as REQUIRES_NEW inside an open"
+                                        + " transaction, or parallel independent work (Transactions).",
+                                (pool == null
+                                                ? "Check the pool's maximum size"
+                                                : "Compare the pool's current maximum of "
+                                                        + InsightText.counted(pool, "connection"))
+                                        + " against the work that uses it. If checkouts are nested, could a request"
+                                        + " need another connection while holding one (Database Connection Pools)?"),
                         rows.stream().limit(3).map(row -> row[0]).toList(),
                         List.of("Request", "Connections held together"),
                         rows.stream().map(List::of).toList(),
                         List.of(
-                                "Counts logical connections the application obtained. The estimate assumes nested"
-                                        + " checkouts, not parallel independent work; other pool users can exhaust it"
-                                        + " at lower concurrency.",
+                                "Counts logical connections the application obtained, not physical connections."
+                                        + " Overlap does not establish waiting or deadlock.",
+                                "Captured checkout thread names and execution ids do not establish serial ownership"
+                                        + " or nesting, so no hold-and-wait concurrency estimate is inferred.",
                                 pool == null
-                                        ? "The pool's maximum size is unavailable; the estimate uses P."
-                                        : "The estimate uses the pool's current maximum size.")));
+                                        ? "The pool's maximum size is unavailable."
+                                        : "The current pool maximum may differ from when these connections were"
+                                                + " recorded.")));
             });
         }
-        return new Evaluation(snapshot.requests().size(), findings);
+        long uncounted = snapshot.requests().size() - eligible;
+        return new Evaluation(
+                eligible,
+                findings,
+                uncounted == 0
+                        ? null
+                        : uncounted + " requests or executions had no observed logical connection;"
+                                + " SQL execution capture alone does not establish connection absence.");
     }
 
     /** The most connections of each data source the request held at once. */

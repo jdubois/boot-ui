@@ -167,7 +167,7 @@
           Fault Tolerance panel providers. Resilience4j ships each protection as its own artifact and an
           application typically adopts only some of them, so every module stays optional and each is read by
           a separately loaded reader class. Spring Retry is likewise optional and unmanaged by the Spring
-          Boot 4.1 BOM, so both carry explicit versions from the root pom.
+          Boot 4.2 BOM, so both carry explicit versions from the root pom.
         -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
@@ -208,9 +208,6 @@
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
-            <!-- Explicit Spring Kafka 4.1 override aligned with the Spring Boot 4.1 / Spring
-                 Framework 7 baseline. -->
-            <version>4.1.2</version>
             <optional>true</optional>
         </dependency>
         <dependency>

@@ -1,12 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
@@ -19,6 +22,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
 import java.lang.reflect.Proxy;
@@ -38,13 +42,231 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.service.spi.ServiceRegistryImplementor;
 import org.hibernate.stat.spi.StatisticsImplementor;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryRewriter;
+import org.springframework.data.repository.Repository;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.mock.env.MockEnvironment;
 
 class SpringHibernateAdvisorObservationSourceTests {
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void nativeRepositoryMetadataFeedsFilteredFetchReviewWithoutExecutingApplicationCode() throws Exception {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        SessionFactoryImplementor factory = factory("orders", 25);
+        EntityType entity = mock(EntityType.class);
+        when(entity.getJavaType()).thenReturn(SpringHibernateRepositoryDiscoveryTests.Order.class);
+        when(entity.getName()).thenReturn("Order");
+        Set<Attribute> attributes = new java.util.LinkedHashSet<>();
+        for (String name : List.of("id", "status", "items")) {
+            Attribute attribute = mock(Attribute.class);
+            when(attribute.getName()).thenReturn(name);
+            when(attribute.getJavaMember())
+                    .thenReturn(SpringHibernateRepositoryDiscoveryTests.Order.class.getDeclaredField(name));
+            when(attribute.getPersistentAttributeType())
+                    .thenReturn(
+                            name.equals("items")
+                                    ? Attribute.PersistentAttributeType.ONE_TO_MANY
+                                    : Attribute.PersistentAttributeType.BASIC);
+            attributes.add(attribute);
+        }
+        when(entity.getAttributes()).thenReturn(attributes);
+        when(factory.getMetamodel().getEntities()).thenReturn(Set.of(entity));
+        beans.registerSingleton("orders", factory);
+        var repository = SpringHibernateRepositoryDiscoveryTests.factory(true);
+        var information = repository.getRepositoryInformation();
+        doReturn(FilteredFetchRepository.class).when(information).getRepositoryInterface();
+        doReturn(FilteredFetchRepository.class)
+                .when((FactoryBean<?>) repository)
+                .getObjectType();
+        beans.registerSingleton("repository", repository);
+
+        HibernateAdvisorObservation observation =
+                source(beans, new MockEnvironment()).observe();
+        assertThat(observation.diagnostics()).isEmpty();
+        var report =
+                HibernateScanner.observing(() -> observation, Clock.systemUTC()).scan();
+
+        assertThat(report.rulesEvaluated()).isEqualTo(78);
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-QUERY-010"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.coverageNote()).isNotBlank();
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("#filtered", "may initialize an incomplete managed collection")
+                            .doesNotContain("private-filter-value", "select ", "#present", "#correlated");
+                });
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().equals("HIB-QUERY-010"))
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message())
+                        .contains("#correlated")
+                        .doesNotContain("private-filter-value", "select "));
+        verify((FactoryBean<?>) repository, never()).getObject();
+        verify(factory, never()).createEntityManager();
+    }
+
+    interface FilteredFetchRepository extends Repository<SpringHibernateRepositoryDiscoveryTests.Order, Long> {
+        @Query("select o from Order o join fetch o.items i where i.status = 'private-filter-value'")
+        List<SpringHibernateRepositoryDiscoveryTests.Order> filtered();
+
+        @Query("select o from Order o join fetch o.items i where i.id is not null")
+        List<SpringHibernateRepositoryDiscoveryTests.Order> present();
+
+        @Query("select o from Order o join fetch o.items i where i.id = o.id")
+        List<SpringHibernateRepositoryDiscoveryTests.Order> correlated();
+    }
+
+    @Test
+    void observesEffectiveResultLoggingIncludingInheritanceWithoutTrustingConfiguredLevels() {
+        Logger parent = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc");
+        Logger bind = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc.bind");
+        Logger extract = (Logger) LoggerFactory.getLogger("org.hibernate.orm.jdbc.extract");
+        Level previousParent = parent.getLevel();
+        Level previousBind = bind.getLevel();
+        Level previousExtract = extract.getLevel();
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        SessionFactoryImplementor factory = factory("orders", 25);
+        beans.registerSingleton("orders", factory);
+        try {
+            parent.setLevel(Level.TRACE);
+            bind.setLevel(Level.OFF);
+            for (String profile : List.of("prod", "dev")) {
+                for (Level level : new Level[] {Level.OFF, Level.DEBUG, Level.TRACE, null}) {
+                    extract.setLevel(level);
+                    MockEnvironment environment = new MockEnvironment()
+                            .withProperty("logging.level.org.hibernate.orm.jdbc.bind", "TRACE")
+                            .withProperty(
+                                    "logging.level.org.hibernate.orm.jdbc.extract",
+                                    level == Level.TRACE || level == null ? "OFF" : "TRACE");
+                    environment.setActiveProfiles(profile);
+                    HibernateAdvisorObservation observation =
+                            source(beans, environment).observe();
+                    boolean enabled = level == Level.TRACE || level == null;
+                    assertThat(observation.application().bindLoggerEnabled()).isFalse();
+                    assertThat(observation.application().extractLoggerEnabled()).isEqualTo(enabled);
+                    var report = HibernateScanner.observing(() -> observation, Clock.systemUTC())
+                            .scan();
+                    assertThat(report.results())
+                            .filteredOn(result -> result.id().equals("HIB-CONFIG-018"))
+                            .hasSize(enabled && "prod".equals(profile) ? 1 : 0)
+                            .allSatisfy(result -> {
+                                assertThat(result.violationCount()).isEqualTo(1);
+                                assertThat(result.sampleViolations())
+                                        .singleElement()
+                                        .asString()
+                                        .contains("Result-value logging")
+                                        .doesNotContain("Bind-parameter");
+                            });
+                    assertThat(report.diagnostics())
+                            .noneMatch(diagnostic -> diagnostic.source().equals("HIB-CONFIG-018"));
+                }
+            }
+            bind.setLevel(Level.TRACE);
+            extract.setLevel(Level.OFF);
+            MockEnvironment production = new MockEnvironment();
+            production.setActiveProfiles("prod");
+            HibernateAdvisorObservation control = source(beans, production).observe();
+            assertThat(control.application().bindLoggerEnabled()).isTrue();
+            assertThat(control.application().extractLoggerEnabled()).isFalse();
+            assertThat(HibernateScanner.observing(() -> control, Clock.systemUTC())
+                            .scan()
+                            .results())
+                    .filteredOn(result -> result.id().equals("HIB-CONFIG-018"))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .contains("Bind-parameter logging")
+                            .doesNotContain("Result-value"));
+            verify(factory, never()).createEntityManager();
+        } finally {
+            extract.setLevel(previousExtract);
+            bind.setLevel(previousBind);
+            parent.setLevel(previousParent);
+        }
+    }
+
+    @Test
+    void nativeRepositoryObservationDischargesOnlyVerifiedStaticBulkFetchObligations() throws Exception {
+        for (boolean rewritten : List.of(false, true)) {
+            DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+            SessionFactoryImplementor factory = factory("orders", 25);
+            beans.registerSingleton("orders", factory);
+            var repository = SpringHibernateRepositoryDiscoveryTests.factory(true);
+            Class<?> type = rewritten ? RewrittenBulkRepository.class : DeclaredBulkRepository.class;
+            var information = repository.getRepositoryInformation();
+            doReturn(type).when(information).getRepositoryInterface();
+            doReturn(type).when((FactoryBean<?>) repository).getObjectType();
+            beans.registerSingleton("repository", repository);
+
+            HibernateAdvisorObservation observation =
+                    source(beans, new MockEnvironment()).observe();
+            assertThat(observation.diagnostics()).isEmpty();
+            assertThat(observation.units())
+                    .singleElement()
+                    .satisfies(unit -> assertThat(unit.repositories())
+                            .singleElement()
+                            .satisfies(observed -> assertThat(observed.methods())
+                                    .singleElement()
+                                    .satisfies(method -> {
+                                        assertThat(method.query()).isEqualTo("delete from Order o");
+                                        assertThat(method.evidence().verifiedQueryMethod())
+                                                .isTrue();
+                                        assertThat(method.evidence().declaredQuery())
+                                                .isTrue();
+                                        assertThat(method.evidence().queryRewriter())
+                                                .isEqualTo(rewritten);
+                                    })));
+            var report = HibernateScanner.observing(() -> observation, Clock.systemUTC())
+                    .scan();
+            assertThat(report.diagnostics().stream()
+                            .filter(diagnostic -> diagnostic.source().equals("HIB-QUERY-007"))
+                            .toList())
+                    .hasSize(rewritten ? 1 : 0);
+            assertThat(report.scan().status())
+                    .as("other genuine catalogue gaps remain")
+                    .isEqualTo("PARTIAL");
+            verify((FactoryBean<?>) repository, never()).getObject();
+            verify(factory, never()).createEntityManager();
+        }
+    }
+
+    interface DeclaredBulkRepository extends Repository<SpringHibernateRepositoryDiscoveryTests.Order, Long> {
+        @Modifying
+        @Query("delete from Order o")
+        int purge();
+    }
+
+    interface RewrittenBulkRepository extends Repository<SpringHibernateRepositoryDiscoveryTests.Order, Long> {
+        @Modifying
+        @Query(value = "delete from Order o", queryRewriter = UninvokableQueryRewriter.class)
+        int purge();
+    }
+
+    public static class UninvokableQueryRewriter implements QueryRewriter {
+        public UninvokableQueryRewriter() {
+            throw new AssertionError("Query rewriters must not be instantiated by observation or scanning");
+        }
+
+        @Override
+        public String rewrite(String query, Sort sort) {
+            throw new AssertionError("Query rewriters must not be executed by observation or scanning");
+        }
+    }
+
     @Test
     void failingLazyMiddleFactoryDoesNotHideLaterUnitsInEitherOrder() {
         for (List<String> order : List.of(List.of("first", "failed", "last"), List.of("last", "failed", "first"))) {

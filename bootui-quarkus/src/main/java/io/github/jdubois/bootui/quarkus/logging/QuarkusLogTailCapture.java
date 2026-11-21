@@ -25,17 +25,24 @@ public class QuarkusLogTailCapture {
 
     private final LogTailBuffer buffer;
     private final RuntimeJournal journal;
+    private final QuarkusLogCoverage coverage;
     private QuarkusLogTailHandler handler;
+    private Logger captureRoot;
 
     public QuarkusLogTailCapture(LogTailBuffer buffer) {
         this(buffer, null);
     }
 
     /** @param journal the runtime journal, which also receives {@code WARN} and {@code ERROR} events, or {@code null} */
-    @Inject
     public QuarkusLogTailCapture(LogTailBuffer buffer, RuntimeJournal journal) {
+        this(buffer, journal, new QuarkusLogCoverage());
+    }
+
+    @Inject
+    public QuarkusLogTailCapture(LogTailBuffer buffer, RuntimeJournal journal, QuarkusLogCoverage coverage) {
         this.buffer = buffer;
         this.journal = journal;
+        this.coverage = coverage;
     }
 
     void onStart(@Observes StartupEvent event) {
@@ -53,14 +60,21 @@ public class QuarkusLogTailCapture {
                         "io.github.jdubois.bootui.core")),
                 journal);
         root.addHandler(handler);
-        QuarkusLogCoverage.handlerChanged();
+        captureRoot = root;
+        coverage.handlerChanged(root, handler);
     }
 
     void onStop(@Observes ShutdownEvent event) {
-        if (handler != null) {
-            Logger.getLogger("").removeHandler(handler);
-            handler = null;
-            QuarkusLogCoverage.handlerChanged();
+        Logger root = captureRoot;
+        QuarkusLogTailHandler captured = handler;
+        captureRoot = null;
+        handler = null;
+        try {
+            if (root != null && captured != null) {
+                root.removeHandler(captured);
+            }
+        } finally {
+            coverage.handlerChanged(null, null);
         }
     }
 }

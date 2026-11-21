@@ -5,6 +5,11 @@ import io.github.jdubois.bootui.conformance.McpResponseBudgetContract;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.context.ContextRegistry;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +47,27 @@ class ReactiveBootUiMcpResponseBudgetTests {
     @Test
     void nativeJsonAndSseRespectTheBudgetInBothEras() throws Exception {
         CONTRACT.verify(port, service.dispatcher(), json -> json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void jsonRepliesUseAnExactContentLength() throws Exception {
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}";
+        HttpResponse<byte[]> response = HttpClient.newHttpClient()
+                .send(
+                        HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/bootui/api/mcp"))
+                                .header("Content-Type", "application/json")
+                                .POST(HttpRequest.BodyPublishers.ofString(body))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofByteArray());
+
+        org.assertj.core.api.Assertions.assertThat(response.statusCode()).isEqualTo(200);
+        org.assertj.core.api.Assertions.assertThat(
+                        response.headers().firstValueAsLong("Content-Length").orElse(-1))
+                .isEqualTo(response.body().length);
+        org.assertj.core.api.Assertions.assertThat(response.headers().firstValue("Transfer-Encoding"))
+                .isEmpty();
+        org.assertj.core.api.Assertions.assertThat(new String(response.body(), StandardCharsets.UTF_8).length())
+                .isPositive();
     }
 
     @SpringBootConfiguration

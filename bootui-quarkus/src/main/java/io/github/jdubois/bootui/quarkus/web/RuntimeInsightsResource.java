@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.quarkus.logging.QuarkusLogCoverage;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.MappingProvider;
@@ -89,6 +90,7 @@ public class RuntimeInsightsResource {
             Instance<SideEffectsService> sideEffects,
             Instance<SqlTraceRecorder> sqlTraceRecorder,
             QuarkusExposurePolicy exposure,
+            QuarkusLogCoverage logCoverage,
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.comparison = new RunComparisonService(
@@ -130,6 +132,7 @@ public class RuntimeInsightsResource {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
         this.insights.setSqlCapture(() -> sqlCapture(sqlTraceRecorder));
+        this.insights.setLogCoverage(() -> logCoverage);
         this.insights.setUnrecordedWork(
                 UnrecordedWork.detect(Thread.currentThread().getContextClassLoader()));
         // A panel this application cannot serve is not a panel its developer switched off, and Runtime Insights must

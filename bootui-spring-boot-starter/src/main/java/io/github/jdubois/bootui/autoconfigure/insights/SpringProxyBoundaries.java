@@ -9,8 +9,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.annotation.MergedAnnotation;
 import org.springframework.core.annotation.MergedAnnotations;
 import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
@@ -29,6 +32,10 @@ public final class SpringProxyBoundaries implements ProxyBoundaries {
     static final String CACHEABLE = "org.springframework.cache.annotation.Cacheable";
     static final String CACHE_CONFIG = "org.springframework.cache.annotation.CacheConfig";
     static final String ASYNC = "org.springframework.scheduling.annotation.Async";
+    static final String CUSTOM_CACHE_RESOLVER =
+            "This cacheable method uses a custom cache resolver, whose access path is not proven observable.";
+    static final String ASYNC_CACHE =
+            "Asynchronous or reactive cache retrieval is not recorded, so this method's missing cache access is not assessed.";
 
     /** The bean {@code @EnableTransactionManagement(mode = ASPECTJ)} registers. */
     static final String TRANSACTION_ASPECT = "org.springframework.transaction.config.internalTransactionAspect";
@@ -113,20 +120,40 @@ public final class SpringProxyBoundaries implements ProxyBoundaries {
                 && REQUIRING.contains(
                         String.valueOf(transactional.getValue("propagation").orElse("REQUIRED")));
         Set<String> caches = new LinkedHashSet<>();
+        String cacheManager = null;
+        String cacheUnobservable = null;
         MergedAnnotation<?> cacheable = present(onMethod.get(CACHEABLE), onType.get(CACHEABLE));
         if (cacheable != null
                 && !cacheable.getBoolean("sync")
                 && cacheable.getString("condition").isBlank()) {
             caches.addAll(names(cacheable, "cacheNames"));
+            MergedAnnotation<?> config = onType.get(CACHE_CONFIG);
+            cacheManager = cacheable.getString("cacheManager");
+            String resolver = cacheable.getString("cacheResolver");
+            if (config.isPresent()) {
+                if (cacheManager.isBlank()) cacheManager = config.getString("cacheManager");
+                if (resolver.isBlank()) resolver = config.getString("cacheResolver");
+            }
+            if (!resolver.isBlank()) cacheUnobservable = CUSTOM_CACHE_RESOLVER;
+            Class<?> returned = method.getReturnType();
+            if (CompletionStage.class.isAssignableFrom(returned)
+                    || Future.class.isAssignableFrom(returned)
+                    || ReactiveAdapterRegistry.getSharedInstance().getAdapter(returned) != null) {
+                cacheUnobservable = ASYNC_CACHE;
+            }
             if (caches.isEmpty()) {
-                MergedAnnotation<?> config = onType.get(CACHE_CONFIG);
                 if (config.isPresent()) {
                     caches.addAll(names(config, "cacheNames"));
                 }
             }
         }
         boolean async = present(onMethod.get(ASYNC), onType.get(ASYNC)) != null;
-        return new Boundary(requiresTransaction, caches, async);
+        return new Boundary(
+                requiresTransaction,
+                caches,
+                async,
+                cacheManager == null || cacheManager.isBlank() ? null : cacheManager,
+                cacheUnobservable);
     }
 
     private static MergedAnnotation<?> present(MergedAnnotation<?> onMethod, MergedAnnotation<?> onType) {

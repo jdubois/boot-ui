@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.StartupStepDto;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.TypeReference;
@@ -19,6 +20,25 @@ class BootUiRuntimeHintsTests {
 
     BootUiRuntimeHintsTests() {
         new BootUiRuntimeHints().registerHints(hints, getClass().getClassLoader());
+    }
+
+    @Test
+    void registersTheOptionalNativeMetricsFilterIdentityWithoutInvokingItsPolicy() {
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter")))
+                .accepts(hints);
+    }
+
+    @Test
+    void nativeMetricsFilterHintStaysOptionalWhenTheTypeIsAbsent() throws Exception {
+        RuntimeHints absent = new RuntimeHints();
+        try (FilteredClassLoader loader = new FilteredClassLoader(
+                name -> name.equals("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter"))) {
+            new BootUiRuntimeHints().registerHints(absent, loader);
+        }
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter")))
+                .rejects(absent);
     }
 
     @Test
@@ -72,6 +92,17 @@ class BootUiRuntimeHintsTests {
                         .onType(TypeReference.of("org.springframework.security.core.authority.SimpleGrantedAuthority"))
                         .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
                 .accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(
+                                "org.springframework.security.web.header.ContentSecurityPolicyNonceGeneratingFilter"))
+                        .withMemberCategory(MemberCategory.ACCESS_DECLARED_FIELDS))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(
+                                TypeReference.of(
+                                        "org.springframework.security.web.server.header.ContentSecurityPolicyNonceGeneratingWebFilter"))
+                        .withMemberCategory(MemberCategory.ACCESS_DECLARED_FIELDS))
+                .accepts(hints);
     }
 
     @Test
@@ -90,6 +121,47 @@ class BootUiRuntimeHintsTests {
 
     @ParameterizedTest
     @CsvSource({
+        "org.springframework.beans.factory.support.FactoryBeanRegistrySupport, factoryBeanObjectCache",
+        "org.springframework.aop.framework.JdkDynamicAopProxy, advised",
+        "org.springframework.aop.framework.AdvisedSupport, targetSource",
+        "org.springframework.aop.framework.AdvisedSupport, advisors",
+        "org.springframework.aop.support.AbstractGenericPointcutAdvisor, advice",
+        "org.springframework.aop.support.DefaultPointcutAdvisor, pointcut",
+        "org.springframework.aop.support.DefaultBeanFactoryPointcutAdvisor, pointcut",
+        "org.springframework.aop.support.AbstractBeanFactoryPointcutAdvisor, advice",
+        "org.springframework.aop.support.ComposablePointcut, classFilter",
+        "org.springframework.aop.support.ComposablePointcut, methodMatcher",
+        "org.springframework.aop.support.ClassFilters$UnionClassFilter, filters",
+        "org.springframework.aop.support.MethodMatchers$ClassFilterAwareUnionMethodMatcher, cf1",
+        "org.springframework.aop.support.MethodMatchers$ClassFilterAwareUnionMethodMatcher, cf2",
+        "org.springframework.aop.support.MethodMatchers$UnionMethodMatcher, mm1",
+        "org.springframework.aop.support.MethodMatchers$UnionMethodMatcher, mm2",
+        "org.springframework.aop.support.annotation.AnnotationMatchingPointcut$AnnotationCandidateClassFilter, annotationType",
+        "org.springframework.aop.support.annotation.AnnotationClassFilter, annotationType",
+        "org.springframework.aop.support.annotation.AnnotationClassFilter, checkInherited",
+        "org.springframework.aop.support.annotation.AnnotationMethodMatcher, annotationType",
+        "org.springframework.aop.support.annotation.AnnotationMethodMatcher, checkInherited",
+        "org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator, advisorRetrievalHelper",
+        "org.springframework.aop.framework.autoproxy.AbstractAdvisorAutoProxyCreator$BeanFactoryAdvisorRetrievalHelperAdapter, this$0",
+        "org.springframework.aop.framework.autoproxy.BeanFactoryAdvisorRetrievalHelper, beanFactory",
+        "org.springframework.aop.framework.autoproxy.BeanFactoryAdvisorRetrievalHelper, cachedAdvisorBeanNames",
+        "org.springframework.aop.framework.CglibAopProxy$StaticUnadvisedInterceptor, target",
+        "org.springframework.aop.framework.CglibAopProxy$StaticUnadvisedExposedInterceptor, target",
+        "org.springframework.aop.framework.CglibAopProxy$StaticDispatcher, target",
+        "org.springframework.aop.framework.CglibAopProxy$AdvisedDispatcher, advised",
+        "org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor, pointcut",
+        "org.springframework.security.config.annotation.method.configuration.MethodSecurityAdvisorRegistrar$AdvisorWrapper, advisor",
+        "org.springframework.security.authorization.method.AuthorizationManagerAfterMethodInterceptor, pointcut",
+        "org.springframework.security.authorization.method.PreFilterAuthorizationMethodInterceptor, pointcut",
+        "org.springframework.security.authorization.method.PostFilterAuthorizationMethodInterceptor, pointcut",
+        "org.springframework.aop.target.SingletonTargetSource, target",
+        "org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor, advised",
+        "org.springframework.beans.factory.support.AbstractBeanFactory, beanPostProcessors",
+        "org.springframework.beans.factory.support.AbstractBeanFactory, parentBeanFactory",
+        "org.springframework.aop.framework.autoproxy.AbstractAutoProxyCreator, beanFactory",
+        "org.springframework.aop.framework.autoproxy.InfrastructureAdvisorAutoProxyCreator, beanFactory",
+        "org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator, usePrefix",
+        "org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator, advisorBeanNamePrefix",
         "org.springframework.security.web.FilterChainProxy, filterChains",
         "org.springframework.security.web.FilterChainProxy, firewall",
         "org.springframework.security.web.DefaultSecurityFilterChain, filters",
@@ -124,9 +196,10 @@ class BootUiRuntimeHintsTests {
         "org.springframework.security.crypto.password.DelegatingPasswordEncoder, passwordEncoderForEncode",
         "org.springframework.security.web.server.MatcherSecurityWebFilterChain, filters",
         "org.springframework.security.web.server.MatcherSecurityWebFilterChain, matcher",
+        "org.springframework.security.web.server.csrf.CsrfWebFilter, requireCsrfProtectionMatcher",
         "org.springframework.security.web.server.header.HttpHeaderWriterWebFilter, writer",
         "org.springframework.security.web.server.header.CompositeServerHttpHeadersWriter, writers",
-        "org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter, delegate",
+        "org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter, exchangeMatcher",
         "org.springframework.core.env.AbstractEnvironment, propertySources",
         "org.springframework.core.env.AbstractEnvironment, activeProfiles",
         "org.springframework.core.env.MutablePropertySources, propertySourceList",
@@ -166,6 +239,92 @@ class BootUiRuntimeHintsTests {
                         .onType(TypeReference.of("org.springframework.core.env.AbstractEnvironment"))
                         .withMemberCategory(MemberCategory.ACCESS_DECLARED_FIELDS))
                 .accepts(filteredHints);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping, endpointMapping",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AdditionalHealthEndpointPathsWebMvcHandlerMapping, healthEndpoint",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping, endpoints",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$OperationHandler, operation",
+        "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$ServletWebOperationAdapter, operation",
+        "org.springframework.boot.actuate.endpoint.web.EndpointMapping, path",
+        "org.springframework.boot.actuate.endpoint.annotation.EndpointDiscoverer, endpoints",
+        "org.springframework.boot.actuate.endpoint.annotation.AbstractDiscoveredEndpoint, discoverer",
+        "org.springframework.boot.actuate.endpoint.AbstractExposableEndpoint, id",
+        "org.springframework.boot.actuate.endpoint.AbstractExposableEndpoint, operations",
+        "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebEndpoint, rootPath",
+        "org.springframework.boot.actuate.endpoint.EndpointId, value",
+        "org.springframework.web.method.HandlerMethod, bean"
+    })
+    void registersEveryPassiveActuatorIdentityField(String type, String name) throws Exception {
+        var field = Class.forName(type).getDeclaredField(name);
+        RuntimeHints actuatorHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(actuatorHints, getClass().getClassLoader());
+        assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(field)).accepts(actuatorHints);
+        assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(field)).accepts(hints);
+        RuntimeHints methodOnly = new RuntimeHints();
+        methodOnly.reflection().registerType(field.getDeclaringClass(), MemberCategory.INVOKE_PUBLIC_METHODS);
+        assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(field)).rejects(methodOnly);
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AdditionalHealthEndpointPathsWebMvcHandlerMapping",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$WebMvcEndpointHandlerMethod",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.WebMvcEndpointHandlerMapping$WebMvcLinksHandler",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$OperationHandler",
+                "org.springframework.boot.webmvc.actuate.endpoint.web.AbstractWebMvcEndpointHandlerMapping$ServletWebOperationAdapter",
+                "org.springframework.boot.actuate.endpoint.web.EndpointMapping",
+                "org.springframework.boot.actuate.endpoint.annotation.EndpointDiscoverer",
+                "org.springframework.boot.actuate.endpoint.web.annotation.WebEndpointDiscoverer",
+                "org.springframework.boot.actuate.endpoint.annotation.AbstractDiscoveredEndpoint",
+                "org.springframework.boot.actuate.endpoint.AbstractExposableEndpoint",
+                "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebEndpoint",
+                "org.springframework.boot.actuate.endpoint.web.annotation.DiscoveredWebOperation",
+                "org.springframework.boot.actuate.endpoint.EndpointId",
+                "org.springframework.web.method.HandlerMethod"
+            })
+    void registersEveryTypeResolvedByThePassiveActuatorReader(String type) {
+        RuntimeHints actuatorHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(actuatorHints, getClass().getClassLoader());
+        assertThat(RuntimeHintsPredicates.reflection().onType(TypeReference.of(type)))
+                .as(type)
+                .accepts(actuatorHints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(type))
+                        .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
+                .rejects(actuatorHints);
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(type))
+                        .withMemberCategory(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS))
+                .rejects(actuatorHints);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"org.springframework.boot.webmvc", "org.springframework.boot.actuate"})
+    void actuatorTypeLookupsRemainOptionalWhenEitherFrameworkPackageIsAbsent(String absentPackage) {
+        RuntimeHints filteredHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(filteredHints, new FilteredClassLoader(absentPackage));
+        assertThat(filteredHints.reflection().typeHints())
+                .noneMatch(hint -> hint.getType().getName().startsWith(absentPackage));
+    }
+
+    @Test
+    void actuatorFieldHintsRemainOptionalWithoutActuatorOrMvc() {
+        RuntimeHints filteredHints = new RuntimeHints();
+        new io.github.jdubois.bootui.autoconfigure.pentesting.ActuatorRuntimeHints()
+                .registerHints(
+                        filteredHints,
+                        new FilteredClassLoader("org.springframework.boot.actuate", "org.springframework.boot.webmvc"));
+        assertThat(filteredHints.reflection().typeHints())
+                .noneMatch(hint -> hint.getType().getName().startsWith("org.springframework.boot."));
     }
 
     @Test

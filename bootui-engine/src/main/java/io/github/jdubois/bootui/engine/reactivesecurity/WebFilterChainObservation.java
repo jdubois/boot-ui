@@ -31,6 +31,8 @@ import java.util.List;
  * @param formLoginAuthentication whether the chain contains an {@code AuthenticationWebFilter}
  *     backed by Spring Security's reactive {@code ServerFormLoginAuthenticationConverter}, i.e. a
  *     {@code formLogin()} chain
+ * @param csrfProtectionMatcherObserved whether every installed {@code CsrfWebFilter} has a
+ *     passively recognized default protection matcher; filter presence alone does not establish this
  */
 public record WebFilterChainObservation(
         int index,
@@ -50,7 +52,50 @@ public record WebFilterChainObservation(
         Boolean unconditionalMatcher,
         List<CspObservation> cspPolicies,
         boolean unconditionalHttpsRedirect,
-        String analysisFailure) {
+        String analysisFailure,
+        boolean csrfProtectionMatcherObserved) {
+
+    /** Compatibility constructor; a filter-name inventory does not establish its CSRF matcher. */
+    public WebFilterChainObservation(
+            int index,
+            String matcher,
+            List<String> webFilterNames,
+            Boolean permitsAllAnonymous,
+            boolean bearerTokenAuthentication,
+            List<String> headerWriterNames,
+            Long hstsMaxAgeSeconds,
+            Boolean hstsIncludeSubdomains,
+            String cspPolicyDirectives,
+            Boolean cspReportOnly,
+            boolean headerWritersObserved,
+            boolean formLoginAuthentication,
+            boolean basicAuthentication,
+            boolean authenticationObserved,
+            Boolean unconditionalMatcher,
+            List<CspObservation> cspPolicies,
+            boolean unconditionalHttpsRedirect,
+            String analysisFailure) {
+        this(
+                index,
+                matcher,
+                webFilterNames,
+                permitsAllAnonymous,
+                bearerTokenAuthentication,
+                headerWriterNames,
+                hstsMaxAgeSeconds,
+                hstsIncludeSubdomains,
+                cspPolicyDirectives,
+                cspReportOnly,
+                headerWritersObserved,
+                formLoginAuthentication,
+                basicAuthentication,
+                authenticationObserved,
+                unconditionalMatcher,
+                cspPolicies,
+                unconditionalHttpsRedirect,
+                analysisFailure,
+                !webFilterNames.contains("CsrfWebFilter"));
+    }
 
     public WebFilterChainObservation(
             int index,

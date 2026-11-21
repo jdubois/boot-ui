@@ -208,6 +208,90 @@ class McpAgentViewsTests {
     }
 
     @Test
+    void queryOnlyCandidatesRemainSearchableAheadOfDependenciesWithNoFindings() {
+        var candidates =
+                new io.github.jdubois.bootui.core.dto.DependencyAssessmentDto(true, false, List.of("UNFETCHED-ID"), 1);
+        var candidate = new DependencyDto(
+                "org.example", "candidate", "1", "org.example:candidate", "maven", 0, "NONE", List.of(), candidates);
+        var report = new DependenciesReport(
+                true,
+                3,
+                1,
+                List.of(),
+                null,
+                null,
+                List.of(
+                        dependency("org.example", "safe", List.of()),
+                        candidate,
+                        dependency("org.example", "risky", List.of(vulnerability("GHSA-1", "CVE-2026-1")))),
+                null,
+                null);
+        assertThat(artifacts(McpAgentViews.vulnerabilities(report, null, 2))).containsExactly("risky", "candidate");
+        var searched = McpAgentViews.vulnerabilities(report, "unfetched-id", 10);
+        assertThat(artifacts(searched)).containsExactly("candidate");
+        assertThat(((List<?>) searched.get("dependencies")).get(0)).isEqualTo(candidate);
+        assertThat(searched).containsEntry("vulnerable", 1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void candidateTotalsSurvivePagingAndSearchWhileOnlyTheProjectedIdPreviewIsShortened() {
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            ids.add("CANDIDATE-" + i + "-" + "x".repeat(220));
+        }
+        var assessment = new io.github.jdubois.bootui.core.dto.DependencyAssessmentDto(true, false, ids, 105);
+        var candidate = new DependencyDto(
+                "org.example", "candidate", "1", "org.example:candidate", "maven", 0, "NONE", List.of(), assessment);
+        List<DependencyDto> rows = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            rows.add(dependency("org.example", "risky-" + i, List.of(vulnerability("GHSA-" + i, "CVE-2026-" + i))));
+        }
+        rows.add(candidate);
+        rows.add(new DependencyDto(
+                "org.example",
+                "other",
+                "1",
+                "org.example:other",
+                "maven",
+                0,
+                "NONE",
+                List.of(),
+                new io.github.jdubois.bootui.core.dto.DependencyAssessmentDto(true, false, List.of("OTHER"), 2)));
+        var report = new DependenciesReport(true, 12, 10, List.of(), null, null, rows, null, null);
+        var firstPage = McpAgentViews.vulnerabilities(report, null, 10);
+        assertThat((Map<String, Object>) firstPage.get("advisories"))
+                .containsEntry("unassessedCandidates", 107L)
+                .containsEntry("candidateIdsListed", 0L)
+                .containsEntry("candidateIdsOmitted", 0L);
+        assertThat((String) ((Map<String, Object>) firstPage.get("advisories")).get("hint"))
+                .contains("full report", "not findings");
+        assertThat(firstPage.get("page")).isEqualTo(new PageMetadata(12, 12, 0, 10, 10, true));
+
+        var searched = McpAgentViews.vulnerabilities(report, "CANDIDATE-99-", 1);
+        var projected = ((List<DependencyDto>) searched.get("dependencies")).get(0);
+        assertThat(projected.assessment().unassessedAdvisoryIds()).hasSize(3).startsWith(ids.get(99));
+        assertThat(projected.assessment().unassessedAdvisoryCount()).isEqualTo(105);
+        assertThat(projected.assessment().queryComplete()).isTrue();
+        assertThat(projected.assessment().detailAssessmentComplete()).isFalse();
+        assertThat(searched.get("page")).isEqualTo(new PageMetadata(12, 1, 0, 1, 1, false));
+        assertThat((Map<String, Object>) searched.get("advisories"))
+                .containsEntry("unassessedCandidates", 107L)
+                .containsEntry("candidateIdsListed", 3L)
+                .containsEntry("candidateIdsOmitted", 102L);
+        var named = McpAgentViews.vulnerabilities(report, "org.example:candidate", 1);
+        assertThat(((List<DependencyDto>) named.get("dependencies"))
+                        .get(0)
+                        .assessment()
+                        .unassessedAdvisoryIds())
+                .hasSize(3);
+        assertThat((Map<String, Object>) named.get("advisories")).containsEntry("candidateIdsOmitted", 102L);
+        assertThat(candidate.assessment().unassessedAdvisoryIds()).hasSize(100);
+        assertThat(report.vulnerable()).isEqualTo(10);
+        assertThat(projected.vulnerabilities()).isEmpty();
+    }
+
+    @Test
     void vulnerabilitiesListVulnerableDependenciesFirstAndMatchAdvisoryIds() {
         DependenciesReport report = new DependenciesReport(
                 true,

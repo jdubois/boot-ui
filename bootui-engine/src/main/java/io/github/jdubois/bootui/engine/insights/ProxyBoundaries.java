@@ -29,10 +29,21 @@ public interface ProxyBoundaries {
      * @param cacheNames the caches whose access must precede the method; empty for {@code sync = true}, whose miss
      *     is recorded after the loader runs, or a {@code condition}, which can skip the cache entirely
      * @param async whether it is {@code @Async}
+     * @param cacheManager the explicitly selected manager, or null for the adapter's proven default
+     * @param cacheUnobservable why the method's cache access cannot prove absence, or null for a synchronous path
      */
-    record Boundary(boolean transactional, Set<String> cacheNames, boolean async) {
+    record Boundary(
+            boolean transactional,
+            Set<String> cacheNames,
+            boolean async,
+            String cacheManager,
+            String cacheUnobservable) {
 
         public static final Boundary NONE = new Boundary(false, Set.of(), false);
+
+        public Boundary(boolean transactional, Set<String> cacheNames, boolean async) {
+            this(transactional, cacheNames, async, null, null);
+        }
 
         public Boundary {
             cacheNames = cacheNames == null ? Set.of() : Set.copyOf(cacheNames);
@@ -40,7 +51,7 @@ public interface ProxyBoundaries {
 
         /** Whether the method declares any judgeable boundary. */
         public boolean any() {
-            return transactional || async || !cacheNames.isEmpty();
+            return transactional || async || !cacheNames.isEmpty() || cacheUnobservable != null;
         }
     }
 }

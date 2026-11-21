@@ -1,13 +1,97 @@
 package io.github.jdubois.bootui.engine.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.insights.CacheCapture;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 class CacheActivityRecorderTests {
+
+    @Test
+    void captureWindowsArePerManagerResetAcrossGapsAndNeverReadAClockOnProjection() {
+        AtomicLong time = new AtomicLong(100);
+        AtomicInteger clockCalls = new AtomicInteger();
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10, () -> {
+            clockCalls.incrementAndGet();
+            return time.get();
+        });
+        recorder.setRuntimeEventSink(event -> true);
+        recorder.markInstrumentedManager("first");
+        time.set(200);
+        recorder.markInstrumentedManager("second");
+        var firstWindow = recorder.captureState();
+        assertThat(firstWindow.continuousSince()).containsEntry("first", 100L).containsEntry("second", 200L);
+        int reads = clockCalls.get();
+        assertThat(recorder.captureState()).isEqualTo(firstWindow);
+        assertThat(clockCalls.get()).isEqualTo(reads);
+        recorder.suspendForLowFootprint();
+        assertThat(recorder.captureState().paused()).isTrue();
+        time.set(400);
+        recorder.resumeFromLowFootprint();
+        var resumed = recorder.captureState();
+        assertThat(resumed.epoch()).isGreaterThan(firstWindow.epoch());
+        assertThat(resumed.continuousSince()).containsEntry("first", 400L).containsEntry("second", 400L);
+        time.set(500);
+        recorder.setRuntimeEventSink(RuntimeEventSink.NONE);
+        assertThat(recorder.captureState().journalInstalled()).isFalse();
+        assertThat(recorder.captureState().epoch()).isGreaterThan(resumed.epoch());
+        assertThat(recorder.captureState().continuousSince()).containsEntry("first", 500L);
+        time.set(600);
+        long previous = recorder.captureState().epoch();
+        recorder.setCorrelationContextProvider(() -> CorrelationContext.NONE);
+        assertThat(recorder.captureState().epoch()).isGreaterThan(previous);
+        assertThat(recorder.captureState().continuousSince())
+                .containsEntry("first", 600L)
+                .containsEntry("second", 600L);
+    }
+
+    @Test
+    void aFailedKeyRepresentationInvalidatesOnlyItsManagerWithoutLosingPositiveDataOrExposingTheFailure() {
+        AtomicLong time = new AtomicLong(100);
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10, time::get);
+        recorder.setRuntimeEventSink(event -> true);
+        recorder.markInstrumentedManager("first");
+        recorder.markInstrumentedManager("second");
+        recorder.recordHit("first", "prices", "retained-key");
+        long epoch = recorder.captureState().epoch();
+        recorder.recordMiss("first", "prices", new Object() {
+            @Override
+            public String toString() {
+                throw new IllegalStateException("private key representation");
+            }
+        });
+        CacheCapture proof = CacheCapture.of(recorder);
+        assertThat(proof.epoch()).isGreaterThan(epoch);
+        assertThat(proof.unavailable("first", 200)).isEqualTo(CacheCapture.OBSERVATION_FAILED);
+        assertThat(proof.unavailable("second", 200)).isNull();
+        assertThat(recorder.recentEvents()).hasSize(1);
+        assertThat(proof.toString()).doesNotContain("private key representation", "retained-key");
+        assertThatThrownBy(() -> recorder.recordMiss("second", "prices", new Object() {
+                    @Override
+                    public String toString() {
+                        throw new AssertionError("fatal sentinel");
+                    }
+                }))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("fatal sentinel");
+    }
+
+    @Test
+    void nullManagerNamesFailAtRegistrationRatherThanBreakingALaterSnapshot() {
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
+        var before = recorder.captureState();
+        assertThatThrownBy(() -> recorder.markInstrumentedManager(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("Cache manager name must not be null");
+        assertThat(recorder.captureState()).isEqualTo(before);
+    }
 
     @Test
     void recordsNothingWhenDisabled() {

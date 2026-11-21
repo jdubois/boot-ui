@@ -25,10 +25,21 @@ const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
 const virtualThreadsProperty = computed(() => data.value?.calculation?.virtualThreadsProperty ?? null)
 const virtualThreadsActive = computed(() => data.value?.calculation?.virtualThreadsEnabled === true)
+const kubernetesRecommendationAvailable = computed(() => {
+  const recommendation = data.value?.kubernetes
+  return Boolean(recommendation?.yaml) && recommendation.qosClass !== 'Unavailable'
+})
 const kubernetesRequestBelowLimit = computed(() => {
   const recommendation = data.value?.kubernetes
-  return recommendation ? recommendation.requestMemoryBytes < recommendation.limitMemoryBytes : false
+  return kubernetesRecommendationAvailable.value
+    ? recommendation.requestMemoryBytes < recommendation.limitMemoryBytes
+    : false
 })
+const kubernetesUnavailableMessage = computed(() =>
+  data.value?.calculation?.valid
+    ? 'Kubernetes recommendation is unavailable. Review the sizing notes below.'
+    : 'Adjust calculator inputs until a valid heap is available.'
+)
 
 const breakdown = computed(() => {
   const c = data.value?.calculation
@@ -61,7 +72,7 @@ async function copyOptions() {
 }
 
 async function copyKubernetesYaml() {
-  if (data.value?.kubernetes?.yaml) {
+  if (kubernetesRecommendationAvailable.value) {
     await copyToClipboard(data.value.kubernetes.yaml, 'kubernetes-yaml')
   }
 }
@@ -71,6 +82,10 @@ function formatPercentage(value) {
   return `${Number(value)
     .toFixed(3)
     .replace(/\.?0+$/, '')}%`
+}
+
+function formatMiB(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(3).replace(/\.?0+$/, '')} MiB`
 }
 </script>
 
@@ -147,9 +162,10 @@ function formatPercentage(value) {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            For a dedicated server or VM, heap is fixed after subtracting modeled metaspace (currently loaded classes ×
-            1.25), code cache, direct memory, platform-thread stacks, and operator-selected headroom. Direct memory uses
-            the Paketo 10 MiB fallback or the current observed usage, whichever is larger.
+            For a dedicated server or VM, heap is fixed after subtracting modeled metaspace, code cache, direct memory,
+            platform-thread stacks, and operator-selected headroom. Metaspace uses the larger of the class-count model
+            and observed committed metadata plus 25%, when available. Direct memory uses the Paketo 10 MiB fallback or
+            the current observed usage, whichever is larger.
           </p>
 
           <div class="row g-3 mb-3">
@@ -229,8 +245,8 @@ function formatPercentage(value) {
               </div>
             </div>
             <div class="small text-muted">
-              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded · metaspace sized
-              for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor ·
+              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded · class model uses
+              {{ data.calculation.loadedClasses.toLocaleString() }} classes with a 25% starting allowance ·
               {{ data.calculation.stackBytesPerThread / 1024 }} KiB per platform thread
             </div>
           </template>
@@ -279,9 +295,10 @@ function formatPercentage(value) {
           <p class="text-muted small mb-3">
             Uses the calculator total as the hard Kubernetes memory limit. By default, the generated manifest sets
             <code>requests.memory == limits.memory</code>; Kubernetes only assigns Guaranteed QoS when every container
-            also has equal, non-zero CPU request and limit. The Burstable toggle lowers only the memory request. HotSpot
-            uses <code>MaxRAMPercentage</code>/<code>MinRAMPercentage</code>/<code>InitialRAMPercentage</code> instead
-            of fixed <code>-Xmx</code>/<code>-Xms</code>.
+            also has equal, non-zero CPU request and limit. The Burstable toggle changes only the memory request and can
+            refuse an infeasible floor. The snippet requests heap sizing through
+            <code>MaxRAMPercentage</code>/<code>MinRAMPercentage</code>/<code>InitialRAMPercentage</code> instead of
+            fixed <code>-Xmx</code>/<code>-Xms</code>.
           </p>
 
           <div class="row g-3 mb-3">
@@ -291,9 +308,9 @@ function formatPercentage(value) {
                   <div>
                     <div class="fw-semibold">Burstable resources</div>
                     <div class="text-muted small">
-                      Off by default. When enabled, the snippet attempts to lower <code>requests.memory</code> to the
-                      current snapshot-based request while keeping the same limit. Use only when your cluster
-                      intentionally overcommits memory.
+                      Off by default. Uses the snapshot margin and a floor of modeled heap plus observed non-heap
+                      committed, keeping the same limit. If the floor cannot fit, no snippet is generated. Use only when
+                      your cluster intentionally overcommits memory.
                     </div>
                   </div>
                   <div class="form-check form-switch mb-0 flex-shrink-0">
@@ -347,10 +364,13 @@ function formatPercentage(value) {
             <div class="col-md">
               <div class="border rounded p-3 h-100">
                 <div class="text-muted small">Request memory</div>
-                <div class="fs-5 fw-semibold">{{ data.kubernetes.requestMemory || '—' }}</div>
-                <div class="text-muted small">
+                <div class="fs-5 fw-semibold">
+                  {{ kubernetesRecommendationAvailable ? data.kubernetes.requestMemory : '—' }}
+                </div>
+                <div v-if="kubernetesRecommendationAvailable" class="text-muted small">
                   {{ kubernetesRequestBelowLimit ? 'Burstable scheduling request' : 'Memory request equals limit' }}
                 </div>
+                <div v-else class="text-muted small">No memory request generated</div>
               </div>
             </div>
             <div class="col-md">
@@ -363,17 +383,32 @@ function formatPercentage(value) {
             <div class="col-md">
               <div class="border rounded p-3 h-100">
                 <div class="text-muted small">Heap percentage</div>
-                <div class="fs-5 fw-semibold">{{ formatPercentage(data.kubernetes.maxRamPercentage) }}</div>
-                <div class="text-muted small">Max/Min RAM percentage</div>
+                <div class="fs-5 fw-semibold">
+                  {{ kubernetesRecommendationAvailable ? formatPercentage(data.kubernetes.maxRamPercentage) : '—' }}
+                </div>
+                <template v-if="kubernetesRecommendationAvailable">
+                  <div class="text-muted small">Max/Min RAM percentage</div>
+                  <div class="text-muted small">
+                    Initial RAM percentage: {{ formatPercentage(data.kubernetes.initialRamPercentage) }}
+                  </div>
+                  <div v-if="data.calculation?.valid" class="small mt-2 kubernetes-heap-model">
+                    <strong>MODEL: {{ formatMiB(data.calculation.heapBytes) }} heap</strong>
+                    <div>Assumes {{ formatMiB(data.kubernetes.limitMemoryBytes) }} memory limit</div>
+                  </div>
+                </template>
+                <div v-else class="text-muted small">No heap percentage generated</div>
               </div>
             </div>
             <div class="col-md">
               <div class="border rounded p-3 h-100">
                 <div class="text-muted small">Pod QoS</div>
-                <div class="fs-5 fw-semibold">{{ data.kubernetes.qosClass }}</div>
-                <div class="text-muted small">
+                <div class="fs-5 fw-semibold">
+                  {{ kubernetesRecommendationAvailable ? data.kubernetes.qosClass : 'Unavailable' }}
+                </div>
+                <div v-if="kubernetesRecommendationAvailable" class="text-muted small">
                   {{ kubernetesRequestBelowLimit ? 'Determined by memory settings' : 'CPU settings also required' }}
                 </div>
+                <div v-else class="text-muted small">No QoS recommendation</div>
               </div>
             </div>
             <div class="col-md">
@@ -385,11 +420,17 @@ function formatPercentage(value) {
             </div>
           </div>
 
+          <p v-if="kubernetesRecommendationAvailable" class="small text-muted kubernetes-heap-guidance">
+            Recalculate and replace the snippet whenever the memory limit changes. This MODEL is not actual JVM
+            <code>-Xmx</code> or a peak-workload guarantee: JVM alignment/rounding and merged launcher flags can change
+            the effective heap. Verify the final JVM settings in your target image.
+          </p>
+
           <div class="d-flex justify-content-between align-items-center mb-2">
             <div class="small fw-semibold">Deployment snippet</div>
             <button
               :class="{'btn-success': copiedKey === 'kubernetes-yaml'}"
-              :disabled="!data.kubernetes.yaml"
+              :disabled="!kubernetesRecommendationAvailable"
               class="btn btn-sm btn-outline-success"
               @click="copyKubernetesYaml"
             >
@@ -398,9 +439,9 @@ function formatPercentage(value) {
             </button>
           </div>
           <pre
-            :class="{'opacity-50': !data.kubernetes.yaml}"
+            :class="{'opacity-50': !kubernetesRecommendationAvailable}"
             class="bg-dark text-light rounded p-3 mb-3 options-box"
-          ><code>{{ data.kubernetes.yaml || 'Adjust calculator inputs until a valid heap is available.' }}</code></pre>
+          ><code>{{ kubernetesRecommendationAvailable ? data.kubernetes.yaml : kubernetesUnavailableMessage }}</code></pre>
 
           <div v-if="data.kubernetes.warnings?.length" class="alert alert-info small mb-0">
             <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i>Sizing notes</div>

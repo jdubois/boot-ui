@@ -259,7 +259,7 @@ describe('AdvisorSummary', () => {
             newCount: 2,
             resolvedCount: 1,
             unchangedCount: 5,
-            resolved: [{ruleId: 'HIB-FETCH-001', text: 'Order#lines is mapped as FetchType.EAGER.'}]
+            resolved: [{ruleId: 'HIB-FETCH-010', text: 'Order#lines is mapped as FetchType.EAGER.'}]
           })
         }
       })
@@ -277,7 +277,7 @@ describe('AdvisorSummary', () => {
       const resolved = region(wrapper).get('details.advisor-summary__resolved')
       expect(resolved.element.open).toBe(false)
       expect(resolved.get('summary').text()).toBe('Resolved findings (1)')
-      expect(resolved.text()).toContain('HIB-FETCH-001')
+      expect(resolved.text()).toContain('HIB-FETCH-010')
       expect(resolved.text()).toContain('Order#lines is mapped as FetchType.EAGER.')
     })
 

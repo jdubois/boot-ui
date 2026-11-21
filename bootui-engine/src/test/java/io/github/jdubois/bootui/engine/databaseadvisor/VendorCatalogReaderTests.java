@@ -357,6 +357,183 @@ class VendorCatalogReaderTests {
     }
 
     @Test
+    void postgresForeignKeyReadRequiresCompleteNativeTriggerRolesBeforePromotingEnforcement() throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        rows.add(postgresForeignKeyRow("ordinary"));
+        Map<String, Object> disabled = postgresForeignKeyRow("disabled");
+        disabled.put("triggers_enabled", false);
+        rows.add(disabled);
+        Map<String, Object> notValid = postgresForeignKeyRow("not_valid");
+        notValid.put("is_validated", false);
+        rows.add(notValid);
+        for (String column : List.of(
+                "declared_enforced",
+                "ordinary_relations",
+                "native_trigger_shape",
+                "trigger_modes_known",
+                "triggers_enabled",
+                "is_validated")) {
+            Map<String, Object> unknown = postgresForeignKeyRow(column);
+            unknown.put(column, null);
+            rows.add(unknown);
+        }
+        for (String column : List.of("ordinary_relations", "native_trigger_shape", "trigger_modes_known")) {
+            Map<String, Object> unsupported = postgresForeignKeyRow(column + "_false");
+            unsupported.put(column, false);
+            rows.add(unsupported);
+        }
+        for (String column : List.of(
+                "trigger_count",
+                "child_insert_count",
+                "child_update_count",
+                "parent_delete_count",
+                "parent_update_count")) {
+            for (int count : List.of(0, 2, 5)) {
+                Map<String, Object> wrongShape = postgresForeignKeyRow(column + "_" + count);
+                wrongShape.put(column, count);
+                rows.add(wrongShape);
+            }
+        }
+        Map<String, Object> notEnforced = new HashMap<>();
+        notEnforced.put("constraint_name", "not_enforced");
+        notEnforced.put("declared_enforced", false);
+        notEnforced.put("is_validated", false);
+        rows.add(notEnforced);
+        List<String> queries = new ArrayList<>();
+        List<PreparedStatement> statements = new ArrayList<>();
+        VendorFindings findings =
+                postgres(18, queries, statements, sql -> sql.contains("as trigger_count") ? rows : List.of());
+        List<PostgresForeignKeyDetail> details = findings.findings(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS);
+        assertThat(details).hasSize(rows.size());
+        assertThat(details.get(0).enforced()).isTrue();
+        assertThat(details.get(0).deleteActionEnabled()).isTrue();
+        assertThat(details.get(0).updateActionEnabled()).isTrue();
+        assertThat(details.get(1).enforced()).isFalse();
+        assertThat(details.get(1).deleteActionEnabled()).isTrue();
+        assertThat(details.get(1).updateActionEnabled()).isTrue();
+        assertThat(details.get(1).validated()).isTrue();
+        assertThat(details.get(2).enforced()).isTrue();
+        assertThat(details.get(2).validated()).isFalse();
+        assertThat(details.get(8).enforced()).isTrue();
+        assertThat(details.get(8).validated()).isNull();
+        assertThat(details.subList(3, details.size() - 1).stream()
+                        .filter(detail -> !"is_validated".equals(detail.constraint())))
+                .allSatisfy(detail -> assertThat(detail.enforced()).isNull());
+        assertThat(details.get(details.size() - 1).enforced()).isFalse();
+        assertThat(details.get(details.size() - 1).deleteActionEnabled()).isFalse();
+        assertThat(details.get(details.size() - 1).updateActionEnabled()).isFalse();
+        String sql = PostgresCatalogReader.foreignKeyDetailsSql(new DatabaseVersion(18, 0, 0, "18"));
+        assertThat(sql)
+                .contains(
+                        "c.conenforced",
+                        "g.tgconstraint = c.oid",
+                        "g.tgtype = 5",
+                        "g.tgtype = 9",
+                        "g.tgtype = 17",
+                        "RI_FKey_check_ins",
+                        "RI_FKey_check_upd",
+                        "RI_FKey_noaction_del",
+                        "RI_FKey_noaction_upd",
+                        "current_setting('session_replication_role')",
+                        "('O', 'D', 'R', 'A')");
+        PreparedStatement statement = statements.get(queries.indexOf(sql));
+        verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1);
+        verify(statement).setInt(1, DatabaseAdvisorLimits.DEFAULTS.maxVendorEnrichmentRows() + 1);
+        verify(statement).setQueryTimeout(5);
+        verify(statement).close();
+    }
+
+    @Test
+    void postgresParentActionsKeepTheirOwnActivationWithoutPromotingIncompleteTriggerShapes() throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Boolean delete : new Boolean[] {true, false, null}) {
+            for (Boolean update : new Boolean[] {true, false, null}) {
+                Map<String, Object> row = postgresForeignKeyRow("fk_" + delete + "_" + update);
+                row.put("triggers_enabled", false);
+                row.put("parent_delete_enabled", delete);
+                row.put("parent_update_enabled", update);
+                rows.add(row);
+            }
+        }
+        for (String column : List.of(
+                "declared_enforced",
+                "ordinary_relations",
+                "native_trigger_shape",
+                "trigger_modes_known",
+                "child_insert_count",
+                "child_update_count",
+                "parent_delete_count",
+                "parent_update_count")) {
+            Map<String, Object> row = postgresForeignKeyRow(column);
+            row.put(column, null);
+            rows.add(row);
+        }
+        VendorFindings findings =
+                postgres(18, new ArrayList<>(), sql -> sql.contains("as trigger_count") ? rows : List.of());
+        List<PostgresForeignKeyDetail> details = findings.findings(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS);
+        assertThat(details).hasSize(rows.size());
+        for (int i = 0; i < 9; i++) {
+            assertThat(details.get(i).enforced()).isFalse();
+            assertThat(details.get(i).deleteActionEnabled())
+                    .isEqualTo(rows.get(i).get("parent_delete_enabled"));
+            assertThat(details.get(i).updateActionEnabled())
+                    .isEqualTo(rows.get(i).get("parent_update_enabled"));
+        }
+        assertThat(details.subList(9, details.size())).allSatisfy(detail -> {
+            assertThat(detail.enforced()).isNull();
+            assertThat(detail.deleteActionEnabled()).isNull();
+            assertThat(detail.updateActionEnabled()).isNull();
+        });
+    }
+
+    @Test
+    void postgresForeignKeyReadKeepsAnUnknownVersionUnknownAndReportsCatalogFailure() throws Exception {
+        assertThat(PostgresCatalogReader.foreignKeyDetailsSql(DatabaseVersion.UNKNOWN))
+                .contains("null::boolean as declared_enforced")
+                .doesNotContain("c.conenforced");
+        assertThat(PostgresCatalogReader.foreignKeyDetailsSql(new DatabaseVersion(13, 0, 0, "13")))
+                .contains("true as declared_enforced")
+                .doesNotContain("c.conenforced");
+        Connection connection = mock(Connection.class);
+        when(connection.prepareStatement(anyString())).thenThrow(new java.sql.SQLException("permission denied"));
+        VendorFindings.Builder findings = VendorFindings.builder();
+        DatabaseVersion version = new DatabaseVersion(18, 0, 0, "18");
+        PostgresCatalogReader.read(
+                connection,
+                version,
+                DialectCapabilities.of(Dialect.POSTGRESQL, version),
+                budget(),
+                DatabaseAdvisorLimits.DEFAULTS,
+                findings);
+        VendorAugmentation<PostgresForeignKeyDetail> failed =
+                findings.build().augmentation(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS);
+        assertThat(failed.failed()).isTrue();
+        assertThat(failed.reason()).contains("permission denied");
+        assertThat(failed.findings()).isEmpty();
+    }
+
+    private static Map<String, Object> postgresForeignKeyRow(String name) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("schema_name", "public");
+        row.put("table_name", "child");
+        row.put("constraint_name", name);
+        row.put("is_validated", true);
+        row.put("declared_enforced", true);
+        row.put("ordinary_relations", true);
+        row.put("trigger_count", 4);
+        row.put("child_insert_count", 1);
+        row.put("child_update_count", 1);
+        row.put("parent_delete_count", 1);
+        row.put("parent_update_count", 1);
+        row.put("native_trigger_shape", true);
+        row.put("trigger_modes_known", true);
+        row.put("triggers_enabled", true);
+        row.put("parent_delete_enabled", true);
+        row.put("parent_update_enabled", true);
+        return row;
+    }
+
+    @Test
     void mysqlAndMariaDbKeepDistinctVisibilityAndExpressionGates() throws Exception {
         List<String> mysql = mysql(Dialect.MYSQL, new DatabaseVersion(8, 0, 13, "8.0.13"));
         assertThat(String.join("\n", mysql))
@@ -413,6 +590,58 @@ class VendorCatalogReaderTests {
     }
 
     @Test
+    void mysqlExpressionDefaultsAreOrdinaryColumnsRatherThanGeneratedKeyExpressions() throws Exception {
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        IndexModel.of("first", List.of("created"), false),
+                        IndexModel.of("second", List.of("created"), false)));
+        for (String extra : List.of(
+                "DEFAULT_GENERATED", "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                "STORED GENERATED", "VIRTUAL GENERATED")) {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (String name : List.of("first", "second")) {
+                rows.add(Map.of(
+                        "table_schema",
+                        "app",
+                        "table_name",
+                        "t",
+                        "index_name",
+                        name,
+                        "seq_in_index",
+                        1,
+                        "column_name",
+                        "created",
+                        "column_extra",
+                        extra,
+                        "collation",
+                        "A",
+                        "index_type",
+                        "BTREE",
+                        "non_unique",
+                        1,
+                        "is_visible",
+                        "YES"));
+            }
+            VendorFindings findings = mysqlIndexFindings(Dialect.MYSQL, rows, DatabaseAdvisorLimits.DEFAULTS);
+            boolean expressionDefault = extra.startsWith("DEFAULT_GENERATED");
+            assertThat(findings.findings(VendorFindingKinds.MYSQL_INDEX_DETAILS))
+                    .allSatisfy(detail ->
+                            assertThat(detail.generatedColumn()).as(extra).isEqualTo(!expressionDefault));
+            DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(DatabaseAdvisorFixtures.schema(
+                    "ds", Dialect.MYSQL, VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings), findings));
+            assertThat(new DuplicateIndexRule().evaluate(context).status())
+                    .as(extra)
+                    .isEqualTo(expressionDefault ? "VIOLATION" : "SKIPPED");
+        }
+    }
+
+    @Test
     void mysqlContradictoryUniquenessWithinAnIndexMakesTheWholeDefinitionUnknown() throws Exception {
         List<Map<String, Object>> rows = List.of(
                 Map.of(
@@ -465,6 +694,136 @@ class VendorCatalogReaderTests {
         assertThat(findings.build().findings(VendorFindingKinds.MYSQL_INDEX_DETAILS))
                 .hasSize(2)
                 .allSatisfy(row -> assertThat(row.definitionComplete()).isFalse());
+    }
+
+    @Test
+    void mysqlAndMariaDbCollectedRowsProveOnlyFullyReportedOrdinaryDuplicates() throws Exception {
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(IndexModel.of("first", List.of("a"), false), IndexModel.of("second", List.of("a"), false)));
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            for (String missing : List.of("", "column_extra", "collation", "index_type", "visibility", "non_unique")) {
+                List<Map<String, Object>> rows = new ArrayList<>();
+                String visibilityColumn = dialect == Dialect.MARIADB ? "index_ignored" : "is_visible";
+                for (String name : List.of("first", "second")) {
+                    Map<String, Object> row = new HashMap<>(Map.of(
+                            "table_schema",
+                            "app",
+                            "table_name",
+                            "t",
+                            "index_name",
+                            name,
+                            "seq_in_index",
+                            1,
+                            "column_name",
+                            "a",
+                            "column_extra",
+                            "",
+                            "collation",
+                            "A",
+                            "index_type",
+                            "BTREE",
+                            "non_unique",
+                            1,
+                            visibilityColumn,
+                            dialect == Dialect.MARIADB ? "NO" : "YES"));
+                    row.remove(missing.equals("visibility") ? visibilityColumn : missing);
+                    rows.add(row);
+                }
+                VendorFindings findings = mysqlIndexFindings(dialect, rows, DatabaseAdvisorLimits.DEFAULTS);
+                List<TableModel> merged = VendorSchemaMerge.merge(List.of(table), dialect, findings);
+                DatabaseAdvisorContext context = DatabaseAdvisorFixtures.context(
+                        DatabaseAdvisorFixtures.schema("ds", dialect, merged, findings));
+                DatabaseAdvisorRuleResultDto result = new DuplicateIndexRule().evaluate(context);
+                assertThat(result.status())
+                        .as("%s missing %s", dialect, missing)
+                        .isEqualTo(missing.isEmpty() ? "VIOLATION" : "SKIPPED");
+                if (!missing.isEmpty()) {
+                    assertThat(context.evaluationDiagnostics()).hasSize(2);
+                }
+                if (missing.equals("collation")) {
+                    TableModel child = merged.get(0)
+                            .withForeignKeys(List.of(
+                                    new ForeignKeyModel("fk", List.of("a"), "app", null, "parent", List.of("id"))));
+                    DatabaseAdvisorContext accessPaths = DatabaseAdvisorFixtures.context(
+                            DatabaseAdvisorFixtures.schema("ds", dialect, List.of(child)));
+                    assertThat(new MissingForeignKeyIndexRule()
+                                    .evaluate(accessPaths)
+                                    .status())
+                            .isEqualTo("PASS");
+                }
+            }
+        }
+    }
+
+    @Test
+    void mysqlTruncatedCatalogTailCannotTurnAnObservedKeyPrefixIntoACompleteIndex() throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String name : List.of("first", "second", "third")) {
+            rows.add(Map.of(
+                    "table_schema",
+                    "app",
+                    "table_name",
+                    "t",
+                    "index_name",
+                    name,
+                    "seq_in_index",
+                    1,
+                    "column_name",
+                    "a",
+                    "column_extra",
+                    "",
+                    "collation",
+                    "A",
+                    "index_type",
+                    "BTREE",
+                    "non_unique",
+                    1,
+                    "is_visible",
+                    "YES"));
+        }
+        DatabaseAdvisorLimits limits =
+                new DatabaseAdvisorLimits(300, 300, 100, 500, 2, Duration.ofSeconds(30), Duration.ofSeconds(5));
+        VendorFindings findings = mysqlIndexFindings(Dialect.MYSQL, rows, limits);
+        assertThat(findings.augmentation(VendorFindingKinds.MYSQL_INDEX_DETAILS).truncated())
+                .isTrue();
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(IndexModel.of("first", List.of("a"), false), IndexModel.of("second", List.of("a"), false)));
+        List<IndexModel> indexes = VendorSchemaMerge.merge(List.of(table), Dialect.MYSQL, findings)
+                .get(0)
+                .indexes();
+        assertThat(indexes.get(0).comparable()).isTrue();
+        assertThat(indexes.get(1).comparable()).isFalse();
+    }
+
+    private static VendorFindings mysqlIndexFindings(
+            Dialect dialect, List<Map<String, Object>> rows, DatabaseAdvisorLimits limits) throws Exception {
+        Connection connection = connection(
+                new ArrayList<>(),
+                new ArrayList<>(),
+                sql -> sql.contains("from information_schema.statistics")
+                        ? rows
+                        : sql.contains("from information_schema.tables t")
+                                ? List.of(Map.of("table_schema", "app", "table_name", "t", "engine", "InnoDB"))
+                                : List.of());
+        DatabaseVersion version = dialect == Dialect.MARIADB
+                ? new DatabaseVersion(11, 4, 0, "11.4.0")
+                : new DatabaseVersion(8, 4, 0, "8.4.0");
+        VendorFindings.Builder findings = VendorFindings.builder();
+        MySqlCatalogReader.read(
+                connection, dialect, DialectCapabilities.of(dialect, version), budget(), limits, findings);
+        return findings.build();
     }
 
     @Test

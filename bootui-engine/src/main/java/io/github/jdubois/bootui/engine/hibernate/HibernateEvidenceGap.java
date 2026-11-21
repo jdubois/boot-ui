@@ -31,6 +31,7 @@ enum HibernateEvidenceGap {
     HIBERNATE_VERSION("Hibernate ORM version unavailable"),
     CUSTOM_GENERATOR("entity(ies) with a custom identifier generator whose newness behaviour is not inferred"),
     ENTITY_METADATA("entity mapping(s) whose class, identifier, index, or enhancement metadata is unavailable"),
+    FETCH_MAPPING("mapped attribute(s) whose fetch declaration is unavailable (XML mappings are not interpreted)"),
     CACHE_STRATEGY("second-level cache strategy or provider unavailable"),
     OTHER("required observation(s) unavailable");
 

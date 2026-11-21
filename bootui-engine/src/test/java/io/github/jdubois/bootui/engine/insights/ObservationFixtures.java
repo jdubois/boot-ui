@@ -447,7 +447,10 @@ final class ObservationFixtures {
             .getOrDefault(frame, ProxyBoundaries.Boundary.NONE);
 
     private static void proxyBypass(List<Fixture> fixtures) {
-        Consumer<RuntimeInsightsService> boundaries = service -> service.setProxyBoundaries(BOUNDARIES);
+        Consumer<RuntimeInsightsService> boundaries = service -> {
+            service.setProxyBoundaries(BOUNDARIES);
+            service.setCacheCapture(CacheCapture::capturing);
+        };
         fixtures.add(positive(ProxyBypass.KIND, "the sample's self-invoked @Transactional recalculation")
                 .setup(boundaries)
                 .seed(recording -> recording
@@ -456,7 +459,7 @@ final class ObservationFixtures {
         fixtures.add(positive(ProxyBypass.KIND, "a @Cacheable method that never reached its cache")
                 .setup(boundaries)
                 .seed(recording -> recording.get("/api/prices").children(framedStatement(PRICE))));
-        fixtures.add(positive(ProxyBypass.KIND, "an @Async method that ran on the request thread")
+        fixtures.add(counterexample(ProxyBypass.KIND, "an @Async method whose thread name matches the request's")
                 .setup(boundaries)
                 .seed(recording -> recording.post("/api/ship").children(framedStatement(NOTIFY))));
         fixtures.add(counterexample(ProxyBypass.KIND, "the sample's recalculation through the bean, in a transaction")
@@ -1522,6 +1525,15 @@ final class ObservationFixtures {
     // ---- event-loop-blocking ------------------------------------------------------------------------------------
 
     private static void eventLoopBlocking(List<Fixture> fixtures) {
+        fixtures.add(positive(EventLoopBlocking.KIND, "a native synchronous Spring HTTP client issued on an event loop")
+                .stack(InsightsStack.SPRING_WEBFLUX)
+                .seed(recording -> recording
+                        .get("/api/remote")
+                        .children(new Ev(
+                                        JournalSource.REST_CLIENT,
+                                        0,
+                                        new RestClientPayload("GET", "stock:8080", "/items", 200, "RestClient", false))
+                                .kind(ThreadKind.EVENT_LOOP))));
         fixtures.add(positive(EventLoopBlocking.KIND, "the WebFlux sample's JDBC on the event loop")
                 .stack(InsightsStack.SPRING_WEBFLUX)
                 .seed(recording -> {

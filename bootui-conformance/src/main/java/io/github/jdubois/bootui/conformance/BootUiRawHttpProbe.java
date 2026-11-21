@@ -114,7 +114,7 @@ public final class BootUiRawHttpProbe {
     public static Optional<InetAddress> nonLoopbackSource() {
         try {
             for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                if (!network.isUp()) {
+                if (!network.isUp() || network.isPointToPoint() || network.isVirtual()) {
                     continue;
                 }
                 for (InetAddress address : Collections.list(network.getInetAddresses())) {

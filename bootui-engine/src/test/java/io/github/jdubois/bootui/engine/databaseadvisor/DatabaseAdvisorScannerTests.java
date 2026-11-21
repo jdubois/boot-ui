@@ -633,26 +633,79 @@ class DatabaseAdvisorScannerTests {
         DatabaseAdvisorReport report =
                 scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
 
-        assertThat(report.scan().status()).isEqualTo("PARTIAL");
-        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
-            assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-002");
-            assertThat(diagnostic.level()).isEqualTo("WARNING");
-            assertThat(diagnostic.message()).contains("access path", "cannot be established");
-        });
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.evidence().coverageComplete()).isTrue();
+        assertThat(report.diagnostics())
+                .noneMatch(diagnostic -> diagnostic.source().equals("DB-SCHEMA-002"));
         assertThat(report.dataSourceNames()).containsExactly("primary");
         assertThat(report.tablesAnalyzed()).isEqualTo(3);
         assertThat(report.results()).isNotEmpty();
         assertThat(report.evidence().usable()).isTrue();
 
-        // H2 automatically creates a supporting index for the "orders.customer_id" foreign key column, so
-        // DB-SCHEMA-002 (missing FK index) is exercised directly against synthetic models in
-        // DatabaseAdvisorSchemaRulesTests instead; this end-to-end scan only asserts the primary-key check,
-        // which genuinely requires the JDBC DatabaseMetaData round trip this test exists to cover.
+        // The H2 catalog establishes the ordinary index H2 creates for orders.customer_id; the independent
+        // keyless-table finding survives that completed access-path check.
         assertThat(report.results()).anySatisfy(result -> {
             assertThat(result.id()).isEqualTo("DB-SCHEMA-001");
             assertThat(result.status()).isEqualTo("VIOLATION");
             assertThat(result.sampleViolations().get(0)).containsIgnoringCase("audit_log");
         });
+    }
+
+    @Test
+    void h2AccessPathEvidenceDoesNotCompleteUnmodelledIndexComparisons() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute("create index extra_fk_review on orders(customer_id)");
+        }
+
+        DatabaseAdvisorReport report =
+                scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.diagnostics())
+                .noneMatch(diagnostic -> diagnostic.source().equals("DB-SCHEMA-002"));
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("DB-SCHEMA-003");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+        });
+        assertThat(report.results()).anySatisfy(result -> {
+            assertThat(result.id()).isEqualTo("DB-SCHEMA-001");
+            assertThat(result.violationCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void h2OrdinaryIndexEvidenceRetainsThreeKnownHighReferentialActionFindings() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute("drop all objects");
+            statement.execute("create table parent (id int primary key)");
+            statement.execute("""
+                    create table child (id int primary key, first_parent int not null, second_parent int not null,
+                    third_parent int not null,
+                    constraint fk_first foreign key(first_parent) references parent(id) on delete set null,
+                    constraint fk_second foreign key(second_parent) references parent(id) on delete set null,
+                    constraint fk_third foreign key(third_parent) references parent(id) on delete set null)
+                    """);
+        }
+        DatabaseAdvisorReport report =
+                scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
+
+        assertThat(report.evidence().coverageComplete()).isTrue();
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("DB-SCHEMA-011");
+            assertThat(result.severity()).isEqualTo("HIGH");
+            assertThat(result.violationCount()).isEqualTo(3);
+        });
+        assertThat(report.violationDetails().total()).isEqualTo(3);
+        assertThat(report.violationDetails().retained()).isEqualTo(3);
+        assertThat(report.severityCounts())
+                .filteredOn(count -> count.severity().equals("HIGH"))
+                .singleElement()
+                .satisfies(count -> assertThat(count.count()).isEqualTo(3));
     }
 
     @ParameterizedTest

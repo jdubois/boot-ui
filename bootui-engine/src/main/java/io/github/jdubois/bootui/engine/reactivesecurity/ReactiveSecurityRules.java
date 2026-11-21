@@ -204,7 +204,7 @@ final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
                 "Reactive OAuth2/OIDC or formLogin() chains should enable CSRF protection",
                 ReactiveSecurityCategory.CSRF,
                 "HIGH",
-                "Detects a reactive chain with an observed OAuth2/OIDC login filter or a formLogin() authentication converter but no CsrfWebFilter. Without CSRF protection, cross-origin state-changing requests can be forged.",
+                "Detects a reactive chain with an observed OAuth2/OIDC login filter or a formLogin() authentication converter but no CsrfWebFilter. Custom or unreadable CSRF protection matchers remain incomplete, not assessed-safe.",
                 "Keep CSRF enabled for browser login chains, using .csrf(Customizer.withDefaults()) or a CookieServerCsrfTokenRepository as appropriate.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html"));
     }
@@ -212,19 +212,22 @@ final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
+        boolean csrfComplete = true;
         for (WebFilterChainObservation chain : context.chains()) {
-            if (chain.filtersObserved()
-                    && context.applies(chain.hasObservedInteractiveLoginFilter())
-                    && !chain.hasCsrfWebFilter()) {
-                details.add(
-                        chain.describe()
-                                + " has an OAuth2/OIDC, formLogin() or one-time-token login filter but no CsrfWebFilter is installed.");
+            if (chain.filtersObserved() && context.applies(chain.hasObservedInteractiveLoginFilter())) {
+                if (!chain.hasCsrfWebFilter()) {
+                    details.add(
+                            chain.describe()
+                                    + " has an OAuth2/OIDC, formLogin() or one-time-token login filter but no CsrfWebFilter is installed.");
+                } else {
+                    csrfComplete &= context.required(chain.csrfProtectionMatcherObserved());
+                }
             }
         }
         boolean complete =
                 context.required(context.chains().stream().allMatch(WebFilterChainObservation::authenticationObserved));
-        if (details.isEmpty() && !complete) {
-            return skipped("Authentication converter metadata is unsupported.");
+        if (details.isEmpty() && (!complete || !csrfComplete)) {
+            return skipped("Authentication converter or CSRF protection matcher metadata is unsupported.");
         }
         return filterViolation(context, details);
     }
@@ -238,7 +241,7 @@ final class ReactiveBasicCsrfRule extends AbstractReactiveSecurityRule {
                 "Review CSRF protection for reactive HTTP Basic chains",
                 ReactiveSecurityCategory.CSRF,
                 "MEDIUM",
-                "Detects observed HTTP Basic chains without CsrfWebFilter. Browsers can automatically send Basic credentials even without a server session. Browser login findings are reported separately.",
+                "Detects observed HTTP Basic chains without CsrfWebFilter. Custom or unreadable CSRF protection matchers remain incomplete. Browsers can automatically send Basic credentials even without a server session. Browser login findings are reported separately.",
                 "Keep CSRF protection for browser-accessible Basic authentication, or establish that clients cannot automatically attach credentials. Bearer-only APIs are not flagged.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html"));
     }
@@ -246,19 +249,23 @@ final class ReactiveBasicCsrfRule extends AbstractReactiveSecurityRule {
     @Override
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
+        boolean csrfComplete = true;
         for (WebFilterChainObservation chain : context.chains()) {
             if (chain.filtersObserved()
-                    && context.applies(chain.basicAuthentication() && !chain.hasObservedInteractiveLoginFilter())
-                    && !chain.hasCsrfWebFilter()) {
-                details.add(
-                        chain.describe()
-                                + " configures HTTP Basic without CsrfWebFilter; browsers can attach Basic credentials automatically.");
+                    && context.applies(chain.basicAuthentication() && !chain.hasObservedInteractiveLoginFilter())) {
+                if (!chain.hasCsrfWebFilter()) {
+                    details.add(
+                            chain.describe()
+                                    + " configures HTTP Basic without CsrfWebFilter; browsers can attach Basic credentials automatically.");
+                } else {
+                    csrfComplete &= context.required(chain.csrfProtectionMatcherObserved());
+                }
             }
         }
         boolean complete =
                 context.required(context.chains().stream().allMatch(WebFilterChainObservation::authenticationObserved));
-        if (details.isEmpty() && !complete) {
-            return skipped("Authentication converter metadata is unsupported.");
+        if (details.isEmpty() && (!complete || !csrfComplete)) {
+            return skipped("Authentication converter or CSRF protection matcher metadata is unsupported.");
         }
         return filterViolation(context, details);
     }
@@ -571,7 +578,7 @@ final class ReactiveWeakContentSecurityPolicyRule extends AbstractReactiveSecuri
                 "SEC-RXF-HEAD-007",
                 "Review permissive CSP script execution in reactive chains",
                 ReactiveSecurityCategory.HEADERS,
-                "MEDIUM",
+                "LOW",
                 "Inspects a supported single enforcing policy's effective script directives, including nonce/hash and strict-dynamic semantics. Framing is assessed separately.",
                 "Restrict script execution with application-specific nonce/hash or trusted sources and remove unnecessary eval permissions.",
                 "https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp"));

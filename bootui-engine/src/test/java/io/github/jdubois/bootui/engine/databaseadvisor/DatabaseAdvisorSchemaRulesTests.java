@@ -254,6 +254,313 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void duplicateIndexStatusKeepsMixedSchemaCoverageUnknownWithoutHidingKnownFindings() {
+        TableModel unknown = indexed(
+                IndexModel.of("unread_first", List.of("a"), false),
+                IndexModel.of("unread_second", List.of("a"), false));
+        for (boolean duplicate : List.of(false, true)) {
+            TableModel known = indexed(
+                    index("first", List.of("a"), false, List.of(), null),
+                    index("second", List.of(duplicate ? "a" : "b"), false, List.of(), null));
+            for (List<SchemaSnapshot> schemas : List.of(
+                    List.of(
+                            schema("known", Dialect.MYSQL, List.of(known)),
+                            schema("unknown", Dialect.GENERIC, List.of(unknown))),
+                    List.of(
+                            schema("unknown", Dialect.GENERIC, List.of(unknown)),
+                            schema("known", Dialect.MYSQL, List.of(known))))) {
+                DatabaseAdvisorContext context = context(schemas);
+                DatabaseAdvisorRuleResultDto result = new DuplicateIndexRule().evaluate(context);
+                assertThat(result.status()).isEqualTo(duplicate ? "VIOLATION" : "SKIPPED");
+                assertThat(result.violationCount()).isEqualTo(duplicate ? 1 : 0);
+                assertThat(context.evaluationDiagnostics()).hasSize(2);
+            }
+        }
+    }
+
+    @Test
+    void primaryKeyOverlapStatusKeepsMixedSchemaCoverageUnknownWithoutHidingKnownFindings() {
+        TableModel unknown = backedTable("unread", IndexModel.of("extra_unread", List.of("a"), true));
+        for (boolean duplicate : List.of(false, true)) {
+            TableModel known = backedTable(
+                    "read", index("extra", List.of("a"), true, duplicate ? List.of() : List.of("payload"), null));
+            for (List<SchemaSnapshot> schemas : List.of(
+                    List.of(
+                            schema("known", Dialect.MYSQL, List.of(known)),
+                            schema("unknown", Dialect.GENERIC, List.of(unknown))),
+                    List.of(
+                            schema("unknown", Dialect.GENERIC, List.of(unknown)),
+                            schema("known", Dialect.MYSQL, List.of(known))))) {
+                DatabaseAdvisorContext context = context(schemas);
+                DatabaseAdvisorRuleResultDto result = new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+                assertThat(result.status()).isEqualTo(duplicate ? "VIOLATION" : "SKIPPED");
+                assertThat(result.violationCount()).isEqualTo(duplicate ? 1 : 0);
+                assertThat(context.evaluationDiagnostics())
+                        .singleElement()
+                        .satisfies(
+                                diagnostic -> assertThat(diagnostic.message()).contains("extra_unread"));
+            }
+        }
+    }
+
+    @Test
+    void unrelatedKnownUniqueKeyColumnsDoNotMakeProvenPrimaryKeyOverlapUnknown() {
+        TableModel table = backedTable(
+                "orders",
+                index("extra_payload", List.of("a"), true, List.of("payload"), null),
+                IndexModel.of("unread_temporal", List.of("room", "checkout", "checkin"), true));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.MARIADB, List.of(table)));
+        assertThat(new RedundantPrimaryKeyUniqueIndexRule().evaluate(context).status())
+                .isEqualTo("PASS");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void actualBackingKeyOrderRatherThanConstraintOrderDeterminesOverlap() {
+        TableModel table = table(
+                "t",
+                List.of(),
+                List.of("a", "b"),
+                List.of(),
+                List.of(
+                        index("actual", List.of("b", "a"), true, List.of(), "pk_t"),
+                        index("extra", List.of("b", "a"), true, List.of(), null)));
+        assertThat(evaluate(new RedundantPrimaryKeyUniqueIndexRule(), table).status())
+                .isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void missingAndPartialKeyPartsCannotRuleOutPrimaryKeyOverlapEvenWhenBackingIsUnknown() {
+        for (String backingState : List.of("known", "unknown", "unlinked")) {
+            for (List<String> columns :
+                    List.of(List.<String>of(), List.of("a"), List.of("a", ""), List.of("email", ""))) {
+                IndexModel backing = index("actual", List.of("a", "b"), true, List.of(), "pk_t");
+                if (backingState.equals("unknown")) {
+                    backing = IndexModel.of("actual", List.of("a", "b"), true).withBackingConstraint("pk_t");
+                } else if (backingState.equals("unlinked")) {
+                    backing = IndexModel.of("actual", List.of("a", "b"), true);
+                }
+                TableModel table = table(
+                        "t",
+                        List.of(),
+                        List.of("a", "b"),
+                        List.of(),
+                        List.of(backing, IndexModel.of("unread", columns, true)));
+                DatabaseAdvisorContext context = context(schema("ds", Dialect.MYSQL, List.of(table)));
+                assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                                .evaluate(context)
+                                .status())
+                        .isEqualTo("SKIPPED");
+                assertThat(context.evaluationDiagnostics())
+                        .as("%s: %s", backingState, columns)
+                        .isNotEmpty();
+            }
+        }
+    }
+
+    @Test
+    void shortKnownOrdinalDivergenceCannotOverlapKnownOrUnknownCompositeBacking() {
+        for (String backingState : List.of("known", "unknown", "unlinked")) {
+            for (List<String> columns : List.of(List.of("a"), List.of("email"), List.of("a", "b", "c"))) {
+                IndexModel backing = index("actual", List.of("a", "b"), true, List.of(), "pk_t");
+                if (!backingState.equals("known")) {
+                    backing = IndexModel.of("actual", List.of("a", "b"), true)
+                            .withBackingConstraint(backingState.equals("unknown") ? "pk_t" : null);
+                }
+                TableModel table = table(
+                        "t",
+                        List.of(),
+                        List.of("a", "b"),
+                        List.of(),
+                        List.of(backing, IndexModel.of("other_unique", columns, true)));
+                DatabaseAdvisorContext context = context(schema("ds", Dialect.MYSQL, List.of(table)));
+                assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                                .evaluate(context)
+                                .status())
+                        .isEqualTo("SKIPPED");
+                assertThat(context.evaluationDiagnostics().isEmpty())
+                        .as("%s: %s", backingState, columns)
+                        .isEqualTo(!columns.equals(List.of("a")));
+            }
+        }
+    }
+
+    @Test
+    void unrelatedShortTemporalUniqueKeysDoNotWarnButUnreadInventoriesAndBackingRemainUnknown() {
+        for (boolean backingComplete : List.of(false, true)) {
+            IndexModel backing = index(
+                    "actual",
+                    backingComplete ? List.of("tenant", "room", "id") : List.of("tenant"),
+                    true,
+                    List.of(),
+                    "pk_t");
+            TableModel table = table(
+                    "t",
+                    List.of(),
+                    List.of("tenant", "room", "id"),
+                    List.of(),
+                    List.of(backing, IndexModel.of("temporal", List.of("checkin", "checkout"), true)));
+            DatabaseAdvisorContext context = context(schema("ds", Dialect.MARIADB, List.of(table)));
+            assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                            .evaluate(context)
+                            .status())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evaluationDiagnostics().isEmpty()).isEqualTo(backingComplete);
+            DatabaseAdvisorContext unread =
+                    context(schema("ds", Dialect.MARIADB, List.of(incomplete(table, true, false))));
+            assertThat(new RedundantPrimaryKeyUniqueIndexRule().evaluate(unread).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(unread.evaluationDiagnostics()).isNotEmpty();
+        }
+    }
+
+    @Test
+    void unrelatedKnownUniqueKeyColumnsDoNotMakeUnknownBackingSemanticsWarn() {
+        for (boolean linked : List.of(false, true)) {
+            TableModel table = table(
+                    "t",
+                    List.of(),
+                    List.of("a"),
+                    List.of(),
+                    List.of(
+                            IndexModel.of("actual", List.of("a"), true).withBackingConstraint(linked ? "pk_t" : null),
+                            IndexModel.of("unread_temporal", List.of("room", "checkout", "checkin"), true)));
+            DatabaseAdvisorContext context = context(schema("ds", Dialect.MARIADB, List.of(table)));
+            assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                            .evaluate(context)
+                            .status())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evaluationDiagnostics()).isEmpty();
+        }
+    }
+
+    @Test
+    void mysqlAndMariaDbCatalogDefinitionsEnableExactDuplicatesAndProvenPrimaryKeyOverlap() {
+        List<IndexModel> indexes = List.of(
+                IndexModel.of("PRIMARY", List.of("id"), true),
+                IndexModel.of("uq_id", List.of("id"), true),
+                IndexModel.of("first", List.of("a", "b"), false),
+                IndexModel.of("same", List.of("a", "b"), false));
+        TableModel table = new TableModel(
+                "app",
+                null,
+                "t",
+                "TABLE",
+                List.of(),
+                "PRIMARY",
+                List.of("id"),
+                List.of(),
+                indexes,
+                false,
+                false,
+                false,
+                TableMetadata.COMPLETE);
+        List<MySqlIndexDetail> rows = List.of(
+                mysqlPart("PRIMARY", 1, "id", "A", true),
+                mysqlPart("uq_id", 1, "id", "A", true),
+                mysqlPart("first", 1, "a", "A", false),
+                mysqlPart("first", 2, "b", "D", false),
+                mysqlPart("same", 1, "a", "A", false),
+                mysqlPart("same", 2, "b", "D", false));
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            DatabaseAdvisorContext context = mysqlContext(dialect, table, rows);
+            DatabaseAdvisorRuleResultDto duplicates = new DuplicateIndexRule().evaluate(context);
+            assertThat(duplicates.status()).isEqualTo("VIOLATION");
+            assertThat(duplicates.sampleViolations()).singleElement().asString().contains("first and same");
+            DatabaseAdvisorRuleResultDto primary = new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+            assertThat(primary.status()).isEqualTo("VIOLATION");
+            assertThat(primary.sampleViolations()).singleElement().asString().contains("uq_id", "PRIMARY");
+            assertThat(context.evaluationDiagnostics()).isEmpty();
+        }
+    }
+
+    @Test
+    void mysqlComparisonPreservesKeyOrderDirectionUniquenessAndVisibility() {
+        List<IndexModel> indexes = List.of(
+                IndexModel.of("first", List.of("a", "b"), false),
+                IndexModel.of("reordered", List.of("b", "a"), false),
+                IndexModel.of("descending", List.of("a", "b"), false),
+                IndexModel.of("longer", List.of("a", "b", "c"), false),
+                IndexModel.of("unique", List.of("a", "b"), true),
+                IndexModel.of("invisible", List.of("a", "b"), false));
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(
+                        column("a", "varchar", Types.VARCHAR),
+                        column("b", "varchar", Types.VARCHAR),
+                        column("c", "varchar", Types.VARCHAR)),
+                List.of(),
+                List.of(),
+                indexes);
+        List<MySqlIndexDetail> rows = new ArrayList<>();
+        for (IndexModel index : indexes) {
+            for (int position = 1; position <= index.keyParts().size(); position++) {
+                rows.add(new MySqlIndexDetail(
+                        "app",
+                        "t",
+                        index.name(),
+                        position,
+                        index.keyParts().get(position - 1).columnName(),
+                        null,
+                        index.name().equals("descending") && position == 2 ? "D" : "A",
+                        "BTREE",
+                        index.unique(),
+                        !index.name().equals("invisible"),
+                        null,
+                        false,
+                        true));
+            }
+        }
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            DatabaseAdvisorContext context = mysqlContext(dialect, table, rows);
+            assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("PASS");
+            assertThat(context.evaluationDiagnostics()).isEmpty();
+        }
+    }
+
+    @Test
+    void mariaDbPotentialTemporalUniqueSemanticsStayUnknownRatherThanOrdinaryDuplicates() {
+        TableModel table = TableModel.of(
+                "app",
+                null,
+                "t",
+                List.of(column("start", "date", Types.DATE), column("end", "date", Types.DATE)),
+                List.of(),
+                List.of(),
+                List.of(
+                        IndexModel.of("first", List.of("start", "end"), true),
+                        IndexModel.of("same", List.of("start", "end"), true)));
+        List<MySqlIndexDetail> rows = List.of(
+                mysqlPart("first", 1, "start", "A", true), mysqlPart("first", 2, "end", "A", true),
+                mysqlPart("same", 1, "start", "A", true), mysqlPart("same", 2, "end", "A", true));
+        DatabaseAdvisorContext context = mysqlContext(Dialect.MARIADB, table, rows);
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics()).hasSize(2);
+        assertThat(new DuplicateIndexRule()
+                        .evaluate(mysqlContext(Dialect.MYSQL, table, rows))
+                        .status())
+                .isEqualTo("VIOLATION");
+    }
+
+    private static MySqlIndexDetail mysqlPart(String index, int position, String column, String order, boolean unique) {
+        return new MySqlIndexDetail(
+                "app", "t", index, position, column, null, order, "BTREE", unique, true, null, false, true);
+    }
+
+    private static DatabaseAdvisorContext mysqlContext(Dialect dialect, TableModel table, List<MySqlIndexDetail> rows) {
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_INDEX_DETAILS, rows, false))
+                .add(VendorAugmentation.available(
+                        VendorFindingKinds.MYSQL_TABLES,
+                        List.of(new MySqlTableInfo("app", "t", "InnoDB", null, null)),
+                        false))
+                .build();
+        return context(schema("ds", dialect, VendorSchemaMerge.merge(List.of(table), dialect, findings), findings));
+    }
+
+    @Test
     void aLoneNonBtreeIndexIsExcludedWithoutMakingItsTableUnknown() {
         TableModel table = indexed(
                 index("by_completion_date", List.of("completion_date"), false, List.of(), null),
@@ -911,7 +1218,11 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of(),
                 List.of(onDeleteSetNull),
                 List.of());
-        DatabaseAdvisorRuleResultDto single = evaluate(new ForeignKeySetNullOnNotNullColumnRule(), orders);
+        DatabaseAdvisorRuleResultDto single = new ForeignKeySetNullOnNotNullColumnRule()
+                .evaluate(postgresSetNullContext(
+                        orders,
+                        List.of(new PostgresForeignKeyDetail(
+                                "public", "orders", "fk_orders_customer", true, true, true, true))));
         assertThat(single.status()).isEqualTo("VIOLATION");
         assertThat(single.severity()).isEqualTo(DatabaseAdvisorRuleSupport.HIGH);
         assertThat(single.sampleViolations().get(0))
@@ -935,7 +1246,11 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of(),
                 List.of(compositeBothNotNull),
                 List.of());
-        DatabaseAdvisorRuleResultDto composite = evaluate(new ForeignKeySetNullOnNotNullColumnRule(), allNotNull);
+        DatabaseAdvisorRuleResultDto composite = new ForeignKeySetNullOnNotNullColumnRule()
+                .evaluate(postgresSetNullContext(
+                        allNotNull,
+                        List.of(new PostgresForeignKeyDetail(
+                                "public", "order_lines", "fk_lines_parent", true, true, true, true))));
         assertThat(composite.status()).isEqualTo("VIOLATION");
         assertThat(composite.sampleViolations().get(0))
                 .contains("ON DELETE SET NULL and ON UPDATE SET NULL")
@@ -1021,12 +1336,14 @@ class DatabaseAdvisorSchemaRulesTests {
                 List.of(),
                 List.of(disabled),
                 List.of());
-        DatabaseAdvisorContext disabledContext = context(schema("ds", Dialect.POSTGRESQL, List.of(disabledTable)));
-        assertThat(new ForeignKeySetNullOnNotNullColumnRule()
-                        .evaluate(disabledContext)
-                        .status())
-                .isEqualTo("SKIPPED");
-        assertThat(disabledContext.evaluationDiagnostics()).isEmpty();
+        for (Dialect dialect : List.of(Dialect.GENERIC, Dialect.MYSQL, Dialect.MARIADB, Dialect.ORACLE)) {
+            DatabaseAdvisorContext disabledContext = context(schema("ds", dialect, List.of(disabledTable)));
+            assertThat(new ForeignKeySetNullOnNotNullColumnRule()
+                            .evaluate(disabledContext)
+                            .status())
+                    .isEqualTo("SKIPPED");
+            assertThat(disabledContext.evaluationDiagnostics()).isEmpty();
+        }
 
         ForeignKeyModel unknownNullabilityFk = new ForeignKeyModel(
                 "fk_unknown",
@@ -1051,6 +1368,76 @@ class DatabaseAdvisorSchemaRulesTests {
                         .status())
                 .isEqualTo("SKIPPED");
         assertThat(unknownContext.evaluationDiagnostics()).isNotEmpty();
+    }
+
+    @Test
+    void postgresSetNullUsesEachParentActionRatherThanAggregateForeignKeyEnforcement() {
+        TableModel child = table(
+                "child",
+                List.of(DatabaseAdvisorFixtures.notNullColumn("parent_id", "int4", Types.INTEGER)),
+                List.of(),
+                List.of(fk("fk", List.of("parent_id"), List.of("id"), DatabaseMetaData.importedKeySetNull)
+                        .withEnforcement(false, true, null)),
+                List.of());
+        for (Boolean delete : new Boolean[] {true, false, null}) {
+            for (Boolean update : new Boolean[] {true, false, null}) {
+                DatabaseAdvisorContext context = postgresSetNullContext(
+                        child,
+                        List.of(new PostgresForeignKeyDetail("public", "child", "fk", false, true, delete, update)));
+                DatabaseAdvisorRuleResultDto result = new ForeignKeySetNullOnNotNullColumnRule().evaluate(context);
+                boolean active = Boolean.TRUE.equals(delete) || Boolean.TRUE.equals(update);
+                assertThat(result.status()).isEqualTo(active ? "VIOLATION" : "SKIPPED");
+                assertThat(context.evaluationDiagnostics())
+                        .hasSize((delete == null ? 1 : 0) + (update == null ? 1 : 0));
+                if (active) {
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    String text = result.sampleViolations().get(0);
+                    assertThat(text.contains("ON DELETE SET NULL")).isEqualTo(Boolean.TRUE.equals(delete));
+                    assertThat(text.contains("ON UPDATE SET NULL")).isEqualTo(Boolean.TRUE.equals(update));
+                    if (Boolean.FALSE.equals(delete)) {
+                        assertThat(text).doesNotContain("parent delete");
+                    }
+                    if (Boolean.FALSE.equals(update)) {
+                        assertThat(text).doesNotContain("parent update");
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void postgresSetNullMissingOrAmbiguousActionEvidenceCannotBecomeHealthyCoverageOrAnActiveFinding() {
+        TableModel child = table(
+                "child",
+                List.of(DatabaseAdvisorFixtures.notNullColumn("parent_id", "int4", Types.INTEGER)),
+                List.of(),
+                List.of(fk("FK", List.of("parent_id"), List.of("id"), DatabaseMetaData.importedKeySetNull)
+                        .withEnforcement(true, true, null)),
+                List.of());
+        PostgresForeignKeyDetail match = new PostgresForeignKeyDetail("public", "child", "FK", true, true, true, true);
+        for (List<PostgresForeignKeyDetail> rows : List.of(
+                List.<PostgresForeignKeyDetail>of(),
+                List.of(new PostgresForeignKeyDetail("other", "child", "FK", true, true, true, true)),
+                List.of(new PostgresForeignKeyDetail("public", "child", "fk", true, true, true, true)),
+                List.of(match, match))) {
+            DatabaseAdvisorContext context = postgresSetNullContext(child, rows);
+            DatabaseAdvisorRuleResultDto result = new ForeignKeySetNullOnNotNullColumnRule().evaluate(context);
+            assertThat(result.status()).isEqualTo("SKIPPED");
+            assertThat(result.violationCount()).isZero();
+            assertThat(context.evaluationDiagnostics())
+                    .hasSize(2)
+                    .allSatisfy(
+                            diagnostic -> assertThat(diagnostic.message()).contains("trigger activation is unknown"));
+        }
+    }
+
+    private static DatabaseAdvisorContext postgresSetNullContext(
+            TableModel table, List<PostgresForeignKeyDetail> details) {
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_FOREIGN_KEY_DETAILS, details, false))
+                .build();
+        return context(schema("ds", Dialect.POSTGRESQL, List.of(table), findings));
     }
 
     private static ColumnModel declared(String typeName, int jdbcType, Integer size, Integer decimalDigits) {

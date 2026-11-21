@@ -70,16 +70,16 @@
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <maven.compiler.release>${java.version}</maven.compiler.release>
-        <spring-boot.version>4.1.2</spring-boot.version>
+        <spring-boot.version>4.2.0</spring-boot.version>
         <!-- Latest Quarkus LTS, shared by the extension, integration tests, and sample app. -->
         <quarkus.platform.version>3.40.1.2</quarkus.platform.version>
-        <!-- Neither Resilience4j nor Spring Retry is managed by the Spring Boot 4.1 BOM, so both are
+        <!-- Neither Resilience4j nor Spring Retry is managed by the Spring Boot 4.2 BOM, so both are
              pinned here and shared by the optional autoconfigure dependencies and the sample apps. -->
         <resilience4j.version>2.4.0</resilience4j.version>
         <spring-retry.version>2.0.13</spring-retry.version>
         <!-- Not managed by the Spring Boot BOM either: test-only in bootui-engine (ArchUnit fixtures) and in
              bootui-spring-boot-starter (a Surefire execution of its own), never a dependency of BootUI. -->
-        <spring-modulith.version>2.1.2</spring-modulith.version>
+        <spring-modulith.version>2.2.0</spring-modulith.version>
         <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>

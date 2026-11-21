@@ -30,6 +30,11 @@ public interface LogCoverage {
      */
     String gap(long fromMillis, long toMillis);
 
+    /** Bounded passive coverage for projections; explicit deep-inspection adapters may return a narrower proof. */
+    default String passiveGap(long fromMillis, long toMillis) {
+        return gap(fromMillis, toMillis);
+    }
+
     /** The {@code WARN}-enabled loggers that do not pass their events to the root logger, by name, bounded. */
     List<String> bypassingLoggers();
 }

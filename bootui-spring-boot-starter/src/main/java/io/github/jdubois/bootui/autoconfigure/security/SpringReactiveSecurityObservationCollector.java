@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.FactoryBean;
@@ -31,6 +32,7 @@ import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
+import org.springframework.beans.factory.support.FactoryBeanRegistrySupport;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.origin.OriginTrackedValue;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -44,6 +46,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.MatcherSecurityWebFilterChain;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.csrf.CsrfWebFilter;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.server.WebFilter;
@@ -78,6 +81,7 @@ public final class SpringReactiveSecurityObservationCollector {
     private static final List<String> FILTER_TYPES = List.of(
             SECURITY + "authorization.AuthorizationWebFilter",
             SECURITY + "csrf.CsrfWebFilter",
+            HEADERS + "ContentSecurityPolicyNonceGeneratingWebFilter",
             HEADERS + "HttpHeaderWriterWebFilter",
             SECURITY + "transport.HttpsRedirectWebFilter",
             SECURITY + "authentication.AuthenticationWebFilter",
@@ -196,6 +200,13 @@ public final class SpringReactiveSecurityObservationCollector {
             if (definition != null && definition.isAbstract()) {
                 continue;
             }
+            Object cachedProduct = instance instanceof FactoryBean<?> ? cachedFactoryProduct(singletons, name) : null;
+            if (cachedProduct != null) {
+                if (expectedType.isInstance(cachedProduct)) {
+                    candidates.add(new BeanCandidate(name, cachedProduct));
+                }
+                continue;
+            }
             if (instance != null && !(instance instanceof FactoryBean<?>)) {
                 if (expectedType.isInstance(instance)) {
                     candidates.add(new BeanCandidate(name, instance));
@@ -219,7 +230,7 @@ public final class SpringReactiveSecurityObservationCollector {
             if (resolved == null || resolved == Object.class) {
                 complete = false;
             } else if (expectedType.isAssignableFrom(resolved)) {
-                // A FactoryBean product is not retrieved, even when its factory already exists.
+                // A matching uncached product remains unavailable; never invoke the application FactoryBean.
                 candidates.add(new BeanCandidate(name, null));
             }
         }
@@ -373,7 +384,9 @@ public final class SpringReactiveSecurityObservationCollector {
         boolean form = false;
         boolean bearer = false;
         boolean authComplete = true;
+        boolean csrfMatcherObserved = true;
         boolean redirect = false;
+        boolean expandsNonceTemplate = false;
         for (int i = 0; i < filters.size() && i < MAX_ITEMS; i++) {
             Object filter = filters.get(i);
             if (!(filter instanceof WebFilter)) {
@@ -391,8 +404,14 @@ public final class SpringReactiveSecurityObservationCollector {
                     recognized == null
                             ? "custom:" + filter.getClass().getName()
                             : filter.getClass().getSimpleName());
+            expandsNonceTemplate |= exact(filter, HEADERS + "ContentSecurityPolicyNonceGeneratingWebFilter");
             if (exact(filter, HEADERS + "HttpHeaderWriterWebFilter")) {
                 headerFilters.add(filter);
+            }
+            if (exact(filter, SECURITY + "csrf.CsrfWebFilter")) {
+                // Only the held native default proves the supported unsafe-method scope; never match a request.
+                csrfMatcherObserved &= filter.getClass() == CsrfWebFilter.class
+                        && readField(filter, "requireCsrfProtectionMatcher") == CsrfWebFilter.DEFAULT_CSRF_MATCHER;
             }
             if (exact(filter, SECURITY + "authentication.AuthenticationWebFilter")) {
                 Object converter = readField(filter, "authenticationConverter");
@@ -430,7 +449,7 @@ public final class SpringReactiveSecurityObservationCollector {
         if (!authComplete) {
             messages.add("Chain " + index + ": custom authentication converter/filter metadata is unsupported.");
         }
-        HeaderInfo headers = headerInfo(headerFilters, index, messages);
+        HeaderInfo headers = headerInfo(headerFilters, index, messages, expandsNonceTemplate);
         CspObservation legacy = headers.policies.size() == 1 ? headers.policies.get(0) : null;
         return new WebFilterChainObservation(
                 index,
@@ -449,7 +468,9 @@ public final class SpringReactiveSecurityObservationCollector {
                 filtersComplete && authComplete,
                 unconditional,
                 headers.policies,
-                redirect);
+                redirect,
+                null,
+                filtersComplete && csrfMatcherObserved);
     }
 
     private static Boolean unconditionalMatcher(Object matcher) {
@@ -494,10 +515,11 @@ public final class SpringReactiveSecurityObservationCollector {
         int count;
     }
 
-    private static HeaderInfo headerInfo(List<Object> filters, int index, List<String> messages) {
+    private static HeaderInfo headerInfo(
+            List<Object> filters, int index, List<String> messages, boolean expandsNonceTemplate) {
         HeaderInfo info = new HeaderInfo();
         for (Object filter : filters) {
-            inspectWriter(readField(filter, "writer"), 0, info);
+            inspectWriter(readField(filter, "writer"), 0, info, expandsNonceTemplate);
         }
         if (info.occurrences.values().stream().anyMatch(count -> count > 1)) {
             info.complete = false;
@@ -513,7 +535,7 @@ public final class SpringReactiveSecurityObservationCollector {
         return info;
     }
 
-    private static void inspectWriter(Object writer, int depth, HeaderInfo info) {
+    private static void inspectWriter(Object writer, int depth, HeaderInfo info, boolean expandsNonceTemplate) {
         if (writer == null || depth >= MAX_DEPTH || ++info.count > MAX_ITEMS) {
             info.complete = false;
             return;
@@ -524,7 +546,7 @@ public final class SpringReactiveSecurityObservationCollector {
                 return;
             }
             for (int i = 0; i < writers.size() && i < MAX_ITEMS; i++) {
-                inspectWriter(writers.get(i), depth + 1, info);
+                inspectWriter(writers.get(i), depth + 1, info, expandsNonceTemplate);
             }
             info.complete &= writers.size() <= MAX_ITEMS;
             return;
@@ -542,15 +564,20 @@ public final class SpringReactiveSecurityObservationCollector {
         } else if (exact(writer, HEADERS + "ContentSecurityPolicyServerHttpHeadersWriter")) {
             Object policy = readField(writer, "policyDirectives");
             Object report = readField(writer, "reportOnly");
-            // Spring installs this writer by default with no policy/delegate; it emits no CSP header.
-            if (policy == null
-                    && report instanceof Boolean
-                    && observedNullField(writer, "policyDirectives")
-                    && observedNullField(writer, "delegate")) {
+            // Spring installs this writer by default with no policy; it emits no CSP header.
+            if (policy == null && report instanceof Boolean && observedNullField(writer, "policyDirectives")) {
                 return;
             }
             info.names.add("ContentSecurityPolicyServerHttpHeadersWriter");
             if (policy instanceof String text && report instanceof Boolean reportOnly) {
+                Object matcher = readField(writer, "exchangeMatcher");
+                if (declaresField(writer, "exchangeMatcher") && !Boolean.TRUE.equals(unconditionalMatcher(matcher))) {
+                    info.complete = false;
+                    return;
+                }
+                if (expandsNonceTemplate) {
+                    text = CspPolicy.expandVerifiedNonceTemplate(text);
+                }
                 info.policies.add(new CspObservation(text.length() <= MAX_TEXT ? text : null, reportOnly));
                 noteHeader(info, reportOnly ? "content-security-policy-report-only" : "content-security-policy");
                 info.complete &=
@@ -876,9 +903,6 @@ public final class SpringReactiveSecurityObservationCollector {
                 continue;
             }
             Object singleton = singletons.containsSingleton(name) ? singletons.getSingleton(name) : null;
-            if (singleton instanceof FactoryBean<?>) {
-                continue;
-            }
             if (definition != null) {
                 String factoryBeanName = definition.getFactoryBeanName();
                 String className = definition.getBeanClassName();
@@ -889,10 +913,26 @@ public final class SpringReactiveSecurityObservationCollector {
                 recordMethodSecurityConfiguration(singleton.getClass().getName(), enabled);
             }
             Class<?> type = declaredType(definition).resolve();
-            if (type == null && singleton != null) {
+            if (singleton instanceof FactoryBean<?> factoryBean) {
+                type = factoryBean.getClass();
+                complete &= collectMethodFamilies(type, used, new HashSet<>(), 0);
+                Object product = cachedFactoryProduct(singletons, name);
+                if (product == null) {
+                    Class<?> productType = factoryProductType(definition, type);
+                    complete &= productType != null && frameworkType(productType);
+                    continue;
+                }
+                singleton = product;
+                type = product.getClass();
+            } else if (type != null && FactoryBean.class.isAssignableFrom(type)) {
+                Class<?> productType = factoryProductType(definition, type);
+                complete &= productType != null && frameworkType(productType);
+                continue;
+            } else if (type == null && singleton != null) {
                 type = singleton.getClass();
             }
-            if (type == null || FactoryBean.class.isAssignableFrom(type)) {
+            if (type == null) {
+                complete = false;
                 continue;
             }
             if (hasEnableReactiveMethodSecurity(type, new HashSet<>(), 0)) {
@@ -910,12 +950,19 @@ public final class SpringReactiveSecurityObservationCollector {
                 complete &= collectMethodFamilies(singleton.getClass(), used, new HashSet<>(), 0);
             }
         }
+        if (factory instanceof ConfigurableListableBeanFactory configurable
+                && configurable.getParentBeanFactory() != null) {
+            complete = false;
+        }
         Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
         if (advisorType != null) {
             BeanInventory advisors = beanInventory(factory, advisorType);
+            complete &= advisors.complete();
+            complete &= advisors.candidates().size() <= MAX_ITEMS;
             for (int index = 0; index < advisors.candidates().size() && index < MAX_ITEMS; index++) {
                 Object advisor = advisors.candidates().get(index).instance();
                 if (advisor == null) {
+                    complete = false;
                     continue;
                 }
                 String type = advisor.getClass().getName();
@@ -955,6 +1002,38 @@ public final class SpringReactiveSecurityObservationCollector {
             }
         }
         return new MethodSecurityState(Set.copyOf(enabled), Set.copyOf(used), complete);
+    }
+
+    private static Object cachedFactoryProduct(SingletonBeanRegistry registry, String name) {
+        if (!(registry instanceof FactoryBeanRegistrySupport)) {
+            return null;
+        }
+        Object cache = readField(registry, "factoryBeanObjectCache");
+        return cache != null && cache.getClass() == ConcurrentHashMap.class ? ((Map<?, ?>) cache).get(name) : null;
+    }
+
+    private static Class<?> factoryProductType(BeanDefinition definition, Class<?> factoryType) {
+        if (definition != null) {
+            Object attribute = definition.getAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE);
+            ResolvableType product = attribute instanceof Class<?> type
+                    ? ResolvableType.forClass(type)
+                    : attribute instanceof ResolvableType type ? type : ResolvableType.NONE;
+            if (product.resolve() != null) {
+                return product.resolve();
+            }
+        }
+        return ResolvableType.forClass(factoryType)
+                .as(FactoryBean.class)
+                .getGeneric(0)
+                .resolve();
+    }
+
+    private static boolean frameworkType(Class<?> type) {
+        String name = type.getName();
+        return name.startsWith("org.springframework.")
+                || name.startsWith("java.")
+                || name.startsWith("jakarta.")
+                || name.startsWith("reactor.");
     }
 
     private static void recordMethodSecurityConfiguration(String configuration, Set<String> enabled) {
@@ -1097,6 +1176,15 @@ public final class SpringReactiveSecurityObservationCollector {
             return false;
         } catch (IllegalAccessException ex) {
             throw new IllegalStateException("Framework metadata is inaccessible", ex);
+        }
+    }
+
+    private static boolean declaresField(Object target, String name) {
+        try {
+            target.getClass().getDeclaredField(name);
+            return true;
+        } catch (NoSuchFieldException ex) {
+            return false;
         }
     }
 

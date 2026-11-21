@@ -484,13 +484,16 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
+    public QuarkusLogCoverage logCoverage() {
+        return new QuarkusLogCoverage();
+    }
+
+    @Produces
+    @Singleton
     public CaughtExceptionsReader caughtExceptionsReader(
-            RuntimeJournal journal, Instance<AgentCaughtExceptions> caught) {
+            RuntimeJournal journal, Instance<AgentCaughtExceptions> caught, QuarkusLogCoverage logs) {
         return new CaughtExceptionsReader(
-                journal,
-                () -> caught.isResolvable() ? caught.get() : null,
-                new QuarkusLogCoverage(),
-                RunningHandoffs.shared());
+                journal, () -> caught.isResolvable() ? caught.get() : null, logs, RunningHandoffs.shared());
     }
 
     /**
@@ -599,12 +602,16 @@ public class BootUiEngineProducer {
      * no capability gate or optional dependency is involved. {@code @Singleton} matches the scanner's
      * cross-scan GC-trend state (a {@code previousGcSample} baseline), mirroring the
      * {@link ArchitectureScanner} and {@link ThreadDumpService} producers; the heap-content histogram
-     * forces a full GC, so the {@code POST /scan} resource method runs blocking, off the event loop.
+     * requests GC when included, so the {@code POST /scan} resource method runs blocking, off the event loop.
      */
     @Produces
     @Singleton
     public MemoryScanner memoryScanner(ThreadDumpService threadDumpService, Config config) {
-        MemoryScanner scanner = MemoryScanner.create(threadDumpService, Clock.systemUTC());
+        MemoryScanner scanner = MemoryScanner.create(
+                threadDumpService,
+                Clock.systemUTC(),
+                config.getOptionalValue("bootui.memory.include-histogram", Boolean.class)
+                        .orElse(true));
         scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
         return scanner;
     }

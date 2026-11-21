@@ -80,13 +80,18 @@ set.
 
 ## Generated application code
 
-The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-019** exclude classes BootUI can positively identify as
-generated, so OpenAPI Generator's `ApiUtil` helpers do not contribute generic-exception findings while a handwritten
-generic throw still does.
+The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-019**, and the existing generated-client exemption in
+**ARCH-SPRING-025**, exclude classes BootUI can positively identify as generated. OpenAPI Generator's `ApiUtil` helpers
+do not contribute generic-exception findings while a handwritten generic throw still does.
 
 This is a class-level exemption. It is not a rule dismissal, and it does not exclude every class named `ApiUtil` or
-every `api` package. Package-cycle, module-boundary, and Spring or CDI checks keep the full class graph, including
-generated types, and handwritten callers and subclasses stay eligible for coding checks.
+every `api` package. Package-cycle, module-boundary, and other Spring or CDI checks keep the full class graph, including
+generated types. Handwritten callers and subclasses stay eligible for coding checks.
+
+A retained `org.springframework.aot.generate.Generated` marker on the class or its top-level enclosing type declares
+generated ownership, including for classes imported from an archive. BootUI trusts that declaration without loading
+Spring APIs; it does not verify that a generator ran. A `__BeanDefinitions` name suffix or a JPA static metamodel role
+alone does not establish generated ownership.
 
 Identification happens only during an explicit scan. BootUI matches imported classes to their local source ownership
 using their module, package, recorded source filename, and enclosing type:
@@ -106,8 +111,9 @@ prevent an exemption, as do Maven compiler-input lists that identify sources out
 without opening those external files.
 
 Classes read from inside an archive, such as an executable jar, an extracted `BOOT-INF/lib` image layout, or a Quarkus
-`lib` directory, can never have local source ownership. For those classes only, BootUI recognizes one bytecode
-fingerprint: the OpenAPI Generator Spring servlet `ApiUtil` template, as a Java class (`JavaSpring`) or a Kotlin
+`lib` directory, can never have local source ownership. A supported marker present in bytecode still applies.
+For unmarked archive classes only, BootUI recognizes one bytecode fingerprint: the OpenAPI Generator Spring servlet
+`ApiUtil` template, as a Java class (`JavaSpring`) or a Kotlin
 `object` (`kotlin-spring`), with either `jakarta.servlet` or `javax.servlet`. The class must be a top-level `ApiUtil`
 compiled from `ApiUtil.java` or `ApiUtil.kt`, with no members beyond the template's. The complete instruction stream of
 `setExampleResponse(NativeWebRequest, String, String)` must equal the verified output of a known compiler: javac
@@ -124,9 +130,9 @@ findings.
 
 ::: details Why source lookup is needed at all
 The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
-annotations have SOURCE retention, so they normally disappear from compiled bytecode. A same-named class-level marker
-is recognized when it is actually present, but normal generator output needs local source provenance, and the Kotlin
-OpenAPI `ApiUtil` template carries no such marker at all.
+annotations have SOURCE retention, so they normally disappear from compiled bytecode. A supported marker is recognized
+when it is actually present; Spring AOT's distinct `org.springframework.aot.generate.Generated` marker has RUNTIME
+retention. Other unmarked generator output needs local source provenance or the narrowly supported archive fingerprint.
 
 BootUI still evaluates bytecode, not source-level coding rules. The source lookup only establishes ownership.
 :::
@@ -138,10 +144,10 @@ arbitrary ancestors or the process working directory, downloads sources, or runs
 violation-detail reads reuse the completed scan without reading sources again.
 :::
 
-The policy is conservative. Apart from the packaged `ApiUtil` template fingerprint, classes in packaged jars,
-unsupported or custom output layouts, classes with missing sources or `SourceFile` metadata, and ambiguous matches all
-retain their findings, and a SOURCE-retained annotation in a non-generated source layout does not by itself exempt a
-class.
+The policy is conservative. Apart from supported markers present in bytecode or the archive-only `ApiUtil` template
+fingerprint, classes in packaged jars, unsupported or custom output layouts, classes with missing sources or
+`SourceFile` metadata, and ambiguous matches all retain their findings. A SOURCE-retained annotation in a non-generated
+source layout does not by itself exempt a class.
 
 Ownership recognition handles multiline declarations, Java Unicode escapes, and Kotlin string templates, but it is not
 a full Java or Kotlin parser. Kotlin file facades, including `@file:JvmName` facades, are not treated as explicit
@@ -215,14 +221,18 @@ An error-free scan means the imported classes were evaluated. It does not prove 
 completeness. ArchUnit can resolve external references to stubs without full annotation or hierarchy information, and
 those omissions need not throw.
 
-Imports are restricted by package roots rather than a class-count or execution-time budget, so runtime test output
-under the same roots is not automatically excluded. Package cycles are evaluated per root and top-level slice, not
-across every possible module boundary.
+Imports are restricted by package roots rather than a class-count or execution-time budget. Classes positively
+located in local Maven or Gradle test output are excluded before evaluation and application-class counts. Known
+excluded test callers and subclasses do not change production receiver or shared-bean conclusions; genuine
+production and unresolved relationships remain, including production dependencies on test-fixture targets.
+Archives and unknown output layouts are not treated as test output. Package cycles are evaluated per root and
+top-level slice, not across every possible module boundary.
 
 Most Spring rules recognize direct annotations rather than Spring's full merged and aliased metadata model, though the
 scheduling check also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK, CGLIB, or
-AspectJ configuration. The same declaring class does not prove a `this` receiver, and filtering Kotlin dispatch helpers
-can hide authored calls inside mangled internal members.
+AspectJ configuration. The same declaring class does not prove a `this` receiver: ARCH-SPRING-004 recognizes bounded
+Java proxy-receiver expressions, but retains the owner-based heuristic for unsupported shapes (see the rule below).
+Filtering Kotlin dispatch helpers can hide authored calls inside mangled internal members.
 
 These remain known limitations rather than problems solved by the logger, scheduling, and `ThreadFactory`
 improvements. For background, see the
@@ -239,8 +249,8 @@ Severity reflects the worst plausible impact if the finding is real, not how lik
 | **CRITICAL** | Supported for the most severe correctness or safety problems. No active check emits it. |
 | **HIGH** | A serious structural problem with clear maintenance impact, such as package cycles or forcibly terminating the JVM. |
 | **MEDIUM** | Weakens maintainability or layering and usually warrants a fix, such as field injection or layering inversions. |
-| **LOW** | A defense-in-depth or hygiene gap, such as standard-stream use, generic exceptions, or `java.util.logging`. |
-| **INFO** | An informational convention prompt, such as legacy library use or deprecated APIs. |
+| **LOW** | A defense-in-depth or hygiene gap, such as standard-stream use, generic exceptions, or mutable logger fields. |
+| **INFO** | An informational convention prompt, such as logging-facade preference, legacy library use, or deprecated APIs. |
 
 The scan evaluates every registered rule, but the results panel lists only rules that found violations. They are
 ordered by severity, then by the number of violating instances, and include a few sample detail lines from ArchUnit.
@@ -305,17 +315,25 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-003 - Classes should not use java.util.logging
 
-- **Severity**: LOW
+- **Severity**: INFO (logging-facade convention, with no score penalty)
 - **Inspects**: assignments to fields of a `java.util.logging` type (via ArchUnit's `GeneralCodingRules`), typically a
   `java.util.logging.Logger` field.
 - **Fires when**: application code stores a `java.util.logging` logger or handler in a field instead of using the
   project logging facade. Tuning a JUL-based library's logger without storing it, such as
   `Logger.getLogger("org.example").setLevel(Level.WARNING)`, is not reported.
+- **Meaning and limits**: Spring Boot routes JUL records into its configured logging system by default, so this
+  finding is not evidence of broken routing or missing log coverage. Custom JUL handlers or disabled bridging can
+  still bypass that system. With Logback, the runtime journal independently checks routing gaps for WARN-and-above
+  caught-exception coverage; it is not a general JUL audit or a check of every logging implementation.
 - **Quarkus**: not evaluated (`SKIPPED`). Quarkus lists `java.util.logging` as a
   [built-in logging API](https://quarkus.io/guides/logging) backed by JBoss LogManager, and its `@LoggingFilter`
   extension point implements `java.util.logging.Filter`.
-- **Recommendation**: use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent
-  logging.
+- **Recommendation**: prefer the project logging facade (SLF4J over Logback by default in Spring Boot) as a convention;
+  verify routing separately when customizing JUL handlers or bridges.
+- **Compatibility**: reclassified from LOW to INFO without changing the predicate, rule ID, occurrence counts,
+  locations, or dismissals. It no longer contributes a score penalty or counts toward `--fail-on low`; it never
+  counted toward higher severity thresholds. `--fail-on info` still includes it. ARCH-CODE-012 continues to check
+  logger field modifiers independently.
 
 ### ARCH-CODE-004 - Classes should not use Joda-Time
 
@@ -441,10 +459,12 @@ ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
 ### ARCH-CODE-013 - Application classes should not depend on test frameworks
 
 - **Severity**: MEDIUM
-- **Inspects**: dependencies on common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Spring Test, Spring Boot
-  Test, Testcontainers, Quarkus's `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
+- **Inspects**: dependencies on common test-only APIs such as JUnit, TestNG, Mockito, MockK, AssertJ, Hamcrest,
+  Spring Test and Mock, Spring Security Test, Spring Boot Test, Reactor Test, Testcontainers, Quarkus's
+  `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
 - **Fires when**: an application class references a test framework type. Classes whose class file sits in a local test
-  output directory (`target/test-classes`, `build/classes/java/test`, or `build/classes/kotlin/test`) are not judged:
+  output directory (`target/test-classes`, `build/classes/java/test`, or `build/classes/kotlin/test`) are excluded
+  from the Architecture scan before any rule is evaluated:
   they are on the classpath when the application runs from its tests, as with `spring-boot:test-run` or Gradle's
   `bootTestRun`, and may use test APIs by definition. Classes from archives and other layouts stay judged.
 - **Why it matters**: production code that depends on test frameworks is usually an accidental source-set leak and can
@@ -545,24 +565,33 @@ ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
 never matches Kotlin's messageless `assert(cond)` (compiled to `new AssertionError((Object) "Assertion failed")`) and
 false-positives on explicit `throw new AssertionError()` in unreachable `switch` or exhaustive branches.
 
-### ARCH-CODE-019 - Classes should not store non-thread-safe JDK formatters or XML processors in static or shared-bean fields
+### ARCH-CODE-019 - Classes should not store stateful JDK processors in static or shared-bean fields
 
 - **Severity**: MEDIUM
-- **Inspects**: developer-declared fields whose raw type is `java.text.SimpleDateFormat`, `java.text.DateFormat`,
+- **Inspects**: developer-declared fields whose raw type is, or is a positively identified subtype of,
+  `java.text.SimpleDateFormat`, `java.text.DateFormat`,
   `java.text.DecimalFormat`, `java.text.NumberFormat`, `java.text.MessageFormat`,
-  `javax.xml.parsers.DocumentBuilder`, `javax.xml.parsers.SAXParser`, `javax.xml.transform.Transformer`, or
-  `javax.xml.validation.Validator`.
+  `javax.xml.parsers.DocumentBuilder`, `javax.xml.parsers.SAXParser`, `javax.xml.transform.Transformer`,
+  `javax.xml.validation.Validator`, `java.security.MessageDigest`, `javax.crypto.Cipher`, `javax.crypto.Mac`,
+  `java.security.Signature`, or `java.util.regex.Matcher`. This includes JDK subclasses such as
+  `java.text.ChoiceFormat` and imported application or third-party subclasses.
 - **Fires when**: such a field is `static` (regardless of visibility or `final`) or is an instance field on a
   shared-scope Spring or CDI bean.
-- **Why it matters**: these JDK formatters and XML processors mutate internal state during formatting, parsing,
-  transformation, and validation and are explicitly documented as not thread-safe. Sharing one instance across concurrent
-  requests or virtual threads corrupts output or fails with runtime exceptions.
+- **Why it matters**: formatters, XML processors, and matchers document restrictions on concurrent use.
+  Cryptographic engines retain mutable initialization, update, and finalization state; sharing an operation across
+  threads can mix data or fail. Their API contracts do not establish safe concurrent use for every provider.
 - **Not reported**: thread-safe replacements such as `java.time.format.DateTimeFormatter`, Bean Validation's
-  `jakarta.validation.Validator`, `ThreadLocal<...>` wrappers, and instance fields on plain value objects or
+  `jakarta.validation.Validator`, reusable regex `Pattern`, `ThreadLocal<...>` wrappers, and instance fields on plain value objects or
   non-shared bean scopes (`@Scope("prototype")`, `@RequestScope`, `@SessionScope`, `@StepScope`, `@JobScope`,
   `@RequestScoped`, `@SessionScoped`, `@ConversationScoped`, `@Dependent`).
-- **Recommendation**: use `java.time.format.DateTimeFormatter` for dates and times, create a fresh formatter or XML
-  processor per operation, or isolate per-thread instances behind `ThreadLocal`.
+- **Recommendation**: use `java.time.format.DateTimeFormatter` for dates and times, share `Pattern` rather than
+  `Matcher`, create a fresh processor per operation, isolate per-thread instances behind `ThreadLocal`, or
+  synchronize the entire operation.
+- **Limits**: this is a declaration-based sharing heuristic, not proof of a race. It does not analyze locking,
+  provider guarantees, subtype overrides, or values hidden behind unrelated field types such as `Object`.
+  Application and third-party ancestry comes only from imported metadata; JDK stubs can be completed from platform
+  class resources without loading application classes. Unresolved ancestry marks coverage incomplete and retains any
+  other proven findings; it is not evidence that the field is safe.
 
 ## Spring stereotypes
 
@@ -632,6 +661,31 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
   `@PostFilter`, `@Secured`, or `jakarta.annotation.security.RolesAllowed`) on the method, or `@Async` / a cache
   operation on the declaring class (for interceptable non-private, non-static, non-final methods).
 - **Fires when**: a bean calls or references one of its own proxied methods directly, bypassing the Spring proxy.
+- **Recognized proxy receivers**: bounded Java bytecode evidence excludes virtual/interface calls to interceptable
+  targets through an injected `@Lazy` self-reference field, an injected `ObjectProvider<Self>` field's no-argument
+  `getObject`, `getIfAvailable`, or `getIfUnique`, and `AopContext.currentProxy()`. The fields must have no writes in the
+  imported accesses, and `@Lazy(false)` does not qualify. Raw, wildcard, or other-type providers do not establish this
+  evidence. Explicitly annotated private/final targets and special-dispatch calls/references retain the previous
+  suspicion, even with a recognized receiver. Straight-line local aliases, calls inside compiler-generated lambda
+  bodies that read those fields, and bound virtual/interface method references are recognized; ordinary method
+  references do not fold the referenced method's body into their caller.
+  Receiver evidence is matched by enclosing method, target signature, access kind, and line; a direct
+  `this` call or reference is never exempted merely because a proxy call shares its source line.
+  This is not complete alias analysis or proof of runtime proxy configuration. Branches, exception handlers,
+  unsupported bytecode, helper-returned receivers, captured local aliases inside lambda bodies, constructor/setter
+  injection, and unavailable or malformed receiver bytecode retain the previous owner-based heuristic and can still
+  produce false positives. Receiver analysis is lazy and uses only bytes frozen as the actual ArchUnit reader input
+  for that import; it never reopens a source after import or substitutes a later source fingerprint. Recompilation
+  therefore cannot turn an older imported `this` call into a proxy call. Original source URIs are preserved.
+  The optional Spring Architecture import bridge checks ArchUnit's internal API shape and reflective access at runtime,
+  without a version allowlist or global configuration/cache. Unsupported hooks, custom imports without captured input,
+  or conflicting/unverified duplicate resource reads keep the legacy heuristic. Other advisors and Quarkus keep their
+  normal import path. Capture accepts authority-free local resources, with limits of 4 MiB per class, 64 MiB retained
+  per import, and 8192 resource identities; limits drop optional proof, not imported classes. The frozen bytes live only
+  with that import/context. Lambda/site-expansion limits also retain the heuristic. Ambiguous matching sites remain
+  reported if any matching instruction lacks proxy evidence.
+  These precision limits do not introduce new required-evidence gaps; existing unresolved-target gaps remain unchanged.
+  Kotlin keeps its existing dispatch normalization and owner-based behavior.
 - **Why it matters**: the transaction, async execution, caching, retry, concurrency limit, or authorization check is
   silently lost because the call never passes through the proxy — a real correctness bug, and for method security an
   authorization bypass. Whether method security is enabled at all is the Security advisor's SEC-METHOD-001.
@@ -775,7 +829,8 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
 ### ARCH-SPRING-013 - Async should not be used in configuration classes
 
 - **Severity**: MEDIUM
-- **Inspects**: `@Async` on `@Configuration` classes or methods declared inside `@Configuration` classes.
+- **Inspects**: direct `@Async` on configuration classes or their methods, including composed configuration roles such
+  as `@SpringBootApplication` and `@SpringBootConfiguration`.
 - **Fires when**: configuration code is annotated for asynchronous execution.
 - **Why it matters**: Spring's `@Async` Javadoc explicitly states that it is not supported on methods declared within
   `@Configuration` classes.
@@ -861,7 +916,8 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
 ### ARCH-SPRING-020 - Async event listeners should return void
 
 - **Severity**: MEDIUM
-- **Inspects**: `@EventListener` methods that run asynchronously because `@Async` is declared on the method or its class.
+- **Inspects**: `@EventListener` methods, including composed annotations such as `@TransactionalEventListener`, that run
+  asynchronously because `@Async` is declared directly on the method or its class.
 - **Fires when**: an asynchronous event listener declares a `Future` / `CompletableFuture` return type (or a non-`void`
   return on a method not already flagged by ARCH-SPRING-011). Interceptable `@Async` methods returning a non-`Future`,
   non-`void` type are reported by ARCH-SPRING-011 (`HIGH`) instead so the same method is not penalized twice.

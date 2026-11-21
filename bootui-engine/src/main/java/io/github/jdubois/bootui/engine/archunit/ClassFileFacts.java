@@ -147,17 +147,22 @@ public record ClassFileFacts(String sourceFile, String sourceMap) {
      * {@code "field:" + fieldName} and {@code "method:" + methodName}, with binary class names as values.
      */
     public static Map<String, Set<String>> memberTypeAnnotations(URI classFile) {
-        if (classFile == null) return Map.of();
+        return tryMemberTypeAnnotations(classFile).orElse(Map.of());
+    }
+
+    /** Like {@link #memberTypeAnnotations}, but distinguishes unavailable metadata from an unannotated type. */
+    public static Optional<Map<String, Set<String>>> tryMemberTypeAnnotations(URI classFile) {
+        if (classFile == null) return Optional.empty();
         try {
             java.net.URLConnection connection = classFile.toURL().openConnection();
             connection.setUseCaches(false);
             try (InputStream input = connection.getInputStream()) {
                 byte[] bytes = input.readNBytes(MAX_CLASS_BYTES + 1);
-                if (bytes.length > MAX_CLASS_BYTES) return Map.of();
-                return parseMemberTypeAnnotations(bytes);
+                if (bytes.length > MAX_CLASS_BYTES) return Optional.empty();
+                return Optional.of(parseMemberTypeAnnotations(bytes));
             }
         } catch (IOException | RuntimeException | LinkageError ex) {
-            return Map.of();
+            return Optional.empty();
         }
     }
 
