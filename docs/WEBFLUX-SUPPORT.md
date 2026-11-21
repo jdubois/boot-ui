@@ -361,14 +361,15 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST C
 | Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`.                |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is framework-neutral, so no reactive-specific capture code was needed). |
 | Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
-| Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                      |
-| Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                   |
+| Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveAgentSessionController`.                 |
+| Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveAgentSessionController`.              |
 | REST Client   | `ReactiveRestClientTraceController` — same `RestClientTraceRecorder`, SSE via `ReactiveBootUiChangeStream`. See the fidelity note below. |
 | WebSockets    | `ReactiveWebSocketController` + `ReactiveWebSocketMetadataProvider` — same `WebSocketService`, SSE via `ReactiveBootUiChangeStream`. See the fidelity note below. |
 
 `ReactiveBootUiChangeStream` is a small shared `Sinks.Many`-backed SSE broadcaster (`open()` / `signal()` / `close()`)
-used by every "push an update when something changes" panel above, instead of each controller hand-rolling its own sink.
-It centralizes coalescing, back-pressure, and a concurrency limit once rather than per-panel.
+used by panels that send `update` notifications. It centralizes coalescing, back-pressure, and a concurrency limit.
+The Copilot and Claude Code streams send the initial state and periodic refreshes as `sessions` / `dashboard` event
+pairs. For a slow subscriber, they retain the pair being delivered and only the latest pending pair.
 
 ::: details Per-panel fidelity notes (SQL Trace, Transactions, Exceptions, REST Client, WebSockets)
 

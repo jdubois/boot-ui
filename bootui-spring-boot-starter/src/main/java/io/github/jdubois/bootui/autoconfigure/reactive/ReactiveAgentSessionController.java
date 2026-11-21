@@ -8,7 +8,9 @@ import io.github.jdubois.bootui.core.dto.CopilotRawEventDto;
 import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 
 /**
  * Reactive (WebFlux) sibling of {@code AgentSessionController}: the same read-only session/event/
@@ -102,8 +105,8 @@ public abstract class ReactiveAgentSessionController {
 
     /**
      * Streams the current sessions + dashboard snapshot immediately, then again on every refresh
-     * event, so the browser can update live without polling. Two named event types are pushed each
-     * time ({@code sessions} then {@code dashboard}), matching the servlet original's payload shape.
+     * while the subscriber keeps up. Each snapshot is sent as two named events ({@code sessions}
+     * then {@code dashboard}), matching the servlet original's payload shape.
      */
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<Object>> stream() {
@@ -114,17 +117,23 @@ public abstract class ReactiveAgentSessionController {
                         new IllegalStateException("Too many concurrent BootUI " + streamLabel + " streams"));
             }
             AgentSessionStore agentStore = store();
-            return Flux.<ServerSentEvent<Object>>create(sink -> {
-                        sink.next(sessionsEvent(agentStore));
-                        sink.next(dashboardEvent(agentStore));
-                        Runnable unsubscribe = agentStore.subscribe(refresh -> {
-                            sink.next(sessionsEvent(agentStore));
-                            sink.next(dashboardEvent(agentStore));
-                        });
-                        sink.onDispose(unsubscribe::run);
-                    })
+            return Flux.<List<ServerSentEvent<Object>>>create(
+                            sink -> {
+                                sink.next(snapshotEvents(agentStore));
+                                Runnable unsubscribe =
+                                        agentStore.subscribe(refresh -> sink.next(snapshotEvents(agentStore)));
+                                sink.onDispose(unsubscribe::run);
+                            },
+                            FluxSink.OverflowStrategy.LATEST)
+                    // Prefetch one pair to preserve the initial snapshot. Finish that pair before
+                    // draining the latest pending pair, even if downstream requests only one event.
+                    .concatMapIterable(Function.identity(), 1)
                     .doFinally(signalType -> subscriberCount.decrementAndGet());
         });
+    }
+
+    private static List<ServerSentEvent<Object>> snapshotEvents(AgentSessionStore store) {
+        return List.of(sessionsEvent(store), dashboardEvent(store));
     }
 
     private static ServerSentEvent<Object> sessionsEvent(AgentSessionStore store) {
