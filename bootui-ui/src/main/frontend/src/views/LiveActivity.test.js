@@ -1556,6 +1556,19 @@ describe('LiveActivity', () => {
       return this.matches('.waterfall') ? 384 : 0
     })
     const clientWidth = vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(250)
+    let resizeWaterfall
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback) {
+          this.callback = callback
+        }
+        observe(element) {
+          if (element.matches('.waterfall')) resizeWaterfall = this.callback
+        }
+        disconnect() {}
+      }
+    )
     onTestFinished(() => {
       rects.mockRestore()
       scrollWidth.mockRestore()
@@ -1596,12 +1609,27 @@ describe('LiveActivity', () => {
       selected.element.dispatchEvent(advance)
       expect(advance.defaultPrevented).toBe(false)
     }
+    const wrap = (to) => {
+      const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+      document.activeElement.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(to)
+    }
     const [from, to] = shiftKey ? [first, last] : [last, first]
     from.focus()
-    const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
-    from.dispatchEvent(event)
-    expect(event.defaultPrevented).toBe(true)
-    expect(document.activeElement).toBe(to)
+    wrap(to)
+
+    if (tabId === 'outbound') {
+      waterfall.element.focus()
+      clientWidth.mockReturnValue(400)
+      resizeWaterfall()
+      await flushPromises()
+      expect(waterfall.attributes('tabindex')).toBeUndefined()
+      // Chromium drops focus when the now-fitting waterfall loses its tabindex.
+      waterfall.element.blur()
+      expect(document.activeElement).toBe(document.body)
+      wrap(shiftKey ? selected.element : first)
+    }
   })
 
   it('restores focus to the drawer opener after close button, Escape, and backdrop closes', async () => {

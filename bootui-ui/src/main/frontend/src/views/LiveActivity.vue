@@ -961,10 +961,12 @@ function trapFocus(event) {
   const first = tabbable[0]
   const last = tabbable[tabbable.length - 1]
   const active = document.activeElement
-  if (event.shiftKey && (active === first || active === root)) {
+  // Resizing can remove the focused waterfall from the tab order and drop focus to the page.
+  const lostTabStop = active !== root && !tabbable.some((element) => element === active)
+  if (event.shiftKey && (active === first || active === root || lostTabStop)) {
     event.preventDefault()
     last.focus()
-  } else if (!event.shiftKey && active === last) {
+  } else if (!event.shiftKey && (active === last || lostTabStop)) {
     event.preventDefault()
     first.focus()
   }
