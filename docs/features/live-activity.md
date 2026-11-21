@@ -369,10 +369,13 @@ ring can compact through it, so historical profiles and Runtime Insights mark th
 absent durable row as proof of absence.
 
 Start, checkpoint, and end metadata is refreshed independently. If memory offload discards an HTTP request before
-it receives a journal sequence, later metadata stores a bounded, run-scoped fingerprint of its trace, not the lost
-request's trace ID. Historical profiles do not assign calls linked only by that trace to another request. If the
+sequencing, or the durable writer confirms an HTTP request was lost, later metadata stores a bounded, run-scoped
+fingerprint of its trace, not the lost request's trace ID. Ordinary in-memory eviction does not add fingerprints.
+Historical profiles do not assign calls linked only by an affected trace to another request. If the
 bound is exceeded, trace-only attribution is withheld for that recording until **Clear recording**. Historical
 profiles and Runtime Insights report this loss as incomplete evidence, without counting it as missing database rows.
+When the archive also has gaps in its sequenced events, Runtime Insights may leave out otherwise retained requests
+rather than treat missing work as evidence that it never happened.
 
 Historical readers can label an interrupted run and
 project its last checkpoint without inventing a graceful shutdown. After acknowledgement, BootUI compacts the

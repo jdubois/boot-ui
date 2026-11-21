@@ -257,11 +257,11 @@ public final class RuntimeJournal
         this.dispatcherPollMillis = dispatcherPollMillis;
         this.dispatchLingerNanos = dispatchLingerNanos;
         this.routineQueueLimit = settings.routineQueueLimit();
-        this.admission = newQueue();
         this.dictionary =
                 new JournalDictionary(DICTIONARY_MAX_ENTRIES, settings.maxBytes() * DICTIONARY_BYTES_PERCENT / 100);
         this.ring = new EvidenceRing(
                 settings.maxEvents(), settings.maxBytes(), settings.reservedSharePercent(), dictionary::bytes);
+        this.admission = newQueue(ring.recording());
         if (settings.enabled() && startDispatcher) {
             running = true;
             dispatcher = new Thread(this::dispatchLoop, DISPATCHER_THREAD);
@@ -334,7 +334,7 @@ public final class RuntimeJournal
 
                 @Override
                 public void discard(RuntimeEvent event) {
-                    ring.lost(event);
+                    deferredLost(queue, event);
                 }
             };
         }
@@ -350,7 +350,7 @@ public final class RuntimeJournal
                     || closed.get()
                     || !settings.records(event.source())
                     || admission != queue) {
-                ring.lost(event);
+                deferredLost(queue, event);
                 return false;
             }
             int outcome;
@@ -363,7 +363,7 @@ public final class RuntimeJournal
                 return true;
             }
             if (outcome == JournalQueue.DETACHED) {
-                ring.lost(event);
+                deferredLost(queue, event);
                 return false;
             }
             int source = event.source().ordinal();
@@ -371,6 +371,12 @@ public final class RuntimeJournal
             droppedAt.set(source, System.currentTimeMillis());
             return false;
         }
+    }
+
+    private void deferredLost(JournalQueue queue, RuntimeEvent event) {
+        JournalQueue current = admission;
+        // Only memory offload replaces a queue without changing the recording token.
+        ring.lostDeferred(event, queue.recording(), current != queue && current.recording() == queue.recording());
     }
 
     /**
@@ -1048,8 +1054,8 @@ public final class RuntimeJournal
         }
     }
 
-    void durableCaptureLost(JournalEntry entry) {
-        ring.durableCaptureLost(entry);
+    boolean durableCaptureLost(JournalEntry entry) {
+        return ring.durableCaptureLost(entry);
     }
 
     long compactedEventCount() {
@@ -1058,7 +1064,7 @@ public final class RuntimeJournal
 
     /** An admission in the current recording was lost before it received a sequence the archive can account for. */
     boolean hasUnsequencedLoss() {
-        return unsequencedLoss;
+        return unsequencedLoss || ring.hasDeferredOffloadLoss();
     }
 
     private void finishDiscarded(int count, boolean evidenceLost) {
@@ -1073,19 +1079,20 @@ public final class RuntimeJournal
     /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
     private long clearAndCount(boolean memoryOffload) {
         synchronized (processing) {
-            if (!memoryOffload) {
-                unsequencedLoss = false;
-            }
-            ClearBoundary boundary = new ClearBoundary(
+            clearBoundary = new ClearBoundary(
                     clearsCompleted + 1,
                     Math.max(System.currentTimeMillis(), clearBoundary.epochMillis()),
                     perSource(dropped));
+            if (!memoryOffload) {
+                unsequencedLoss = false;
+            }
+            Object recording = memoryOffload ? ring.recording() : ring.beginRecording(lastSequence.get());
             JournalQueue detached = admission;
             int queued = 0;
             int discarded = 0;
             // A closed journal's queue stays: compare-and-set, since a close with a stuck dispatcher installs it
             // without holding processing.
-            if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue())) {
+            if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue(recording))) {
                 // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
                 // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
                 JournalQueue.Detached cleared = detached.detach();
@@ -1094,7 +1101,6 @@ public final class RuntimeJournal
                 // Outside the queue's lock: their requests and executions lost them to the clear.
                 cleared.forEach(memoryOffload ? ring::lostBeforeOffload : ring::lost);
             }
-            clearBoundary = boundary;
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);
             }
@@ -1170,12 +1176,13 @@ public final class RuntimeJournal
 
     record HotEvidence(JournalStatus status, List<JournalEntry> entries) {}
 
-    private JournalQueue newQueue() {
+    private JournalQueue newQueue(Object recording) {
         return new JournalQueue(
                 settings.enabled() ? settings.queueCapacity() : 1,
                 routineQueueLimit,
                 beforeQueueOffer,
-                this::countAccepted);
+                this::countAccepted,
+                recording);
     }
 
     /**

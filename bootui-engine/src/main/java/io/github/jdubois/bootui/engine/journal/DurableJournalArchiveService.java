@@ -518,8 +518,9 @@ public final class DurableJournalArchiveService {
             boolean missingDetails) {
 
         private static final String OFFLOAD_TRACE_LOSS =
-                "Memory offload discarded traced HTTP requests before they received journal sequences. "
-                        + "This archive is incomplete; affected trace-only calls are not attributed to a request.";
+                "Traced HTTP requests are missing from durable history: memory offload discarded them before sequencing "
+                        + "or the durable writer lost them. This archive is incomplete; affected trace-only calls are "
+                        + "not attributed to a request.";
 
         List<String> profileLimitations() {
             List<String> result = new ArrayList<>();

@@ -37,6 +37,7 @@ final class JournalQueue {
     private final Runnable beforeOffer;
     private final IntConsumer onAccepted;
     private final boolean refusing;
+    private final Object recording;
 
     private RuntimeEvent[] items;
     private int takeIndex;
@@ -52,16 +53,26 @@ final class JournalQueue {
      * @param onAccepted told the source ordinal of each event taken, with the lock held, or {@code null}
      */
     JournalQueue(int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted) {
-        this(capacity, routineLimit, beforeOffer, onAccepted, false);
+        this(capacity, routineLimit, beforeOffer, onAccepted, new Object());
+    }
+
+    JournalQueue(int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted, Object recording) {
+        this(capacity, routineLimit, beforeOffer, onAccepted, recording, false);
     }
 
     private JournalQueue(
-            int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted, boolean refusing) {
+            int capacity,
+            int routineLimit,
+            Runnable beforeOffer,
+            IntConsumer onAccepted,
+            Object recording,
+            boolean refusing) {
         this.items = new RuntimeEvent[Math.max(1, capacity)];
         this.routineLimit = routineLimit;
         this.wakeAt = Math.max(1, routineLimit / 2);
         this.beforeOffer = beforeOffer;
         this.onAccepted = onAccepted;
+        this.recording = recording;
         this.refusing = refusing;
     }
 
@@ -70,12 +81,16 @@ final class JournalQueue {
      * counted as dropped rather than accepted and never processed, and it is never detached.
      */
     static JournalQueue closed() {
-        return new JournalQueue(1, 0, null, null, true);
+        return new JournalQueue(1, 0, null, null, new Object(), true);
     }
 
     /** Whether this is a closed journal's queue, which a clear leaves in place. */
     boolean refusing() {
         return refusing;
+    }
+
+    Object recording() {
+        return recording;
     }
 
     /**

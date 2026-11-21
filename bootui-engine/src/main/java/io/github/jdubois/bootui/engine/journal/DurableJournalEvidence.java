@@ -311,7 +311,7 @@ public final class DurableJournalEvidence {
             @Override
             public boolean evictedARequestOf(String traceId) {
                 // A live window uses the ring's Clear generation, not a potentially stale checkpoint.
-                // Historical reads cannot infer pre-sequence losses from otherwise contiguous sequences.
+                // Historical reads cannot infer pre-sequence losses or writer conflicts from sequence coverage.
                 return !currentArchive
                                 && metadata != null
                                 && scope.run().equals(metadata.journalStatus().runId())

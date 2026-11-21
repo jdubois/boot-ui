@@ -367,10 +367,10 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
         try {
             return feed.durableEvents(entries, this::durableEventId, pendingSelects, pendingWorkEnds, ignored -> {});
         } catch (RuntimeException | LinkageError ex) {
-            quarantine(ex, "Cannot project durable journal entry");
-            quarantined.addAndGet(Math.max(0, entries.size() - 1));
-            for (JournalEntry entry : entries) {
-                journal.durableCaptureLost(entry);
+            long lost = entries.stream().filter(journal::durableCaptureLost).count();
+            if (lost > 0) {
+                quarantine(ex, "Cannot project durable journal entry");
+                quarantined.addAndGet(lost - 1);
             }
             return List.of();
         }
@@ -441,8 +441,9 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
             pending++;
             pendingBytes += pendingEntry.bytes();
         } catch (RuntimeException ex) {
-            quarantine(ex, "Cannot encode durable journal entry");
-            journal.durableCaptureLost(event.entry());
+            if (journal.durableCaptureLost(event.entry())) {
+                quarantine(ex, "Cannot encode durable journal entry");
+            }
         }
         trimToBounds();
     }
@@ -463,8 +464,9 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
             }
             pending--;
             pendingBytes -= first.bytes();
-            dropped.incrementAndGet();
-            journal.durableCaptureLost(first.event().entry());
+            if (journal.durableCaptureLost(first.event().entry())) {
+                dropped.incrementAndGet();
+            }
         }
     }
 
@@ -562,11 +564,10 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
                         throw conflict;
                     }
                     PendingEntry rejected = removePending(chunk, poison);
-                    if (rejected != null) {
+                    if (rejected != null && journal.durableCaptureLost(poison.entry())) {
                         quarantine(
                                 conflict,
                                 "Conflicting durable journal event at sequence " + conflict.journalSequence());
-                        journal.durableCaptureLost(poison.entry());
                     }
                 }
             }

@@ -230,7 +230,7 @@ class DurableJournalArchiveServiceTests {
                         run.checkpoint(),
                         run.instanceId()));
 
-        String loss = "Memory offload discarded traced HTTP requests before they received journal sequences";
+        String loss = "Traced HTTP requests are missing from durable history";
         assertThat(archive.profile(scope, "retained").notes()).anyMatch(note -> note.startsWith(loss));
         assertThat(archive.multiRunInsights(List.of(scope)).runs())
                 .singleElement()

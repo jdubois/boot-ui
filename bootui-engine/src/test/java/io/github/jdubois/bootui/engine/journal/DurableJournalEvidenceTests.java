@@ -33,12 +33,161 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class DurableJournalEvidenceTests {
 
     private static final AtomicInteger DATABASES = new AtomicInteger();
     private final List<RuntimeJournal> journals = new java.util.ArrayList<>();
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+    void deferredSqlRejectedAfterOffloadOnlyQualifiesItsOwnRecording(boolean clear, boolean discardedByRecorder)
+            throws Exception {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        var deferred = journal.beginCapture(JournalSource.SQL);
+        assertThat(deferred).isNotNull();
+        assertThat(journal.offer(requestHttp("request", 2_000))).isTrue();
+        journal.dispatchPending();
+        var store = store();
+        var scope = scope(journal);
+        var identity = durableIdentity(journal, scope);
+        store.upsertRun(new DurableJournalRun(
+                scope,
+                1,
+                1,
+                "RUNNING",
+                null,
+                1,
+                identity.instanceId(),
+                runMetadata(journal, identity, DurableJournalRunMetadata.Phase.CHECKPOINT)));
+        persist(store, scope, journal.entries());
+        assertThat(journal.offloadRetainedData()).isOne();
+        if (clear) {
+            journal.clear();
+            store.clearRunThrough(scope, 1);
+            assertThat(journal.offer(requestHttp("request", 3_000))).isTrue();
+            journal.dispatchPending();
+            persist(store, scope, journal.entries());
+            assertThat(journal.offloadRetainedData()).isOne();
+        }
+        var accepted = journal.status().accepted();
+        var completion = requestSql("request", clear ? 3_010 : 2_010);
+        if (discardedByRecorder) {
+            deferred.discard(completion);
+        } else {
+            assertThat(deferred.offer(completion)).isFalse();
+        }
+        assertThat(journal.status().accepted()).isEqualTo(accepted);
+        assertThat(journal.status().dropped()).isEmpty();
+        assertThat(journal.awaitDrained(Duration.ZERO)).isTrue();
+
+        var snapshot = new DurableJournalEvidence(store)
+                .read(scope, journal, new DurableJournalCapture.ReadWindow(clear ? 1 : 0));
+        assertThat(snapshot.omittedEvents()).isZero();
+        assertThat(snapshot.lossHorizonMillis()).isEqualTo(clear ? null : 2_010L);
+        assertThat(new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null)
+                        .reportFrom(snapshot)
+                        .window()
+                        .requests())
+                .isEqualTo(clear ? 1 : 0);
+    }
+
+    @Test
+    void aHotEvictionDoesNotCreateAPersistedTraceVeto() {
+        RuntimeJournal journal = journal(1, 1_000_000);
+        assertThat(journal.offer(tracedHttp("hot-eviction", 1_000, "hot-only"))).isTrue();
+        assertThat(journal.offer(requestHttp("retained", 2_000))).isTrue();
+        journal.dispatchPending();
+        assertThat(journal.evictedARequestOf("hot-only")).isTrue();
+        assertThat(journal.offloadRetainedData()).isOne();
+
+        var scope = scope(journal);
+        var metadata = runMetadata(journal, durableIdentity(journal, scope), DurableJournalRunMetadata.Phase.END);
+        assertThat(metadata.offloadTraceLoss().isEmpty()).isTrue();
+    }
+
+    @Test
+    void aWriterQueueDropVetoesOnlyItsOwnTraceInHistoricalProfiles() {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        var scope = scope(journal);
+        var identity = durableIdentity(journal, scope);
+        var settings = new DurableJournalCaptureSettings(
+                4, 16_000, 4, 16_000, 4, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (var capture = captureWithMetadata(journal, identity, store, settings)) {
+            assertThat(journal.offer(tracedHttp("writer-drop", 1_000, "shared")))
+                    .isTrue();
+            assertThat(journal.offer(tracedHttp("retained", 2_000, "shared"))).isTrue();
+            assertThat(journal.offer(tracedAi(2_000, "shared"))).isTrue();
+            assertThat(journal.offer(tracedHttp("unrelated", 3_000, "different")))
+                    .isTrue();
+            assertThat(journal.offer(tracedAi(3_000, "different"))).isTrue();
+            journal.dispatchPending();
+            assertThat(capture.status().dropped()).isOne();
+            assertThat(journal.offloadRetainedData()).isEqualTo(5);
+        }
+
+        var metadata = store.findRunMetadata(scope);
+        assertThat(metadata.durableDroppedEvents()).isOne();
+        assertThat(metadata.lostRequestTraces()).isEmpty();
+        var snapshot = new DurableJournalEvidence(store).read(scope);
+        assertThat(snapshot.omittedEvents()).isOne();
+        var profiles = new RequestJournalProfiles(journal, null, 0, 2, null);
+        assertThat(profiles.profileFrom(snapshot, "retained").timeline())
+                .noneMatch(item -> item.source().equals("ai"));
+        assertThat(profiles.profileFrom(snapshot, "unrelated").timeline())
+                .anyMatch(item -> item.source().equals("ai"));
+        assertThat(metadata.offloadTraceLoss().matches(scope, "shared")).isTrue();
+    }
+
+    @Test
+    void aWriterConflictReturningAfterClearCannotVetoTheNewRecording() throws Exception {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = spy(store());
+        var scope = scope(journal);
+        var identity = durableIdentity(journal, scope);
+        CountDownLatch writing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    List<DurableJournalEvent> events = invocation.getArgument(1);
+                    if (events.get(0).entry().sequence() == 1) {
+                        writing.countDown();
+                        assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+                        throw new DurableJournalConflictException(scope, 1);
+                    }
+                    return invocation.callRealMethod();
+                })
+                .when(store)
+                .appendEvents(any(), any());
+        var settings = new DurableJournalCaptureSettings(
+                64, 16_000, 64, 16_000, 8, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (var capture = captureWithMetadata(journal, identity, store, settings)) {
+            try {
+                assertThat(journal.offer(tracedHttp("old", 1_000, "shared"))).isTrue();
+                journal.dispatchPending();
+                capture.flushNow();
+                assertThat(writing.await(5, TimeUnit.SECONDS)).isTrue();
+                journal.clear();
+                assertThat(journal.offer(tracedHttp("new", 2_000, "shared"))).isTrue();
+                assertThat(journal.offer(tracedAi(2_000, "shared"))).isTrue();
+                journal.dispatchPending();
+            } finally {
+                release.countDown();
+            }
+        }
+        assertThat(journal.evictedARequestOf("shared")).isFalse();
+        assertThat(journal.lossHorizonMillis()).isEqualTo(1_000L);
+        var metadata = store.findRunMetadata(scope);
+        assertThat(metadata.durableQuarantinedEvents()).isZero();
+        assertThat(metadata.offloadTraceLoss().isEmpty()).isTrue();
+        var snapshot = new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(1));
+        assertThat(new RequestJournalProfiles(journal, null, 0, 2, null)
+                        .profileFrom(snapshot, "new")
+                        .timeline())
+                .anyMatch(item -> item.source().equals("ai"));
+    }
 
     @AfterEach
     void closeJournals() {
@@ -887,6 +1036,37 @@ class DurableJournalEvidenceTests {
 
     private static DurableJournalScope scope(RuntimeJournal journal) {
         return new DurableJournalScope("local", "orders", journal.run().id());
+    }
+
+    private static DurableJournalIdentity durableIdentity(RuntimeJournal journal, DurableJournalScope scope) {
+        return new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+    }
+
+    private static DurableJournalRunMetadata runMetadata(
+            RuntimeJournal journal, DurableJournalIdentity identity, DurableJournalRunMetadata.Phase phase) {
+        return DurableJournalRunMetadata.snapshot(
+                phase, journal, identity, InsightsStack.SPRING_MVC, Map.of(), null, null);
+    }
+
+    private static DurableJournalCapture captureWithMetadata(
+            RuntimeJournal journal,
+            DurableJournalIdentity identity,
+            DurableJournalStore store,
+            DurableJournalCaptureSettings settings) {
+        return DurableJournalCapture.start(
+                journal,
+                new DurableJournalSettings(
+                        identity, true, Duration.ofMinutes(1), 64, 16_000, 100, "journal", Duration.ofDays(7), false),
+                store,
+                new JournalActivityFeed(0, 2, null),
+                settings,
+                List.of(),
+                phase -> runMetadata(journal, identity, phase));
     }
 
     private static DurableJournalRun run(DurableJournalScope scope, int checkpoint, RuntimeJournalSettings settings) {
