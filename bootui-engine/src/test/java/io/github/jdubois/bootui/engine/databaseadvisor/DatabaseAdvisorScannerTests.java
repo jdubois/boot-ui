@@ -27,6 +27,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -401,6 +402,60 @@ class DatabaseAdvisorScannerTests {
                 "DB-SCHEMA-001", removed.violationDetails().scanId(), 0, 10);
         assertThat(page.identities()).doesNotContainNull();
         assertThat(page.changes()).containsOnly("UNCHANGED");
+    }
+
+    @Test
+    void unreadableBatchingLeavesAPreviousRewriteFindingUnverified() {
+        String ruleId = "DB-DRIVER-001";
+        var driver = DatabaseAdvisorFixtures.driverEvidence("PostgreSQL JDBC Driver", Map.of());
+        var batching =
+                new HashMap<>(Map.of("primary", JdbcBatching.enabled(30), "secondary", JdbcBatching.enabled(30)));
+        var sources = List.of(
+                new NamedDataSource("primary", dataSource),
+                new NamedDataSource("secondary", new FailingDataSource("not used by this fixture")));
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
+                () -> new DatabaseAdvisorDataSourceDiscovery(sources, List.of()),
+                () -> EntityDiscovery.absent(null),
+                List::of,
+                evidence(List.of(), batching),
+                FIXED_CLOCK);
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            for (NamedDataSource source : sources) {
+                introspector
+                        .when(() -> SchemaIntrospector.introspect(
+                                eq(source.name()), any(DataSource.class), any(), any(), any()))
+                        .thenReturn(DatabaseAdvisorFixtures.driverSchema(source.name(), Dialect.POSTGRESQL, driver));
+            }
+
+            DatabaseAdvisorReport first = scanner.scan();
+            assertThat(first.results())
+                    .filteredOn(result -> result.id().equals(ruleId))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.violationCount()).isEqualTo(2));
+
+            batching.put("primary", JdbcBatching.unknown());
+            DatabaseAdvisorReport second = scanner.scan();
+            var changes = second.violationDetails().changes();
+            assertThat(changes.previousScanId())
+                    .isEqualTo(first.violationDetails().scanId());
+            assertThat(changes.rules())
+                    .filteredOn(change -> change.ruleId().equals(ruleId))
+                    .singleElement()
+                    .satisfies(change -> {
+                        assertThat(change.resolvedCount()).isZero();
+                        assertThat(change.unverifiedCount()).isEqualTo(1);
+                    });
+            assertThat(second.results())
+                    .filteredOn(result -> result.id().equals(ruleId))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.violationCount()).isEqualTo(1);
+                        assertThat(result.sampleViolations())
+                                .singleElement()
+                                .asString()
+                                .contains("secondary");
+                    });
+        }
     }
 
     @Test

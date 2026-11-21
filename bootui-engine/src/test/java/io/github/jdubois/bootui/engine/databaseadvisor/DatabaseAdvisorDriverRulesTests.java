@@ -7,12 +7,17 @@ import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFix
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.poolSettings;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.urlSettings;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /** The fire / no-fire / skip matrix of DB-DRIVER-001..003, judged from configured driver evidence only. */
 class DatabaseAdvisorDriverRulesTests {
@@ -393,6 +398,40 @@ class DatabaseAdvisorDriverRulesTests {
         assertThat(result.sampleViolations().get(0)).contains("Coverage is incomplete", "conflicting");
         assertThat(context.evaluationDiagnostics())
                 .anySatisfy(diagnostic -> assertThat(diagnostic.source()).isEqualTo("DB-DRIVER-001"));
+    }
+
+    static Stream<Arguments> batchingRewriteRules() {
+        return Stream.of(
+                arguments(new PostgresRewriteBatchedInsertsRule(), Dialect.POSTGRESQL, PGJDBC, "reWriteBatchedInserts"),
+                arguments(
+                        new MySqlRewriteBatchedStatementsRule(),
+                        Dialect.MYSQL,
+                        CONNECTOR_J,
+                        "rewriteBatchedStatements"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("batchingRewriteRules")
+    void unknownBatchingInAMixedInventoryPreventsACleanResult(
+            DatabaseAdvisorRule rule, Dialect dialect, String driver, String setting) {
+        SchemaSnapshot assessed =
+                driverSchema("assessed", dialect, driverEvidence(driver, urlSettings(setting, "true")));
+        SchemaSnapshot unreadable = driverSchema("unreadable", dialect, driverEvidence(driver, Map.of()));
+        DatabaseAdvisorContext context = context(
+                List.of(assessed, unreadable),
+                Map.of("assessed", JdbcBatching.enabled(30), "unreadable", JdbcBatching.unknown()));
+
+        DatabaseAdvisorRuleResultDto result = rule.evaluate(context);
+
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("Coverage is incomplete", "unreadable");
+        assertThat(context.evaluationDiagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo(rule.definition().id());
+            assertThat(diagnostic.message()).contains("unreadable", "batching status unknown");
+        });
     }
 
     @Test

@@ -524,9 +524,10 @@ persistence unit attributed to the datasource's pool.
 - Connector/J and pgjdbc: no `socketTimeout` is configured (judged from the configuration only, in the driver's own unit).
 - pgjdbc: no `ApplicationName`, so `pg_stat_activity` shows the driver default.
 
-They are `SKIPPED` with a reason when the driver is another one (MariaDB Connector/J is not evaluated), batching is off
-or unknown (batching rules only), or the evidence could not be settled. See
-[DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#jdbc-driver).
+These checks skip datasources with a different driver (including MariaDB Connector/J) or insufficient evidence.
+The batching checks also skip datasources with batching off or no attributed persistence unit. When a unit is
+attributed but its pool's effective batching is unknown, that gap can leave prior findings unverified, not resolved.
+See [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#jdbc-driver).
 :::
 
 ::: details What the connection-pool checks add

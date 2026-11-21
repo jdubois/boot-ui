@@ -74,10 +74,14 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
     /** {@code null} when JDBC batching is demonstrably enabled; otherwise why this rule does not apply or is unsure. */
     static Outcome batchingGate(DatabaseAdvisorContext context, SchemaSnapshot schema) {
         JdbcBatching batching = context.jdbcBatchingOf(schema.dataSourceName());
-        if (batching == null || batching.status() == JdbcBatching.Status.UNKNOWN) {
+        if (batching == null) {
             // A skip, not a gap: a datasource Hibernate does not use is not a hole in the coverage of the others.
             return Outcome.skip("JDBC batching status unknown: no Hibernate persistence unit could be attributed to"
-                    + " this datasource's connection pool, or its batch size could not be read.");
+                    + " this datasource's connection pool.");
+        }
+        if (batching.status() == JdbcBatching.Status.UNKNOWN) {
+            return Outcome.gap("JDBC batching status unknown: effective Hibernate batching could not be determined"
+                    + " for this datasource's connection pool.");
         }
         if (batching.status() == JdbcBatching.Status.DISABLED) {
             return Outcome.skip("JDBC batching is not enabled for this datasource (see HIB-CONFIG-004).");

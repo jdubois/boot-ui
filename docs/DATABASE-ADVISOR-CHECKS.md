@@ -626,13 +626,15 @@ These rules judge **driver settings**, not the schema, and need two kinds of evi
   discarded unread. The URL, user name and password are never stored, logged or returned, and the findings are
   labelled **configured**: they say what the URL and the pool configure, not what the driver ends up using.
 - **Effective JDBC batching.** The Hibernate advisor's observed `hibernate.jdbc.batch_size` of the persistence unit
-  attributed to the datasource's pool (see `HIB-CONFIG-004`). Only HikariCP and Agroal pools are attributed; a
-  datasource behind another pool, or one Hibernate does not demonstrably use, has *unknown* batching and the
-  batching rules are `SKIPPED`, never guessed. Several persistence units on one pool count as batching when any of
-  them batches. A datasource is reported as not batching only when every unit on it is known not to batch and no
-  unit could be hiding elsewhere.
+  attributed to the datasource's pool (see `HIB-CONFIG-004`). Only HikariCP and Agroal pools are attributed; without
+  an attributed persistence unit, the batching checks skip that datasource without affecting coverage of the others.
+  Several persistence units on one pool count as batching when any of them batches. A datasource is reported as not
+  batching only when every unit on it is known not to batch and no unit could be hiding elsewhere. If a unit is
+  attributed but effective batching cannot be determined, the datasource is unassessed. In a mixed inventory this is
+  a coverage gap: findings on other datasources stay visible, but previously reported findings that are no longer
+  present are unverified, not resolved.
 
-A rule never runs on missing evidence. It is `SKIPPED` with a reason when: the driver is not the one the rule
+On an individual datasource, a rule skips evaluation with a reason when: the driver is not the one the rule
 verifies (MariaDB Connector/J is not evaluated: it has a different bulk setting); for the batching rules, batching is
 off or unknown;
 the JDBC URL or the pool's driver properties could not be read and could change the answer; the URL and the pool

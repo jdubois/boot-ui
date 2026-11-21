@@ -148,7 +148,7 @@ record DatabaseAdvisorContext(
         return pools.get(dataSourceName);
     }
 
-    /** The batching known for {@code dataSourceName}, or {@code null} when it is unknown. */
+    /** The provider's batching observation for {@code dataSourceName}, or {@code null} when it has no entry. */
     JdbcBatching jdbcBatchingOf(String dataSourceName) {
         return jdbcBatching.get(dataSourceName);
     }
