@@ -62,7 +62,7 @@ class BootUiQuarkusOverviewResourceTest {
         JsonNode second = probe().get("/bootui/api/overview").json().path("run");
 
         assertThat(first.path("instanceId").asText()).matches("[0-9a-f]{8}");
-        assertThat(first.path("runId").asText()).matches("[0-9a-f]{8}");
+        assertThat(first.path("runId").asText()).matches("[0-9a-f]{32}");
         assertThat(first.path("ordinal").asInt()).isPositive();
         assertThat(first.path("startedAt").asLong())
                 .as("the run started with the application, before this request")

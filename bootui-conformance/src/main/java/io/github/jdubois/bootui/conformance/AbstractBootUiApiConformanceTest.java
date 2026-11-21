@@ -2051,7 +2051,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertJsonContract("runtime journal status", contract, status.json(), failures);
         assertThat(failures).as("runtime journal contract").isEmpty();
         assertThat(status.json().path("enabled").asBoolean(false)).isTrue();
-        assertThat(status.json().path("runId").asText()).matches("[0-9a-f]{8}");
+        assertThat(status.json().path("runId").asText()).matches("[0-9a-f]{32}");
 
         Response unconfirmed = probe.request("POST", api("/activity/journal/clear"), stateChangingHeaders(probe), "{}");
         assertThat(unconfirmed.status())

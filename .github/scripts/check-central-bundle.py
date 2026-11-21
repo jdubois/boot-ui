@@ -18,9 +18,11 @@ release.yml before it uploads it, unsigned by stage-release-candidate.sh. The ch
 - bootui-spring-boot-starter brings no web stack: no servlet or reactive web-server artifact at compile or
   runtime scope, so the application's own web starter decides between Spring MVC and Spring WebFlux;
 - the published files total less than 20 MB (20,000,000 bytes), including checksums and signatures, not
-  the compressed upload ZIP. Unsigned candidates reserve 4 KiB per missing signature before tagging.
+  the compressed upload ZIP. Unsigned candidates reserve 4 KiB per missing signature before tagging. Pull-request CI
+  can set BOOTUI_SKIP_RELEASE_SIZE_CHECK=true to exercise the consumer bundle while the release path remains strict.
 """
 
+import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -182,6 +184,8 @@ def check_bundle(directory, version):
 
 
 def check_release_size(files, payloads, errors):
+    if os.environ.get("BOOTUI_SKIP_RELEASE_SIZE_CHECK") == "true":
+        return
     size = sum(path.stat().st_size for path in files)
     reserve = sum(
         SIGNATURE_RESERVE_BYTES

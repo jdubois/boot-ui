@@ -665,7 +665,7 @@ class CiAssessmentRunnerTests {
                 new PrintWriter(cliOutput, true),
                 new PrintWriter(cliOutput, true));
 
-        assertThat(exitCode).isZero();
+        assertThat(exitCode).withFailMessage(cliOutput::toString).isZero();
         assertThat(cliOutput.toString()).doesNotContain("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
         assertThat(Files.readString(witness)).contains("\"preflight\": \"FRAMEWORK_UNAVAILABLE\"");
         assertThat(overviewRequests).isEqualTo(1);
@@ -2454,7 +2454,7 @@ class CiAssessmentRunnerTests {
         }
         return """
                 {"bootUiVersion":"2.2.0","frameworkName":"%s",
-                 "run":{"instanceId":"%s","runId":"0123abcd"}}
+                 "run":{"instanceId":"%s","runId":"0123abcd0123abcd0123abcd0123abcd"}}
                 """.formatted(frameworkName, currentInstance);
     }
 

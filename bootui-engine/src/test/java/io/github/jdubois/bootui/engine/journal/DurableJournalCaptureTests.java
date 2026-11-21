@@ -169,6 +169,7 @@ class DurableJournalCaptureTests {
 
         await(() -> capture.status().durableWatermark() == 2);
         await(() -> capture.status().quarantined() == 1);
+        await(() -> store.findRun(scope).checkpoint() == 2);
         assertThat(store.query(scope).entries())
                 .extracting(entry -> entry.event().requestId())
                 .containsExactly("already-there", "valid");

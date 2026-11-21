@@ -175,7 +175,7 @@ public final class CiBundleEvaluator {
                 || !policy.sha256().equals(bundle.get("policySha256").asString(null))
                 || !isHexDigest(bundle.get("policySha256").asString(null))
                 || !isSafeVersion(bundle.get("bootUiVersion").asString(null))
-                || !isRunId(bundle.get("instanceId").asString(null))
+                || !isInstanceId(bundle.get("instanceId").asString(null))
                 || !isRunId(bundle.get("runId").asString(null))) {
             throw invalid();
         }
@@ -510,6 +510,10 @@ public final class CiBundleEvaluator {
     }
 
     private static boolean isRunId(String value) {
+        return value != null && value.matches("[0-9a-f]{32}");
+    }
+
+    private static boolean isInstanceId(String value) {
         return value != null && value.matches("[0-9a-f]{8}");
     }
 
