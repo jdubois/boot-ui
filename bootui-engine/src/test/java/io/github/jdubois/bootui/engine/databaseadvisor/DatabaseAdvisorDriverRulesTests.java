@@ -434,6 +434,25 @@ class DatabaseAdvisorDriverRulesTests {
         });
     }
 
+    @ParameterizedTest
+    @MethodSource("batchingRewriteRules")
+    void duplicateNamesOnUnrelatedDriversDoNotDowngradeABatchingPass(
+            DatabaseAdvisorRule rule, Dialect dialect, String driver, String setting) {
+        SchemaSnapshot assessed =
+                driverSchema("assessed", dialect, driverEvidence(driver, urlSettings(setting, "true")));
+        boolean postgres = dialect == Dialect.POSTGRESQL;
+        SchemaSnapshot otherVendor = driverSchema(
+                "shared",
+                postgres ? Dialect.MYSQL : Dialect.POSTGRESQL,
+                driverEvidence(postgres ? CONNECTOR_J : PGJDBC, Map.of()));
+        SchemaSnapshot h2 = driverSchema("shared", Dialect.GENERIC, driverEvidence("H2 JDBC Driver", Map.of()));
+        DatabaseAdvisorContext context =
+                context(List.of(assessed, otherVendor, h2), Map.of("assessed", JdbcBatching.enabled(30)));
+
+        assertThat(rule.evaluate(context).status()).isEqualTo("PASS");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
     @Test
     void aDatasourceHibernateDoesNotUseDoesNotHideAnotherDatasourcesPass() {
         SchemaSnapshot assessed = driverSchema(

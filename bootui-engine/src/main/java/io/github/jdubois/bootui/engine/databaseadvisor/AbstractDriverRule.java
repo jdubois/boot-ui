@@ -5,9 +5,9 @@ import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Shared skeleton of the JDBC driver rules. A subclass judges one datasource at a time and answers with an
@@ -36,28 +36,36 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
      */
     abstract Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings);
 
-    /** Whether this rule can compare a fully assessed datasource even when another has a coverage gap. */
-    boolean compareAssessedDatasourcesWhenIncomplete() {
-        return false;
+    /** The setting that can be compared per datasource even when another datasource has a coverage gap. */
+    ScopedSetting scopedSetting() {
+        return null;
     }
 
     @Override
     final DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         DatabaseFindings findings = new DatabaseFindings();
-        boolean compareByDatasource = compareAssessedDatasourcesWhenIncomplete();
-        Set<String> ambiguousNames = compareByDatasource ? ambiguousNames(context.schemas()) : Set.of();
+        ScopedSetting scoped = scopedSetting();
+        Set<String> ambiguousNames = scoped == null ? Set.of() : ambiguousNames(context.schemas());
+        Set<String> reportedAmbiguities = new HashSet<>();
         List<String> gaps = new ArrayList<>();
-        ambiguousNames.forEach(name ->
-                gaps.add(name + ": multiple datasources share this name, so JDBC batching cannot be attributed."));
-        List<String> reasons = new ArrayList<>(gaps);
+        List<String> reasons = new ArrayList<>();
         List<String> conclusiveDatasources = new ArrayList<>();
         int assessed = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             String name = schema.dataSourceName();
-            if (ambiguousNames.contains(name)) {
-                continue;
+            Outcome outcome;
+            if (scoped != null && ambiguousNames.contains(name)) {
+                outcome = scoped.driverApplicability().apply(schema);
+                if (outcome == null || outcome.kind() == Outcome.Kind.GAP) {
+                    if (!reportedAmbiguities.add(name)) {
+                        continue;
+                    }
+                    outcome =
+                            Outcome.gap("multiple datasources share this name, so JDBC batching cannot be attributed.");
+                }
+            } else {
+                outcome = assess(context, schema, findings);
             }
-            Outcome outcome = assess(context, schema, findings);
             String text = name + ": " + outcome.text();
             switch (outcome.kind()) {
                 case NOT_APPLICABLE -> {}
@@ -68,7 +76,7 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
                 }
                 case ASSESSED -> {
                     assessed++;
-                    if (compareByDatasource && outcome.gaps().isEmpty()) {
+                    if (scoped != null && outcome.gaps().isEmpty()) {
                         conclusiveDatasources.add(name);
                     }
                     outcome.gaps().forEach(gap -> gaps.add(name + ": " + gap));
@@ -82,9 +90,13 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         gaps.forEach(gap -> unknown(context, gap));
         DatabaseAdvisorRuleResultDto result = VendorRuleSupport.assessed(this, context, assessed, findings);
         var collector = context.violationCollector();
-        if (collector != null && !gaps.isEmpty()) {
+        if (collector != null && scoped != null) {
             for (String name : conclusiveDatasources) {
-                collector.markConcluded(definition().id(), AdvisorFindingIdentity.encode("ds=" + name));
+                String originalScope = AdvisorFindingIdentity.encode("ds=" + name);
+                String findingScope = AdvisorFindingIdentity.scope(scoped.identity(name));
+                if (!gaps.isEmpty() || !originalScope.equals(findingScope)) {
+                    collector.markConcludedFromObservedScope(definition().id(), findingScope, originalScope);
+                }
             }
         }
         return result;
@@ -92,13 +104,19 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
 
     private static Set<String> ambiguousNames(List<SchemaSnapshot> schemas) {
         Set<String> seen = new HashSet<>();
-        Set<String> ambiguous = new LinkedHashSet<>();
+        Set<String> ambiguous = new HashSet<>();
         for (SchemaSnapshot schema : schemas) {
             if (!seen.add(schema.dataSourceName())) {
                 ambiguous.add(schema.dataSourceName());
             }
         }
         return ambiguous;
+    }
+
+    record ScopedSetting(String name, Function<SchemaSnapshot, Outcome> driverApplicability) {
+        String identity(String dataSourceName) {
+            return settingIdentity(dataSourceName, name);
+        }
     }
 
     /** The datasource's driver evidence, or a gap when the driver could not be identified at all. */

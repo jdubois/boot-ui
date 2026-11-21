@@ -140,6 +140,23 @@ class AdvisorScanStateChangesTests {
     }
 
     @Test
+    void aShortenedFindingScopeCannotBypassDatasourceCoverage() {
+        AdvisorViolationCollector collector = new AdvisorViolationCollector(10);
+        collector.markScopeObserved("ds=read");
+        collector.markScopeObserved("ds=partial");
+        collector.markScopeUnverified("ds=partial", "The datasource was read only in part.");
+
+        collector.markConcludedFromObservedScope("R1", "ds=read~alias", "ds=read");
+        collector.markConcludedFromObservedScope("R1", "ds=partial~alias", "ds=partial");
+        collector.markConcludedFromObservedScope("R1", "ds=absent~alias", "ds=absent");
+
+        var coverage = collector.snapshot().coverage();
+        assertThat(coverage.concludes("R1", "ds=read~alias")).isTrue();
+        assertThat(coverage.concludes("R1", "ds=partial~alias")).isFalse();
+        assertThat(coverage.concludes("R1", "ds=absent~alias")).isFalse();
+    }
+
+    @Test
     void truncatedRetentionNeverClaimsResolutionOrNewnessForTheTruncatedRule() {
         AdvisorScanState<Report> state = tracked();
         state.setRetentionLimit(() -> 2);

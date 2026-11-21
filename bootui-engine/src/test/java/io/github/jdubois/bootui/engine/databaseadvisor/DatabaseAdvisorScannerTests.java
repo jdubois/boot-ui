@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mockStatic;
 
 import io.github.jdubois.bootui.core.dto.AdvisorRuleChangeDto;
@@ -409,16 +410,19 @@ class DatabaseAdvisorScannerTests {
 
     @ParameterizedTest
     @CsvSource({
-        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts",
-        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements"
+        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts, false",
+        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements, false",
+        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts, true",
+        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements, true"
     })
     void unreadableBatchingDoesNotHideAResolvedRewriteFindingOnAnotherDatasource(
-            String ruleId, Dialect dialect, String driverName, String setting) {
+            String ruleId, Dialect dialect, String driverName, String setting, boolean longName) {
+        String fixedName = "fixed|pool" + (longName ? "/tenant".repeat(27) : "");
         var driver = DatabaseAdvisorFixtures.driverEvidence(driverName, Map.of());
         var fixedDriver = DatabaseAdvisorFixtures.driverEvidence(
                 driverName, DatabaseAdvisorFixtures.urlSettings(setting, "true"));
         var batching = new HashMap<String, JdbcBatching>();
-        var sources = List.of("fixed|pool", "unreadable", "peer").stream()
+        var sources = List.of(fixedName, "unreadable", "peer").stream()
                 .map(name -> new NamedDataSource(name, new FailingDataSource("not used by this fixture")))
                 .toList();
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
@@ -431,7 +435,7 @@ class DatabaseAdvisorScannerTests {
             for (NamedDataSource source : sources) {
                 batching.put(source.name(), JdbcBatching.enabled(30));
                 var before = DatabaseAdvisorFixtures.driverSchema(source.name(), dialect, driver);
-                var after = source.name().equals("fixed|pool")
+                var after = source.name().equals(fixedName)
                         ? DatabaseAdvisorFixtures.driverSchema(source.name(), dialect, fixedDriver)
                         : before;
                 introspector
@@ -457,7 +461,7 @@ class DatabaseAdvisorScannerTests {
             assertThat(changes.resolved())
                     .filteredOn(finding -> finding.ruleId().equals(ruleId))
                     .singleElement()
-                    .satisfies(finding -> assertThat(finding.text()).contains("`fixed|pool`"));
+                    .satisfies(finding -> assertThat(finding.text()).contains("`" + fixedName + "`"));
             assertThat(second.results())
                     .filteredOn(result -> result.id().equals(ruleId))
                     .singleElement()
@@ -495,9 +499,16 @@ class DatabaseAdvisorScannerTests {
                 FIXED_CLOCK);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             introspector
-                    .when(() ->
-                            SchemaIntrospector.introspect(eq(routingName), any(DataSource.class), any(), any(), any()))
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq(routingName), same(primary.dataSource()), any(), any(), any()))
                     .thenReturn(DatabaseAdvisorFixtures.driverSchema(routingName, dialect, driver));
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq(routingName), same(collision.dataSource()), any(), any(), any()))
+                    .thenReturn(DatabaseAdvisorFixtures.driverSchema(
+                            routingName,
+                            Dialect.GENERIC,
+                            DatabaseAdvisorFixtures.driverEvidence("H2 JDBC Driver", Map.of())));
             introspector
                     .when(() -> SchemaIntrospector.introspect(eq("peer"), any(DataSource.class), any(), any(), any()))
                     .thenReturn(
