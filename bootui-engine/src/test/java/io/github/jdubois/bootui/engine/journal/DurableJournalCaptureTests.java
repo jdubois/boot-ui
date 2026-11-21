@@ -344,6 +344,8 @@ class DurableJournalCaptureTests {
         writer.blockAppend.countDown();
         await(() -> writer.clearAttempts.get() == 1);
         await(() -> writer.checkpoints.contains(1L));
+        await(() -> capture.status().lastError() != null
+                && capture.status().lastError().contains("clear through sequence 1"));
 
         assertThat(writer.attempts).hasValue(1);
         assertThat(capture.status().pending()).isZero();
