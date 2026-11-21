@@ -168,6 +168,12 @@ public final class RuntimeJournal
         return clearBoundary;
     }
 
+    /** The current clear generation, or {@code -1} while its listeners and hot reset may still be running. */
+    long stableClearGeneration() {
+        long completed = clearsCompleted;
+        return clearBoundary.clears() == completed ? completed : -1;
+    }
+
     Map<JournalSource, Long> droppedCounts() {
         return perSource(dropped);
     }

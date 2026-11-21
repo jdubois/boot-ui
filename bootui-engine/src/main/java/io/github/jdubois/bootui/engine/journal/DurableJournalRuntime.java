@@ -37,6 +37,10 @@ public final class DurableJournalRuntime {
         if (journal == null || writer == null) {
             return null;
         }
+        long generation = journal.stableClearGeneration();
+        if (generation < 0) {
+            return null;
+        }
         DurableJournalStore reader = store;
         DurableJournalCapture.ReadWindow window = writer.readWindow(journal, scope, reader);
         if (window == null) {
@@ -44,7 +48,11 @@ public final class DurableJournalRuntime {
         }
         JournalEvidenceSnapshot evidence = new DurableJournalEvidence(reader).read(scope, journal, window);
         DurableJournalCapture.ReadWindow after = writer.readWindow(journal, scope, reader);
-        // Clear is asynchronous on disk; never return an archive snapshot that crossed its live boundary.
-        return after != null && after.clearedThrough() == window.clearedThrough() ? evidence : null;
+        // An earlier listener can hold the clear before it reaches the writer's boundary.
+        return after != null
+                        && after.clearedThrough() == window.clearedThrough()
+                        && journal.stableClearGeneration() == generation
+                ? evidence
+                : null;
     }
 }

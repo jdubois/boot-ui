@@ -1,6 +1,12 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
@@ -14,6 +20,7 @@ import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class DurableJournalEvidenceTests {
 
@@ -197,6 +206,86 @@ class DurableJournalEvidenceTests {
         assertThat(profile.timeline()).extracting(item -> item.source()).contains("sql");
         assertThat(snapshot.status().evictedByCount()).isZero();
         assertThat(snapshot.lossHorizonMillis()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void currentReadNeverReturnsArchiveEvidenceAcrossAClearBlockedBeforeTheWriter(boolean readStartsFirst)
+            throws Exception {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        DurableJournalScope scope = scope(journal);
+        JdbcDurableJournalStore store = spy(store());
+        CountDownLatch checkpointed = new CountDownLatch(1);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch finishRead = new CountDownLatch(readStartsFirst ? 1 : 0);
+        CountDownLatch clearing = new CountDownLatch(1);
+        CountDownLatch finishClear = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    Object result = invocation.callRealMethod();
+                    checkpointed.countDown();
+                    return result;
+                })
+                .when(store)
+                .checkpoint(any(), anyLong());
+        doAnswer(invocation -> {
+                    reading.countDown();
+                    assertThat(finishRead.await(10, TimeUnit.SECONDS)).isTrue();
+                    return invocation.callRealMethod();
+                })
+                .when(store)
+                .query(any(DurableJournalQuery.class));
+        journal.addListener(new JournalListener() {
+            @Override
+            public void onEntries(List<JournalEntry> entries) {}
+
+            @Override
+            public void onClear() {
+                clearing.countDown();
+                try {
+                    assertThat(finishClear.await(10, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(ex);
+                }
+            }
+        });
+        var settings = new DurableJournalCaptureSettings(
+                64, 16_000, 64, 16_000, 8, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (DurableJournalCapture capture = DurableJournalCapture.start(journal, scope, store, settings)) {
+            DurableJournalRuntime runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, capture)).isTrue();
+            assertThat(journal.offer(requestHttp("request-1", 1_100))).isTrue();
+            journal.dispatchPending();
+            capture.flushNow();
+            assertThat(checkpointed.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(journal.offloadRetainedData()).isEqualTo(1);
+
+            CompletableFuture<JournalEvidenceSnapshot> read = readStartsFirst
+                    ? CompletableFuture.supplyAsync(() -> runtime.readCurrentEvidence(journal, scope))
+                    : null;
+            CompletableFuture<Void> clear = null;
+            try {
+                if (readStartsFirst) {
+                    assertThat(reading.await(5, TimeUnit.SECONDS)).isTrue();
+                }
+                clear = CompletableFuture.runAsync(journal::clear);
+                assertThat(clearing.await(5, TimeUnit.SECONDS)).isTrue();
+                finishRead.countDown();
+                if (read == null) {
+                    read = CompletableFuture.supplyAsync(() -> runtime.readCurrentEvidence(journal, scope));
+                }
+                assertThat(read.get(5, TimeUnit.SECONDS)).isNull();
+                if (!readStartsFirst) {
+                    verify(store, never()).query(any(DurableJournalQuery.class));
+                }
+            } finally {
+                finishRead.countDown();
+                finishClear.countDown();
+                if (clear != null) {
+                    clear.get(5, TimeUnit.SECONDS);
+                }
+            }
+        }
     }
 
     @Test
