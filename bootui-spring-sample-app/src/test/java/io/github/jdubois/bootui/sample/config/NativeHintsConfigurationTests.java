@@ -40,4 +40,12 @@ class NativeHintsConfigurationTests {
                         .withMemberCategory(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS))
                 .accepts(hints);
     }
+
+    @Test
+    void registersCaffeineJCacheCopierConstructors() {
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of("com.github.benmanes.caffeine.jcache.copy.JavaSerializationCopier"))
+                        .withMemberCategory(MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS))
+                .accepts(hints);
+    }
 }
