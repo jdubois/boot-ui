@@ -158,8 +158,8 @@ the Live Activity feed. On `401` and `403` requests when the **Spring Security**
 Security** deep-links to `#/spring-security` with the request's method and path pre-filled for static filter-chain
 matching. Span status messages, exception events, and attribute values follow the
 [trace value exposure](diagnostics.md#trace-value-exposure) rule. **Escape** dismisses the drawer. **Tab** and
-**Shift+Tab** cycle through it even when resizing changes the tab order. If the trace waterfall overflows, press
-**Tab** to reach it and use the arrow keys to scroll horizontally. Opening a profile only reads evidence BootUI
+**Shift+Tab** cycle through it even when resizing changes the tab order. When **Tab** focuses a scrollable table
+or the trace waterfall, use the arrow keys to scroll horizontally. Opening a profile only reads evidence BootUI
 already captured. It captures nothing new, calls no network service, and changes no state. Use `?request=<exchange id>`
 to open a request's profile directly, as each HTTP Exchanges row's **Profile** link does.
 

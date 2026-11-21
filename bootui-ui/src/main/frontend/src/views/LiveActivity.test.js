@@ -1632,6 +1632,30 @@ describe('LiveActivity', () => {
     }
   })
 
+  it.each([
+    ['Tab', false],
+    ['Shift+Tab', true]
+  ])('lets the browser handle %s from a non-tabbable element focused inside the drawer', async (_key, shiftKey) => {
+    vi.stubGlobal('requestAnimationFrame', (callback) => callback())
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 48, 48)])
+
+    wrapper = mountLiveActivity({attachTo: document.body})
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    // Model a browser-focused scroll region that the explicit Tab stop list does not include.
+    const scrollRegion = wrapper.get('.activity-drawer-body').element
+    scrollRegion.tabIndex = -1
+    scrollRegion.focus()
+    expect(document.activeElement).toBe(scrollRegion)
+    const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+    scrollRegion.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(scrollRegion)
+  })
+
   it('restores focus to the drawer opener after close button, Escape, and backdrop closes', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback) => callback())
     vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
