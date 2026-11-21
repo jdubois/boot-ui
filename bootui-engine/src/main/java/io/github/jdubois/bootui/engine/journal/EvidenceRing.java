@@ -143,6 +143,20 @@ final class EvidenceRing {
         lost(event, false);
     }
 
+    synchronized void lostBeforeOffload(RuntimeEvent event) {
+        lost(event, false);
+        if (event.source() == JournalSource.HTTP && event.traceId() != null) {
+            rememberTrace(currentArchiveTraces(), event.traceId());
+        }
+    }
+
+    private LinkedHashSet<String> currentArchiveTraces() {
+        if (currentArchiveEvictedTraces == null) {
+            currentArchiveEvictedTraces = new LinkedHashSet<>(evictedRequestTraces);
+        }
+        return currentArchiveEvictedTraces;
+    }
+
     private void lost(RuntimeEvent event, boolean memoryOffload) {
         if (event == null) {
             return;
@@ -275,7 +289,7 @@ final class EvidenceRing {
             currentArchiveEvictedTraces = null;
         } else if (currentArchiveEvictedTraces == null && !evictedRequestTraces.isEmpty()) {
             // The active archive can still contain other requests with these traces after the hot reset.
-            currentArchiveEvictedTraces = new LinkedHashSet<>(evictedRequestTraces);
+            currentArchiveTraces();
         }
         evictedRequestTraces.clear();
         retainedBytes = 0;

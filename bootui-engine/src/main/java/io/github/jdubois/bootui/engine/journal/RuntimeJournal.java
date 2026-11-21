@@ -153,6 +153,7 @@ public final class RuntimeJournal
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
     private volatile ClearBoundary clearBoundary = new ClearBoundary(0, 0, Map.of());
+    private long lastExplicitClearGeneration;
     private volatile long offloadedEvents;
     private volatile long durableOffloadedThrough;
     private final Object offloadState = new Object();
@@ -517,7 +518,11 @@ public final class RuntimeJournal
                 synchronized (processing) {
                     if (queue != admission) {
                         // Offered before a clear that ran while the dispatcher held it: cleared with the recording.
-                        ring.lost(first);
+                        if (queue.memoryOffloadGeneration() > lastExplicitClearGeneration) {
+                            ring.lostBeforeOffload(first);
+                        } else {
+                            ring.lost(first);
+                        }
                         finishDiscarded(1);
                         continue;
                     }
@@ -1067,6 +1072,9 @@ public final class RuntimeJournal
                     clearsCompleted + 1,
                     Math.max(System.currentTimeMillis(), clearBoundary.epochMillis()),
                     perSource(dropped));
+            if (!memoryOffload) {
+                lastExplicitClearGeneration = boundary.clears();
+            }
             JournalQueue detached = admission;
             int queued = 0;
             // A closed journal's queue stays: compare-and-set, since a close with a stuck dispatcher installs it
@@ -1074,10 +1082,10 @@ public final class RuntimeJournal
             if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue())) {
                 // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
                 // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
-                JournalQueue.Detached cleared = detached.detach();
+                JournalQueue.Detached cleared = detached.detach(memoryOffload ? boundary.clears() : 0);
                 queued = cleared.count();
                 // Outside the queue's lock: their requests and executions lost them to the clear.
-                cleared.forEach(ring::lost);
+                cleared.forEach(memoryOffload ? ring::lostBeforeOffload : ring::lost);
             }
             clearBoundary = boundary;
             if (beforeQueueDrain != null) {

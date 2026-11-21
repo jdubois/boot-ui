@@ -354,17 +354,7 @@ class DurableJournalEvidenceTests {
                 scope.run(),
                 "process",
                 journal.status().instanceId());
-        RuntimeEvent first = requestHttp("first", 1_000);
-        assertThat(journal.offer(RuntimeEvent.of(
-                        first.source(),
-                        first.epochMillis(),
-                        first.durationNanos(),
-                        CorrelationContext.forRequest("first").withTrace(traceId, "first-span"),
-                        first.thread(),
-                        first.threadKind(),
-                        false,
-                        first.payload())))
-                .isTrue();
+        assertThat(journal.offer(tracedHttp("first", 1_000, traceId))).isTrue();
         assertThat(journal.offer(requestHttp("next", 2_000))).isTrue();
         journal.dispatchPending();
         List<JournalEntry> entries = journal.entries();
@@ -402,6 +392,68 @@ class DurableJournalEvidenceTests {
         JournalEvidenceSnapshot afterClear = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(2));
         assertThat(afterClear.omittedEvents()).isOne();
         assertThat(afterClear.evictedARequestOf(traceId)).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void onlyMemoryOffloadVetoesAttributionAfterDiscardingAnUndispatchedRequest(boolean memoryOffload) {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        String traceId = "shared-trace";
+        assertThat(journal.offer(tracedHttp("never-dispatched", 1_000, traceId)))
+                .isTrue();
+        if (memoryOffload) {
+            assertThat(journal.offloadRetainedData()).isOne();
+        } else {
+            journal.clear();
+        }
+        assertThat(journal.lastSequence()).isZero();
+
+        assertThat(journal.offer(tracedHttp("later", 2_000, traceId))).isTrue();
+        assertThat(journal.offer(RuntimeEvent.of(
+                        JournalSource.AI,
+                        2_000,
+                        1_000_000,
+                        CorrelationContext.NONE.withTrace(traceId, null),
+                        "ai-worker",
+                        ThreadKind.WORKER,
+                        false,
+                        new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false))))
+                .isTrue();
+        journal.dispatchPending();
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        assertThat(metadata.lostRequestTraces()).isEmpty();
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 2, identity.instanceId(), metadata));
+        persist(store, scope, journal.entries());
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        DurableJournalEvidence reader = new DurableJournalEvidence(store);
+        JournalEvidenceSnapshot current = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(current.omittedEvents()).isZero();
+        assertThat(current.lossHorizonMillis()).isEqualTo(1_000L);
+        var profiles = new RequestJournalProfiles(journal, null, 0, 2, null);
+        var profile = profiles.profileFrom(current, "later");
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.timeline().stream().anyMatch(item -> item.source().equals("ai")))
+                .as("the trace-only call must not be attached if another request with that trace was lost in offload")
+                .isEqualTo(!memoryOffload);
+        assertThat(profiles.profileFrom(reader.read(scope), "later").timeline())
+                .anyMatch(item -> item.source().equals("ai"));
+        assertThat(journal.evictedARequestOf(traceId)).isFalse();
     }
 
     @Test
@@ -850,6 +902,18 @@ class DurableJournalEvidenceTests {
                 null,
                 false,
                 new GcPayload("G1 Young", 7, "end minor", "evacuation", true, 1_000, 500));
+    }
+
+    private static RuntimeEvent tracedHttp(String requestId, long start, String traceId) {
+        return RuntimeEvent.of(
+                JournalSource.HTTP,
+                start,
+                10_000_000,
+                CorrelationContext.forRequest(requestId).withTrace(traceId, null),
+                "http-1",
+                ThreadKind.WORKER,
+                false,
+                new HttpPayload("GET", "/orders/42", "/orders/{id}", null, 200));
     }
 
     private static RuntimeEvent requestHttp(String requestId, long start) {
