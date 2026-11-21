@@ -116,6 +116,40 @@ class DurableJournalEvidenceTests {
     }
 
     @Test
+    void contiguousDurableSequencesDoNotHideAnUndispatchedDiscard() {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        journal.offer(requestHttp("request-1", 1_100));
+        journal.dispatchPending();
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        DurableJournalRunMetadata metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 1, identity.instanceId(), metadata));
+        persist(store, scope, journal.entries());
+
+        journal.offer(requestSql("request-1", 1_200));
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        JournalEvidenceSnapshot snapshot =
+                new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.entries()).extracting(JournalEntry::sequence).containsExactly(1L);
+        assertThat(snapshot.omittedEvents()).isZero();
+        assertThat(snapshot.lossHorizonMillis()).isEqualTo(1_200L);
+    }
+
+    @Test
     void anActiveRequestIsReconstructedFromDurableAndUnacknowledgedHotEvidence() {
         RuntimeJournal journal = journal(100, 1_000_000);
         JdbcDurableJournalStore store = store();

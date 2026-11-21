@@ -71,6 +71,8 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     private final AtomicLong durableWatermark = new AtomicLong();
     private final AtomicLong lastFlushAtEpochMillis = new AtomicLong();
     private volatile long clearedThrough;
+    private volatile long memoryOffloadedThrough;
+    private long compactedEventsAtClear;
     private int hotMaxEntries = Integer.MAX_VALUE;
     private Function<DurableJournalRunMetadata.Phase, DurableJournalRunMetadata> metadataSupplier;
 
@@ -379,10 +381,36 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     }
 
     @Override
+    public void onMemoryOffload() {
+        memoryOffloadedThrough = journal.lastSequence();
+    }
+
+    ReadWindow readWindow(RuntimeJournal current, DurableJournalScope selected, DurableJournalStore reader) {
+        if (journal != current
+                || store != reader
+                || !scope.equals(selected)
+                || !scope.run().equals(journal.run().id())) {
+            return null;
+        }
+        synchronized (pendingLock) {
+            boolean memoryOffloaded = memoryOffloadedThrough > clearedThrough;
+            if (state != State.RUNNING
+                    || durableWatermark.get() <= clearedThrough
+                    || !memoryOffloaded && journal.compactedEventCount() <= compactedEventsAtClear) {
+                return null;
+            }
+            return new ReadWindow(clearedThrough);
+        }
+    }
+
+    record ReadWindow(long clearedThrough) {}
+
+    @Override
     public void onClear() {
         long sequence = journal.status().lastSequence();
         synchronized (pendingLock) {
             clearedThrough = Math.max(clearedThrough, sequence);
+            compactedEventsAtClear = journal.compactedEventCount();
             dropCleared(pendingQueue);
             dropCleared(inFlight);
             deferredSeed.removeIf(entry -> entry.sequence() <= clearedThrough);

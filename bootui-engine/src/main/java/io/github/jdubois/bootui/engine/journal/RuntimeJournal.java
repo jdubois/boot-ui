@@ -1013,6 +1013,15 @@ public final class RuntimeJournal
         ring.durableCaptureLost(entry);
     }
 
+    long compactedEventCount() {
+        return offloadedEvents;
+    }
+
+    /** A consumed admission may have been discarded before it received a sequence the archive can account for. */
+    boolean hasUnsequencedLoss() {
+        return processed.get() > lastSequence.get();
+    }
+
     /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
     private long clearAndCount(Consumer<JournalListener> notifyListener) {
         synchronized (processing) {

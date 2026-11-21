@@ -1038,15 +1038,15 @@ public class LiveActivityResource {
         DurableJournalScope selected = selectedProfileScope(namespace, application, run);
         boolean historical = !selected.equals(durableJournalSettings.scope())
                 || hasText(instance) && !instance.strip().equals(durableJournalSettings.instanceId());
-        boolean needsArchive = historical || current != null && current.status().offloadedEvents() > 0;
-        if (!needsArchive) {
-            return null;
-        }
-        if (durableJournalRuntime == null || !durableJournalRuntime.active()) {
+        if (historical && (durableJournalRuntime == null || !durableJournalRuntime.active())) {
             throw new DurableJournalUnavailableException("Durable journal evidence is unavailable for " + selected);
         }
-        JournalEvidenceSnapshot evidence =
-                new DurableJournalEvidence(durableJournalRuntime.store()).read(historical ? null : current, selected);
+        JournalEvidenceSnapshot evidence = historical
+                ? new DurableJournalEvidence(durableJournalRuntime.store()).read(selected)
+                : durableJournalRuntime == null ? null : durableJournalRuntime.readCurrentEvidence(current, selected);
+        if (evidence == null) {
+            return null;
+        }
         if (hasText(instance) && !instance.strip().equals(evidence.status().instanceId())) {
             throw new DurableJournalUnavailableException(
                     "Durable journal run " + selected + " is not from instance " + instance.strip());

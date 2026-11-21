@@ -30,4 +30,21 @@ public final class DurableJournalRuntime {
     public boolean active() {
         return store != null && capture != null;
     }
+
+    /** Returns merged evidence only when the active writer holds discarded evidence for this journal and scope. */
+    public JournalEvidenceSnapshot readCurrentEvidence(RuntimeJournal journal, DurableJournalScope scope) {
+        DurableJournalCapture writer = capture;
+        if (journal == null || writer == null) {
+            return null;
+        }
+        DurableJournalStore reader = store;
+        DurableJournalCapture.ReadWindow window = writer.readWindow(journal, scope, reader);
+        if (window == null) {
+            return null;
+        }
+        JournalEvidenceSnapshot evidence = new DurableJournalEvidence(reader).read(scope, journal, window);
+        DurableJournalCapture.ReadWindow after = writer.readWindow(journal, scope, reader);
+        // Clear is asynchronous on disk; never return an archive snapshot that crossed its live boundary.
+        return after != null && after.clearedThrough() == window.clearedThrough() ? evidence : null;
+    }
 }

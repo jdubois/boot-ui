@@ -55,11 +55,17 @@ public final class DurableJournalEvidence {
 
     /** Reads the requested run and merges its matching hot tail. */
     public JournalEvidenceSnapshot read(DurableJournalScope scope, RuntimeJournal journal) {
+        return read(scope, journal, null);
+    }
+
+    JournalEvidenceSnapshot read(
+            DurableJournalScope scope, RuntimeJournal journal, DurableJournalCapture.ReadWindow liveWindow) {
         Objects.requireNonNull(scope, "scope must not be null");
         boolean sameRun = journal != null && scope.run().equals(journal.run().id());
         JournalEvidenceSnapshot hot = sameRun ? JournalEvidenceSnapshot.hot(journal) : null;
         JournalStatus hotStatus = hot == null ? null : hot.status();
         if (sameRun
+                && liveWindow == null
                 && hotStatus.offloadedEvents() == 0
                 && hotStatus.evictedByCount() + hotStatus.evictedByBytes() == 0
                 && hotStatus.clears() == 0) {
@@ -87,11 +93,17 @@ public final class DurableJournalEvidence {
         long overlap = 0;
         BoundedEntries bounded = new BoundedEntries(eventBound, byteBound);
         long clearedThrough = metadata == null ? 0 : metadata.durableClearedThrough();
+        if (liveWindow != null) {
+            clearedThrough = Math.max(clearedThrough, liveWindow.clearedThrough());
+        }
         long firstSequence = clearedThrough;
         if (!sameRun && metadata != null) {
             firstSequence = Math.max(0, metadata.journalStatus().lastSequence() - (long) eventBound);
         } else if (sameRun) {
             firstSequence = Math.max(0, durableThrough - (long) eventBound);
+        }
+        if (liveWindow != null) {
+            firstSequence = Math.max(firstSequence, clearedThrough);
         }
         durableOmitted = Math.max(0, firstSequence - clearedThrough);
         DurableJournalCursor cursor = firstSequence == 0 ? null : new DurableJournalCursor(firstSequence);
@@ -135,7 +147,9 @@ public final class DurableJournalEvidence {
         }
         long unique = durableCount + hotEntries.size() - overlap;
         long omitted = Math.max(0, durableOmitted + unique - entries.size()) + missingSequences;
-        boolean durableComplete = metadata != null
+        // Memory offload also discards undispatched events, which have no sequence to check against disk.
+        boolean durableComplete = (liveWindow == null || !journal.hasUnsequencedLoss())
+                && metadata != null
                 && omitted == 0
                 && base.droppedTotal() == 0
                 && metadata.durableDroppedEvents() == 0

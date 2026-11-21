@@ -79,6 +79,7 @@ collection, and shows heap used before and after, the reclaimed estimate, and th
 It does not hold recording; use low-footprint mode below for that. Settings, configuration overrides,
 dismissed rules, cached scan reports, and persisted Live Activity history are kept. Events already queued for the
 durable writer continue to flush asynchronously; events still waiting for the journal dispatcher are discarded.
+Request profiles and Runtime Insights can still use the persisted evidence from the current run.
 
 ::: warning Cleared data is gone
 Evidence kept only in the discarded buffers cannot be recovered, and exception triage statuses are dropped with their
