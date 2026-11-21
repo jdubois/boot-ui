@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Live Activity keyboard navigation** keeps Tab and Shift+Tab inside the request profile after resizing without
+  skipping scrollable tables or trace waterfalls ([Live Activity](docs/features/live-activity.md#the-per-request-profiler)).
 - **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,
   preserves independent SQL and client evidence, and keeps matrix parameters out of fallback site identity.
   Thread names no longer diagnose `@Async` proxy bypass; unassessed async frames retain independently judgeable

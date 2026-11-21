@@ -1516,6 +1516,188 @@ describe('LiveActivity', () => {
     expect(drawer.text()).toContain('+102.0 ms')
   })
 
+  it.each([
+    ['SQL & cache', 'sql', 'Tab', false],
+    ['SQL & cache', 'sql', 'Shift+Tab', true],
+    ['REST & traces', 'outbound', 'Tab', false],
+    ['REST & traces', 'outbound', 'Shift+Tab', true]
+  ])('wraps request drawer focus in %s (%s) with %s', async (_label, tabId, _key, shiftKey) => {
+    vi.stubGlobal('requestAnimationFrame', (callback) => callback())
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport(),
+        requestProfile({
+          sqlGroups: [],
+          timing: null,
+          trace: {
+            spans: [
+              {
+                spanId: 'span-1',
+                name: 'GET /api/todos',
+                startEpochNanos: 1_000_000,
+                endEpochNanos: 6_000_000,
+                durationNanos: 5_000_000
+              }
+            ]
+          }
+        })
+      )
+    )
+
+    // jsdom has no layout. Model v-show and a waterfall wider than its scrollport.
+    const rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function () {
+      for (let element = this; element; element = element.parentElement) {
+        if (element.style.display === 'none') return []
+      }
+      return [new DOMRect(0, 0, 48, 48)]
+    })
+    const scrollWidth = vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function () {
+      return this.matches('.waterfall') ? 384 : 0
+    })
+    const clientWidth = vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(250)
+    let resizeWaterfall
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback) {
+          this.callback = callback
+        }
+        observe(element) {
+          if (element.matches('.waterfall')) resizeWaterfall = this.callback
+        }
+        disconnect() {}
+      }
+    )
+    onTestFinished(() => {
+      rects.mockRestore()
+      scrollWidth.mockRestore()
+      clientWidth.mockRestore()
+    })
+
+    wrapper = mountLiveActivity({
+      attachTo: document.body,
+      global: {stubs: {RouterLink: {template: '<a href="/"><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('[role="dialog"][aria-modal="true"][aria-label="Request profile"]')
+    const footerLink = drawer.get('.request-code-path a[href]')
+    expect(footerLink.isVisible()).toBe(true)
+
+    const all = drawer.get('#request-profile-tab-all')
+    const selected = drawer.get(`#request-profile-tab-${tabId}`)
+    all.element.focus()
+    if (tabId === 'outbound') {
+      await all.trigger('keydown', {key: 'End'})
+    } else {
+      await all.trigger('keydown', {key: 'ArrowRight'})
+      await drawer.get('#request-profile-tab-journal').trigger('keydown', {key: 'ArrowRight'})
+    }
+    expect(document.activeElement).toBe(selected.element)
+    expect(drawer.findAll('[role="tab"][tabindex="0"]').map((tab) => tab.element)).toEqual([selected.element])
+    expect(footerLink.isVisible()).toBe(false)
+
+    const first = drawer.get('.activity-drawer-expand').element
+    const waterfall = drawer.get('[role="table"][aria-label="Trace span waterfall"]')
+    expect(waterfall.isVisible()).toBe(tabId === 'outbound')
+    const last = tabId === 'outbound' ? waterfall.element : selected.element
+    if (tabId === 'outbound' && !shiftKey) {
+      const advance = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true})
+      selected.element.dispatchEvent(advance)
+      expect(advance.defaultPrevented).toBe(false)
+    }
+    const wrap = (to) => {
+      const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+      document.activeElement.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(to)
+    }
+    const [from, to] = shiftKey ? [first, last] : [last, first]
+    from.focus()
+    wrap(to)
+
+    if (tabId === 'outbound') {
+      waterfall.element.focus()
+      clientWidth.mockReturnValue(400)
+      resizeWaterfall()
+      await flushPromises()
+      expect(waterfall.attributes('tabindex')).toBeUndefined()
+      // Chromium drops focus when the now-fitting waterfall loses its tabindex.
+      waterfall.element.blur()
+      expect(document.activeElement).toBe(document.body)
+      wrap(shiftKey ? selected.element : first)
+    }
+  })
+
+  it('wraps around overflowing authorization decisions when no links follow the table', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback) => callback())
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(activityReport(), requestProfile({sqlGroups: [], timing: null}), {
+        available: true,
+        status: 403,
+        authorizations: [{target: 'METHOD', subject: 'ExampleService#read', granted: false}]
+      })
+    )
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 48, 48)])
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(850)
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(250)
+
+    wrapper = mountLiveActivity({
+      attachTo: document.body,
+      global: {provide: {panels: ref({panels: [{id: 'activity', available: true}]})}}
+    })
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    const drawer = wrapper.get('.activity-drawer')
+    const wide = drawer.get('.activity-drawer-expand').element
+    const journal = drawer.get('#request-profile-tab-journal')
+    await drawer.get('#request-profile-tab-all').trigger('keydown', {key: 'ArrowRight'})
+    expect(document.activeElement).toBe(journal.element)
+    const decisions = drawer.get('.request-journal .table-responsive').element
+    expect(drawer.findAll('a[href]')).toHaveLength(0)
+
+    const tab = (element, shiftKey = false) => {
+      const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+      element.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    expect(tab(journal.element)).toBe(false)
+    wide.focus()
+    expect(tab(wide, true)).toBe(true)
+    expect(document.activeElement).toBe(decisions)
+    expect(tab(decisions)).toBe(true)
+    expect(document.activeElement).toBe(wide)
+  })
+
+  it.each([
+    ['Tab', false],
+    ['Shift+Tab', true]
+  ])('lets the browser handle %s from a non-tabbable element focused inside the drawer', async (_key, shiftKey) => {
+    vi.stubGlobal('requestAnimationFrame', (callback) => callback())
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 48, 48)])
+
+    wrapper = mountLiveActivity({attachTo: document.body})
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    // Model a browser-focused scroll region that the explicit Tab stop list does not include.
+    const scrollRegion = wrapper.get('.activity-drawer-body').element
+    scrollRegion.tabIndex = -1
+    scrollRegion.focus()
+    expect(document.activeElement).toBe(scrollRegion)
+    const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+    scrollRegion.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(scrollRegion)
+  })
+
   it('restores focus to the drawer opener after close button, Escape, and backdrop closes', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback) => callback())
     vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
