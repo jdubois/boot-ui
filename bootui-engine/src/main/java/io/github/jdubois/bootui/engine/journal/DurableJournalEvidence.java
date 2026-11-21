@@ -155,9 +155,10 @@ public final class DurableJournalEvidence {
                 && metadata.durableDroppedEvents() == 0
                 && metadata.durableQuarantinedEvents() == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
-        boolean recoveredOffload = sameRun && liveWindow != null && metadata != null && omitted == 0;
+        boolean currentArchive = sameRun && liveWindow != null;
+        boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
         JournalEvidenceSnapshot.Completeness completeness =
-                completeness(journal, sameRun, metadata, settings, durableComplete, recoveredOffload);
+                completeness(journal, sameRun, metadata, settings, durableComplete, currentArchive, recoveredOffload);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
@@ -257,6 +258,7 @@ public final class DurableJournalEvidence {
             DurableJournalRunMetadata metadata,
             RuntimeJournalSettings settings,
             boolean durableComplete,
+            boolean currentArchive,
             boolean recoveredOffload) {
         Set<String> lostTraces = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestTraces());
         Set<String> lostThreads = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestThreads());
@@ -308,7 +310,8 @@ public final class DurableJournalEvidence {
             @Override
             public boolean evictedARequestOf(String traceId) {
                 return !durableComplete
-                        && (lostTraces.contains(traceId) || sameRun && journal.evictedARequestOf(traceId));
+                        && (lostTraces.contains(traceId)
+                                || sameRun && journal.evictedARequestOf(traceId, currentArchive));
             }
 
             @Override

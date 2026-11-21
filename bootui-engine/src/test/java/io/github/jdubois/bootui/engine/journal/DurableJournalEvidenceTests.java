@@ -341,6 +341,69 @@ class DurableJournalEvidenceTests {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void offloadPreservesTheLiveTraceVetoUnlessTheArchiveRecoversTheRequest(boolean requestMissing) {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        String traceId = "shared-trace";
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        RuntimeEvent first = requestHttp("first", 1_000);
+        assertThat(journal.offer(RuntimeEvent.of(
+                        first.source(),
+                        first.epochMillis(),
+                        first.durationNanos(),
+                        CorrelationContext.forRequest("first").withTrace(traceId, "first-span"),
+                        first.thread(),
+                        first.threadKind(),
+                        false,
+                        first.payload())))
+                .isTrue();
+        assertThat(journal.offer(requestHttp("next", 2_000))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> entries = journal.entries();
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 2, identity.instanceId(), metadata));
+        persist(
+                store,
+                scope,
+                entries.stream()
+                        .filter(entry -> !requestMissing || entry.sequence() != 1)
+                        .toList());
+
+        journal.durableCaptureLost(entries.get(1));
+        assertThat(journal.evictedARequestOf(traceId)).isTrue();
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+        assertThat(store.findRunMetadata(scope).lostRequestTraces()).isEmpty();
+        assertThat(journal.evictedARequestOf(traceId)).isFalse();
+
+        DurableJournalEvidence reader = new DurableJournalEvidence(store);
+        JournalEvidenceSnapshot snapshot = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.omittedEvents()).isEqualTo(requestMissing ? 1 : 0);
+        assertThat(snapshot.evictedARequestOf(traceId)).isEqualTo(requestMissing);
+
+        journal.clear();
+        assertThat(journal.offer(requestHttp("not-persisted", 3_000))).isTrue();
+        journal.dispatchPending();
+        assertThat(journal.offloadRetainedData()).isEqualTo(1);
+        JournalEvidenceSnapshot afterClear = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(2));
+        assertThat(afterClear.omittedEvents()).isOne();
+        assertThat(afterClear.evictedARequestOf(traceId)).isFalse();
+    }
+
     @Test
     void recoveringOffloadedWorkDoesNotHideItsLaterUnlinkedLog() {
         RuntimeJournal journal = journal(100, 1_000_000);

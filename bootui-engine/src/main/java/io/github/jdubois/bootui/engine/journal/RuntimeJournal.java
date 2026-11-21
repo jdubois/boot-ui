@@ -770,7 +770,11 @@ public final class RuntimeJournal
      * AI call linked only by that trace ({@link AiCallOwners}): the evicted request may have made it.
      */
     public boolean evictedARequestOf(String traceId) {
-        return ring.evictedARequestOf(traceId);
+        return evictedARequestOf(traceId, false);
+    }
+
+    boolean evictedARequestOf(String traceId, boolean currentArchive) {
+        return ring.evictedARequestOf(traceId, currentArchive);
     }
 
     /**

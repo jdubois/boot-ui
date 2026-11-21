@@ -52,6 +52,8 @@ final class EvidenceRing {
      */
     private final LinkedHashSet<String> evictedRequestTraces = new LinkedHashSet<>();
 
+    private LinkedHashSet<String> currentArchiveEvictedTraces;
+
     /** The most thread names of requests that lost events remembered. */
     static final int MAX_LOST_REQUEST_THREADS = 1_024;
 
@@ -122,10 +124,17 @@ final class EvidenceRing {
         if (event.source() != JournalSource.HTTP || event.traceId() == null) {
             return;
         }
-        evictedRequestTraces.remove(event.traceId());
-        evictedRequestTraces.add(event.traceId());
-        if (evictedRequestTraces.size() > MAX_EVICTED_REQUEST_TRACES) {
-            evictedRequestTraces.remove(evictedRequestTraces.iterator().next());
+        rememberTrace(evictedRequestTraces, event.traceId());
+        if (currentArchiveEvictedTraces != null) {
+            rememberTrace(currentArchiveEvictedTraces, event.traceId());
+        }
+    }
+
+    private static void rememberTrace(LinkedHashSet<String> traces, String traceId) {
+        traces.remove(traceId);
+        traces.add(traceId);
+        if (traces.size() > MAX_EVICTED_REQUEST_TRACES) {
+            traces.remove(traces.iterator().next());
         }
     }
 
@@ -222,8 +231,11 @@ final class EvidenceRing {
     }
 
     /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */
-    synchronized boolean evictedARequestOf(String traceId) {
-        return traceId != null && evictedRequestTraces.contains(traceId);
+    synchronized boolean evictedARequestOf(String traceId, boolean currentArchive) {
+        var traces = currentArchive && currentArchiveEvictedTraces != null
+                ? currentArchiveEvictedTraces
+                : evictedRequestTraces;
+        return traceId != null && traces.contains(traceId);
     }
 
     synchronized List<String> lostRequestTraces() {
@@ -259,6 +271,12 @@ final class EvidenceRing {
         reserved.forEach(entry -> lost(entry.event(), memoryOffload));
         routine.clear();
         reserved.clear();
+        if (!memoryOffload) {
+            currentArchiveEvictedTraces = null;
+        } else if (currentArchiveEvictedTraces == null && !evictedRequestTraces.isEmpty()) {
+            // The active archive can still contain other requests with these traces after the hot reset.
+            currentArchiveEvictedTraces = new LinkedHashSet<>(evictedRequestTraces);
+        }
         evictedRequestTraces.clear();
         retainedBytes = 0;
     }
