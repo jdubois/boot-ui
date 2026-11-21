@@ -632,7 +632,8 @@ These rules judge **driver settings**, not the schema, and need two kinds of evi
   batching only when every unit on it is known not to batch and no unit could be hiding elsewhere. If a unit is
   attributed but effective batching cannot be determined, the datasource is unassessed. In a mixed inventory this is
   a coverage gap: a prior finding on that datasource remains unverified, but a fully assessed datasource can still
-  confirm a fix or report a finding.
+  confirm a fix or report a finding. If distinct datasources share a name, the batching checks cannot attribute
+  evidence or prior findings to either one; only that name is excluded from comparison.
 
 On an individual datasource, a rule skips evaluation with a reason when: the driver is not the one the rule
 verifies (MariaDB Connector/J is not evaluated: it has a different bulk setting); for the batching rules, batching is

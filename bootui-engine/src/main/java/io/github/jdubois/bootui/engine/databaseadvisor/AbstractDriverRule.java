@@ -4,9 +4,10 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 /**
  * Shared skeleton of the JDBC driver rules. A subclass judges one datasource at a time and answers with an
@@ -43,23 +44,21 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
     @Override
     final DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         DatabaseFindings findings = new DatabaseFindings();
-        List<String> reasons = new ArrayList<>();
+        boolean compareByDatasource = compareAssessedDatasourcesWhenIncomplete();
+        Set<String> ambiguousNames = compareByDatasource ? ambiguousNames(context.schemas()) : Set.of();
         List<String> gaps = new ArrayList<>();
-        Map<String, Boolean> conclusiveDatasources = new HashMap<>();
-        boolean compareByDatasource =
-                compareAssessedDatasourcesWhenIncomplete() && context.violationCollector() != null;
+        ambiguousNames.forEach(name ->
+                gaps.add(name + ": multiple datasources share this name, so JDBC batching cannot be attributed."));
+        List<String> reasons = new ArrayList<>(gaps);
+        List<String> conclusiveDatasources = new ArrayList<>();
         int assessed = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
-            Outcome outcome = assess(context, schema, findings);
-            if (compareByDatasource) {
-                // Duplicate names identify an ambiguous scope, even when one candidate was fully assessed.
-                conclusiveDatasources.merge(
-                        schema.dataSourceName(),
-                        outcome.kind() == Outcome.Kind.ASSESSED
-                                && outcome.gaps().isEmpty(),
-                        (first, duplicate) -> false);
+            String name = schema.dataSourceName();
+            if (ambiguousNames.contains(name)) {
+                continue;
             }
-            String text = schema.dataSourceName() + ": " + outcome.text();
+            Outcome outcome = assess(context, schema, findings);
+            String text = name + ": " + outcome.text();
             switch (outcome.kind()) {
                 case NOT_APPLICABLE -> {}
                 case SKIP -> reasons.add(text);
@@ -69,7 +68,10 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
                 }
                 case ASSESSED -> {
                     assessed++;
-                    outcome.gaps().forEach(gap -> gaps.add(schema.dataSourceName() + ": " + gap));
+                    if (compareByDatasource && outcome.gaps().isEmpty()) {
+                        conclusiveDatasources.add(name);
+                    }
+                    outcome.gaps().forEach(gap -> gaps.add(name + ": " + gap));
                 }
             }
         }
@@ -79,15 +81,24 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         // Only a mixed inventory journals gaps: with something assessed, a clean result must not hide them.
         gaps.forEach(gap -> unknown(context, gap));
         DatabaseAdvisorRuleResultDto result = VendorRuleSupport.assessed(this, context, assessed, findings);
-        if (compareByDatasource && !gaps.isEmpty()) {
-            conclusiveDatasources.forEach((name, conclusive) -> {
-                if (conclusive) {
-                    context.violationCollector()
-                            .markConcluded(definition().id(), AdvisorFindingIdentity.encode("ds=" + name));
-                }
-            });
+        var collector = context.violationCollector();
+        if (collector != null && !gaps.isEmpty()) {
+            for (String name : conclusiveDatasources) {
+                collector.markConcluded(definition().id(), AdvisorFindingIdentity.encode("ds=" + name));
+            }
         }
         return result;
+    }
+
+    private static Set<String> ambiguousNames(List<SchemaSnapshot> schemas) {
+        Set<String> seen = new HashSet<>();
+        Set<String> ambiguous = new LinkedHashSet<>();
+        for (SchemaSnapshot schema : schemas) {
+            if (!seen.add(schema.dataSourceName())) {
+                ambiguous.add(schema.dataSourceName());
+            }
+        }
+        return ambiguous;
     }
 
     /** The datasource's driver evidence, or a gap when the driver could not be identified at all. */
