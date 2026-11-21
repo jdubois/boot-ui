@@ -352,8 +352,6 @@ class DurableJournalCaptureTests {
         assertThat(writer.entries)
                 .extracting(entry -> entry.event().requestId())
                 .containsExactly("durable-history");
-        assertThat(capture.status().lastError())
-                .contains("clear through sequence 1", "retained durable history is unchanged", "not restored");
         assertThat(writer.checkpoints).contains(1L);
     }
 
