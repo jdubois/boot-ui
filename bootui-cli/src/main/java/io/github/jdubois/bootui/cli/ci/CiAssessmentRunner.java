@@ -690,15 +690,16 @@ public final class CiAssessmentRunner {
                     || advisor != CiPolicy.Advisor.DATABASE && "SKIPPED".equals(status)) {
                 throw new AssessmentFailure("INVALID_REPORT");
             }
+            if (suppressed > 0) {
+                throw new AssessmentFailure("SUPPRESSION_PRESENT");
+            }
             if (count > 0) {
                 CiPolicy.Severity severity = parseSeverity(severityText);
                 activeTotal = Math.addExact(activeTotal, count);
-                findings.add(new RuleFinding(id, severity, count, suppressed));
+                findings.add(new RuleFinding(id, severity, count));
                 if (severity.meets(selection.failOn())) {
                     // Recorded as a finding; errors discovered later still take aggregate precedence.
                 }
-            } else if (suppressed > 0) {
-                throw new AssessmentFailure("SUPPRESSION_PRESENT");
             }
         }
         long reportTotal = integer(report.get("violationsFound"));
@@ -837,7 +838,7 @@ public final class CiAssessmentRunner {
                 }
                 requireAlignedOrEmpty(page.get("identities"), violations.size());
                 requireAlignedOrEmpty(page.get("suppressed"), violations.size());
-                if (retained != total || retained != finding.count() + finding.suppressedCount()) {
+                if (retained != total || retained != finding.count()) {
                     throw new AssessmentFailure("DETAILS_INCOMPLETE");
                 }
                 if (!budget.tryDetails(returned)) {
@@ -849,7 +850,7 @@ public final class CiAssessmentRunner {
                     throw new AssessmentFailure("DETAIL_PAGE_NO_PROGRESS");
                 }
             } while (more);
-            if (offset != finding.count() + finding.suppressedCount()) {
+            if (offset != finding.count()) {
                 throw new AssessmentFailure("DETAILS_INCOMPLETE");
             }
             findings.add(object(
@@ -1305,7 +1306,7 @@ public final class CiAssessmentRunner {
 
     private record Identity(CiFramework framework, String bootUiVersion, String instanceId, String runId) {}
 
-    private record RuleFinding(String ruleId, CiPolicy.Severity severity, long count, long suppressedCount) {}
+    private record RuleFinding(String ruleId, CiPolicy.Severity severity, long count) {}
 
     private record EvaluatedReport(
             String scanId,
