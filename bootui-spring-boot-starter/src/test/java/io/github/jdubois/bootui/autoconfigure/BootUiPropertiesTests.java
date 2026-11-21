@@ -104,6 +104,28 @@ class BootUiPropertiesTests {
         }
     }
 
+    @Test
+    void durableJournalActivityPersistencePropertiesBindTogether() {
+        BootUiProperties properties = bind(new MockEnvironment()
+                .withProperty("bootui.activity.persistence.namespace-id", "team-local")
+                .withProperty("bootui.activity.persistence.application-id", "orders-override")
+                .withProperty("bootui.activity.persistence.max-pending-entries", "1234")
+                .withProperty("bootui.activity.persistence.max-pending-bytes", "48MB")
+                .withProperty("bootui.activity.persistence.hot-max-entries", "321")
+                .withProperty("bootui.activity.persistence.reader-archive-cross-namespace", "true")
+                .withProperty("bootui.activity.persistence.instance-id", "legacy-instance"));
+
+        BootUiProperties.ActivityPersistence persistence =
+                properties.getActivity().getPersistence();
+        assertThat(persistence.getNamespaceId()).isEqualTo("team-local");
+        assertThat(persistence.getApplicationId()).isEqualTo("orders-override");
+        assertThat(persistence.getInstanceId()).isEqualTo("legacy-instance");
+        assertThat(persistence.getMaxPendingEntries()).isEqualTo(1234);
+        assertThat(persistence.getMaxPendingBytes().toBytes()).isEqualTo(48L * 1024 * 1024);
+        assertThat(persistence.getHotMaxEntries()).isEqualTo(321);
+        assertThat(persistence.isReaderArchiveCrossNamespace()).isTrue();
+    }
+
     // -------------------------------------------------------------------------
     // Defaults (no properties set)
     // -------------------------------------------------------------------------

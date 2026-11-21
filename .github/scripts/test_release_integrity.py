@@ -746,6 +746,13 @@ class ReleaseIntegrityTests(unittest.TestCase):
                     bundle=self.mutate_file(BUNDLE_CHECK, old, new),
                 )
 
+    def test_only_pull_request_builds_opt_out_of_candidate_size_check(self):
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        release = WORKFLOW.read_text(encoding="utf-8")
+        variable = 'BOOTUI_SKIP_RELEASE_SIZE_CHECK: "true"'
+        self.assertIn(variable, build)
+        self.assertNotIn(variable, release)
+
     def test_parents_stay_unpublished(self):
         for parent in ("bootui-parent", "bootui-quarkus-parent"):
             with self.subTest(parent=parent):

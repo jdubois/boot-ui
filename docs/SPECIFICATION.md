@@ -1736,7 +1736,9 @@ Features:
   `FAULT_TOLERANCE`, and (Spring servlet/WebFlux only) `CACHE` entries normalized to a common shape (timestamp, type, severity,
   one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The journal feed adds the journal's own entry types, such as `TRANSACTION`, `LOG`,
-  `AI`, `ORM`, `WEBSOCKET`, `APP_EVENT`, `MARKER`, and, with the BootUI agent, `ASYNC`. The `since` cursor allows incremental polling. Each entry also carries an optional
+  `AI`, `ORM`, `WEBSOCKET`, `APP_EVENT`, `MARKER`, and, with the BootUI agent, `ASYNC`. The live `since` cursor
+  supports incremental reads; the durable store additionally returns a store-wide global polling/paging cursor and
+  durable origin. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
   method/path), so the client can nest correlated SQL, REST, exceptions, security events, cache accesses, and captured
   email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
@@ -1822,7 +1824,8 @@ Features:
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
   pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
-  emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
+  emits a tiny coalesced tick whenever a local source changes and the browser re-fetches, rather than polling on a
+  timer. Durable readers poll the shared store for rows produced by other processes.
 - A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's SQL, exceptions,
   security audit events, REST client calls, and cache accesses, served on every adapter by one shared engine assembler
   (`ExecutionProfileAssembler`). Correlation is tiered, strongest first: request id (the BootUI request id stamped on
@@ -1860,76 +1863,52 @@ Features:
   Live Activity feed and the profile of the request the latest occurrence belongs to. The copy itself sends nothing and
   changes no state, the preview matches the clipboard exactly, and the document stays selectable when clipboard access
   is denied.
-- Optional durable persistence (`bootui.activity.persistence.enabled`, off by default, available on both adapters): in
-  addition to today's in-memory-only default, captured entries can also be written to a SQL database over direct JDBC so
-  history survives a restart and the dashboard can page back further than fits in memory. The design is a pluggable
-  `ActivityStore` abstraction with two implementations:
-  - `InMemoryActivityStore` — formalizes today's behavior (a bounded ring buffer) and remains the default; enabling
-    persistence never removes or changes this default, it only adds a second store behind the same interface.
-  - `JdbcActivityStore` — plain JDBC (no ORM), reusable against either the host application's own `DataSource` (the
-    same one the SQL Trace panel may already be tracing) or a small dedicated, non-pooled connection configured
-    through `bootui.activity.persistence.dedicated-*`. The backing table (`bootui.activity.persistence.table-name`,
-    default `bootui_activity`) is created automatically on first use with a probe-then-create check that is safe when
-    several instances start concurrently against the same schema. The SQL is portable except for two differences
-    detected once per store from the JDBC driver's reported product name: 64-bit columns are `NUMBER(19)` on Oracle,
-    which has no `BIGINT`, and pages are capped with `LIMIT` on MySQL and MariaDB instead of the SQL-standard
-    `OFFSET … FETCH FIRST`. The store is tested against live PostgreSQL, MySQL, MariaDB, and Oracle servers.
-  A `BufferedActivityStore` decorator wraps the JDBC store and provides, uniformly for any future `ActivityStore`
-  implementation:
-  - Write-behind buffering with a scheduled flush every `bootui.activity.persistence.flush-interval` (default 5s).
-  - Merge-for-reads: a query is served from the in-memory buffer merged with the durable store, so recently captured
-    entries are visible in the dashboard immediately, even before their next scheduled flush.
-  - Re-queue on failure: entries from a failed flush are put back at the front of the buffer instead of being lost, and
-    are retried on the next flush.
-  - A flush guard (`BootUiJdbcCaptureGuard`) suppresses BootUI's own JDBC calls (create/probe/insert/select) from being
-    recorded by the SQL Trace panel, preventing the store's own writes and reads from feeding back into the very
-    activity feed being captured.
-  Persisted rows are namespaced by an `instanceId` (`bootui.activity.persistence.instance-id`, defaulting to the
-  `HOSTNAME` environment variable or a generated `<app-name>-<random>` id), so several BootUI instances — for example
-  several replicas of the same application — can share one database table without seeing or pruning each other's rows
-  (multi-tenant by partition key, not by separate tables). Rows older than `bootui.activity.persistence.retention`
-  (default 7 days) are pruned periodically, scoped to the pruning instance's own rows only. When persistence is
-  enabled, `GET /bootui/api/activity` additionally accepts `q` (free-text), `until`, `cursor`, and `pageSize` and
-  serves pagination/filter/search from the durable store (a keyset cursor over `(occurred_at, seq)`, stable under
-  concurrent writes); the response's `pageInfo.persistent` flag tells the dashboard to page further back with
-  `pageInfo.nextCursor`. KPIs, type counts, sources, and warnings are always computed from the live in-memory merge
-  regardless of persistence — they summarize "right now", not whichever historical page happens to be browsed.
-  Entries are masked before they are ever buffered or written, so persisted rows are immutable with respect to later
-  masking-policy changes. The runtime journal's subscriber renders each recorded batch as the journal's feed renders it
-  and stores each entry once (2.0.0 removed the 1.x poller of the merged feed and its `capture-interval`), remembering the ids it stored in a window of `bootui.activity.persistence.buffer-max-entries`
-  that never forgets an entry still in the feed. Failed and slow entries are also remembered in a second window per
-  entry type, which routine entries and other types never displace: records a failure-preserving buffer reserves,
-  classified by the buffers' own rule and thresholds (engine `ReservedActivityEntries`: `5xx` and slow requests,
-  including a slow `4xx` request whose severity is `WARN`; failed and slow statements; and failed, `4xx`/`5xx`, and slow
-  REST calls), and `ERROR` or `SLOW` entries of every other type. Such an entry that newer entries hid and that later
-  reappears is therefore not stored twice, unless more remembered entries of its type than that window holds arrived
-  meanwhile.
-
-  On Quarkus, a dedicated `QuarkusActivityCapture` CDI bean (`@Observes StartupEvent`/`ShutdownEvent`) owns the
-  journal capture's lifecycle that the Spring adapter instead wires inline in its controller constructor/`shutdown()`; the
-  `ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`/`ActivityStoreFactory` engine machinery, every
-  `bootui.activity.persistence.*` key, and the wire contract are identical on both adapters, and the `ActivityStore` and
-  `ActivityPersistenceSettings` beans are always produced (persistence disabled is just `enabled() == false`, matching
-  the Spring `@ConditionalOnProperty` default). One narrower, pre-existing divergence carries over: with the `buffers`
-  feed source, Quarkus's baseline (persistence-disabled) feed has no server-side `type`/`severity`/`since` filtering — unlike Spring's separate
-  `LiveActivityService`, the shared engine `LiveActivityAssembler` Quarkus's resource calls has none — so on Quarkus
-  those filters take effect only once persistence is enabled and the query is served from the `ActivityStore`; the KPI
-  strip stays computed from the full, unfiltered live merge either way on both adapters.
-- Runtime switch to a database, with no restart required: every `GET /bootui/api/activity` response carries a
-  `persistenceOption` (whether persistence is currently active, whether a `DataSource` bean is present, and the
-  configured table name), driving a "Currently saving N events in memory" tip and a "Use a database" disclosure next to
-  the panel title whenever persistence is not yet active. If a `DataSource` is available, the disclosure offers a
-  confirmation-gated "Use the existing datasource" action (`POST /bootui/api/activity/use-existing-datasource`,
-  mirroring the confirmation UX of other state-changing actions such as Flyway migrate/clean or Cache clear) that
-  atomically swaps the running instance's `ActivityStore` — behind a `SwitchableActivityStore` indirection — from
-  `InMemoryActivityStore` to a `BufferedActivityStore`/`JdbcActivityStore` pair: it verifies/creates the backing table
-  against the current `DataSource`, checks that the store's paged read runs there, and starts the same
-  journal capture and flush cycle a startup-enabled instance would have, with no restart and no dropped entries. If no
-  `DataSource` is present, the disclosure instead links to setup documentation for configuring one (or a dedicated
-  one) and enabling persistence at startup. The switch is
-  **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
-  persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
-  `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).
+- Optional durable persistence (`bootui.activity.persistence.enabled`, off by default) writes the runtime journal over
+  direct JDBC on Spring MVC, WebFlux, and Quarkus. The journal must be enabled and open. `table-name` is a plain SQL
+  identifier used as a prefix for exactly three owned tables: `<prefix>_runs` stores run identity, status, metadata,
+  instance/process data, and checkpoint; `<prefix>_events` stores idempotent typed/masked event payloads, indexed
+  projections, original journal sequence, and a store-wide `globalSequence`; `<prefix>_details` stores allow-listed
+  request and exception details needed by historical profiles. The legacy single `bootui_activity` table is neither
+  inspected nor migrated and may coexist.
+- Durable identity is `namespace/application/run`. Namespace is explicit, then the legacy instance id, otherwise an
+  opaque user/host SHA-256 namespace; application defaults to the adapter's application key; run is the same 128-bit
+  runtime run ID published by BootUI. The producer's process id and class-loader instance id are metadata, not alternate
+  partition keys. Sharing a database, namespace, application, and prefix gives replicas one global activity feed.
+- Events become an allow-listed `JournalEntryDiskView` before admission to the volatile durable queue. Typed payloads
+  preserve source, timing, correlation, and analytical structure, but not raw bind values, principals, exception/log
+  messages, email subjects/recipients, headers, query strings, sessions, arbitrary attributes, or unsupported payloads.
+  `_details` has no raw-value fields and stores bounded safe request/exception metadata only. Live `FULL` exposure never
+  weakens this disk boundary.
+- Capture is asynchronous and bounded. A transactional append advances the crash-durable watermark/checkpoint; rows
+  only in the pending or in-flight queue remain volatile. Details are written after event acknowledgement, so a detail
+  failure does not roll back an acknowledged event but is reported as a partial-read limitation. Start/checkpoint/end
+  metadata snapshots let a crashed or active run be labelled honestly. Acknowledged entries are compacted from memory
+  while the configured hot tail and every open unit of work remain; compaction is neither eviction nor loss.
+- Durable activity uses a global keyset cursor ordered by `globalSequence`. A page can query namespace, application,
+  run, instance, source, type, severity, route, request/execution id, occurrence range, text, or no-request state.
+  Polling a first page observes other writers; `nextCursor` pages older rows. Every returned origin carries scope,
+  instance, original sequence, and global sequence. Local SSE signals only the current JVM and is not a distributed
+  subscription.
+- The same bounded evidence reader reconstructs a historical request profile and projects Runtime Insights from one
+  stored run. It merges durable events with the current run's hot tail when they match. Reads apply the original
+  event/byte bounds and mark omitted rows, missing safe details, interrupted metadata, absent run summary, incomplete SQL
+  qualification, or unavailable agent evidence as partial. Historical reads never consult the current BootUI agent.
+- **Clear recording** removes the current run's hot evidence immediately and schedules deletion of its durable
+  events/details through the clear sequence; prior runs are untouched. A storage failure leaves durable history
+  unchanged and is logged. Retention is evaluated within namespace/application: old events/details are deleted and an
+  old run row is deleted after its events are gone. Disabling persistence does not erase existing rows.
+- `GET /bootui/api/activity` defaults to the caller's namespace and application. Selecting another namespace requires
+  `bootui.activity.persistence.reader-archive-cross-namespace=true`. Direct `bootui archive` reads require the explicit
+  `--allow-cross-namespace` opt-in instead. The old `bootui_activity` table remains outside this authorization and
+  retention path.
+- The **Use the existing datasource** action verifies/creates the three tables, atomically snapshots and subscribes the
+  open journal, starts capture, and publishes the durable store only after capture is live. It returns `409` before a
+  schema mutation if the journal is disabled/unavailable/closed, is a no-op when already active, and leaves the
+  in-memory endpoint active after failure. The switch is confirmation-gated, read-only governed, and runtime-only.
+- SQL is the recommended shared backend: it supplies transactional acknowledgement, idempotent keys, indexes,
+  retention, and cursor reads without extra infrastructure. ClickHouse is the preferred fully open-source future
+  columnar/non-RDBMS analytical alternative, not a supported second backend. Kafka is a transport, OpenSearch adds an
+  unneeded search cluster, and a graph store adds cost to a sequence/owner model.
 
 Acceptance criteria:
 
@@ -1941,14 +1920,17 @@ Acceptance criteria:
   no source is available the panel returns a stable unavailable report.
 - Exact request/execution-id and unambiguous trace-id matches are distinguished from approximate fallback
   correlation; unavailable tiers and unattributed work stay explicit.
-- With `bootui.activity.persistence.enabled=false` (the default), behavior, response shape, and the merged in-memory
-  feed are unchanged from before persistence existed; no additional bean, thread, or connection is created.
-- With persistence enabled, the backing table is created automatically if absent, entries survive a restart, a failed
-  flush never loses entries, and BootUI's own persistence-related JDBC traffic never appears in the SQL Trace panel or
-  feeds back into the Live Activity stream.
+- With `bootui.activity.persistence.enabled=false` (the default), no durable store, flush thread, or database
+  connection is created and the current-run feed is process-local.
+- With persistence enabled, the three tables are verified/created, acknowledged events survive a process restart, and
+  the volatile tail, watermark, queue drops, and partial details remain explicit. BootUI's own JDBC traffic never
+  feeds back into SQL Trace or the durable writer.
+- Durable reads reconstruct masked projections, historical profiles, and bounded/qualified Runtime Insights across runs
+  and instances from the selected namespace/application. The global cursor remains monotonic across concurrent
+  writers and each row keeps its durable origin.
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
-  active; it never blocks on a hung schema check indefinitely (the same bounded JDBC timeouts the startup path uses).
+  active; it refuses a disabled/closed journal before store mutation and uses the same bounded JDBC timeouts as startup.
 - `SCHEDULED` capture is implemented on both adapters. Quarkus's scheduler
   (`io.quarkus.scheduler.Scheduler`) has no per-execution observability hook analogous to Spring's
   `ScheduledTaskObservationContext`; instead `QuarkusScheduledTaskRunRecorder` observes the CDI
@@ -2077,7 +2059,7 @@ Acceptance criteria:
 ### 5.14.2.2 Runtime Insights Panel
 
 Runtime Insights (`runtime-insights`, Home group, after Live Activity) projects the runtime journal's retained events
-into observations on read ([PLAN-v2.md](PLAN-v2.md) §5.4, §5.5). Opening it starts no capture, scan, database read, or
+into observations on read ([PLAN-v2.md](PLAN-v2.md) §5.4, §5.5). Opening the current-run panel starts no capture, scan, database read, or
 network call. Its one action is **Profile resources**, an opt-in JFR session the developer starts, which
 `bootui.panels.runtime-insights.read-only` or `bootui.read-only` blocks.
 
@@ -2149,6 +2131,10 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   source events and `INSUFFICIENT` rows identify insufficient evidence beside the affected observation, with full
   limitations in its inline detail. Observations are recorded behavior, not confirmed defects. Existing `?theme=`,
   `?q=`, and `?insight=` deep links retain their meaning; `?all=1` is accepted but no longer needed.
+  For a durable historical run, the read can carry `namespace`, `application`, and `run`. That bounded database
+  projection uses the same observation engine, but marks omitted events/details/metadata and unavailable live agent
+  evidence as partial. Cross-namespace qualification is rejected unless the persistence reader option explicitly
+  permits it. The browser currently keeps the panel on the current run rather than exposing a historical-run selector.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a
@@ -3729,6 +3715,11 @@ Initial properties:
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.http-exchanges.reserved-share-percent` | `25`                                  | Share of the HTTP exchange buffer reserved for recent `5xx` and slow exchanges; `0` disables it.   |
 | `bootui.http-exchanges.expose-request-id-header` | `true`                              | Loopback/trusted-peer `X-BootUI-Request-Id` response header on application routes while the HTTP Exchanges panel is enabled; set `false` to disable. |
+| `bootui.activity.persistence.enabled`        | `false`                                 | Persist the typed masked runtime journal to `<prefix>_runs/_events/_details`; requires the runtime journal. |
+| `bootui.activity.persistence.table-name`     | `bootui_activity`                       | Plain identifier prefix for the three durable journal tables; a legacy same-named table is untouched. |
+| `bootui.activity.persistence.namespace-id`   | local user/host digest                  | Durable namespace; explicit cross-namespace reads are opt-in. |
+| `bootui.activity.persistence.application-id` | framework application key             | Application key inside the durable namespace. |
+| `bootui.activity.persistence.reader-archive-cross-namespace` | `false`              | Permit explicitly qualified cross-namespace server-side archive reads. |
 | `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
 | `bootui.email.mask-content`                  | `false`                                 | Mask captured recipients, subject, and bodies unless `bootui.expose-values=FULL`.                  |
@@ -3898,6 +3889,10 @@ Design rules:
     `get_security_logs`,
     `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes`, and
     `get_rest_client_traces`.
+    `get_live_activity`'s query accepts `namespace:`, `application:`, `run:`, `instance:`, and `route:` qualifiers
+    alongside type/severity/text; durable rows retain their origins and the compact result warns when applications or
+    runs are mixed. MCP remains current-scope for `get_request_profile`; offline historical reconstruction is a
+    `bootui archive` client operation.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
@@ -4134,6 +4129,11 @@ Design rules:
   cannot replace itself. Replacement/lock failures are explicit and preserve the prior jar. Agents need approval before
   replacing an executable. Neither command changes the generated diagnostic manifest or server policy. Docs,
   updates, and help/version requests do not start a passive update check. See [the CLI contract](CLI.md).
+- **Durable archive reads are a client-side exception.** `bootui archive runs|activity|profile|insights` opens the
+  configured JDBC store directly, with a caller-supplied driver, and requires no application or MCP server. It verifies
+  the existing three-table schema without DDL or writes, applies the same masked typed-payload boundary, and uses explicit
+  scope/cross-namespace selection. The archive contract is documented separately because it is intentionally not an
+  MCP tool or a command-line endpoint capability.
 
 ## 7. UX specification
 
@@ -4315,11 +4315,11 @@ Current compatibility:
 - Masked values stay masked.
 - Empty states are readable.
 
-## 10. Acceptance criteria for the 1.0 release surface
+## 10. Acceptance criteria for the release surface
 
-BootUI's 1.0 release surface is complete when:
+The supported release surface is complete when:
 
-- A sample Spring Boot app can add the starter and open `/bootui`.
+- Spring Boot servlet, Spring Boot WebFlux, and Quarkus samples can open `/bootui` through the shared contract.
 - The UI shows the complete grouped panel inventory defined in §7.1, plus the Disabled / unavailable navigation group for
   panels whose backing infrastructure is unavailable.
 - Secret-like values are masked.
@@ -4327,13 +4327,13 @@ BootUI's 1.0 release surface is complete when:
 - Tests verify activation and safety behavior.
 - Documentation explains installation, activation, safety model, and limitations.
 
-## 11. Release decisions
+## 11. Release architecture decisions
 
-Resolved for `1.0.0`:
+Ongoing decisions:
 
 1. Harden every visible panel and ship the full current route set as supported stable local-development functionality.
 2. Publish release artifacts to Maven Central through the Release workflow so module versions, the README install
    snippet, tags, release notes, and Central publishing stay synchronized.
 3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
-4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for the 1.x line; revisit broader
-   metadata abstractions after the stable starter surface settles.
+4. Keep the framework-neutral engine authoritative; adapters use their own native metadata and capture providers while
+   preserving the shared contract and honest availability.

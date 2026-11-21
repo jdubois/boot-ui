@@ -27,6 +27,8 @@ import java.util.Map;
  * @param dropped the events dropped since startup because the queue was full, per source
  * @param listenerFailures the batches a listener failed to process
  * @param clears how many times the retained events were cleared since startup; a clear is not an eviction
+ * @param offloadedEvents events removed from memory after durable acknowledgement
+ * @param durableOffloadedThrough greatest original sequence acknowledged as durably offloaded
  */
 public record JournalStatus(
         boolean enabled,
@@ -50,11 +52,64 @@ public record JournalStatus(
         Map<JournalSource, Long> accepted,
         Map<JournalSource, Long> dropped,
         long listenerFailures,
-        long clears) {
+        long clears,
+        long offloadedEvents,
+        long durableOffloadedThrough) {
 
     public JournalStatus {
         accepted = accepted == null ? Map.of() : Map.copyOf(accepted);
         dropped = dropped == null ? Map.of() : Map.copyOf(dropped);
+    }
+
+    /** Compatibility constructor for callers that do not report durable compaction. */
+    public JournalStatus(
+            boolean enabled,
+            String instanceId,
+            String runId,
+            long lastSequence,
+            int retainedEvents,
+            long retainedBytes,
+            int dictionaryEntries,
+            long dictionaryBytes,
+            int maxEvents,
+            long maxBytes,
+            int reserved,
+            int reservedCapacity,
+            long evictedByCount,
+            long evictedByBytes,
+            String bindingBound,
+            Long oldestRetainedEpochMillis,
+            int queueDepth,
+            int queueCapacity,
+            Map<JournalSource, Long> accepted,
+            Map<JournalSource, Long> dropped,
+            long listenerFailures,
+            long clears) {
+        this(
+                enabled,
+                instanceId,
+                runId,
+                lastSequence,
+                retainedEvents,
+                retainedBytes,
+                dictionaryEntries,
+                dictionaryBytes,
+                maxEvents,
+                maxBytes,
+                reserved,
+                reservedCapacity,
+                evictedByCount,
+                evictedByBytes,
+                bindingBound,
+                oldestRetainedEpochMillis,
+                queueDepth,
+                queueCapacity,
+                accepted,
+                dropped,
+                listenerFailures,
+                clears,
+                0,
+                0);
     }
 
     /** Events dropped from every source. */

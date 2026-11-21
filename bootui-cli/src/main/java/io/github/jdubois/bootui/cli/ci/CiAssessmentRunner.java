@@ -269,7 +269,10 @@ public final class CiAssessmentRunner {
         JsonValue run = overview.get("run");
         String instanceId = run.get("instanceId").asString(null);
         String runId = run.get("runId").asString(null);
-        if (version == null || !SAFE_VERSION.matcher(version).matches() || !isRunId(instanceId) || !isRunId(runId)) {
+        if (version == null
+                || !SAFE_VERSION.matcher(version).matches()
+                || !isInstanceId(instanceId)
+                || !isRunId(runId)) {
             throw new AssessmentFailure("MISSING_IDENTITY");
         }
         return new Identity(framework, version, instanceId, runId);
@@ -997,7 +1000,7 @@ public final class CiAssessmentRunner {
                 || !url.equals(witness.get("targetUrl").asString(null))
                 || !apiPath.equals(witness.get("apiPath").asString(null))
                 || !policy.sha256().equals(witness.get("policySha256").asString(null))
-                || !isRunId(witness.get("instanceId").asString(null))
+                || !isInstanceId(witness.get("instanceId").asString(null))
                 || !isRunId(witness.get("runId").asString(null))
                 || !SAFE_VERSION
                         .matcher(witness.get("bootUiVersion").asString(""))
@@ -1207,6 +1210,10 @@ public final class CiAssessmentRunner {
     }
 
     private static boolean isRunId(String value) {
+        return value != null && value.matches("[0-9a-f]{32}");
+    }
+
+    private static boolean isInstanceId(String value) {
         return value != null && value.matches("[0-9a-f]{8}");
     }
 

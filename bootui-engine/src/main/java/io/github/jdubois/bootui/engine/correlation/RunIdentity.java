@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.correlation;
 
 import io.github.jdubois.bootui.core.dto.ApplicationRunDto;
 import java.util.HexFormat;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
@@ -14,7 +15,7 @@ import java.util.function.LongSupplier;
  * restarts, so the ordinal counts the runs of the JVM: 1, 2, 3, and so on. When the engine is itself reloaded, for
  * example from a reactor build, the ordinal restarts at 1, while the random id stays unique.</p>
  *
- * @param id a random id, 8 lowercase hexadecimal characters, unique for practical purposes
+ * @param id a 128-bit random id encoded as 32 lowercase hexadecimal characters
  * @param ordinal the run's position among the runs of this engine class loader, starting at 1
  * @param startedAtEpochMillis when the run started
  */
@@ -22,7 +23,7 @@ public record RunIdentity(String id, int ordinal, long startedAtEpochMillis) {
 
     private static final AtomicInteger ORDINALS = new AtomicInteger();
 
-    private static final String INSTANCE_ID = randomId();
+    private static final String INSTANCE_ID = randomShortId();
 
     /**
      * The random id of this BootUI instance: one per JVM, since BootUI's jars stay in the class loader that survives
@@ -43,10 +44,14 @@ public record RunIdentity(String id, int ordinal, long startedAtEpochMillis) {
     }
 
     static RunIdentity start(LongSupplier clock) {
-        return new RunIdentity(randomId(), ORDINALS.incrementAndGet(), clock.getAsLong());
+        return new RunIdentity(randomRunId(), ORDINALS.incrementAndGet(), clock.getAsLong());
     }
 
-    private static String randomId() {
+    private static String randomRunId() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static String randomShortId() {
         return HexFormat.of().toHexDigits(ThreadLocalRandom.current().nextInt());
     }
 }

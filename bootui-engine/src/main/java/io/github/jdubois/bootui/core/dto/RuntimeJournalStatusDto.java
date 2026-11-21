@@ -26,6 +26,15 @@ import java.util.Map;
  * @param previousRunsUnavailable why previous runs cannot be kept, or {@code null} when they can
  * @param agentEvidence what the BootUI agent's evidence kept outside the journal retains, or {@code null} when no
  *     store of it is registered
+ * @param offloadedEvents events removed from memory after a durable backend acknowledged them
+ * @param durableOffloadedThrough greatest journal sequence compacted from the in-memory evidence ring
+ * @param durableCaptureActive whether asynchronous durable capture is active
+ * @param durableCaptureAccepted entries received by the durable capture
+ * @param durableCapturePending entries still waiting in the volatile durable buffer
+ * @param durableCapturePendingBytes encoded bytes still waiting in the volatile durable buffer
+ * @param durableCaptureDropped entries shed by the bounded durable buffer
+ * @param durableCaptureQuarantined entries rejected as unsafe to retry
+ * @param durableCaptureWatermark greatest original sequence acknowledged or explicitly consumed
  */
 public record RuntimeJournalStatusDto(
         boolean enabled,
@@ -46,7 +55,16 @@ public record RuntimeJournalStatusDto(
         long droppedEvents,
         List<RuntimeRunSummaryDto> previousRuns,
         String previousRunsUnavailable,
-        RuntimeAgentEvidenceDto agentEvidence) {
+        RuntimeAgentEvidenceDto agentEvidence,
+        long offloadedEvents,
+        long durableOffloadedThrough,
+        boolean durableCaptureActive,
+        long durableCaptureAccepted,
+        int durableCapturePending,
+        long durableCapturePendingBytes,
+        long durableCaptureDropped,
+        long durableCaptureQuarantined,
+        long durableCaptureWatermark) {
 
     public RuntimeJournalStatusDto {
         recorded = DtoCollections.immutableCopy(recorded);

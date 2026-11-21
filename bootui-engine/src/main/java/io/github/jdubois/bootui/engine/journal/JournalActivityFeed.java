@@ -1109,6 +1109,23 @@ public final class JournalActivityFeed {
             Map<String, Map<String, Integer>> pendingSelects,
             Map<String, Long> pendingWorkEnds,
             LongConsumer overflow) {
+        return durableEvents(batch, eventId, pendingSelects, pendingWorkEnds, overflow).stream()
+                .filter(DurableJournalEvent::projectionAvailable)
+                .map(DurableJournalEvent::activity)
+                .sorted(Comparator.comparingLong(ActivityEntryDto::timestamp).reversed())
+                .toList();
+    }
+
+    /**
+     * Pairs each original journal entry with the projection produced by the same capture rendering logic. Entries
+     * with no Live Activity row carry a {@code null} projection so the durable event remains lossless.
+     */
+    public List<DurableJournalEvent> durableEvents(
+            List<JournalEntry> batch,
+            Function<JournalEntry, String> eventId,
+            Map<String, Map<String, Integer>> pendingSelects,
+            Map<String, Long> pendingWorkEnds,
+            LongConsumer overflow) {
         // Learns no request, so it infers no parent from a trace.
         AiCallOwners aiCallOwners = new AiCallOwners();
         RouteTemplateResolver routes = resolver();
@@ -1125,10 +1142,10 @@ public final class JournalActivityFeed {
                 }
             }
         }
-        List<Row> rows = new ArrayList<>(batch.size());
+        List<DurableJournalEvent> durable = new ArrayList<>(batch.size());
         for (JournalEntry entry : batch) {
             ActivityEntryDto rendered = render(
-                    entry,
+                    JournalEntryDiskView.of(entry),
                     eventId,
                     Map.of(),
                     Map.of(),
@@ -1138,9 +1155,7 @@ public final class JournalActivityFeed {
                     routes,
                     true,
                     JournalTextExposure.masked());
-            if (rendered != null) {
-                rows.add(new Row(entry, rendered, aiCallOwners.ownerOf(entry.event())));
-            }
+            durable.add(new DurableJournalEvent(entry, rendered));
             if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
                 pendingSelects.remove(entry.event().requestId());
             }
@@ -1148,10 +1163,7 @@ public final class JournalActivityFeed {
                 lastWorkEnds.remove(handoff.executionId());
             }
         }
-        rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())
-                .thenComparingLong(row -> row.journal().sequence())
-                .reversed());
-        return rows.stream().map(Row::entry).toList();
+        return List.copyOf(durable);
     }
 
     /** Whether {@code event} is the entry of an execution: a scheduled run or a consumed message. */

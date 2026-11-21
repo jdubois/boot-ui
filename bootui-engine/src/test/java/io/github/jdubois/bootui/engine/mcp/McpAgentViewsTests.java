@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.ActivityEntryOriginDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ConfigPropertySuggestionDto;
 import io.github.jdubois.bootui.core.dto.ConfigReport;
@@ -482,6 +484,78 @@ class McpAgentViewsTests {
         assertThat(McpAgentViews.ActivityFilter.of(" /orders "))
                 .isEqualTo(new McpAgentViews.ActivityFilter(null, null, "/orders"));
         assertThat(McpAgentViews.ActivityFilter.of(null)).isEqualTo(new McpAgentViews.ActivityFilter(null, null, null));
+    }
+
+    @Test
+    void liveActivityQueriesRetainTypeSeverityTextAndDurableScopeQualifiers() {
+        McpAgentViews.ActivityFilter filter = McpAgentViews.ActivityFilter.of(
+                "SQL slow /orders namespace:prod application:shop run:run-7 instance:host-a route:/api/orders");
+
+        assertThat(filter)
+                .isEqualTo(new McpAgentViews.ActivityFilter(
+                        "SQL", "SLOW", "/orders", "prod", "shop", "run-7", "host-a", "/api/orders"));
+        assertThat(filter.instanceId()).isEqualTo("host-a");
+        assertThat(McpAgentViews.liveActivityFetch(filter, 25)).isEqualTo(JournalActivityReports.MAX_LIMIT);
+    }
+
+    @Test
+    void liveActivityProjectionKeepsOriginsAlignedWithFilteredEntriesAndNamesAmbiguousScope() {
+        LiveActivityReport report = new LiveActivityReport(
+                true,
+                List.of(
+                        activity("3", "GET /orders/1"),
+                        activity("2", "GET /customers"),
+                        activity("1", "GET /orders/2")),
+                Map.of("REQUEST", 3),
+                null,
+                List.of(),
+                List.of(),
+                new ActivityPageInfo(true, null, false),
+                null,
+                List.of(
+                        origin("3", "prod", "shop", "run-2"),
+                        origin("2", "prod", "billing", "run-1"),
+                        origin("1", "prod", "shop", "run-1")));
+
+        LiveActivityReport filtered = McpAgentViews.liveActivity(report, McpAgentViews.ActivityFilter.of("/orders"), 2);
+
+        assertThat(McpAgentViews.liveActivity(report, McpAgentViews.ActivityFilter.of(null), 3)
+                        .warnings())
+                .singleElement()
+                .asString()
+                .contains("multiple applications and runs");
+        assertThat(filtered.entries()).extracting(ActivityEntryDto::id).containsExactly("3", "1");
+        assertThat(filtered.origins())
+                .extracting(
+                        ActivityEntryOriginDto::entryId,
+                        ActivityEntryOriginDto::application,
+                        ActivityEntryOriginDto::run)
+                .containsExactly(tuple("3", "shop", "run-2"), tuple("1", "shop", "run-1"));
+        assertThat(filtered.warnings()).singleElement().asString().contains("multiple runs");
+    }
+
+    @Test
+    void liveActivityProjectionMapsOriginsByEntryIdWhenTheListsAreNotIndexAligned() {
+        LiveActivityReport report = new LiveActivityReport(
+                true,
+                List.of(activity("3", "GET /orders"), activity("2", "GET /customers")),
+                Map.of("REQUEST", 2),
+                null,
+                List.of(),
+                List.of(),
+                new ActivityPageInfo(true, null, false),
+                null,
+                List.of(origin("2", "prod", "shop", "run-2"), origin("3", "prod", "shop", "run-1")));
+
+        LiveActivityReport filtered = McpAgentViews.liveActivity(report, McpAgentViews.ActivityFilter.of("REQUEST"), 2);
+
+        assertThat(filtered.origins())
+                .extracting(ActivityEntryOriginDto::entryId)
+                .containsExactly("3", "2");
+    }
+
+    private static ActivityEntryOriginDto origin(String entryId, String namespace, String application, String run) {
+        return new ActivityEntryOriginDto(entryId, namespace, application, run, "host-a", "journal", 1, 1);
     }
 
     @Test

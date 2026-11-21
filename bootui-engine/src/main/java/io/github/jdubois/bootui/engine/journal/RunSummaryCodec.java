@@ -107,6 +107,15 @@ final class RunSummaryCodec {
 
     /** Decodes a summary {@link #encode} produced. */
     static RunSummary decode(byte[] bytes) {
+        return decode(bytes, false);
+    }
+
+    /** Decodes a summary and requires every byte to belong to the supported summary format. */
+    static RunSummary decodeStrict(byte[] bytes) {
+        return decode(bytes, true);
+    }
+
+    private static RunSummary decode(byte[] bytes, boolean strict) {
         In in = new In(bytes);
         RunSummary.Header header = in.header();
         in.strings();
@@ -143,7 +152,7 @@ final class RunSummaryCodec {
                 ? in.list(() -> new ExecutionStats(In.SOURCES.get(in.string()), in.route()))
                 : List.of();
         RunSideEffects sideEffects = in.version >= 12 ? in.sideEffects() : null;
-        return new RunSummary(
+        RunSummary summary = new RunSummary(
                 header,
                 new AggregatesSnapshot(
                         routes,
@@ -157,6 +166,10 @@ final class RunSummaryCodec {
                         executions,
                         executionsRecorded),
                 sideEffects);
+        if (strict) {
+            in.finish();
+        }
+        return summary;
     }
 
     private static RouteStats readRoute(In in) {
@@ -834,6 +847,12 @@ final class RunSummaryCodec {
                 throw new IllegalArgumentException("The run summary ends early");
             }
             return bytes[position++];
+        }
+
+        void finish() {
+            if (position != bytes.length) {
+                throw new IllegalArgumentException("Trailing run summary data");
+            }
         }
 
         long number() {

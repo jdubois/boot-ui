@@ -150,6 +150,13 @@ class CentralBundleTests(unittest.TestCase):
         unsigned[0].with_name(unsigned[0].name + ".asc").write_text("signature", encoding="utf-8")
         self.assertEqual(self.errors(), [])
 
+    def test_pull_request_ci_can_explicitly_skip_only_the_size_gate(self):
+        self.sign()
+        self.resize_payload(20_000_001)
+        with patch.dict("os.environ", {"BOOTUI_SKIP_RELEASE_SIZE_CHECK": "true"}):
+            self.assertEqual(self.errors(), [])
+        self.assert_error("must be below 20,000,000 bytes (20 MB)")
+
     def test_checksums_and_signatures_count_toward_the_payload_budget(self):
         self.sign()
         self.resize_payload(19_999_999)

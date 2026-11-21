@@ -42,6 +42,7 @@ import {
 import {loadProfileExceptionDetails, profileMarkdown} from '../utils/markdownExport.js'
 import {
   appendOlderPage,
+  activityEntryKey,
   bucketEntries,
   markerPositions,
   buildActivityQueryParams,
@@ -104,6 +105,8 @@ const feedSource = ref('')
 const routeFilter = ref('')
 const requestIdFilter = ref('')
 const runFilter = ref('')
+const namespaceFilter = ref('')
+const applicationFilter = ref('')
 const noRequestOnly = ref(false)
 const JOURNAL_SOURCE_LABEL = 'Runtime journal'
 // The journal serves the feed when asked for, or by default when the server's last report came from it.
@@ -165,6 +168,7 @@ const profileLoading = ref(false)
 const profileError = ref(null)
 const profileRequestId = ref(null)
 const profileEntry = ref(null)
+const profileOrigin = ref(null)
 const profileTab = ref('all')
 const drawerExpanded = ref(false)
 // The runtime journal's view of the open request, loaded right after its profile (docs/PLAN-v2.md §5.3).
@@ -237,12 +241,14 @@ function activityUrl(extra = {}) {
     for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
   }
   if (feedSource.value && !persistent.value) params.set('source', feedSource.value)
-  if (fromJournal.value && !persistent.value) {
+  if (fromJournal.value || persistent.value) {
     if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
     if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
     if (runFilter.value.trim()) params.set('run', runFilter.value.trim())
     if (noRequestOnly.value) params.set('noRequest', 'true')
   }
+  if (namespaceFilter.value.trim()) params.set('namespace', namespaceFilter.value.trim())
+  if (applicationFilter.value.trim()) params.set('application', applicationFilter.value.trim())
   for (const [key, value] of Object.entries(extra)) {
     if (value != null) params.set(key, value)
   }
@@ -263,7 +269,10 @@ async function loadActivity({propagateError = true} = {}) {
     const loaded = await response.json()
     if (!isCurrent()) return
     if (backingFeed(loaded) !== backingFeed(report.value)) resetOlderPages()
-    report.value = loaded
+    report.value = {
+      ...loaded,
+      entries: entriesWithOrigins(loaded.entries, loaded.origins)
+    }
     headGeneration.value = activityGeneration.value
     error.value = null
     lastFetched.value = Date.now()
@@ -310,7 +319,11 @@ async function loadOlder() {
     }
     const page = await response.json()
     if (!isCurrent()) return
-    olderEntries.value = appendOlderPage(report.value?.entries, olderEntries.value, page.entries)
+    olderEntries.value = appendOlderPage(
+      report.value?.entries,
+      olderEntries.value,
+      entriesWithOrigins(page.entries, page.origins)
+    )
     olderPageInfo.value = page.pageInfo ?? null
     error.value = null
   } catch (err) {
@@ -386,6 +399,83 @@ const combinedEntries = computed(() => mergeActivityPages(report.value?.entries,
 
 const available = computed(() => report.value?.available ?? false)
 const kpis = computed(() => report.value?.kpis ?? null)
+
+function entriesWithOrigins(entries, origins) {
+  if (!Array.isArray(entries) || !Array.isArray(origins) || origins.length === 0) return entries ?? []
+  const byEntryId = new Map()
+  for (const origin of origins) {
+    if (!origin?.entryId) continue
+    const queue = byEntryId.get(origin.entryId) ?? []
+    queue.push(origin)
+    byEntryId.set(origin.entryId, queue)
+  }
+  const used = new Map()
+  return entries.map((entry) => {
+    const index = used.get(entry.id) ?? 0
+    const origin = byEntryId.get(entry.id)?.[index]
+    if (!origin) return entry
+    used.set(entry.id, index + 1)
+    return {...entry, archiveOrigin: origin}
+  })
+}
+
+const archiveOrigins = computed(() =>
+  combinedEntries.value.map((entry) => entry.archiveOrigin).filter((origin) => origin != null)
+)
+const archiveScopeCount = computed(
+  () =>
+    new Set(
+      archiveOrigins.value.map(
+        (origin) => `${origin.namespace ?? ''}\0${origin.application ?? ''}\0${origin.run ?? ''}`
+      )
+    ).size
+)
+const distinctOriginValues = (field) => new Set(archiveOrigins.value.map((origin) => origin?.[field] ?? ''))
+const showArchiveOrigin = computed(() => {
+  const origins = archiveOrigins.value
+  const scopes = new Set(origins.map((origin) => `${origin.namespace ?? ''}\0${origin.application ?? ''}`))
+  return {
+    scope: scopes.size > 1 || (origins.length > 0 && (namespaceFilter.value.trim() || applicationFilter.value.trim())),
+    run: distinctOriginValues('run').size > 1,
+    instance: distinctOriginValues('instanceId').size > 1
+  }
+})
+
+function shortArchiveValue(value) {
+  const text = String(value ?? '')
+  return text.length > 13 ? `${text.slice(0, 10)}…` : text
+}
+
+function onFeedSourceChange(event) {
+  if (event.target instanceof HTMLSelectElement) {
+    feedSource.value = event.target.value
+  }
+}
+
+function originBadges(entry) {
+  const origin = entry?.archiveOrigin
+  if (!origin) return []
+  const badges = []
+  if (showArchiveOrigin.value.scope && (origin.namespace || origin.application)) {
+    const label = [origin.namespace, origin.application].filter(Boolean).join(' / ')
+    badges.push({
+      key: 'scope',
+      label,
+      title: `Namespace: ${origin.namespace ?? '—'}\nApplication: ${origin.application ?? '—'}`
+    })
+  }
+  if (showArchiveOrigin.value.run && origin.run) {
+    badges.push({key: 'run', label: `run ${shortArchiveValue(origin.run)}`, title: `Run: ${origin.run}`})
+  }
+  if (showArchiveOrigin.value.instance && origin.instanceId) {
+    badges.push({
+      key: 'instance',
+      label: `instance ${shortArchiveValue(origin.instanceId)}`,
+      title: `Instance: ${origin.instanceId}`
+    })
+  }
+  return badges
+}
 
 // The slowest request links to its route's row in the HTTP Exchanges route summary, ranked by slowest
 // request so the row is on screen. A server that predates route summaries sends no route id, so the link
@@ -492,7 +582,8 @@ const subtitle = computed(() => {
   const counts = report.value?.typeCounts ?? {}
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
   const base = `${formatNumber(total)} recent events · ${sources.value.length} source${sources.value.length === 1 ? '' : 's'}`
-  return persistent.value ? `${base} · persisted history` : base
+  const archiveScopes = persistent.value && archiveScopeCount.value > 1 ? ` · ${archiveScopeCount.value} scopes` : ''
+  return persistent.value ? `${base} · persisted history${archiveScopes}` : base
 })
 
 const paused = computed(() => !autoRefresh.value)
@@ -539,7 +630,13 @@ const backToInsightsLink = computed(() => {
 
 const profileableEntries = computed(() => visibleEntries.value.filter((entry) => entry?.profileable))
 const currentProfileIndex = computed(() =>
-  profileRequestId.value ? profileableEntries.value.findIndex((entry) => entry.id === profileRequestId.value) : -1
+  profileRequestId.value
+    ? profileableEntries.value.findIndex((entry) =>
+        profileEntry.value
+          ? activityEntryKey(entry) === activityEntryKey(profileEntry.value)
+          : entry.id === profileRequestId.value
+      )
+    : -1
 )
 
 function stepProfile(direction) {
@@ -699,13 +796,27 @@ async function openProfile(
 let journalLoadToken = 0
 let journalPendingPromise = null
 
-async function loadProfile(id, opener, execution = false, entry = null) {
+function profileUrl(id, origin = null, suffix = '', extra = null) {
+  const params = new URLSearchParams()
+  if (origin?.namespace) params.set('namespace', origin.namespace)
+  if (origin?.application) params.set('application', origin.application)
+  if (origin?.run) params.set('run', origin.run)
+  if (origin?.instanceId) params.set('instance', origin.instanceId)
+  for (const [name, value] of Object.entries(extra ?? {})) {
+    if (value != null && value !== '') params.set(name, value)
+  }
+  const query = params.toString()
+  return `api/activity/request/${encodeURIComponent(id)}${suffix}${query ? `?${query}` : ''}`
+}
+
+async function loadProfile(id, opener, execution = false, entry = null, origin = entry?.archiveOrigin ?? null) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
       ? opener
       : opener?.querySelector?.('.bootui-keyboard-target') || null
   profileRequestId.value = id
   profileEntry.value = entry
+  profileOrigin.value = origin
   profileTab.value = 'all'
   const token = ++profileLoadToken
   const jToken = ++journalLoadToken
@@ -717,8 +828,10 @@ async function loadProfile(id, opener, execution = false, entry = null) {
   journalProfile.value = null
   aiExport.value = null
   try {
-    if (!execution) {
-      const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
+    // A durable row belongs to its archive scope. The process-local buffer cannot read that scope and may contain a
+    // different current-run request with the same id, so archived profiles begin with the journal lookup.
+    if (!execution && !origin) {
+      const response = await apiFetch(profileUrl(id))
       if (!isCurrent()) return
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`)
@@ -727,10 +840,10 @@ async function loadProfile(id, opener, execution = false, entry = null) {
       if (!isCurrent()) return
       profile.value = loaded
     }
-    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrentJournal)
+    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrentJournal, null, origin)
   } catch (err) {
     if (!isCurrent()) return
-    await loadJournalProfile(id, isCurrentJournal)
+    await loadJournalProfile(id, isCurrentJournal, null, origin)
     if (isCurrent() && !journalProfile.value?.available) {
       profileError.value = err.message || 'Could not load request profile'
     }
@@ -751,11 +864,10 @@ const resolvedProfileEntry = computed(
     null
 )
 
-async function loadJournalProfile(requestId, isCurrent, compareWith = null) {
+async function loadJournalProfile(requestId, isCurrent, compareWith = null, origin = profileOrigin.value) {
   const run = async () => {
     try {
-      const query = compareWith ? `?compareWith=${encodeURIComponent(compareWith)}` : ''
-      const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal${query}`)
+      const response = await apiFetch(profileUrl(requestId, origin, '/journal', compareWith ? {compareWith} : null))
       if (!isCurrent()) return
       if (!response.ok) throw new Error(`status ${response.status}`)
       const loaded = await response.json()
@@ -788,12 +900,12 @@ async function compareJournalBaseline(compareWithId) {
   const token = profileLoadToken
   const jToken = ++journalLoadToken
   const isCurrent = () => token === profileLoadToken && jToken === journalLoadToken
-  await loadJournalProfile(requestId, isCurrent, compareWithId)
+  await loadJournalProfile(requestId, isCurrent, compareWithId, profileOrigin.value)
 }
 
 function openBaselineRequest(baselineRequestId) {
   if (!baselineRequestId) return
-  void loadProfile(baselineRequestId, profileOpenerEl.value)
+  void loadProfile(baselineRequestId, profileOpenerEl.value, false, null, profileOrigin.value)
 }
 
 function closeProfile() {
@@ -804,6 +916,7 @@ function closeProfile() {
   const opener = profileOpenerEl.value
   profileRequestId.value = null
   profileEntry.value = null
+  profileOrigin.value = null
   profileTab.value = 'all'
   profile.value = null
   journalProfile.value = null
@@ -927,7 +1040,7 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
 })
 
 // The journal's filters run on the server, so changing one reloads the feed.
-watch([feedSource, routeFilter, requestIdFilter, runFilter, noRequestOnly], () => {
+watch([feedSource, routeFilter, requestIdFilter, runFilter, namespaceFilter, applicationFilter, noRequestOnly], () => {
   persistFilters()
   resetOlderPages()
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
@@ -936,8 +1049,11 @@ watch([feedSource, routeFilter, requestIdFilter, runFilter, noRequestOnly], () =
 
 const hasJournalFilters = computed(
   () =>
-    fromJournal.value &&
+    (fromJournal.value || persistent.value) &&
     (!!routeFilter.value.trim() || !!requestIdFilter.value.trim() || !!runFilter.value.trim() || noRequestOnly.value)
+)
+const hasScopeFilters = computed(
+  () => !!namespaceFilter.value.trim() || !!applicationFilter.value.trim() || !!runFilter.value.trim()
 )
 
 const activeTypePills = computed(() => {
@@ -983,6 +1099,8 @@ function clearFilters() {
   routeFilter.value = ''
   requestIdFilter.value = ''
   runFilter.value = ''
+  namespaceFilter.value = ''
+  applicationFilter.value = ''
   noRequestOnly.value = false
 }
 
@@ -1419,19 +1537,22 @@ function toggleFlow() {
             <input id="activity-errors-only" v-model="errorsOnly" class="form-check-input" type="checkbox" />
             <label class="form-check-label small" for="activity-errors-only">Errors only</label>
           </div>
-          <div v-if="!persistent">
+          <div>
             <label class="form-label small mb-1" for="activity-feed-source">Recorded by</label>
-            <select id="activity-feed-source" v-model="feedSource" class="form-select form-select-sm">
+            <select
+              id="activity-feed-source"
+              :value="persistent ? 'journal' : feedSource"
+              class="form-select form-select-sm"
+              :disabled="persistent"
+              :title="persistent ? 'Persisted history is read from the runtime journal' : undefined"
+              @change="onFeedSourceChange"
+            >
               <option value="">Default</option>
               <option value="journal">Runtime journal</option>
               <option value="buffers">Panel buffers</option>
             </select>
           </div>
-          <p v-if="persistent" class="small text-muted mb-0" role="note">
-            The source, route, request, run, and no-request filters apply to the in-memory feed; persisted history is
-            recorded by the runtime journal and keeps no run or request grouping.
-          </p>
-          <template v-if="fromJournal && !persistent">
+          <template v-if="fromJournal || persistent">
             <div>
               <label class="form-label small mb-1" for="activity-route-filter">Route</label>
               <input
@@ -1457,8 +1578,8 @@ function toggleFlow() {
                 From the <code>X-BootUI-Request-Id</code> response header in browser DevTools
               </div>
             </div>
-            <div>
-              <label class="form-label small mb-1" for="activity-run-filter">Run id</label>
+            <div v-if="!persistent">
+              <label class="form-label small mb-1" for="activity-run-filter">Run scope</label>
               <input
                 id="activity-run-filter"
                 v-model="runFilter"
@@ -1472,8 +1593,43 @@ function toggleFlow() {
               <label class="form-check-label small" for="activity-no-request">No request</label>
             </div>
           </template>
+          <template v-if="persistent">
+            <div class="activity-scope-filter">
+              <label class="form-label small mb-1" for="activity-namespace-filter">Namespace scope</label>
+              <input
+                id="activity-namespace-filter"
+                v-model="namespaceFilter"
+                type="search"
+                class="form-control form-control-sm"
+                placeholder="Current namespace"
+                autocomplete="off"
+              />
+            </div>
+            <div class="activity-scope-filter">
+              <label class="form-label small mb-1" for="activity-application-filter">Application scope</label>
+              <input
+                id="activity-application-filter"
+                v-model="applicationFilter"
+                type="search"
+                class="form-control form-control-sm"
+                placeholder="Current application"
+                autocomplete="off"
+              />
+            </div>
+            <div class="activity-scope-filter">
+              <label class="form-label small mb-1" for="activity-archive-run-filter">Run scope</label>
+              <input
+                id="activity-archive-run-filter"
+                v-model="runFilter"
+                type="search"
+                class="form-control form-control-sm"
+                placeholder="All runs"
+                autocomplete="off"
+              />
+            </div>
+          </template>
           <button
-            v-if="hasActiveFilters || hasJournalFilters"
+            v-if="hasActiveFilters || hasJournalFilters || hasScopeFilters"
             class="btn btn-sm btn-outline-secondary"
             type="button"
             @click="clearFilters"
@@ -1492,6 +1648,11 @@ function toggleFlow() {
             </button>
           </div>
         </div>
+        <p v-if="persistent" class="activity-archive-note small text-muted mb-3" role="note">
+          <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+          By default, persisted history spans all runs in the current namespace and application. Choose another
+          namespace only when the API allows cross-namespace reads.
+        </p>
 
         <div
           v-if="activeTypePills.length > 1"
@@ -1582,7 +1743,7 @@ function toggleFlow() {
                 </tr>
               </thead>
               <tbody>
-                <template v-for="entry in visibleEntries" :key="entry.id">
+                <template v-for="entry in visibleEntries" :key="activityEntryKey(entry)">
                   <tr
                     :class="[
                       rowClass(entry),
@@ -1602,11 +1763,17 @@ function toggleFlow() {
                         v-if="hasChildren(entry)"
                         class="btn btn-outline-secondary btn-sm me-2 align-baseline activity-disclosure"
                         type="button"
-                        :aria-expanded="!isCollapsed(entry.id)"
-                        :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
-                        @click.stop="toggleExpand(entry.id)"
+                        :aria-expanded="!isCollapsed(activityEntryKey(entry))"
+                        :title="
+                          isCollapsed(activityEntryKey(entry))
+                            ? 'Expand correlated signals'
+                            : 'Collapse correlated signals'
+                        "
+                        @click.stop="toggleExpand(activityEntryKey(entry))"
                       >
-                        <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
+                        <i
+                          :class="['bi', isCollapsed(activityEntryKey(entry)) ? 'bi-chevron-right' : 'bi-chevron-down']"
+                        ></i>
                       </button>
                       <i
                         v-if="entry.securedPrincipal != null"
@@ -1643,6 +1810,16 @@ function toggleFlow() {
                         >{{ badge.label }}</span
                       >
                       <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
+                      <span v-if="originBadges(entry).length" class="activity-origin-meta d-flex flex-wrap gap-1 mt-1">
+                        <span
+                          v-for="badge in originBadges(entry)"
+                          :key="badge.key"
+                          class="badge rounded-pill text-bg-light activity-origin-badge"
+                          :title="badge.title"
+                        >
+                          {{ badge.label }}
+                        </span>
+                      </span>
                     </td>
                     <td class="text-end text-nowrap small">
                       <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
@@ -1670,8 +1847,8 @@ function toggleFlow() {
                     </td>
                   </tr>
                   <tr
-                    v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
-                    :key="child.id"
+                    v-for="child in hasChildren(entry) && !isCollapsed(activityEntryKey(entry)) ? entry.children : []"
+                    :key="activityEntryKey(child)"
                     :class="['activity-child-row']"
                   >
                     <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
@@ -1691,6 +1868,16 @@ function toggleFlow() {
                         >{{ badge.label }}</span
                       >
                       <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
+                      <span v-if="originBadges(child).length" class="activity-origin-meta d-flex flex-wrap gap-1 mt-1">
+                        <span
+                          v-for="badge in originBadges(child)"
+                          :key="badge.key"
+                          class="badge rounded-pill text-bg-light activity-origin-badge"
+                          :title="badge.title"
+                        >
+                          {{ badge.label }}
+                        </span>
+                      </span>
                     </td>
                     <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>
                     <td class="text-end text-nowrap" @click.stop>
@@ -1707,7 +1894,7 @@ function toggleFlow() {
                 </template>
                 <tr v-if="!visibleEntries.length">
                   <td
-                    v-if="hasActiveFilters || (hasJournalFilters && !persistent)"
+                    v-if="hasActiveFilters || hasJournalFilters || hasScopeFilters"
                     colspan="6"
                     class="text-center text-muted py-4"
                   >
@@ -2620,6 +2807,27 @@ function toggleFlow() {
 .activity-text-filter {
   min-width: 16rem;
   flex: 1 1 16rem;
+}
+
+.activity-scope-filter {
+  flex: 1 1 10rem;
+  max-width: 16rem;
+  min-width: 10rem;
+}
+
+.activity-archive-note {
+  padding-left: 0.75rem;
+}
+
+.activity-origin-badge {
+  border: 1px solid var(--bootui-border);
+  font-family: var(--bs-font-monospace);
+  font-size: 0.72rem;
+  font-weight: 500;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .activity-sparkline-svg {

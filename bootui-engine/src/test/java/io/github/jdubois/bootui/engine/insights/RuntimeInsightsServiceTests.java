@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.GcPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
@@ -227,6 +228,31 @@ class RuntimeInsightsServiceTests {
         });
         assertThat(detail.truncated()).isZero();
         assertThat(service.insight("repeated-selects:nothing").available()).isFalse();
+    }
+
+    @Test
+    void insightFromProjectsTheSuppliedSnapshotWithoutUsingTheCurrentCache() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/orders/{id}",
+                    sqls("select 1 from orders", 5, "select * from lines where order_id = ?"));
+        }
+        RuntimeInsightsService service = service();
+        JournalEvidenceSnapshot hot = JournalEvidenceSnapshot.hot(journal);
+        JournalEvidenceSnapshot evidence = new JournalEvidenceSnapshot(hot.entries(), hot.status(), 0);
+        String id = observations(service.reportFrom(evidence), RepeatedSelects.KIND)
+                .get("GET /api/orders/{id}")
+                .id();
+
+        journal.clear();
+
+        assertThat(service.insightFrom(evidence, id)).satisfies(detail -> {
+            assertThat(detail.available()).isTrue();
+            assertThat(detail.observation().id()).isEqualTo(id);
+            assertThat(detail.rows()).hasSize(3);
+        });
+        assertThat(service.insight(id).available()).isFalse();
     }
 
     /**

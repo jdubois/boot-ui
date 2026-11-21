@@ -1,11 +1,37 @@
-# Known limitations of BootUI 2.0
+# Known limitations
 
-BootUI 2.0 adds exact correlation, the runtime journal, Runtime Insights, the change loop, and the optional BootUI Java
-agent. This page lists what the delivered code does not do, or does only in part, so you can tell a gap from a healthy
-result. Unavailable panels, checks, and measurements report their reason; an empty result is not proof of complete
-coverage or safety.
+This page lists what the delivered code does not do, or does only in part, so you can tell a gap from a healthy result.
+Unavailable panels, checks, and measurements report their reason; an empty result is not proof of complete coverage or
+safety.
 
 Items marked **deferred** are not implemented in the current code. They are not promises for a later release.
+
+## Durable runtime journal
+
+- **Persistence is optional SQL storage and requires the runtime journal.** It is off by default. The journal must
+  remain enabled and open, and an available JDBC datasource/driver and write privileges are required. The three
+  `<prefix>_runs`, `<prefix>_events`, and `<prefix>_details` tables are owned independently of the legacy
+  `bootui_activity` table; there is no migration or import.
+- **The pending and in-flight tails are volatile.** A process crash can lose accepted events before their durable
+  watermark advances. Queue overflows drop and count events. A checkpoint proves acknowledged event bytes, not a
+  completed final flush or complete auxiliary detail set. The live journal status and stored run metadata distinguish
+  durable-capture drops from the runtime journal's own admission drops; readers mark both as incomplete evidence.
+- **History is bounded and can be partial.** Runtime retention, event/byte read bounds, panel gating, dropped source
+  events, compaction, clear operations, missing safe details, and an interrupted run can all qualify a historical
+  profile or Runtime Insights report. Historical projection cannot consult the current BootUI agent.
+- **`Clear recording` is scoped to the current run.** It clears hot evidence immediately and schedules durable deletion
+  through the clear boundary. A database failure can leave acknowledged durable rows visible; the volatile rows are
+  not restored and previous runs are not cleared.
+- **One SQL store supplies one global ordering.** Instances sharing a namespace/application use a transactional
+  `globalSequence`. Their Live Activity feed does not broadcast SSE across processes, so readers that need other
+  writers' newest rows poll the head and use cursors/origins to page and deduplicate.
+- **Cross-namespace reads are disabled by default.** The server requires an explicit property opt-in. Offline CLI
+  archive reads require `--allow-cross-namespace`; they still never create or modify schema and never reveal raw
+  values withheld at write time.
+- **Only SQL is supported today.** ClickHouse is the preferred fully open-source future columnar/non-RDBMS candidate.
+  Kafka, OpenSearch, and graph databases are not alternatives in the delivered feature: Kafka is a transport, the
+  current contract does not need an index cluster, and correlations are a bounded sequence/owner model rather than an
+  arbitrary graph.
 
 ## Runtime Insights
 

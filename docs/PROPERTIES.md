@@ -582,10 +582,10 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 | ---------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
 | `bootui.panels.activity.enabled`              | `true`  | Show the Live Activity panel (merged stream and per-request profiler).                                           |
 | `bootui.activity.max-entries`                 | `200`   | Maximum number of merged stream entries returned per page after merging and sorting all sources.                 |
-| `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds at or above which a request is slow, on every stack: it sets the `SLOW` severity of `REQUEST` and `SCHEDULED` entries and decides which HTTP exchanges are kept in the reserved share, and so which requests Live Activity durable persistence remembers as reserved. Set to `0` to disable slow classification. |
+| `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds at or above which a request is slow, on every stack: it sets `SLOW` for `REQUEST` and `SCHEDULED` entries and selects the HTTP Exchanges reserved share. Durable journal capture follows accepted journal events, not this panel-buffer reservation. Set to `0` to disable slow classification. |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
 | `bootui.activity.max-scheduled-task-runs`     | `200`   | Maximum number of captured `@Scheduled` method executions retained for `SCHEDULED` stream entries. Shared by both adapters: Spring feeds it from Micrometer's `ScheduledTaskObservationContext`, Quarkus from the CDI `SuccessfulExecution`/`FailedExecution` events (see [Live Activity](features/live-activity.md#feed-types)). |
-| `bootui.activity.feed-source`                 | `journal` | Where the stream comes from, on every stack: `journal` renders the runtime journal's retained events, so its history reaches as far back as the journal retains and every child nests under its request or execution by id. The configured value `buffers` was removed in 2.0 and fails startup with a message naming its replacement: remove the property or set it to `journal`. With the journal disabled (`bootui.runtime-journal.enabled=false`) the panel buffers serve the feed on their own, and a request may still ask for them with `?source=buffers`, as the panel's **Panel buffers** choice does. The journal keeps no exception or formatted log messages, principals, or email subjects; the live feed adds them back, already masked, from the panels while they still hold the event, and otherwise shows metadata only. It shows each exception occurrence rather than one row per group and adds `TRANSACTION` and `LOG` rows. With durable persistence on, `journal` also writes the history from the journal as it records each batch, instead of polling the merged feed, so a burst is kept as completely as the journal records it; persisted rows carry metadata only. An unknown value fails startup, on Spring MVC, Spring WebFlux, and Quarkus alike. |
+| `bootui.activity.feed-source`                 | `journal` | Where the stream comes from, on every stack. `journal` renders the runtime journal with exact request/execution nesting. With the journal disabled (`bootui.runtime-journal.enabled=false`) the panel buffers serve the live feed, but durable history is unavailable. One request may still request `?source=buffers`. Configuring `buffers` as the property value is rejected at startup. Durable persistence subscribes directly to journal batches rather than polling panel buffers. |
 
 #### Live Activity Kafka capture
 
@@ -644,32 +644,43 @@ producer duration are unavailable because SmallRye's callbacks do not expose the
 
 #### Live Activity durable persistence
 
-Off by default: the merged stream stays in-memory-only, exactly as above. Setting
-`bootui.activity.persistence.enabled=true` additionally buffers captured entries and flushes them to a SQL database
-over direct JDBC, so history survives a restart and the dashboard can page back further than fits in memory. Available
-on both adapters with an identical config surface and wire contract; on Quarkus a `QuarkusActivityCapture` CDI bean
-(`@Observes StartupEvent`/`ShutdownEvent`) owns the journal capture's lifecycle instead of Spring's controller-inline
-wiring. Durable history is written by the runtime journal's subscriber, whatever source the feed reads; with the
-journal disabled, persistence logs a warning and writes nothing. See the [Live Activity specification](./SPECIFICATION.md) for the full design (the `ActivityStore` abstraction,
-buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and multi-tenancy).
+Off by default. Enabling it writes the runtime journal to three SQL tables: `<table-name>_runs`,
+`<table-name>_events`, and `<table-name>_details`. The legacy `bootui_activity` table is not read, migrated, or
+pruned and can coexist with the new tables. Durable persistence requires `bootui.runtime-journal.enabled=true`.
 
-| Property                                                | Default            | Description                                                                                                                        |
-| -------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.activity.persistence.enabled`                   | `false`             | Enable durable persistence for captured Live Activity entries, in addition to the in-memory default.                             |
-| `bootui.activity.persistence.data-source-mode`          | `SHARED`            | `SHARED` reuses the host application's own `DataSource` bean; `DEDICATED` opens a small, non-pooled connection of BootUI's own using the `dedicated-*` properties below. |
-| `bootui.activity.persistence.dedicated-jdbc-url`        | _(none)_            | JDBC URL used when `data-source-mode=DEDICATED`; ignored otherwise.                                                               |
-| `bootui.activity.persistence.dedicated-username`        | _(none)_            | Username used when `data-source-mode=DEDICATED`; ignored otherwise.                                                               |
-| `bootui.activity.persistence.dedicated-password`        | _(none)_            | Password used when `data-source-mode=DEDICATED`; ignored otherwise.                                                               |
-| `bootui.activity.persistence.dedicated-driver-class-name` | _(none)_          | Optional explicit JDBC driver class for `data-source-mode=DEDICATED`; blank lets a modern JDBC 4+ driver auto-register itself.    |
-| `bootui.activity.persistence.table-name`                | `bootui_activity`   | Table name every BootUI instance pointed at the same database shares. Created automatically on first use if absent.               |
-| `bootui.activity.persistence.flush-interval`            | `5s`                | How often buffered entries are flushed to durable storage.                                                                        |
-| `bootui.activity.persistence.buffer-max-entries`        | `500`               | Capacity of both the in-memory hot read cache (entries visible before their scheduled flush) and the pending-flush queue.         |
-| `bootui.activity.persistence.retention`                 | `7d`                | How long persisted rows are kept before this instance prunes its own rows older than this on a periodic pass.                     |
-| `bootui.activity.persistence.instance-id`               | _(auto)_            | Multi-tenant partition key this instance writes/reads its rows under. Defaults to the `HOSTNAME` environment variable, or else a generated `<app-name>-<random>` id. |
+```properties
+bootui.activity.persistence.enabled=true
+bootui.activity.persistence.data-source-mode=SHARED
+bootui.activity.persistence.table-name=bootui_activity
+bootui.activity.persistence.retention=7d
+```
+
+For several local instances to share one feed, point them at the same JDBC store, namespace, application, and table
+prefix. Cross-namespace reads are opt-in; use the current namespace by default.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.activity.persistence.enabled` | `false` | Enable durable runtime-journal capture and historical reads. |
+| `bootui.activity.persistence.namespace-id` | machine/user derived | Opaque durable tenant scope. An explicit value wins; otherwise the legacy `instance-id` is used, or a stable `local-<sha256>` value is derived from the local user and host. |
+| `bootui.activity.persistence.application-id` | framework application key | Application scope inside the namespace. |
+| `bootui.activity.persistence.data-source-mode` | `SHARED` | `SHARED` reuses the host application's `DataSource`; `DEDICATED` opens the non-pooled JDBC connection configured below. |
+| `bootui.activity.persistence.dedicated-jdbc-url` | _(none)_ | JDBC URL for `DEDICATED` mode. |
+| `bootui.activity.persistence.dedicated-username` | _(none)_ | Username for `DEDICATED` mode. Prefer an environment-backed secret. |
+| `bootui.activity.persistence.dedicated-password` | _(none)_ | Password for `DEDICATED` mode. Prefer an environment-backed secret. |
+| `bootui.activity.persistence.dedicated-driver-class-name` | _(none)_ | Optional explicit JDBC driver; blank uses driver auto-registration. |
+| `bootui.activity.persistence.table-name` | `bootui_activity` | Plain SQL identifier, at most 40 characters, used as the prefix of the three durable tables. |
+| `bootui.activity.persistence.flush-interval` | `5s` | Maximum delay between background durable flushes; also controls heartbeat cadence. |
+| `bootui.activity.persistence.max-pending-entries` | `500` | Maximum volatile entries waiting for durable acknowledgement. Excess entries are dropped and counted. |
+| `bootui.activity.persistence.max-pending-bytes` | `32MB` | Estimated byte bound for the volatile durable queue. |
+| `bootui.activity.persistence.hot-max-entries` | `500` | Newest acknowledged entries retained in memory after durable compaction. Open units of work are also retained. |
+| `bootui.activity.persistence.buffer-max-entries` | `500` | Legacy/in-memory activity-store capacity retained for fallback and runtime-switch compatibility. |
+| `bootui.activity.persistence.retention` | `7d` | Age after which persisted events/details and old empty run rows are eligible for pruning in this namespace/application. |
+| `bootui.activity.persistence.reader-archive-cross-namespace` | `false` | Allow a server-side archive/profile/insights reader to select a namespace other than its own. |
+| `bootui.activity.persistence.instance-id` | _(unset)_ | Legacy migration input. When `namespace-id` is blank, a configured value becomes the namespace; otherwise it does not partition the new run tables. |
 
 ### Runtime journal
 
-BootUI 2.0's runtime journal records every runtime event once, in a bounded in-memory structure, and keeps running
+The runtime journal records every accepted runtime event once, in a bounded in-memory structure, and keeps running
 aggregates per route, statement, exception group, transactional method, and thread family.
 Recording never blocks a request: events wait in a bounded queue for one BootUI
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
@@ -700,7 +711,8 @@ then records nothing. The `resources` source measures each request's CPU time, a
 the collections that completed while it ran, summed over the measured threads its work ran on.
 The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
 as unavailable or partial, never as zero. Payloads hold no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
-template only. Apart from opt-in [durable activity persistence](#live-activity-durable-persistence), the journal writes
+template only. A durable journal write requires the persistence option above and therefore an enabled runtime journal. Apart from
+opt-in [durable activity persistence](#live-activity-durable-persistence), the journal writes
 nothing to disk unless `bootui.runtime-journal.baseline-file` is set, and that file holds a run
 summary only: route templates, statement fingerprints, call sites, exception-group ids, thread families, observed
 edges, counts, histograms, and, with the BootUI agent, the run's side-effect keys (hosts and ports, masked file

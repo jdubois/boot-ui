@@ -20,10 +20,12 @@ import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.MappingsReport;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
@@ -686,6 +688,82 @@ class BootUiEngineConfigurationTests {
         assertThat(settings.bufferMaxEntries()).isEqualTo(321);
         assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
         assertThat(settings.instanceId()).isEqualTo("pinned-instance");
+    }
+
+    @Test
+    void durableJournalSettingsUseLegacyNamespaceAndFrameworkApplicationKey() {
+        BootUiProperties properties = new BootUiProperties();
+        BootUiProperties.ActivityPersistence persistence =
+                properties.getActivity().getPersistence();
+        persistence.setEnabled(true);
+        persistence.setInstanceId(" legacy-namespace ");
+        persistence.setApplicationId(" ");
+        persistence.setFlushInterval(Duration.ofSeconds(11));
+        persistence.setMaxPendingEntries(321);
+        persistence.setMaxPendingBytes(org.springframework.util.unit.DataSize.ofMegabytes(12));
+        persistence.setHotMaxEntries(123);
+        persistence.setTableName("bootui_durable");
+        persistence.setRetention(Duration.ofDays(3));
+        persistence.setReaderArchiveCrossNamespace(true);
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.application.name", "orders");
+        GenericApplicationContext context = new GenericApplicationContext();
+
+        RunIdentity run = RunIdentity.start();
+        DurableJournalSettings settings = new BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration()
+                .bootUiDurableJournalSettings(properties, environment, context, run);
+
+        assertThat(settings.namespaceId()).isEqualTo("legacy-namespace");
+        assertThat(settings.applicationId()).endsWith(":orders");
+        assertThat(settings.runId()).isEqualTo(run.id());
+        assertThat(settings.processId())
+                .isEqualTo(Long.toString(ProcessHandle.current().pid()));
+        assertThat(settings.instanceId()).isNotBlank();
+        assertThat(settings.enabled()).isTrue();
+        assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(11));
+        assertThat(settings.maxPendingEntries()).isEqualTo(321);
+        assertThat(settings.maxPendingBytes()).isEqualTo(12L * 1024 * 1024);
+        assertThat(settings.hotMaxEntries()).isEqualTo(123);
+        assertThat(settings.tablePrefix()).isEqualTo("bootui_durable");
+        assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
+        assertThat(settings.readerArchiveCrossNamespace()).isTrue();
+    }
+
+    @Test
+    void durableJournalApplicationOverrideWinsOverSpringApplicationKey() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().getPersistence().setNamespaceId("namespace-a");
+        properties.getActivity().getPersistence().setApplicationId("override-a");
+
+        DurableJournalSettings settings = new BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration()
+                .bootUiDurableJournalSettings(
+                        properties,
+                        new MockEnvironment().withProperty("spring.application.name", "orders"),
+                        new GenericApplicationContext(),
+                        RunIdentity.start());
+
+        assertThat(settings.namespaceId()).isEqualTo("namespace-a");
+        assertThat(settings.applicationId()).isEqualTo("override-a");
+    }
+
+    @Test
+    void durableJournalSettingsDefaultsMatchSpringPropertyDefaults() {
+        DurableJournalSettings settings = new BootUiEngineConfiguration.ActivityPersistenceBackendConfiguration()
+                .bootUiDurableJournalSettings(
+                        new BootUiProperties(),
+                        new MockEnvironment().withProperty("spring.application.name", "orders"),
+                        new GenericApplicationContext(),
+                        RunIdentity.start());
+
+        assertThat(settings.enabled()).isFalse();
+        assertThat(settings.namespaceId()).matches("local-[0-9a-f]{64}");
+        assertThat(settings.applicationId()).endsWith(":orders");
+        assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(settings.maxPendingEntries()).isEqualTo(500);
+        assertThat(settings.maxPendingBytes()).isEqualTo(32L * 1024 * 1024);
+        assertThat(settings.hotMaxEntries()).isEqualTo(500);
+        assertThat(settings.tablePrefix()).isEqualTo("bootui_activity");
+        assertThat(settings.retention()).isEqualTo(Duration.ofDays(7));
+        assertThat(settings.readerArchiveCrossNamespace()).isFalse();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.ActivityEntryOriginDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ConfigReport;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
@@ -117,29 +118,97 @@ public final class McpAgentViews {
     private McpAgentViews() {}
 
     /**
-     * How a {@code get_live_activity} query filters the stream: an entry type such as {@code SQL}, a severity such as
-     * {@code SLOW}, or else text matched against an entry's summary, detail, path, and method.
+     * How a {@code get_live_activity} query filters the stream.
      *
      * @param type the type to keep, or {@code null}
      * @param severity the severity to keep, or {@code null}
-     * @param text the text to match, or {@code null}
+     * @param text text to match against an entry's summary, detail, path, and method, or {@code null}
+     * @param namespace durable journal namespace to keep, or {@code null}
+     * @param application durable journal application to keep, or {@code null}
+     * @param run durable journal run to keep, or {@code null}
+     * @param instance durable journal instance to keep, or {@code null}
+     * @param route route to keep, or {@code null}
      */
-    public record ActivityFilter(String type, String severity, String text) {
+    public record ActivityFilter(
+            String type,
+            String severity,
+            String text,
+            String namespace,
+            String application,
+            String run,
+            String instance,
+            String route) {
 
-        /** Reads one query: a type or severity name selects by that field, anything else is text. */
+        public ActivityFilter(String type, String severity, String text) {
+            this(type, severity, text, null, null, null, null, null);
+        }
+
+        /** The durable instance identifier, using the DTO field's familiar name. */
+        public String instanceId() {
+            return instance;
+        }
+
+        /** Reads type, severity, scope qualifiers, and free text from one query. */
         public static ActivityFilter of(String query) {
             if (query == null || query.isBlank()) {
-                return new ActivityFilter(null, null, null);
+                return new ActivityFilter(null, null, null, null, null, null, null, null);
             }
-            String trimmed = query.trim();
-            String upper = trimmed.toUpperCase(Locale.ROOT).replace('-', '_');
-            if (ACTIVITY_TYPES.contains(upper)) {
-                return new ActivityFilter(upper, null, null);
+            String type = null;
+            String severity = null;
+            String namespace = null;
+            String application = null;
+            String run = null;
+            String instance = null;
+            String route = null;
+            List<String> text = new ArrayList<>();
+            for (String word : query.trim().split("\\s+")) {
+                String qualifier = qualifierValue(word);
+                if (qualifier != null && word.regionMatches(true, 0, "namespace:", 0, "namespace:".length())) {
+                    namespace = qualifier;
+                    continue;
+                }
+                if (qualifier != null && word.regionMatches(true, 0, "application:", 0, "application:".length())) {
+                    application = qualifier;
+                    continue;
+                }
+                if (qualifier != null && word.regionMatches(true, 0, "run:", 0, "run:".length())) {
+                    run = qualifier;
+                    continue;
+                }
+                if (qualifier != null && word.regionMatches(true, 0, "instance:", 0, "instance:".length())) {
+                    instance = qualifier;
+                    continue;
+                }
+                if (qualifier != null && word.regionMatches(true, 0, "route:", 0, "route:".length())) {
+                    route = qualifier;
+                    continue;
+                }
+                String upper = word.toUpperCase(Locale.ROOT).replace('-', '_');
+                if (type == null && ACTIVITY_TYPES.contains(upper)) {
+                    type = upper;
+                } else if (severity == null && ACTIVITY_SEVERITIES.contains(upper)) {
+                    severity = upper;
+                } else {
+                    text.add(word);
+                }
             }
-            if (ACTIVITY_SEVERITIES.contains(upper)) {
-                return new ActivityFilter(null, upper, null);
+            return new ActivityFilter(
+                    type,
+                    severity,
+                    text.isEmpty() ? null : String.join(" ", text),
+                    namespace,
+                    application,
+                    run,
+                    instance,
+                    route);
+        }
+
+        private static String qualifierValue(String word) {
+            int separator = word.indexOf(':');
+            if (separator <= 0 || separator == word.length() - 1) {
+                return null;
             }
-            return new ActivityFilter(null, null, trimmed);
+            return word.substring(separator + 1);
         }
     }
 
@@ -147,28 +216,44 @@ public final class McpAgentViews {
      * At most {@code limit} of the newest Live Activity entries {@code filter} keeps, and a {@code pageInfo} whose
      * {@code hasMore} says whether more entries matched or may match.
      *
-     * <p>Read {@code report} with {@link #liveActivityFetch(ActivityFilter, int)} entries and only
-     * {@link #adapterType(ActivityFilter)} as the adapter's own filter: the type is applied before the adapter's window
-     * where its feed can, and the severity and text are applied here, to every entry the window holds. When a filter is
-     * set and the window did not reach every retained entry the filter could match, as {@code typeCounts} counts them,
-     * older entries were not searched: {@code hasMore} is then true and a warning names the window, so a miss is never
-     * read as "never ran". {@code typeCounts} keeps counting every retained entry by type; agents cannot pass a cursor,
-     * so none is returned.
+     * <p>Read {@code report} with {@link #liveActivityFetch(ActivityFilter, int)} entries and pass the parsed type,
+     * severity, text, route, and durable scope qualifiers to the adapter before reapplying type, severity, and text in
+     * the compact view. This lets a durable store filter its whole history while the view remains safe for feeds that
+     * cannot prefilter every local field. When a filter is set and the window did not reach every retained entry it could
+     * match, as {@code typeCounts} counts them, older entries were not searched: {@code hasMore} is then true and a
+     * warning names the window, so a miss is never read as "never ran". {@code typeCounts} keeps counting every retained
+     * entry by type; agents cannot pass a cursor, so none is returned.
      */
     public static LiveActivityReport liveActivity(LiveActivityReport report, ActivityFilter filter, int limit) {
         List<ActivityEntryDto> window = report.entries();
         String needle = PagedList.normalize(filter.text());
-        List<ActivityEntryDto> matched = window.stream()
-                .filter(entry -> filter.type() == null || filter.type().equalsIgnoreCase(entry.type()))
-                .filter(entry -> filter.severity() == null || filter.severity().equalsIgnoreCase(entry.severity()))
-                .filter(entry -> PagedList.contains(entry.summary(), needle)
-                        || PagedList.contains(entry.detail(), needle)
-                        || PagedList.contains(entry.path(), needle)
-                        || PagedList.contains(entry.method(), needle))
-                .toList();
+        List<ActivityEntryDto> matched = new ArrayList<>();
+        List<ActivityEntryOriginDto> matchedOrigins = new ArrayList<>();
+        for (int index = 0; index < window.size(); index++) {
+            ActivityEntryDto entry = window.get(index);
+            ActivityEntryOriginDto origin = activityOrigin(report, index, entry);
+            if ((filter.type() == null || filter.type().equalsIgnoreCase(entry.type()))
+                    && (filter.severity() == null || filter.severity().equalsIgnoreCase(entry.severity()))
+                    && (PagedList.contains(entry.summary(), needle)
+                            || PagedList.contains(entry.detail(), needle)
+                            || PagedList.contains(entry.path(), needle)
+                            || PagedList.contains(entry.method(), needle))) {
+                matched.add(entry);
+                if (origin != null) {
+                    matchedOrigins.add(origin);
+                }
+            }
+        }
         ActivityPageInfo page = report.pageInfo();
         boolean olderPages = page != null && page.hasMore();
-        boolean filtered = filter.type() != null || filter.severity() != null || filter.text() != null;
+        boolean filtered = filter.type() != null
+                || filter.severity() != null
+                || filter.text() != null
+                || filter.namespace() != null
+                || filter.application() != null
+                || filter.run() != null
+                || filter.instance() != null
+                || filter.route() != null;
         long searched;
         long retained;
         if (filter.type() != null) {
@@ -185,12 +270,22 @@ public final class McpAgentViews {
                     .mapToLong(count -> count == null ? 0 : count)
                     .sum();
         }
-        boolean partial = filtered && (searched < retained || olderPages);
+        boolean persistentPage = page != null && page.persistent();
+        boolean adapterPrefiltered = !persistentPage
+                && (filter.route() != null
+                        || filter.namespace() != null
+                        || filter.application() != null
+                        || filter.run() != null
+                        || filter.instance() != null);
+        if (adapterPrefiltered) {
+            searched = Math.min(retained, liveActivityFetch(filter, limit));
+        }
+        boolean partial = filtered && (persistentPage ? olderPages : searched < retained || olderPages);
         List<String> warnings = report.warnings();
         if (partial) {
             warnings = new ArrayList<>(warnings);
             warnings.add(
-                    searched < retained
+                    !persistentPage && searched < retained
                             ? "Searched the newest " + searched + " of " + retained + " retained entries"
                                     + (filter.type() == null ? "" : " of type " + filter.type())
                                     + "; older ones may match too. Narrow the query, or open Live Activity."
@@ -198,15 +293,23 @@ public final class McpAgentViews {
                                     + " Narrow the query, or open Live Activity.");
         }
         boolean hasMore = matched.size() > limit || partial || (!filtered && olderPages);
+        int returned = Math.min(limit, matched.size());
+        List<ActivityEntryDto> entries = matched.subList(0, returned);
+        List<ActivityEntryOriginDto> origins = matchedOrigins.subList(0, Math.min(returned, matchedOrigins.size()));
+        if (hasMultipleApplications(origins) || hasMultipleRuns(origins)) {
+            warnings = new ArrayList<>(warnings);
+            warnings.add(scopeWarning(origins));
+        }
         return new LiveActivityReport(
                 report.available(),
-                matched.subList(0, Math.min(limit, matched.size())),
+                entries,
                 report.typeCounts(),
                 report.kpis(),
                 report.sources(),
                 warnings,
                 new ActivityPageInfo(page != null && page.persistent(), null, hasMore),
-                report.persistenceOption());
+                report.persistenceOption(),
+                origins);
     }
 
     /**
@@ -214,17 +317,61 @@ public final class McpAgentViews {
      * {@code limit}, to know whether more remain, or, when a filter must be applied, as many as a report returns.
      */
     public static int liveActivityFetch(ActivityFilter filter, int limit) {
-        return filter.type() == null && filter.severity() == null && filter.text() == null
+        return filter.type() == null
+                        && filter.severity() == null
+                        && filter.text() == null
+                        && filter.namespace() == null
+                        && filter.application() == null
+                        && filter.run() == null
+                        && filter.instance() == null
+                        && filter.route() == null
                 ? limit + 1
                 : JournalActivityReports.MAX_LIMIT;
     }
 
-    /**
-     * The type to pass to the adapter, which every feed that can applies before its window; the severity and text are
-     * left to {@link #liveActivity(LiveActivityReport, ActivityFilter, int)}, so its window is the newest entries.
-     */
+    /** The type to pass to the adapter so it can apply that dimension before selecting its window. */
     public static String adapterType(ActivityFilter filter) {
         return filter.type();
+    }
+
+    private static ActivityEntryOriginDto activityOrigin(LiveActivityReport report, int index, ActivityEntryDto entry) {
+        List<ActivityEntryOriginDto> origins = report.origins();
+        if (origins.size() == report.entries().size()
+                && entry.id() != null
+                && entry.id().equals(origins.get(index).entryId())) {
+            return origins.get(index);
+        }
+        return origins.stream()
+                .filter(origin -> entry.id() != null && entry.id().equals(origin.entryId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static boolean hasMultipleApplications(List<ActivityEntryOriginDto> origins) {
+        return origins.stream()
+                        .map(origin -> origin.namespace() + "\0" + origin.application())
+                        .distinct()
+                        .count()
+                > 1;
+    }
+
+    private static boolean hasMultipleRuns(List<ActivityEntryOriginDto> origins) {
+        return origins.stream()
+                        .map(origin -> origin.namespace() + "\0" + origin.application() + "\0" + origin.run())
+                        .distinct()
+                        .count()
+                > 1;
+    }
+
+    private static String scopeWarning(List<ActivityEntryOriginDto> origins) {
+        boolean applications = hasMultipleApplications(origins);
+        boolean runs = hasMultipleRuns(origins);
+        String scopes = applications && runs
+                ? "multiple applications and runs"
+                : applications ? "multiple applications" : "multiple runs";
+        return "Entries span " + scopes
+                + "; use namespace:<value>, application:<value>, run:<value>, instance:<value>, or route:<value>"
+                + " to narrow the durable scope.";
     }
 
     /**

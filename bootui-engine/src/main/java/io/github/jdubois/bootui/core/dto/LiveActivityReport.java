@@ -16,6 +16,7 @@ import java.util.Map;
  *     the default live in-memory re-merge (existing behavior, unchanged)
  * @param persistenceOption the persistence option's current state (see {@link ActivityPersistenceOptionDto}),
  *     or {@code null} for callers that have not been updated to populate it (existing behavior, unchanged)
+ * @param origins durable journal origin metadata for the returned entries, or an empty list for the live in-memory feed
  */
 public record LiveActivityReport(
         boolean available,
@@ -25,13 +26,27 @@ public record LiveActivityReport(
         List<String> sources,
         List<String> warnings,
         ActivityPageInfo pageInfo,
-        ActivityPersistenceOptionDto persistenceOption) {
+        ActivityPersistenceOptionDto persistenceOption,
+        List<ActivityEntryOriginDto> origins) {
 
     public LiveActivityReport {
         entries = DtoCollections.immutableCopy(entries);
         typeCounts = DtoCollections.immutableCopy(typeCounts);
         sources = DtoCollections.immutableCopy(sources);
         warnings = DtoCollections.immutableCopy(warnings);
+        origins = DtoCollections.immutableCopy(origins);
+    }
+
+    public LiveActivityReport(
+            boolean available,
+            List<ActivityEntryDto> entries,
+            Map<String, Integer> typeCounts,
+            ActivityKpiDto kpis,
+            List<String> sources,
+            List<String> warnings,
+            ActivityPageInfo pageInfo,
+            ActivityPersistenceOptionDto persistenceOption) {
+        this(available, entries, typeCounts, kpis, sources, warnings, pageInfo, persistenceOption, List.of());
     }
 
     /** Convenience constructor for callers that have a page info but no persistence option yet. */
@@ -43,7 +58,7 @@ public record LiveActivityReport(
             List<String> sources,
             List<String> warnings,
             ActivityPageInfo pageInfo) {
-        this(available, entries, typeCounts, kpis, sources, warnings, pageInfo, null);
+        this(available, entries, typeCounts, kpis, sources, warnings, pageInfo, null, List.of());
     }
 
     /** Convenience constructor for the default live in-memory re-merge path, which has no page info. */
@@ -54,6 +69,6 @@ public record LiveActivityReport(
             ActivityKpiDto kpis,
             List<String> sources,
             List<String> warnings) {
-        this(available, entries, typeCounts, kpis, sources, warnings, null, null);
+        this(available, entries, typeCounts, kpis, sources, warnings, null, null, List.of());
     }
 }

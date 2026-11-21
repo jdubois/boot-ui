@@ -65,7 +65,9 @@ Signals that cannot be tied to a request stay top-level. Any filter or search fl
   marker names its target, never a value.
 - **Pause** keeps a row you are inspecting from scrolling away.
 - Every row deep-links to its dedicated panel with the record pre-filtered. A request row opens its profiler.
-- The feed refreshes over Server-Sent Events (`/bootui/api/activity/stream`), not polling.
+- The current instance refreshes over Server-Sent Events (`/bootui/api/activity/stream`), not polling. A durable feed
+  shared by several instances is globally cursor-paged and can be polled through the REST/CLI read contract;
+  another process cannot signal this instance's SSE stream.
 
 ::: details The KPI strip
 
@@ -316,65 +318,103 @@ Tune it with `bootui.jms.enabled`, `bootui.jms.capture-message-id`, `bootui.jms.
 
 ## Durable history
 
-By default the stream is in-memory only: history is lost on restart and the feed reaches back only as far as its small
-buffers. Set `bootui.activity.persistence.enabled=true` to flush captured entries to a SQL database over direct JDBC
-every `bootui.activity.persistence.flush-interval` (5 seconds by default).
+Off by default, the runtime journal remains process-local. Set `bootui.activity.persistence.enabled=true` to persist
+it to a SQL database over direct JDBC. `bootui.activity.persistence.table-name` is the prefix for three owned tables:
 
-With persistence on, the panel gains a **Load older** button, the type, severity, and free-text filters become database
-queries, and a "· persisted history" note appears next to the subtitle. Persisted rows contain only the
-journal-rendered, `MASKED` view: no bind values, principals, exception or log messages, or email subjects. The runtime
-journal is the only source of durable history; with `bootui.runtime-journal.enabled=false`, configured startup
-persistence logs a warning and writes nothing.
+| Table | Contents |
+| --- | --- |
+| `<prefix>_runs` | Run metadata, status, `instanceId`, and crash-durable checkpoint |
+| `<prefix>_events` | Typed masked journal payloads, indexed activity projections, and store-wide `globalSequence` |
+| `<prefix>_details` | Allow-listed request and exception detail needed by historical profiles |
 
-You can also turn it on without editing configuration or restarting. While persistence is inactive, a "Currently saving
-N events in memory" tip appears with a **Use a database** button. If the application has a `DataSource`, **Use the
-existing datasource** checks it, creates the table, and hot-switches the running instance. The action is
-confirmation-gated and **runtime-only**: nothing is written to disk, so a restart reverts to in-memory unless the
-property is also set. With no `DataSource`, the button links to the setup documentation.
+The old single `bootui_activity` table, when present, is left intact. The durable journal neither reads, migrates,
+prunes, nor deletes it. The prefix can therefore stay `bootui_activity` while
+`bootui_activity_runs/_events/_details` coexist with that legacy table. See the
+[properties](../PROPERTIES.md#live-activity-durable-persistence).
 
-::: details Storage, paging, and sharing a table
+Durable history requires an enabled, open runtime journal. If the journal is disabled, persistence warns and writes
+nothing; the regular in-memory endpoint remains available. With a durable store, **Load older** pages beyond the hot
+tail, filters become database queries, and one feed can include several runs and instances from the same
+namespace/application. A global sequence orders concurrent writers. Poll the head to see new rows, and use
+`pageInfo.nextCursor` to walk backward through history. Every row carries namespace, application, run, instance,
+journal sequence, and global-sequence origin so equal local IDs are not merged.
 
-The table (`bootui.activity.persistence.table-name`, default `bootui_activity`) is created on first use. Several
-instances can share one table: each tags its rows with an `instanceId` (defaulting to `HOSTNAME`) and never reads or
-prunes another instance's rows. Reads merge the in-memory buffer with the durable store, and a failed flush returns its
-entries to the buffer.
+::: details Identity and masking
 
-Changing a query or feed source discards its older pages, and a late page from a previous query cannot add rows or replace
-the cursor. Switching between durable and in-memory storage also resets history. A disabled source panel hides its older
-rows; a history page scans past them within a bounded read budget and keeps a continuation cursor, so a page can be empty
-while **Load older** is still available.
+The complete storage scope is `namespace/application/run`. The namespace defaults to an explicit `namespace-id`,
+then to the legacy `instance-id`, otherwise to an opaque SHA-256-derived identity for the local user/host. The
+application defaults to the framework's application key and can be overridden. The run is BootUI's 128-bit random
+runtime run ID, encoded as 32 lowercase hexadecimal characters; a class-loader instance ID and operating-system
+process ID identify the producer beside it.
 
-Each journal batch is rendered as the journal feed renders it and stored once, so a burst is not lost between reads of the
-panel buffers. Failed and slow entries are remembered longer, in one window per kind,
-`bootui.activity.persistence.buffer-max-entries` wide, recognized by the rule and threshold of the
-[failure-preserving buffer](diagnostics.md#failure-preserving-retention). This replaces the 1.x buffer-polling path;
-applications that relied on the omitted details must read the bounded live panel evidence.
+Each accepted event becomes an allow-listed typed disk view before it enters the pending queue. Raw bind values,
+principals, exception/log messages, email subjects/recipients, headers, query strings, sessions, arbitrary attributes,
+and similar values are excluded or masked. `FULL` affects later live reads, never durable write exposure. SQL is
+literal-free, paths and authority values are masked, and `_details` holds only bounded safe request/exception
+metadata. Unknown payload types fail closed.
 
-With persistence off, no subscriber, flush scheduler, or database connection is created.
+:::
+
+::: details Crash durability, acknowledgement, and memory compaction
+
+Admission is asynchronous and bounded. The pending queue and in-flight tail are volatile process state, so a crash can
+lose accepted events before their database acknowledgement. After transactional event insertion, BootUI advances the
+durable watermark and run checkpoint. The watermark means the event bytes crossed the store boundary, not that every
+auxiliary detail succeeded; detail failures remain visible as limitations.
+
+The runtime journal status separates admission from durable-capture loss: `durableCapturePending`,
+`durableCaptureDropped`, and `durableCaptureQuarantined` report the volatile writer tail independently of the runtime
+journal's own `droppedEvents`. A capture drop is recorded in run metadata and evidence completeness before the hot
+ring can compact through it, so historical profiles and Runtime Insights mark the result partial instead of treating an
+absent durable row as proof of absence.
+
+Start, checkpoint, and end metadata is refreshed independently. Historical readers can label an interrupted run and
+project its last checkpoint without inventing a graceful shutdown. After acknowledgement, BootUI compacts the
+acknowledged in-memory prefix, preserves the configured hot tail and all open request/execution work, and does not count
+that compaction as eviction or loss.
 
 :::
 
-::: details The datasource switch and Clear recording
+::: details Clear, retention, and the datasource switch
 
-The switch starts the journal subscriber against the new store, then hot-switches without losing events dispatched in
-between. Concurrent requests start one capture; repeats are no-ops. If capture cannot start after schema verification,
-HTTP `500` says the table may already exist but in-memory storage remains active; BootUI never deletes a host table to
-undo it. Journal shutdown during the switch also rejects it and closes the unused capture and store.
+**Clear recording** clears this run's in-memory events and aggregates and schedules deletion of its durable
+events/details through the clear boundary. Lifetime counters remain, and previous runs are unaffected. If the durable
+delete fails, durable history stays as it was and the failure is logged; volatile rows are not restored. Disabling
+persistence does not delete existing rows.
 
-The action rejects an unavailable, disabled, or closed journal with HTTP `409` before creating a table, and never
-silently enables capture. Opening the database disclosure checks journal status on demand; the switch stays disabled with
-an explanation while capture is disabled, unavailable, or unverifiable, since datasource presence alone does not prove
-events can be saved.
+Retention applies to event recording time within the selected namespace/application, not to one process. Pruning
+removes old `_events`, their `_details`, and old run rows only after that run has no retained events. Heartbeats keep an
+active run's metadata row current.
 
-The switch and **Clear recording** report success only after a valid JSON acknowledgement. Otherwise they report an
-unknown outcome and re-read the feed or journal status, keeping prior local evidence if that fails. The browser never
-repeats either action automatically.
+**Use the existing datasource** verifies the schema, atomically snapshots/subscribes to the open journal, starts the
+writer, and publishes the durable store only after capture is live. A failed start leaves the in-memory feed active;
+it may already have created the three tables, which BootUI never deletes to roll back a host database. The switch is
+confirmation-gated, read-only-policy aware, idempotent, and runtime-only unless
+`bootui.activity.persistence.enabled=true` is configured for the next start.
 
 :::
+
+::: details Why SQL is the supported shared backend
+
+SQL is recommended because the store needs direct JDBC, transactions, idempotent inserts, indexes, schema verification,
+and stable keyset cursors. Applications can reuse an existing datasource, and one namespace can offer a global feed
+without new infrastructure.
+
+ClickHouse is the preferred fully open-source, columnar non-RDBMS candidate for a future append-heavy backend. It is not a
+second supported store today; it would need an adapter for run metadata, idempotent event keys, durability
+acknowledgements, retention, and source gating. Kafka is a transport rather than a bounded query/history service,
+OpenSearch would add an index cluster where full-text search is not required, and a graph store adds cost without
+changing the journal's simple owner-and-sequence model. None is a current commitment.
+
+:::
+
+Historical request profiles carry the origin from their durable activity row and merge bounded typed events with its
+safe detail rows. Read them without a running application with
+[`bootui archive profile`](../CLI.md#read-durable-journal-history-offline).
 
 ## Runtime journal
 
-BootUI 2.0 records every runtime event once in a bounded, in-memory runtime journal: requests, SQL statements,
+The runtime journal records every accepted runtime event once in a bounded, in-memory structure: requests, SQL statements,
 exceptions, security events, REST client calls, cache accesses, messages, scheduled runs, transactions on Spring, logical
 database connections, and application `WARN` and `ERROR` log events, each with the request or execution it belongs to.
 Aggregates per route, statement, exception group, and thread family count every event even after the journal evicts it.
@@ -387,7 +427,8 @@ them, are never recorded.
 **Recording** in the panel header opens the journal's status, read only when you open it: the events and memory it
 retains against its bounds, when its oldest event happened, how many events each source recorded in this run, and how
 many were evicted or dropped. **Clear recording** drops the events and aggregates of this run, after a confirmation, and
-keeps the counts so drops and evictions stay visible.
+keeps the counts so drops and evictions stay visible. With durable persistence active, this also schedules deletion of
+the current run's acknowledged history; previous runs remain.
 
 **Recorded by** chooses where the feed comes from:
 
@@ -396,10 +437,10 @@ keeps the counts so drops and evictions stay visible.
 - **Runtime journal** renders the feed from the journal: every child nests under its request, scheduled run, or consumed
   message by id, and transactions, log events, and **AI** calls appear as rows. Four more filters apply on the server:
   **Route**, **Request id**, **Run id**, and **No request**.
-- **Panel buffers** merges each panel's own buffer, as BootUI 1.x does.
+- **Panel buffers** merges each panel's own bounded buffer without the runtime journal.
 
 The selector is a per-request override (`?source=buffers`), not a second configuration mode. `bootui.activity.feed-source`
-accepts only `journal` in 2.0; an old `buffers` value fails startup with migration guidance. Disabling the journal
+accepts only `journal`; a configured `buffers` value fails startup with migration guidance. Disabling the journal
 automatically uses the panel buffers for the live feed, but cannot write durable history.
 
 A request's profile drawer also shows **Recorded by the runtime journal**: where the request stands against its route's
@@ -440,6 +481,10 @@ kept outside the journal uses against `bootui.runtime-journal.agent-evidence-max
 BootUI memory**, drop that evidence too: Code Paths' request and route trees, Code Inventory's first requests and routes,
 and Side Effects rows. The status counts Side Effects as `sideEffectRows` and `sideEffectsWaiting`.
 
+Durable runs are separate from this in-process comparison history and can be selected by scope for Live Activity,
+request profiles, and Runtime Insights. A durable run remains readable until retention, a clear, or an external
+database operation removes it.
+
 When the application restarts in the same JVM (a DevTools restart or Quarkus live reload), BootUI keeps a summary of the
 run that ended, at most 256 KB each, for the 5 most recent runs. Each run carries its application (name and whether it is
 a test), so when several applications share the JVM, as Spring test contexts do, a run is compared only with its own
@@ -464,15 +509,17 @@ confirmation-gated and blocked whenever the app or panel is read-only.
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on every stack. It sets the
 `SLOW` severity of request and scheduled-task entries, and decides which HTTP exchanges the
-[failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer, and so which requests durable
-history remembers as kept. Turn individual sources off through their own `bootui.panels.*` toggles; a disabled source
+[failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer. Durable capture follows the
+runtime journal's accepted events rather than that panel-buffer policy. Turn individual sources off through their own
+`bootui.panels.*` toggles; a disabled source
 drops out of the stream.
 
 Text rendered from the runtime journal follows the live `bootui.expose-values` and `bootui.mask-secrets` policy at every
 read, so a change of mode applies to the next read. Under the default `MASKED`, SQL is shown as its literal-free shape
 (`where name = ?`), and log messages and `;name=value` path parameters are masked as in the
 [Logs panel](diagnostics.md#log-message-exposure). `FULL` shows them as recorded. `METADATA_ONLY` keeps the SQL shape and
-omits log messages. [Durable history](#durable-history) is never written less masked than `MASKED`.
+omits log messages. [Durable history](#durable-history) is written at the fail-closed disk policy even when live
+exposure is `FULL`; reads never recover raw fields withheld at write time.
 
 ::: details Masking details
 
@@ -487,6 +534,10 @@ while the panel that owns it is enabled: disabling SQL Trace, Logs, or any other
 written to durable history, as it does for live rows. A search of durable history matches only the text each row shows,
 so it never finds a row by text masked or withheld on read.
 
+Reads default to their own namespace. Cross-namespace selection is refused unless
+`bootui.activity.persistence.reader-archive-cross-namespace=true`; direct offline archive reads require the equivalent
+explicit `--allow-cross-namespace` opt-in.
+
 A SQL statement that mixes a quote with a backslash or a `#`, which MySQL and MariaDB may read as an escaped quote or a
 comment, is cut at its first quote rather than guessed at.
 
@@ -494,9 +545,9 @@ comment, is cut at its first quote rather than guessed at.
 
 ## Per-stack behavior
 
-Durable persistence, the datasource hot-switch, N+1 detection and its badge, and call-site capture are shared engine code
-on every adapter. What differs is how signals correlate to a request, because only the servlet model gives a request its
-own thread.
+Durable persistence, global cursoring, historical profiles, the datasource hot-switch, N+1 detection and its badge,
+and call-site capture are shared engine code on every adapter. What differs is how signals correlate to a request,
+because only the servlet model gives a request its own thread.
 
 - **Every stack:** SQL statements, exceptions, security events, cache accesses, REST client calls, emails, and
   fault-tolerance events first match BootUI's own request id, so they nest exactly, with or without tracing, even when

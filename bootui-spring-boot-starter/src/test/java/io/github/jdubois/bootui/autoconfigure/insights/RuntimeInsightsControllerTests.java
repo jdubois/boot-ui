@@ -1,6 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -23,8 +30,18 @@ import io.github.jdubois.bootui.engine.insights.RouteTimeBreakdown;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
+import io.github.jdubois.bootui.engine.journal.DurableJournalCapture;
+import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalPage;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRun;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRunMetadata;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -38,6 +55,7 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,6 +76,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 class RuntimeInsightsControllerTests {
 
@@ -312,6 +331,119 @@ class RuntimeInsightsControllerTests {
         public int bypassed() {
             return price();
         }
+    }
+
+    @Test
+    void aHotUnselectedReportKeepsTheNoArgPathWithoutReadingDurableStorage() {
+        DurableJournalStore store = mock(DurableJournalStore.class);
+        DurableJournalRuntime runtime = new DurableJournalRuntime();
+        assertThat(runtime.activate(store, mock(DurableJournalCapture.class))).isTrue();
+        DurableJournalSettings settings =
+                durableSettings(journal.run().id(), journal.status().instanceId(), false);
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(RuntimeJournal.class, () -> journal);
+            context.registerBean(DurableJournalSettings.class, () -> settings);
+            context.registerBean(DurableJournalRuntime.class, () -> runtime);
+            context.refresh();
+
+            RuntimeInsightsController controller = controller(context);
+
+            assertThat(controller.report().available()).isTrue();
+            verifyNoInteractions(store);
+        }
+    }
+
+    @Test
+    void selectedHistoricalReportUsesDurableEvidenceAndRejectsUnknownScope() throws Exception {
+        RuntimeJournal old = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        try {
+            old.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    1_000_000,
+                    CorrelationContext.forRequest("historical"),
+                    "worker",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/historical", "/historical", null, 200)));
+            assertThat(old.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            JournalEvidenceSnapshot snapshot = JournalEvidenceSnapshot.hot(old);
+            DurableJournalSettings settings =
+                    durableSettings(journal.run().id(), journal.status().instanceId(), false);
+            DurableJournalScope scope = new DurableJournalScope(
+                    settings.namespaceId(), settings.applicationId(), old.run().id());
+            DurableJournalRunMetadata metadata = DurableJournalRunMetadata.snapshot(
+                    DurableJournalRunMetadata.Phase.CHECKPOINT,
+                    old,
+                    new DurableJournalIdentity(
+                            scope.namespace(),
+                            scope.application(),
+                            scope.run(),
+                            "process",
+                            snapshot.status().instanceId()),
+                    io.github.jdubois.bootui.engine.insights.InsightsStack.SPRING_MVC,
+                    Map.of(),
+                    null,
+                    null);
+            DurableJournalStore store = mock(DurableJournalStore.class);
+            when(store.findRun(scope))
+                    .thenReturn(new DurableJournalRun(
+                            scope,
+                            1,
+                            1,
+                            "RUNNING",
+                            null,
+                            old.lastSequence(),
+                            snapshot.status().instanceId(),
+                            metadata));
+            when(store.findRunMetadata(scope)).thenReturn(metadata);
+            when(store.query(any())).thenReturn(new DurableJournalPage(snapshot.entries(), null, false));
+            when(store.listDetails(any(), anyLong(), anyInt())).thenReturn(List.of());
+            DurableJournalRuntime runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, mock(DurableJournalCapture.class)))
+                    .isTrue();
+            try (GenericApplicationContext context = new GenericApplicationContext()) {
+                context.registerBean(RuntimeJournal.class, () -> journal);
+                context.registerBean(DurableJournalSettings.class, () -> settings);
+                context.registerBean(DurableJournalRuntime.class, () -> runtime);
+                context.refresh();
+                RuntimeInsightsController controller = controller(context);
+
+                assertThat(controller.report(scope.namespace(), scope.application(), scope.run()))
+                        .satisfies(report -> {
+                            assertThat(report.available()).isTrue();
+                            assertThat(report.window().runId())
+                                    .isEqualTo(old.run().id());
+                            assertThat(report.window().requests()).isEqualTo(1);
+                        });
+                assertThat(controller
+                                .report(scope.namespace(), scope.application(), "missing-run")
+                                .available())
+                        .isFalse();
+                assertThatThrownBy(() -> controller.report("other-namespace", scope.application(), scope.run()))
+                        .isInstanceOf(ResponseStatusException.class)
+                        .satisfies(ex -> assertThat(((ResponseStatusException) ex)
+                                        .getStatusCode()
+                                        .value())
+                                .isEqualTo(400));
+            }
+        } finally {
+            old.close();
+        }
+    }
+
+    private static DurableJournalSettings durableSettings(
+            String runId, String instanceId, boolean readerArchiveCrossNamespace) {
+        return new DurableJournalSettings(
+                new DurableJournalIdentity("local", "orders", runId, "process", instanceId),
+                true,
+                Duration.ofSeconds(1),
+                100,
+                1024 * 1024,
+                100,
+                "bootui_activity",
+                Duration.ofDays(7),
+                readerArchiveCrossNamespace);
     }
 
     @Test

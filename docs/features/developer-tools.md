@@ -186,8 +186,10 @@ to type, such as `bootui architecture scan`, its arguments, the MCP tool it maps
 panel is disabled or read-only. That last column explains an exit code of `2`: BootUI declining to run a tool is a
 statement about how the target is configured, not a failed request.
 
-Two local commands sit outside that diagnostic registry: `bootui docs` lists, reads, and searches the CLI release's
-bundled documentation offline; `bootui update --check` checks release availability without changing files.
+Local commands sit outside that diagnostic registry. `bootui docs` lists, reads, and searches bundled documentation;
+`bootui update --check` checks release availability without changing files; `bootui init` configures a local MCP
+client; and `bootui instances` discovers local BootUI applications. `bootui archive runs|activity|profile|insights`
+reads an existing durable journal directly over JDBC, without an application or MCP server.
 `bootui update` replaces a recognized installer-owned jar on Unix only after checksum verification, so agents must ask
 first. JBang installs receive a reinstall command, and Windows receives reviewed-installer guidance instead of an
 automatic upgrade. See [the CLI guide](../CLI.md).

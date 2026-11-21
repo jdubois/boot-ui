@@ -437,15 +437,17 @@ renders the runtime journal's retained events, as on every stack. The merge belo
 `bootui.runtime-journal.enabled=false`, or an explicit diagnostic `?source=buffers` request. Configuring
 `bootui.activity.feed-source=buffers` is no longer supported and fails startup; the property accepts only `journal`.
 
-The runtime datasource switch shares MVC and Quarkus's journal admission: an absent, disabled, or closed journal returns
-HTTP `409` before schema or store mutation, while configured startup capture may still wait for journal injection.
-A successful switch owns one subscriber writing directly to the candidate durable store before it is published.
-Capture-start failure leaves in-memory storage active and reports that schema verification may already have created
-the table ([Durable history](features/live-activity.md#durable-history)).
+The durable journal has the same Spring MVC and Quarkus contract. A configured store owns
+`bootui_activity_runs/_events/_details`; an existing legacy `bootui_activity` table is not inspected or migrated.
+The datasource switch atomically takes a journal snapshot, subscribes future batches, and only then publishes the
+durable reader. An absent, disabled, or closed journal returns HTTP `409`; a failed start leaves the in-memory feed
+active and reports that schema verification may already have created the tables. The feed's store-wide global cursor
+orders several instances, while cross-process updates are read by cursor polling because local SSE only signals the
+current JVM. See [Durable history](features/live-activity.md#durable-history).
 
 | Panel         | Reactive source                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Live Activity | `ReactiveLiveActivityController` merges requests, SQL, exceptions, security, cache, scheduled tasks, messaging, mail, REST client calls and fault-tolerance events through `LiveActivityAssembler`. The journal-first path also shows journal-only types, including transactions, logs and ORM observations. `ExecutionProfileAssembler` supplies exact request-id and optional trace-id profiles; serving-thread/time-window tiers are unavailable. The shared `ReactiveBootUiChangeStream` refreshes on source changes and completed application requests. |
+| Live Activity | `ReactiveLiveActivityController` merges requests, SQL, exceptions, security, cache, scheduled tasks, messaging, mail, REST client calls and fault-tolerance events through `LiveActivityAssembler`. The journal-first path also shows journal-only types, including transactions, logs and ORM observations. `ExecutionProfileAssembler` supplies exact request-id and optional trace-id profiles; serving-thread/time-window tiers are unavailable. Durable persistence adds the same three-table journal, global cursor, historical profiles, and bounded archived Runtime Insights used by MVC and Quarkus. The shared `ReactiveBootUiChangeStream` refreshes on local source changes and completed application requests. |
 
 ::: details Where each of the ten panel-buffer signals comes from
 

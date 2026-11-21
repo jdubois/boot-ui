@@ -14,8 +14,9 @@ activates only in local development.
 
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
-> **BootUI is available on Maven Central**, with exact correlation, a runtime journal, Runtime Insights, run comparison,
-> and optional Java-agent instrumentation. Follow the [setup guide](docs/SETUP.md), read its
+> **BootUI is available on Maven Central**, with exact correlation, a durable SQL runtime journal, historical
+> profiles, Runtime Insights, run comparison, and optional Java-agent instrumentation. Follow the
+> [setup guide](docs/SETUP.md), read its
 > [known limitations](docs/KNOWN-LIMITATIONS.md), and share feedback in
 > [GitHub Discussions](https://github.com/jdubois/boot-ui/discussions).
 
@@ -55,7 +56,7 @@ locations where available, and previewed Markdown to copy into an editor or agen
 | CI/CD and GitHub Actions | [CI setup guide](docs/CI.md)                          |
 | Sample app               | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
 | Repository docs          | <https://www.julien-dubois.com/boot-ui/repository>     |
-| Known limitations of 2.0 | [Known limitations](docs/KNOWN-LIMITATIONS.md)         |
+| Known limitations        | [Known limitations](docs/KNOWN-LIMITATIONS.md)         |
 
 ## Use with AI agents
 
@@ -94,6 +95,8 @@ curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
 ```bash
 bootui beans --query dataSource
 bootui hibernate scan --json | jq '.topFindings[]'
+bootui archive runs --jdbc-url "$BOOTUI_ARCHIVE_JDBC_URL" \
+  --namespace local --application orders --json
 ```
 
 It needs no MCP client and no agent, prints exact JSON when piped, and exits `2` when a panel's own policy
@@ -101,6 +104,8 @@ declines the call and `3` when `--fail-on <severity>` finds a finding at or abov
 `--fail-on insufficient` finds insufficient or partial evidence, so CI can branch on it. Windows has a PowerShell
 installer, and JBang works too — see the
 [command-line guide](https://www.julien-dubois.com/boot-ui/cli).
+The `archive` family is the offline exception: it reads an existing durable journal directly over JDBC and never needs
+a running application or MCP server.
 
 ## Use in CI
 
