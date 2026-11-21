@@ -105,6 +105,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   split-transaction and after-completion-listener observations, without treating commented SELECTs as writes or
   changing captured execution/transaction provenance. CTE-headed writes and procedure calls remain outside the
   lexical classifier ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Runtime Insights** shows the check title instead of repeating the subject when a Subject group has one observation
+  ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Composed Spring roles** are recognized by the async-configuration and async-event-listener Architecture checks,
   including `@SpringBootApplication` and `@TransactionalEventListener`. Newly detected MEDIUM findings use the existing
   severity, dismissal and CI policies ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-013---async-should-not-be-used-in-configuration-classes)).
@@ -144,8 +146,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **GitHub response integrity** keeps malformed alert responses unavailable rather than reporting zero, marks failed
   alert signals partial, and preserves HTTP status without exposing response bodies
   ([GitHub](docs/features/developer-tools.md#github)).
-- **Runtime Insights** shows the check title instead of repeating the subject when a Subject group has one observation
-  ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Cache proxy-bypass accuracy** no longer treats disabled or unavailable cache capture as a bypass on Spring MVC and WebFlux
   ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Architecture self-proxy precision** clears recognized lazy self-proxy calls while retaining direct self-call findings
