@@ -310,8 +310,10 @@ public final class DurableJournalEvidence {
 
             @Override
             public boolean evictedARequestOf(String traceId) {
-                // Contiguous sequences cannot prove the presence of a request lost before sequencing.
-                return metadata != null
+                // A live window uses the ring's Clear generation, not a potentially stale checkpoint.
+                // Historical reads cannot infer pre-sequence losses from otherwise contiguous sequences.
+                return !currentArchive
+                                && metadata != null
                                 && scope.run().equals(metadata.journalStatus().runId())
                                 && metadata.offloadTraceLoss().matches(scope, traceId)
                         || !durableComplete

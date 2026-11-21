@@ -153,7 +153,6 @@ public final class RuntimeJournal
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
     private volatile ClearBoundary clearBoundary = new ClearBoundary(0, 0, Map.of());
-    private long lastExplicitClearGeneration;
     private volatile long offloadedEvents;
     private volatile long durableOffloadedThrough;
     private final Object offloadState = new Object();
@@ -511,23 +510,14 @@ public final class RuntimeJournal
                 JournalQueue queue = admission;
                 // Paused, nothing is offered but the rare marker, which wakes the wait: no need to wake every 250 ms.
                 long pollMillis = paused ? Math.max(dispatcherPollMillis, PAUSED_POLL_MILLIS) : dispatcherPollMillis;
-                RuntimeEvent first = queue.poll(pollMillis, TimeUnit.MILLISECONDS);
-                if (first == null) {
+                if (!queue.poll(pollMillis, TimeUnit.MILLISECONDS)) {
                     continue;
                 }
                 synchronized (processing) {
-                    if (queue != admission) {
-                        // Offered before a clear that ran while the dispatcher held it: cleared with the recording.
-                        if (queue.memoryOffloadGeneration() > lastExplicitClearGeneration) {
-                            ring.lostBeforeOffload(first);
-                        } else {
-                            ring.lost(first);
-                        }
-                        finishDiscarded(1);
+                    if (queue != admission || queue.drainPolledTo(batch, BATCH_SIZE) == 0) {
+                        // Detach owns the discarded reservation once this queue has been replaced.
                         continue;
                     }
-                    batch.add(first);
-                    queue.drainTo(batch, BATCH_SIZE - 1);
                     process(batch);
                 }
                 if (batch.size() < BATCH_SIZE) {
@@ -1066,14 +1056,16 @@ public final class RuntimeJournal
         return offloadedEvents;
     }
 
-    /** An admission in this run was lost before it received a sequence the archive can account for. */
+    /** An admission in the current recording was lost before it received a sequence the archive can account for. */
     boolean hasUnsequencedLoss() {
         return unsequencedLoss;
     }
 
-    private void finishDiscarded(int count) {
+    private void finishDiscarded(int count, boolean evidenceLost) {
         if (count > 0) {
-            unsequencedLoss = true;
+            if (evidenceLost) {
+                unsequencedLoss = true;
+            }
             processed.addAndGet(count);
         }
     }
@@ -1081,22 +1073,24 @@ public final class RuntimeJournal
     /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
     private long clearAndCount(boolean memoryOffload) {
         synchronized (processing) {
+            if (!memoryOffload) {
+                unsequencedLoss = false;
+            }
             ClearBoundary boundary = new ClearBoundary(
                     clearsCompleted + 1,
                     Math.max(System.currentTimeMillis(), clearBoundary.epochMillis()),
                     perSource(dropped));
-            if (!memoryOffload) {
-                lastExplicitClearGeneration = boundary.clears();
-            }
             JournalQueue detached = admission;
             int queued = 0;
+            int discarded = 0;
             // A closed journal's queue stays: compare-and-set, since a close with a stuck dispatcher installs it
             // without holding processing.
             if (!detached.refusing() && ADMISSION.compareAndSet(this, detached, newQueue())) {
                 // Offers already admitted to the old queue are cleared with it; any later offer finds it detached
                 // and goes to the replacement. Detaching also wakes a dispatcher waiting on it.
-                JournalQueue.Detached cleared = detached.detach(memoryOffload ? boundary.clears() : 0);
+                JournalQueue.Detached cleared = detached.detach();
                 queued = cleared.count();
+                discarded = cleared.discardedCount();
                 // Outside the queue's lock: their requests and executions lost them to the clear.
                 cleared.forEach(memoryOffload ? ring::lostBeforeOffload : ring::lost);
             }
@@ -1104,7 +1098,7 @@ public final class RuntimeJournal
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);
             }
-            finishDiscarded(queued);
+            finishDiscarded(discarded, memoryOffload);
             long dropped = ring.counts().retained() + queued;
             ring.clear(memoryOffload);
             dictionary.clear();
@@ -1220,7 +1214,7 @@ public final class RuntimeJournal
             JournalQueue.Detached discarded = last.detach();
             // Counted as processed, not dropped, so no check is made partial by them: their work lost them instead.
             discarded.forEach(ring::lost);
-            finishDiscarded(discarded.count());
+            finishDiscarded(discarded.discardedCount(), true);
             return;
         }
         if (settings.enabled()) {

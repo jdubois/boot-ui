@@ -442,7 +442,7 @@ class DurableJournalEvidenceTests {
         DurableJournalEvidence reader = new DurableJournalEvidence(store);
         JournalEvidenceSnapshot current = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
         assertThat(current.omittedEvents()).isZero();
-        assertThat(current.lossHorizonMillis()).isEqualTo(1_000L);
+        assertThat(current.lossHorizonMillis()).isEqualTo(memoryOffload ? 1_000L : null);
         var profiles = new RequestJournalProfiles(journal, null, 0, 2, null);
         var profile = profiles.profileFrom(current, "later");
         assertThat(profile.available()).isTrue();
@@ -464,6 +464,19 @@ class DurableJournalEvidenceTests {
         assertThat(journal.offer(tracedHttp("new-recording", 4_000, traceId))).isTrue();
         assertThat(journal.offer(tracedAi(4_000, traceId))).isTrue();
         journal.dispatchPending();
+        persist(store, scope, journal.entries());
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+        assertThat(store.findRunMetadata(scope).offloadTraceLoss().matches(scope, traceId))
+                .isEqualTo(memoryOffload);
+        JournalEvidenceSnapshot beforeHeartbeat = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(4));
+        assertThat(beforeHeartbeat.entries()).extracting(JournalEntry::sequence).containsExactly(6L, 5L);
+        assertThat(beforeHeartbeat.lossHorizonMillis())
+                .as("a complete new recording does not inherit unsequenced loss from before Clear")
+                .isNull();
+        assertThat(profiles.profileFrom(beforeHeartbeat, "new-recording").timeline())
+                .as("the previous recording's checkpoint must not veto attribution in the current recording")
+                .anyMatch(item -> item.source().equals("ai"));
+
         var afterClear = DurableJournalRunMetadata.snapshot(
                         DurableJournalRunMetadata.Phase.CHECKPOINT,
                         journal,
@@ -474,7 +487,6 @@ class DurableJournalEvidenceTests {
                         null)
                 .withCaptureLoss(0, 0, 4);
         store.upsertRun(new DurableJournalRun(scope, 1, 2, "RUNNING", null, 6, identity.instanceId(), afterClear));
-        persist(store, scope, journal.entries());
         assertThat(store.findRunMetadata(scope).offloadTraceLoss().isEmpty()).isTrue();
         assertThat(profiles.profileFrom(reader.read(scope), "new-recording").timeline())
                 .anyMatch(item -> item.source().equals("ai"));
@@ -507,6 +519,7 @@ class DurableJournalEvidenceTests {
         journals.add(journal);
         var processing = RuntimeJournal.class.getDeclaredField("processing");
         processing.setAccessible(true);
+        DurableJournalScope scope = scope(journal);
         String trace = "dispatcher-held-trace";
         synchronized (processing.get(journal)) {
             assertThat(journal.offer(tracedHttp("held", 1_000, trace))).isTrue();
@@ -517,12 +530,19 @@ class DurableJournalEvidenceTests {
             assertThat(journal.status().queueDepth()).isZero();
             assertThat(journal.lastSequence()).isZero();
             assertThat(journal.offloadRetainedData()).isZero();
+            assertThat(journal.durableTraceSnapshot(scope).offloadTraceLoss().matches(scope, trace))
+                    .as("detachment records trace loss before the dispatcher can resume")
+                    .isTrue();
+            assertThat(journal.hasUnsequencedLoss()).isTrue();
             if (followedByClear) {
                 journal.clear();
+                assertThat(journal.durableTraceSnapshot(scope)
+                                .offloadTraceLoss()
+                                .isEmpty())
+                        .isTrue();
             }
         }
         assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
-        DurableJournalScope scope = scope(journal);
         assertThat(journal.durableTraceSnapshot(scope).offloadTraceLoss().matches(scope, trace))
                 .isEqualTo(!followedByClear);
         assertThat(journal.evictedARequestOf(trace)).isFalse();

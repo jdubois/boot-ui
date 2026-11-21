@@ -371,7 +371,8 @@ absent durable row as proof of absence.
 Start, checkpoint, and end metadata is refreshed independently. If memory offload discards an HTTP request before
 it receives a journal sequence, later metadata stores a bounded, run-scoped fingerprint of its trace, not the lost
 request's trace ID. Historical profiles do not assign calls linked only by that trace to another request. If the
-bound is exceeded, trace-only attribution is withheld for that recording until **Clear recording**.
+bound is exceeded, trace-only attribution is withheld for that recording until **Clear recording**. Historical
+profiles and Runtime Insights report this loss as incomplete evidence, without counting it as missing database rows.
 
 Historical readers can label an interrupted run and
 project its last checkpoint without inventing a graceful shutdown. After acknowledgement, BootUI compacts the

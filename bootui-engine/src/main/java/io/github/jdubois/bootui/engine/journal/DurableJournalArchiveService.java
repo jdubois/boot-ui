@@ -517,6 +517,10 @@ public final class DurableJournalArchiveService {
             JournalEvidenceSnapshot snapshot,
             boolean missingDetails) {
 
+        private static final String OFFLOAD_TRACE_LOSS =
+                "Memory offload discarded traced HTTP requests before they received journal sequences. "
+                        + "This archive is incomplete; affected trace-only calls are not attributed to a request.";
+
         List<String> profileLimitations() {
             List<String> result = new ArrayList<>();
             if (metadata.phase() != DurableJournalRunMetadata.Phase.END) {
@@ -531,6 +535,9 @@ public final class DurableJournalArchiveService {
                 result.add("The durable capture lost " + metadata.durableDroppedEvents()
                         + " entries and quarantined " + metadata.durableQuarantinedEvents()
                         + "; this profile may omit work.");
+            }
+            if (!metadata.offloadTraceLoss().isEmpty()) {
+                result.add(OFFLOAD_TRACE_LOSS);
             }
             if (missingDetails) {
                 result.add("Safe durable detail rows are absent for part of this history, so request and exception"
@@ -557,6 +564,9 @@ public final class DurableJournalArchiveService {
                 result.add("The durable capture dropped " + metadata.durableDroppedEvents()
                         + " entries and quarantined " + metadata.durableQuarantinedEvents()
                         + "; the report is incomplete and absence must not be read as no event.");
+            }
+            if (!metadata.offloadTraceLoss().isEmpty()) {
+                result.add(OFFLOAD_TRACE_LOSS);
             }
             if (missingDetails) {
                 result.add("Safe durable detail rows are absent for part of the retained history; exception metadata is"
@@ -598,7 +608,8 @@ public final class DurableJournalArchiveService {
                     && !missingDetails
                     && metadata.runSummary() != null
                     && metadata.durableDroppedEvents() == 0
-                    && metadata.durableQuarantinedEvents() == 0;
+                    && metadata.durableQuarantinedEvents() == 0
+                    && metadata.offloadTraceLoss().isEmpty();
         }
     }
 }

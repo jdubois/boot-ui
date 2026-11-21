@@ -29,13 +29,16 @@ class JournalQueueTests {
         assertThat(queue.offer(event(6, true), true)).isEqualTo(JournalQueue.FULL);
         assertThat(queue.size()).isEqualTo(4);
 
-        assertThat(queue.poll(0, TimeUnit.MILLISECONDS).epochMillis()).isEqualTo(1);
+        assertThat(queue.poll(0, TimeUnit.MILLISECONDS)).isTrue();
         List<RuntimeEvent> batch = new ArrayList<>();
+        assertThat(queue.drainPolledTo(batch, 1)).isEqualTo(1);
+        assertThat(batch).extracting(RuntimeEvent::epochMillis).containsExactly(1L);
+        batch.clear();
         assertThat(queue.drainTo(batch, 2)).isEqualTo(2);
         assertThat(accepted(queue.offer(event(7, false), false))).isTrue();
         assertThat(queue.drainTo(batch, 10)).isEqualTo(2);
         assertThat(batch).extracting(RuntimeEvent::epochMillis).containsExactly(2L, 4L, 5L, 7L);
-        assertThat(queue.poll(0, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(queue.poll(0, TimeUnit.MILLISECONDS)).isFalse();
     }
 
     @Test
@@ -209,7 +212,28 @@ class JournalQueueTests {
         assertThat(queue.drainTo(new ArrayList<>(), 10)).isZero();
         assertThat(queue.poll(30, TimeUnit.SECONDS))
                 .as("a detached queue never makes the dispatcher wait")
-                .isNull();
+                .isFalse();
+    }
+
+    @Test
+    void detachmentOwnsTheReservationWithoutChangingQueueDepthOrAffectingASynchronousDrain() throws Exception {
+        JournalQueue queue = new JournalQueue(4, 4, null, null);
+        queue.offer(event(1, false), false);
+        queue.offer(event(2, false), false);
+        assertThat(queue.poll(0, TimeUnit.MILLISECONDS)).isTrue();
+        assertThat(queue.size()).isOne();
+
+        List<RuntimeEvent> batch = new ArrayList<>();
+        assertThat(queue.drainTo(batch, 4)).isOne();
+        assertThat(batch).extracting(RuntimeEvent::epochMillis).containsExactly(2L);
+        JournalQueue.Detached discarded = queue.detach();
+        assertThat(discarded.count()).isZero();
+        assertThat(discarded.discardedCount()).isOne();
+        List<Long> visited = new ArrayList<>();
+        discarded.forEach(event -> visited.add(event.epochMillis()));
+        assertThat(visited).containsExactly(1L);
+        assertThat(queue.drainPolledTo(new ArrayList<>(), 4)).isZero();
+        assertThat(queue.detach().discardedCount()).isZero();
     }
 
     @Test
@@ -240,10 +264,10 @@ class JournalQueueTests {
     @Test
     void detachingWakesADispatcherWaitingOnTheQueue() throws Exception {
         JournalQueue queue = new JournalQueue(4, 4, null, null);
-        AtomicReference<RuntimeEvent> polled = new AtomicReference<>(event(0, false));
+        var reserved = new java.util.concurrent.atomic.AtomicBoolean(true);
         Thread dispatcher = new Thread(() -> {
             try {
-                polled.set(queue.poll(30, TimeUnit.SECONDS));
+                reserved.set(queue.poll(30, TimeUnit.SECONDS));
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
@@ -257,7 +281,7 @@ class JournalQueueTests {
         dispatcher.join(5_000);
 
         assertThat(dispatcher.isAlive()).isFalse();
-        assertThat(polled.get()).isNull();
+        assertThat(reserved).isFalse();
     }
 
     private static boolean accepted(int outcome) {

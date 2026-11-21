@@ -187,6 +187,63 @@ class DurableJournalArchiveServiceTests {
     }
 
     @Test
+    void anArchivedRunWithPreSequenceOffloadLossIsIncompleteWithoutAnOmittedRowCount() {
+        Fixture fixture = fixture();
+        DurableJournalScope scope = new DurableJournalScope("alpha", "orders", "run-unsequenced-loss");
+        persist(
+                fixture,
+                scope,
+                DAY,
+                1,
+                DurableJournalRunMetadata.Phase.END,
+                List.of(http(1, "retained", DAY, "/orders", "/orders", 200)));
+        fixture.store()
+                .upsertDetail(DurableJournalDetail.request(scope, 1, "GET", "/orders", "OrderController.get", 200));
+        DurableJournalArchiveService archive =
+                DurableJournalArchiveService.forNamespace(fixture.store(), MASKED, "alpha");
+        assertThat(archive.multiRunInsights(List.of(scope))
+                        .runs()
+                        .get(0)
+                        .completeness()
+                        .complete())
+                .isTrue();
+
+        // Append one V3 fingerprint to an otherwise complete V2 end snapshot.
+        DurableJournalRun run = fixture.store().findRun(scope);
+        byte[] v2 = run.metadataPayload();
+        byte[] fingerprint = java.util.HexFormat.of()
+                .parseHex(DurableJournalIds.offloadTraceFingerprint(scope, "discarded-request"));
+        byte[] v3 = java.nio.ByteBuffer.allocate(v2.length + Integer.BYTES + fingerprint.length)
+                .put(v2)
+                .putInt(1)
+                .put(fingerprint)
+                .putInt(4, 3)
+                .array();
+        fixture.store()
+                .upsertRun(new DurableJournalRun(
+                        scope,
+                        run.startedAtEpochMillis(),
+                        run.updatedAtEpochMillis(),
+                        run.status(),
+                        run.metadata(),
+                        v3,
+                        run.checkpoint(),
+                        run.instanceId()));
+
+        String loss = "Memory offload discarded traced HTTP requests before they received journal sequences";
+        assertThat(archive.profile(scope, "retained").notes()).anyMatch(note -> note.startsWith(loss));
+        assertThat(archive.multiRunInsights(List.of(scope)).runs())
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.completeness().complete()).isFalse();
+                    assertThat(result.completeness().omittedEvents()).isZero();
+                    assertThat(result.completeness().limitations()).anyMatch(note -> note.startsWith(loss));
+                    assertThat(result.insights().limitations()).anyMatch(note -> note.startsWith(loss));
+                    assertThat(result.insights().window().requests()).isOne();
+                });
+    }
+
+    @Test
     void durableCaptureLossMakesACompletedRunIncomplete() {
         Fixture fixture = fixture();
         DurableJournalScope scope = new DurableJournalScope("alpha", "orders", "run-loss");
