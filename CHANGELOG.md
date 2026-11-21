@@ -9,8 +9,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **CLI installer upgrades** on Linux and macOS keep the previous version runnable if preparing or replacing the
-  launcher fails ([CLI installation](docs/CLI.md#install)).
 - **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,
   preserves independent SQL and client evidence, and keeps matrix parameters out of fallback site identity.
   Thread names no longer diagnose `@Async` proxy bypass; unassessed async frames retain independently judgeable
@@ -66,6 +64,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **GitHub fork context** keeps origin as the cached default and offers explicit upstream selection, with separate
   host-scoped data and read-only cache recovery. Invalid remote queries are rejected before cache or external work;
   MCP, CLI and Scorecard remain origin-only ([GitHub](docs/features/developer-tools.md#github)).
+- **CLI installer upgrades** on Linux and macOS keep the previous version runnable if preparing or replacing the
+  launcher fails ([CLI installation](docs/CLI.md#install)).
 - **CRaC field cleanup evidence** recognizes narrowly proven self-registration and field-bound cleanup only as an
   unverified MEDIUM review, not checkpoint safety. Unknown or overridden callbacks retain HIGH; existing review
   severity and scores can change ([CRaC checks](docs/CRAC-READINESS-CHECKS.md)).
