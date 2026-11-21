@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **CLI installer upgrades** on Linux and macOS keep the previous version runnable if preparing or replacing the
+  launcher fails ([CLI installation](docs/CLI.md#install)).
 - **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,
   preserves independent SQL and client evidence, and keeps matrix parameters out of fallback site identity.
   Thread names no longer diagnose `@Async` proxy bypass; unassessed async frames retain independently judgeable
