@@ -369,7 +369,8 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST C
 `ReactiveBootUiChangeStream` is a small shared `Sinks.Many`-backed SSE broadcaster (`open()` / `signal()` / `close()`)
 used by panels that send `update` notifications. It centralizes coalescing, back-pressure, and a concurrency limit.
 The Copilot and Claude Code streams send the initial state and periodic refreshes as `sessions` / `dashboard` event
-pairs. For a slow subscriber, they retain the pair being delivered and only the latest pending pair.
+pairs. Once a pair starts, the stream finishes it before starting another. When a slow subscriber is ready for a new
+pair, the stream sends the latest pending refresh rather than replaying older ones.
 
 ::: details Per-panel fidelity notes (SQL Trace, Transactions, Exceptions, REST Client, WebSockets)
 

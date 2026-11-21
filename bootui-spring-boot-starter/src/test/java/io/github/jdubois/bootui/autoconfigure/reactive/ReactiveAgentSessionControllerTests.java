@@ -13,9 +13,13 @@ import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore.RefreshEvent;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.Test;
+import org.reactivestreams.Subscription;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.test.StepVerifier;
 
 class ReactiveAgentSessionControllerTests {
@@ -54,6 +58,44 @@ class ReactiveAgentSessionControllerTests {
                 .verify(Duration.ofSeconds(5));
 
         assertThat(source.listener).isNull();
+    }
+
+    @Test
+    void demandEndingAtAPairBoundaryDoesNotPinAnUnstartedRefresh() {
+        var source = new SnapshotSource();
+        var controller = new ReactiveAgentSessionController(
+                () -> source.store, new BootUiExposure(new BootUiProperties()), "test") {};
+        var events = new ArrayList<Tuple>();
+        var subscriber = new BaseSubscriber<Tuple>() {
+            @Override
+            protected void hookOnSubscribe(Subscription subscription) {
+                request(2);
+            }
+
+            @Override
+            protected void hookOnNext(Tuple event) {
+                events.add(event);
+            }
+        };
+
+        try {
+            controller.stream().map(event -> tuple(event.event(), event.data())).subscribe(subscriber);
+            assertThat(events).containsExactly(tuple("sessions", sessions(0)), tuple("dashboard", dashboard(0)));
+
+            source.refresh(1);
+            source.refresh(2);
+            assertThat(events).hasSize(2);
+
+            subscriber.request(2);
+            assertThat(events)
+                    .containsExactly(
+                            tuple("sessions", sessions(0)),
+                            tuple("dashboard", dashboard(0)),
+                            tuple("sessions", sessions(2)),
+                            tuple("dashboard", dashboard(2)));
+        } finally {
+            subscriber.cancel();
+        }
     }
 
     private static CopilotSessionListDto sessions(int count) {

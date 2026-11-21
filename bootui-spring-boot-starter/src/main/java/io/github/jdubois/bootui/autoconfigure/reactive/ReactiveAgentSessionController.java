@@ -8,9 +8,8 @@ import io.github.jdubois.bootui.core.dto.CopilotRawEventDto;
 import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -116,24 +115,25 @@ public abstract class ReactiveAgentSessionController {
                 return Flux.<ServerSentEvent<Object>>error(
                         new IllegalStateException("Too many concurrent BootUI " + streamLabel + " streams"));
             }
-            AgentSessionStore agentStore = store();
-            return Flux.<List<ServerSentEvent<Object>>>create(
+            return Flux.<ServerSentEvent<Object>>create(
                             sink -> {
-                                sink.next(snapshotEvents(agentStore));
+                                AgentSessionStore agentStore = store();
+                                SnapshotDelivery delivery = new SnapshotDelivery(sink, snapshot(agentStore));
                                 Runnable unsubscribe =
-                                        agentStore.subscribe(refresh -> sink.next(snapshotEvents(agentStore)));
-                                sink.onDispose(unsubscribe::run);
+                                        agentStore.subscribe(refresh -> delivery.offer(snapshot(agentStore)));
+                                sink.onDispose(() -> {
+                                    unsubscribe.run();
+                                    delivery.drain();
+                                });
+                                sink.onRequest(demand -> delivery.drain());
                             },
-                            FluxSink.OverflowStrategy.LATEST)
-                    // Prefetch one pair to preserve the initial snapshot. Finish that pair before
-                    // draining the latest pending pair, even if downstream requests only one event.
-                    .concatMapIterable(Function.identity(), 1)
+                            FluxSink.OverflowStrategy.ERROR)
                     .doFinally(signalType -> subscriberCount.decrementAndGet());
         });
     }
 
-    private static List<ServerSentEvent<Object>> snapshotEvents(AgentSessionStore store) {
-        return List.of(sessionsEvent(store), dashboardEvent(store));
+    private static Snapshot snapshot(AgentSessionStore store) {
+        return new Snapshot(sessionsEvent(store), dashboardEvent(store));
     }
 
     private static ServerSentEvent<Object> sessionsEvent(AgentSessionStore store) {
@@ -146,6 +146,57 @@ public abstract class ReactiveAgentSessionController {
         return ServerSentEvent.builder((Object) store.dashboard())
                 .event("dashboard")
                 .build();
+    }
+
+    private record Snapshot(ServerSentEvent<Object> sessions, ServerSentEvent<Object> dashboard) {}
+
+    private static final class SnapshotDelivery {
+        private final FluxSink<ServerSentEvent<Object>> sink;
+        private final AtomicReference<Snapshot> latest = new AtomicReference<>();
+        private final AtomicInteger workInProgress = new AtomicInteger();
+        private Snapshot initial;
+        private ServerSentEvent<Object> remainingDashboard;
+
+        private SnapshotDelivery(FluxSink<ServerSentEvent<Object>> sink, Snapshot initial) {
+            this.sink = sink;
+            this.initial = initial;
+        }
+
+        private void offer(Snapshot snapshot) {
+            latest.set(snapshot);
+            drain();
+        }
+
+        private void drain() {
+            // Refreshes and requests can race or reenter via sink.next; only one caller emits.
+            if (workInProgress.getAndIncrement() != 0) {
+                return;
+            }
+            int missed = 1;
+            do {
+                while (!sink.isCancelled() && sink.requestedFromDownstream() > 0) {
+                    if (remainingDashboard != null) {
+                        var event = remainingDashboard;
+                        remainingDashboard = null;
+                        sink.next(event);
+                    } else {
+                        Snapshot next = initial != null ? initial : latest.getAndSet(null);
+                        if (next == null) {
+                            break;
+                        }
+                        initial = null;
+                        remainingDashboard = next.dashboard();
+                        sink.next(next.sessions());
+                    }
+                }
+                if (sink.isCancelled()) {
+                    initial = null;
+                    remainingDashboard = null;
+                    latest.set(null);
+                }
+                missed = workInProgress.addAndGet(-missed);
+            } while (missed != 0);
+        }
     }
 
     // Unlike the servlet original, there is no process-wide shutdown() hook here: the servlet
