@@ -33,6 +33,68 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void durableOffloadOnlyCompactsAcknowledgedMemoryAndRetainsARecentTail() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        AtomicInteger clears = new AtomicInteger();
+        journal.addListener(new JournalListener() {
+            @Override
+            public void onEntries(List<JournalEntry> entries) {}
+
+            @Override
+            public void onClear() {
+                clears.incrementAndGet();
+            }
+        });
+        for (int i = 0; i < 5; i++) {
+            journal.offer(statement(i, "select " + i));
+        }
+        journal.dispatchPending();
+
+        assertThat(journal.offloadDurableThrough(4, 2)).isEqualTo(3);
+
+        assertThat(journal.entries()).extracting(JournalEntry::sequence).containsExactly(5L, 4L);
+        assertThat(journal.status().offloadedEvents()).isEqualTo(3);
+        assertThat(journal.status().durableOffloadedThrough()).isEqualTo(4);
+        assertThat(journal.status().evictedByCount()).isZero();
+        assertThat(journal.status().evictedByBytes()).isZero();
+        assertThat(journal.lossHorizonMillis()).isNull();
+        assertThat(journal.status().clears()).isZero();
+        assertThat(clears).hasValue(0);
+    }
+
+    @Test
+    void durableOffloadKeepsChildSqlUntilItsHttpAnchorIsAcknowledged() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sqlFor("request-1", null, 1_000));
+        journal.dispatchPending();
+
+        assertThat(journal.offloadDurableThrough(1, 0)).isZero();
+        assertThat(journal.entries()).hasSize(1);
+        journal.offer(httpFor("request-1", 1_100));
+        journal.dispatchPending();
+
+        assertThat(journal.offloadDurableThrough(2, 0)).isEqualTo(2);
+        assertThat(journal.entries()).isEmpty();
+        assertThat(journal.lossHorizonMillis()).isNull();
+    }
+
+    @Test
+    void durableOffloadKeepsAResponseAndItsOpenAsyncHandoffTogether() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(httpFor("request-1", 1_100));
+        journal.offer(sqlFor("request-1", "async-1", 1_200));
+        journal.dispatchPending();
+
+        assertThat(journal.offloadDurableThrough(2, 0)).isZero();
+        assertThat(journal.entries()).hasSize(2);
+        journal.offer(handoffFor("request-1", "async-1", 1_300));
+        journal.dispatchPending();
+
+        assertThat(journal.offloadDurableThrough(3, 0)).isEqualTo(3);
+        assertThat(journal.entries()).isEmpty();
+    }
+
+    @Test
     void closedJournalRejectsNewListenersAndPublicationWithoutRunningTheCommit() {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         journal.close();
@@ -104,6 +166,58 @@ class RuntimeJournalTests {
         journal.offer(sql(3, false));
         journal.dispatchPending();
         assertThat(changes).hasValue(1);
+    }
+
+    @Test
+    void snapshotAndSubscribeHasNoGapWhenARecordBatchRacesRegistration() throws Exception {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+            journal.offer(sql(1, false));
+            journal.dispatchPending();
+            List<Long> future = new CopyOnWriteArrayList<>();
+            CountDownLatch start = new CountDownLatch(1);
+            AtomicReference<List<JournalEntry>> snapshot = new AtomicReference<>();
+            Thread subscribing = new Thread(() -> {
+                try {
+                    start.await();
+                    snapshot.set(journal.snapshotAndSubscribe(entries -> future.addAll(
+                            entries.stream().map(JournalEntry::sequence).toList())));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            Thread recording = new Thread(() -> {
+                try {
+                    start.await();
+                    journal.offer(sql(2, false));
+                    journal.dispatchPending();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            subscribing.start();
+            recording.start();
+            start.countDown();
+            subscribing.join(5_000);
+            recording.join(5_000);
+
+            List<Long> observed = new ArrayList<>(
+                    snapshot.get().stream().map(JournalEntry::sequence).toList());
+            observed.addAll(future);
+            assertThat(observed.stream().distinct().sorted().toList()).containsExactly(1L, 2L);
+        }
+    }
+
+    @Test
+    void snapshotAndSubscribeRejectsAClosedJournalWithoutRegistering() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.close();
+
+        AtomicInteger notified = new AtomicInteger();
+        assertThatThrownBy(() -> journal.snapshotAndSubscribe(entries -> notified.incrementAndGet()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+        assertThat(notified).hasValue(0);
     }
 
     @Test
@@ -1153,5 +1267,53 @@ class RuntimeJournalTests {
                 ThreadKind.WORKER,
                 failedOrSlow,
                 () -> 64);
+    }
+
+    private static RuntimeEvent sqlFor(String requestId, String executionId, long start) {
+        return RuntimeEvent.of(
+                JournalSource.SQL,
+                start,
+                1_000,
+                CorrelationContext.forRequest(requestId).withExecutionId(executionId),
+                "worker",
+                ThreadKind.WORKER,
+                false,
+                new SqlPayload("select 1", "orders", null, true));
+    }
+
+    private static RuntimeEvent httpFor(String requestId, long start) {
+        return RuntimeEvent.of(
+                JournalSource.HTTP,
+                start,
+                1_000,
+                CorrelationContext.forRequest(requestId),
+                "http-1",
+                ThreadKind.WORKER,
+                false,
+                new HttpPayload("GET", "/orders", "/orders", null, 200, null));
+    }
+
+    private static RuntimeEvent handoffFor(String requestId, String executionId, long start) {
+        return RuntimeEvent.of(
+                JournalSource.AGENT_EXECUTORS,
+                start,
+                1_000,
+                CorrelationContext.forRequest(requestId).withExecutionId(executionId),
+                "worker",
+                ThreadKind.WORKER,
+                false,
+                new AsyncHandoffPayload(
+                        executionId,
+                        null,
+                        "Runnable",
+                        "runWorker",
+                        start - 10,
+                        10,
+                        null,
+                        false,
+                        null,
+                        false,
+                        0L,
+                        false));
     }
 }

@@ -11,6 +11,11 @@ recorded and caches the result until the journal records more or the live exposu
 evidence that quote recorded text, such as a framework warning's message or a request path, follow the same rule as
 [Live Activity](live-activity.md#safety-and-limits).
 
+The normal panel is the current process run. A direct REST caller can qualify a durable historical run with
+`namespace`, `application`, and `run`; those reads do require a bounded database projection. The
+[`bootui archive insights`](../CLI.md#read-durable-journal-history-offline) command performs the same projection
+without a running application.
+
 The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
 WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,
 Quarkus records no transactions and intercepts self-invocation, and Spring MVC has no event loop.
@@ -247,6 +252,25 @@ and links to the finding. Every retained observation is visible in the panel wit
 **Generate all findings** runs them all. Findings this application cannot produce are disabled with BootUI's reason,
 such as **Work after the response** without the BootUI agent. The sample's README, under _Runtime Insights demo_, lists
 what each finding needs.
+
+:::
+
+::: details Historical durable runs
+
+`GET /bootui/api/runtime-insights?namespace=…&application=…&run=…` and the corresponding
+`/insights/{id}` endpoint can project a durable run from another start or instance. Cross-namespace selection is
+disabled unless `bootui.activity.persistence.reader-archive-cross-namespace=true`. The normal browser panel remains
+focused on the current run.
+
+Historical projection is bounded to the retained run's event and byte limits (at most the default 50,000 events and
+32 MiB per read), marks omitted evidence as partial, and carries safe run metadata rather than consulting current
+adapters. Missing safe `_details`, an absent end snapshot, incomplete SQL qualification, or an unavailable previous
+summary add explicit limitations. The current Java agent and live-only agent evidence cannot be consulted for a past
+run. An interrupted run can still be read from its latest checkpoint, but it is not presented as complete.
+
+`bootui archive insights --run <runId>` reads one run; omitting `--run` projects the newest bounded set for one
+application, and repeated `--scope namespace/application/run` values project several explicit runs. All archive reads
+are masked and read-only.
 
 :::
 

@@ -236,6 +236,16 @@ describe('deepLink', () => {
       path: '/email',
       label: 'Open in Email'
     })
+    expect(
+      deepLink({
+        type: 'MAIL',
+        id: '0123456789abcdef0123456789abcdef-8',
+        summary: 'Email to 1 recipient'
+      })
+    ).toEqual({
+      path: '/email',
+      label: 'Open in Email'
+    })
   })
 
   it('links transaction and log rows from the runtime journal to their panels', () => {

@@ -22,7 +22,7 @@ features:
     link: /features/advisors
     linkText: Advisor catalog
   - title: Diagnostics toolbox
-    details: Follow Live Activity, inspect Runtime Insights, compare application runs, and drill into traces, log tail, exceptions, and HTTP exchanges.
+    details: Follow Live Activity across retained runs and instances, inspect bounded Runtime Insights, and drill into historical request profiles.
     link: /features/live-activity
     linkText: Live Activity and Runtime Insights
   - title: Database insight
@@ -52,6 +52,7 @@ showcaseVideo: true
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
 | Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
 | Ask a running application from a terminal | [Command line](CLI.md) |
+| Read a durable journal without an application | [Offline archive commands](CLI.md#read-durable-journal-history-offline) |
 | Gate integration tests in GitHub Actions | [CI/CD setup](CI.md) |
 
 ## Install the BootUI agent skill

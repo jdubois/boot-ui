@@ -68,7 +68,7 @@ public final class ActivityStoreFactory {
                 settings.retention());
     }
 
-    private static DataSource resolveDataSource(
+    public static DataSource resolveDataSource(
             ActivityPersistenceSettings settings, Supplier<DataSource> sharedDataSourceSupplier) {
         if (settings.dataSourceMode() == ActivityPersistenceSettings.DataSourceMode.DEDICATED) {
             return new SimpleDriverDataSource(

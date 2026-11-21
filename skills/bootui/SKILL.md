@@ -384,6 +384,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
    resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included
    alongside a journal HTTP profile when retained), and `none` says neither window retains the id.
+4. For a durable historical run, use `bootui archive runs|profile|insights` with the JDBC options. Archive reports are
+   masked and read-only; they are bounded and may be partial after queue loss, retention, a clear, missing safe details,
+   or an interrupted run. They cannot consult the current Java agent.
 
 ### Change code and verify it with runtime evidence
 
@@ -413,7 +416,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    `ERROR` or `SLOW` severities point at the requests worth opening. Loopback/trusted-peer application responses also
    carry `X-BootUI-Request-Id: <id>` by default (`bootui.http-exchanges.expose-request-id-header=true`), which you can
    read from browser DevTools or Playwright response headers and pass directly to `bootui request-profile <id>`
-   (`get_request_profile`).
+   (`get_request_profile`). Durable queries can add `namespace:`, `application:`, `run:`, `instance:`, and `route:`
+   qualifiers. Preserve the returned origin when drilling into a historical row; MCP `get_request_profile` itself
+   remains current-run.
 2. Fetch its profile with `bootui request-profile <id> --json` (`get_request_profile`), passing that entry's `id`. It
    returns `source: journal` with a recorded timeline, resources and touched metadata when retained. When that is
    unavailable, `source: buffers` returns the older HTTP-exchange profile; when both are retained, it accompanies

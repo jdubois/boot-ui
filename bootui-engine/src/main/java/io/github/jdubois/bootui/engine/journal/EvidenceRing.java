@@ -1,12 +1,15 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
@@ -223,6 +226,22 @@ final class EvidenceRing {
         return traceId != null && evictedRequestTraces.contains(traceId);
     }
 
+    synchronized List<String> lostRequestTraces() {
+        return List.copyOf(evictedRequestTraces);
+    }
+
+    synchronized List<String> lostRequestThreads() {
+        return List.copyOf(lostRequestThreads);
+    }
+
+    synchronized void durableCaptureLost(JournalEntry entry) {
+        if (entry == null || entry.event() == null) {
+            return;
+        }
+        rememberEvictedRequest(entry.event());
+        lost(entry.event());
+    }
+
     private int size() {
         return routine.size() + reserved.size();
     }
@@ -238,6 +257,112 @@ final class EvidenceRing {
         reserved.clear();
         evictedRequestTraces.clear();
         retainedBytes = 0;
+    }
+
+    /**
+     * Removes events after the durable capture has advanced through them, without treating their absence as new loss.
+     * The capture may have explicitly shed some entries before advancing; {@link #durableCaptureLost(JournalEntry)}
+     * records that loss first. The newest {@code keepNewest} events stay in memory, as do all events of a request or
+     * execution whose completion anchor has not itself been processed through {@code sequence}.
+     *
+     * @return the number of entries removed
+     */
+    synchronized int offloadDurableThrough(long sequence, int keepNewest) {
+        if (sequence <= 0 || size() == 0) {
+            return 0;
+        }
+        List<JournalEntry> all = newestFirst();
+        Set<String> completedRequests = new HashSet<>();
+        Set<String> completedExecutions = new HashSet<>();
+        Set<String> completedAsync = new HashSet<>();
+        for (JournalEntry entry : all) {
+            if (entry.sequence() > sequence) {
+                continue;
+            }
+            RuntimeEvent event = entry.event();
+            if (event.requestId() != null && event.source() == JournalSource.HTTP) {
+                completedRequests.add(event.requestId());
+            }
+            if (event.requestId() == null && event.executionId() != null && opensExecution(event)) {
+                completedExecutions.add(event.executionId());
+            }
+            if (event.payload() instanceof AsyncHandoffPayload handoff && handoff.executionId() != null) {
+                completedAsync.add(handoff.executionId());
+            }
+        }
+        Set<String> requestsWithOpenAsync = new HashSet<>();
+        for (JournalEntry entry : all) {
+            RuntimeEvent event = entry.event();
+            if (event.requestId() != null
+                    && ExecutionIds.isAsync(event.executionId())
+                    && !completedAsync.contains(event.executionId())) {
+                requestsWithOpenAsync.add(event.requestId());
+            }
+        }
+        Set<Long> keptByAge = new HashSet<>();
+        for (int i = 0; i < Math.min(keepNewest, all.size()); i++) {
+            keptByAge.add(all.get(i).sequence());
+        }
+        int removed = 0;
+        removed += removeOffloaded(
+                routine,
+                sequence,
+                keptByAge,
+                completedRequests,
+                completedExecutions,
+                completedAsync,
+                requestsWithOpenAsync);
+        removed += removeOffloaded(
+                reserved,
+                sequence,
+                keptByAge,
+                completedRequests,
+                completedExecutions,
+                completedAsync,
+                requestsWithOpenAsync);
+        return removed;
+    }
+
+    private int removeOffloaded(
+            ArrayDeque<JournalEntry> entries,
+            long through,
+            Set<Long> recent,
+            Set<String> completedRequests,
+            Set<String> completedExecutions,
+            Set<String> completedAsync,
+            Set<String> requestsWithOpenAsync) {
+        int removed = 0;
+        for (Iterator<JournalEntry> iterator = entries.iterator(); iterator.hasNext(); ) {
+            JournalEntry entry = iterator.next();
+            if (entry.sequence() > through || recent.contains(entry.sequence())) {
+                continue;
+            }
+            RuntimeEvent event = entry.event();
+            boolean openRequest = event.requestId() != null && !completedRequests.contains(event.requestId());
+            boolean openExecution = event.requestId() == null
+                    && event.executionId() != null
+                    && !ExecutionIds.isAsync(event.executionId())
+                    && !completedExecutions.contains(event.executionId());
+            boolean openAsync = event.executionId() != null
+                    && ExecutionIds.isAsync(event.executionId())
+                    && !completedAsync.contains(event.executionId());
+            boolean requestHasOpenAsync =
+                    event.requestId() != null && requestsWithOpenAsync.contains(event.requestId());
+            boolean managedTask = ExecutionIds.isTask(event.executionId());
+            if (openRequest || openExecution || openAsync || requestHasOpenAsync || managedTask) {
+                continue;
+            }
+            iterator.remove();
+            retainedBytes -= entry.estimatedBytes();
+            removed++;
+        }
+        return removed;
+    }
+
+    private static boolean opensExecution(RuntimeEvent event) {
+        return event.payload() instanceof ScheduledPayload
+                || event.payload() instanceof MessagingPayload message && !message.sent()
+                || event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution();
     }
 
     /** The retained events, newest first, merged across both rings by sequence. */
@@ -257,6 +382,13 @@ final class EvidenceRing {
             }
         }
         return Collections.unmodifiableList(merged);
+    }
+
+    /** The retained events, oldest first, merged across both rings by sequence. */
+    synchronized List<JournalEntry> oldestFirst() {
+        List<JournalEntry> merged = new ArrayList<>(newestFirst());
+        Collections.reverse(merged);
+        return List.copyOf(merged);
     }
 
     /**
@@ -292,6 +424,10 @@ final class EvidenceRing {
 
     /** The ring's counts at one instant. */
     synchronized Counts counts() {
+        return counts(size());
+    }
+
+    private Counts counts(int size) {
         JournalEntry oldestRoutine = routine.peekFirst();
         JournalEntry oldestReserved = reserved.peekFirst();
         Long oldest = null;
@@ -302,7 +438,7 @@ final class EvidenceRing {
             oldest = oldestReserved.event().epochMillis();
         }
         return new Counts(
-                size(),
+                size,
                 retainedBytes,
                 Math.min(reserved.size(), reservedCapacity),
                 reservedCapacity,
@@ -311,6 +447,13 @@ final class EvidenceRing {
                 lastBound,
                 oldest);
     }
+
+    /** The retained entries and matching bounds at one instant. */
+    synchronized Snapshot snapshot() {
+        return new Snapshot(newestFirst(), counts(size()));
+    }
+
+    record Snapshot(List<JournalEntry> entries, Counts counts) {}
 
     record Counts(
             int retained,

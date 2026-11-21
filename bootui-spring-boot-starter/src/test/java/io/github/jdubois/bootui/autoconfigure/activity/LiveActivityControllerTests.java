@@ -36,6 +36,9 @@ import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -58,6 +61,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class LiveActivityControllerTests {
 
@@ -556,6 +560,72 @@ class LiveActivityControllerTests {
             assertThat(rows.next()).isTrue();
             assertThat(rows.getInt(1)).isEqualTo(1);
         }
+    }
+
+    @Test
+    void durableSwitchUsesJournalStoreAndReturnsOriginMetadata() throws Exception {
+        DataSource dataSource = newDataSource();
+        SwitchableActivityStore legacyStore = defaultActivityStore();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                legacyStore,
+                disabledSettings(),
+                provider(dataSource),
+                new BootUiProperties());
+        RunIdentity run = RunIdentity.start();
+        DurableJournalSettings settings = durableSettings(run, "namespace-test");
+        ReflectionTestUtils.setField(controller, "durableJournalSettings", settings);
+        ReflectionTestUtils.setField(controller, "durableJournalStores", provider((DurableJournalStore) null));
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), run);
+        try {
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            assertThat(controller
+                            .useExistingDatasource(new ActivitySwitchRequest(true))
+                            .getStatusCode()
+                            .value())
+                    .isEqualTo(200);
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    2_000_000,
+                    CorrelationContext.forRequest("durable-request"),
+                    "t",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/durable", "/durable", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            journal.close();
+
+            LiveActivityReport report = controller.activity(null, null, 0, 0, null, null, null, 0);
+            assertThat(report.entries()).extracting(ActivityEntryDto::id).contains("durable-request");
+            assertThat(report.origins()).singleElement().satisfies(origin -> {
+                assertThat(origin.namespace()).isEqualTo("namespace-test");
+                assertThat(origin.application()).isEqualTo("orders");
+                assertThat(origin.run()).isEqualTo(run.id());
+                assertThat(origin.source()).isEqualTo("http");
+            });
+            assertThat(legacyStore.persistent())
+                    .as("the durable journal path must not publish a second legacy ActivityStore")
+                    .isFalse();
+        } finally {
+            controller.shutdown();
+            journal.close();
+            legacyStore.close();
+        }
+    }
+
+    private static DurableJournalSettings durableSettings(RunIdentity run, String namespace) {
+        return new DurableJournalSettings(
+                new DurableJournalIdentity(namespace, "orders", run.id(), "process", "instance"),
+                true,
+                Duration.ofMillis(20),
+                100,
+                1024 * 1024,
+                100,
+                "bootui_activity",
+                Duration.ofDays(7),
+                false);
     }
 
     @Test

@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.ActivityEntryOriginDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
@@ -49,19 +50,40 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalCapture;
+import io.github.jdubois.bootui.engine.journal.DurableJournalCaptureSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalDetailProvider;
+import io.github.jdubois.bootui.engine.journal.DurableJournalEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalFeedItem;
+import io.github.jdubois.bootui.engine.journal.DurableJournalFeedPage;
+import io.github.jdubois.bootui.engine.journal.DurableJournalFeedQuery;
+import io.github.jdubois.bootui.engine.journal.DurableJournalGlobalCursor;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRunMetadata;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStoreException;
+import io.github.jdubois.bootui.engine.journal.DurableJournalUnavailableException;
+import io.github.jdubois.bootui.engine.journal.ExceptionStoreDurableJournalDetailProvider;
+import io.github.jdubois.bootui.engine.journal.HttpPayloadDurableJournalDetailProvider;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RequestProfileSelection;
+import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -175,6 +197,11 @@ public class ReactiveLiveActivityController implements InitializingBean {
     private final ExecutionProfileAssembler profileAssembler;
     private volatile ObjectProvider<JavaAgentService> javaAgent;
     private final List<Runnable> unsubscribers = Collections.synchronizedList(new ArrayList<>());
+    private DurableJournalSettings durableJournalSettings;
+    private ObjectProvider<DurableJournalStore> durableJournalStores;
+    private ExceptionStore durableExceptionStore;
+    private DurableJournalRuntime durableJournalRuntime = new DurableJournalRuntime();
+    private volatile boolean deferredDurableCapture;
 
     public ReactiveLiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -273,6 +300,113 @@ public class ReactiveLiveActivityController implements InitializingBean {
         }
     }
 
+    @Autowired
+    public ReactiveLiveActivityController(
+            ObjectProvider<HttpExchangesController> httpExchanges,
+            ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTrace,
+            ObjectProvider<DataSource> dataSourceProvider,
+            ObjectProvider<ExceptionStore> exceptionStoreProvider,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskActivity,
+            ObjectProvider<ReactiveSecurityLogsController> securityLogs,
+            ObjectProvider<TracesController> traces,
+            ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
+            ObjectProvider<EmailCaptureService> emailCaptureService,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
+            ObjectProvider<KafkaActivityRecorder> kafkaActivity,
+            ObjectProvider<JmsActivityRecorder> jmsActivity,
+            ObjectProvider<FaultToleranceEventRecorder> faultToleranceEvents,
+            ObjectProvider<RabbitActivityRecorder> rabbitActivity,
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings persistenceSettings,
+            BootUiProperties properties,
+            BootUiExposure exposure,
+            ObjectProvider<DurableJournalSettings> durableJournalSettings,
+            ObjectProvider<DurableJournalStore> durableJournalStores,
+            ObjectProvider<DurableJournalRuntime> durableJournalRuntime) {
+        this(
+                httpExchanges,
+                sqlTraceRecorder,
+                restClientTrace,
+                dataSourceProvider,
+                exceptionStoreProvider,
+                scheduledTaskActivity,
+                securityLogs,
+                traces,
+                health,
+                email,
+                emailCaptureService,
+                cacheActivity,
+                kafkaActivity,
+                jmsActivity,
+                faultToleranceEvents,
+                rabbitActivity,
+                activityStore,
+                persistenceSettings,
+                properties,
+                exposure,
+                durableJournalSettings.getIfAvailable(),
+                durableJournalStores,
+                durableJournalRuntime.getIfAvailable());
+    }
+
+    public ReactiveLiveActivityController(
+            ObjectProvider<HttpExchangesController> httpExchanges,
+            ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<RestClientTraceRecorder> restClientTrace,
+            ObjectProvider<DataSource> dataSourceProvider,
+            ObjectProvider<ExceptionStore> exceptionStoreProvider,
+            ObjectProvider<ScheduledTaskRunStore> scheduledTaskActivity,
+            ObjectProvider<ReactiveSecurityLogsController> securityLogs,
+            ObjectProvider<TracesController> traces,
+            ObjectProvider<HealthController> health,
+            ObjectProvider<EmailController> email,
+            ObjectProvider<EmailCaptureService> emailCaptureService,
+            ObjectProvider<CacheActivityRecorder> cacheActivity,
+            ObjectProvider<KafkaActivityRecorder> kafkaActivity,
+            ObjectProvider<JmsActivityRecorder> jmsActivity,
+            ObjectProvider<FaultToleranceEventRecorder> faultToleranceEvents,
+            ObjectProvider<RabbitActivityRecorder> rabbitActivity,
+            SwitchableActivityStore activityStore,
+            ActivityPersistenceSettings persistenceSettings,
+            BootUiProperties properties,
+            BootUiExposure exposure,
+            DurableJournalSettings durableJournalSettings,
+            ObjectProvider<DurableJournalStore> durableJournalStores,
+            DurableJournalRuntime durableJournalRuntime) {
+        this(
+                httpExchanges,
+                sqlTraceRecorder,
+                restClientTrace,
+                dataSourceProvider,
+                exceptionStoreProvider,
+                scheduledTaskActivity,
+                securityLogs,
+                traces,
+                health,
+                email,
+                emailCaptureService,
+                cacheActivity,
+                kafkaActivity,
+                jmsActivity,
+                faultToleranceEvents,
+                rabbitActivity,
+                activityStore,
+                persistenceSettings,
+                properties,
+                exposure);
+        this.durableJournalSettings = durableJournalSettings;
+        this.durableJournalStores = durableJournalStores;
+        this.durableJournalRuntime =
+                durableJournalRuntime == null ? new DurableJournalRuntime() : durableJournalRuntime;
+        this.durableExceptionStore = exceptionStoreProvider.getIfAvailable();
+        if (persistenceSettings.enabled()) {
+            deferredCapture = null;
+            deferredDurableCapture = true;
+        }
+    }
+
     /**
      * Starts writing Live Activity's durable history from the same source the feed reads ({@code docs/PLAN-v2.md}
      * §5.3): the runtime journal's subscriber, whatever source the feed reads; 2.0.0 removed the poller of the panel
@@ -287,6 +421,7 @@ public class ReactiveLiveActivityController implements InitializingBean {
             deferredCapture = settings;
             return null;
         }
+
         if (current.settings().enabled()) {
             ActivityCapture capture = startCapture(activityStore, settings, current);
             unsubscribers.add(capture::close);
@@ -296,6 +431,48 @@ public class ReactiveLiveActivityController implements InitializingBean {
                 + " (bootui.runtime-journal.enabled=false), so no durable history is written: the journal is its only"
                 + " source in 2.0.");
         return null;
+    }
+
+    private DurableJournalCapture startDurablePersistence(RuntimeJournal journal, DurableJournalStore store) {
+        store.verifySchema();
+        List<DurableJournalDetailProvider> providers = new ArrayList<>();
+        providers.add(new HttpPayloadDurableJournalDetailProvider());
+        if (durableExceptionStore != null) {
+            providers.add(new ExceptionStoreDurableJournalDetailProvider(durableExceptionStore));
+        }
+        return DurableJournalCapture.start(
+                journal,
+                durableJournalSettings,
+                store,
+                new JournalActivityFeed(
+                        properties.getActivity().getRequestSlowThresholdMs(),
+                        properties.getActivity().getNPlusOneThreshold(),
+                        captureRoutes),
+                DurableJournalCaptureSettings.of(durableJournalSettings),
+                List.copyOf(providers),
+                phase -> DurableJournalRunMetadata.snapshot(
+                        phase,
+                        journal,
+                        durableJournalSettings.identity(),
+                        InsightsStack.SPRING_WEBFLUX,
+                        Map.of(),
+                        null,
+                        phase == DurableJournalRunMetadata.Phase.END
+                                ? RunHistory.shared().summaries().stream()
+                                        .filter(summary -> summary.header()
+                                                .runId()
+                                                .equals(journal.run().id()))
+                                        .findFirst()
+                                        .orElse(null)
+                                : null));
+    }
+
+    private boolean activateDurablePersistence(DurableJournalStore store, DurableJournalCapture capture) {
+        return durableJournalRuntime.activate(store, capture);
+    }
+
+    private boolean durablePersistenceActive() {
+        return durableJournalRuntime.active();
     }
 
     private ActivityCapture startCapture(
@@ -318,6 +495,11 @@ public class ReactiveLiveActivityController implements InitializingBean {
      */
     @Override
     public void afterPropertiesSet() {
+        if (deferredDurableCapture) {
+            deferredDurableCapture = false;
+            log.warn("Live Activity persistence is enabled, but no runtime journal was installed, so no durable"
+                    + " history is written: the journal is its only source in 2.0.");
+        }
         ActivityPersistenceSettings settings = deferredCapture;
         if (settings != null) {
             deferredCapture = null;
@@ -347,6 +529,25 @@ public class ReactiveLiveActivityController implements InitializingBean {
         return activity(type, severity, since, limit, q, until, cursor, pageSize, null, null, null, null, false);
     }
 
+    public LiveActivityReport activity(
+            String type,
+            String severity,
+            long since,
+            int limit,
+            String q,
+            Long until,
+            String cursor,
+            int pageSize,
+            String source,
+            String route,
+            String run,
+            String requestId,
+            boolean noRequest) {
+        return activity(
+                type, severity, since, limit, q, until, cursor, pageSize, source, route, null, null, null, run,
+                requestId, noRequest);
+    }
+
     @GetMapping
     public LiveActivityReport activity(
             @RequestParam(name = "type", required = false) String type,
@@ -359,16 +560,41 @@ public class ReactiveLiveActivityController implements InitializingBean {
             @RequestParam(name = "pageSize", required = false, defaultValue = "0") int pageSize,
             @RequestParam(name = "source", required = false) String source,
             @RequestParam(name = "route", required = false) String route,
+            @RequestParam(name = "namespace", required = false) String namespace,
+            @RequestParam(name = "application", required = false) String application,
+            @RequestParam(name = "instance", required = false) String instance,
             @RequestParam(name = "run", required = false) String run,
             @RequestParam(name = "requestId", required = false) String requestId,
             @RequestParam(name = "noRequest", required = false, defaultValue = "false") boolean noRequest) {
         LiveActivityReport live = live(
                 source, new JournalActivityFeed.Filter(type, severity, since, route, run, requestId, noRequest), limit);
+        ActivityFeedSource resolvedSource = parseFeedSource(source);
         ActivityPersistenceOptionDto persistenceOption = new ActivityPersistenceOptionDto(
-                activityStore.persistent(),
+                durablePersistenceActive() || activityStore.persistent(),
                 BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider) != null,
-                persistenceSettings.tableName());
-        if (!activityStore.persistent()) {
+                durableJournalSettings == null
+                        ? persistenceSettings.tableName()
+                        : durableJournalSettings.tablePrefix());
+        if (durablePersistenceActive() && resolvedSource == ActivityFeedSource.JOURNAL) {
+            return durableActivity(
+                    live,
+                    persistenceOption,
+                    namespace,
+                    application,
+                    instance,
+                    run,
+                    type,
+                    severity,
+                    q,
+                    since,
+                    until,
+                    cursor,
+                    pageSize,
+                    route,
+                    requestId,
+                    noRequest);
+        }
+        if (!activityStore.persistent() || durableJournalSettings != null) {
             return new LiveActivityReport(
                     live.available(),
                     live.entries(),
@@ -379,6 +605,7 @@ public class ReactiveLiveActivityController implements InitializingBean {
                     null,
                     persistenceOption);
         }
+
         // Persistence active: the store (which itself merges its in-memory hot cache with the durable
         // backend) serves entries and pagination — see LiveActivityController#activity for the full
         // rationale, unchanged here.
@@ -401,6 +628,126 @@ public class ReactiveLiveActivityController implements InitializingBean {
                 live.warnings(),
                 new ActivityPageInfo(true, page.nextCursor(), page.hasMore()),
                 persistenceOption);
+    }
+
+    private LiveActivityReport durableActivity(
+            LiveActivityReport live,
+            ActivityPersistenceOptionDto persistenceOption,
+            String namespace,
+            String application,
+            String instance,
+            String run,
+            String type,
+            String severity,
+            String q,
+            long since,
+            Long until,
+            String cursor,
+            int pageSize,
+            String route,
+            String requestId,
+            boolean noRequest) {
+        String selectedNamespace =
+                blankToNull(namespace) == null ? durableJournalSettings.namespaceId() : namespace.strip();
+        String selectedApplication =
+                blankToNull(application) == null ? durableJournalSettings.applicationId() : application.strip();
+        if (!selectedNamespace.equals(durableJournalSettings.namespaceId())
+                && !durableJournalSettings.readerArchiveCrossNamespace()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Durable journal namespace selection is disabled by configuration");
+        }
+        DurableJournalGlobalCursor decodedCursor;
+        try {
+            decodedCursor = cursor == null || cursor.isBlank() ? null : DurableJournalGlobalCursor.decode(cursor);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid durable journal cursor", ex);
+        }
+        DurableJournalFeedQuery query = new DurableJournalFeedQuery(
+                selectedNamespace,
+                selectedApplication,
+                run,
+                instance,
+                null,
+                type,
+                severity,
+                q,
+                route,
+                requestId,
+                since > 0 ? since : null,
+                until,
+                noRequest,
+                decodedCursor,
+                pageSize);
+        try {
+            DurableJournalFeedPage page = durableJournalRuntime.store().queryFeed(query);
+            JournalTextExposure storedRule = JournalTextExposure.of(exposure);
+            List<io.github.jdubois.bootui.core.dto.ActivityEntryDto> entries = new ArrayList<>();
+            List<ActivityEntryOriginDto> origins = new ArrayList<>();
+            for (DurableJournalFeedItem item : page.entries()) {
+                if (item.projectionAvailable()
+                        && JournalSourcePanels.isReadable(item.activity(), properties::isPanelEnabled)) {
+                    var entry = storedRule.reapply(item.activity());
+                    entries.add(entry);
+                    origins.add(new ActivityEntryOriginDto(
+                            entry.id(),
+                            item.origin().scope().namespace(),
+                            item.origin().scope().application(),
+                            item.origin().scope().run(),
+                            item.origin().instanceId(),
+                            item.source(),
+                            item.journalSequence(),
+                            item.globalSequence()));
+                }
+            }
+            return new LiveActivityReport(
+                    live.available(),
+                    entries,
+                    live.typeCounts(),
+                    live.kpis(),
+                    live.sources(),
+                    live.warnings(),
+                    new ActivityPageInfo(true, page.nextCursorToken(), page.hasMore()),
+                    persistenceOption,
+                    origins);
+        } catch (DurableJournalStoreException ex) {
+            if (cursor == null || cursor.isBlank()) {
+                String selectedRun = blankToNull(run);
+                String selectedInstance = blankToNull(instance);
+                if (!selectedNamespace.equals(durableJournalSettings.namespaceId())
+                        || !selectedApplication.equals(durableJournalSettings.applicationId())
+                        || selectedInstance != null && !selectedInstance.equals(durableJournalSettings.instanceId())
+                        || selectedRun != null && !selectedRun.equals(durableJournalSettings.runId())) {
+                    throw new ResponseStatusException(
+                            HttpStatus.SERVICE_UNAVAILABLE, "Durable Live Activity history is unavailable", ex);
+                }
+                List<String> warnings = new ArrayList<>(live.warnings());
+                warnings.add("Durable Live Activity history is unavailable; showing the current run from memory.");
+                log.warn("Durable Live Activity read failed; serving the current run from the runtime journal", ex);
+                return new LiveActivityReport(
+                        live.available(),
+                        live.entries(),
+                        live.typeCounts(),
+                        live.kpis(),
+                        live.sources(),
+                        warnings,
+                        null,
+                        persistenceOption);
+            }
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE, "Durable Live Activity history is unavailable", ex);
+        }
+    }
+
+    private ActivityFeedSource parseFeedSource(String source) {
+        try {
+            return ActivityFeedSource.parse(source, feedSource);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private volatile RuntimeJournalService runtimeJournal = new RuntimeJournalService(null, null);
@@ -438,6 +785,29 @@ public class ReactiveLiveActivityController implements InitializingBean {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates, agentEvidence);
         this.captureJournal = journal;
         this.captureRoutes = aggregates == null ? null : aggregates.declaredRoutes();
+        if (deferredDurableCapture && journal != null) {
+            deferredDurableCapture = false;
+            if (!durablePersistenceActive() && journal.settings().enabled() && journal.isOpen()) {
+                try {
+                    DurableJournalStore store =
+                            durableJournalStores == null ? null : durableJournalStores.getIfAvailable();
+                    if (store == null) {
+                        log.warn(
+                                "Live Activity persistence is enabled, but no durable journal store could be resolved.");
+                    } else {
+                        activateDurablePersistence(store, startDurablePersistence(journal, store));
+                    }
+                } catch (RuntimeException ex) {
+                    log.warn(
+                            "Live Activity durable journal capture could not start; the live in-memory endpoint"
+                                    + " remains active.",
+                            ex);
+                }
+            } else if (!durablePersistenceActive()) {
+                log.warn("Live Activity persistence is enabled, but the runtime journal is disabled or closed;"
+                        + " the live in-memory endpoint remains active.");
+            }
+        }
         ActivityPersistenceSettings deferred = deferredCapture;
         if (deferred != null && journal != null) {
             deferredCapture = null;
@@ -503,7 +873,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
     /** The runtime journal's status block ({@code docs/PLAN-v2.md} §5.2). */
     @GetMapping("/journal")
     public RuntimeJournalStatusDto journal() {
-        return runtimeJournal.status();
+        return runtimeJournal.status(
+                durableJournalRuntime.active() ? durableJournalRuntime.capture().status() : null);
     }
 
     /** The run's resource track and CPU ledger ({@code docs/PLAN-v2.md} §5.11). */
@@ -531,6 +902,9 @@ public class ReactiveLiveActivityController implements InitializingBean {
         DataSource dataSource = BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider);
         synchronized (activityStore) {
             RuntimeJournal journal = captureJournal;
+            if (durableJournalSettings != null) {
+                return useExistingDatasourceDurable(dataSource, request, journal);
+            }
             ActivitySwitchResponse response = new ActivitySwitchService()
                     .useExistingDataSource(
                             activityStore,
@@ -546,6 +920,77 @@ public class ReactiveLiveActivityController implements InitializingBean {
         }
     }
 
+    private ResponseEntity<ActivitySwitchResult> useExistingDatasourceDurable(
+            DataSource dataSource, ActivitySwitchRequest request, RuntimeJournal journal) {
+        if (durablePersistenceActive()) {
+            return ResponseEntity.ok(new ActivitySwitchResult(
+                    "already-active",
+                    "Live Activity is already using durable persistence.",
+                    durableJournalSettings.tablePrefix()));
+        }
+        if (dataSource == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ActivitySwitchResult(
+                            "unavailable",
+                            "No DataSource is available to reuse; configure one, or set"
+                                    + " bootui.activity.persistence.enabled=true with a dedicated JDBC URL instead.",
+                            durableJournalSettings.tablePrefix()));
+        }
+        if (request == null || !Boolean.TRUE.equals(request.confirm())) {
+            return ResponseEntity.badRequest()
+                    .body(new ActivitySwitchResult(
+                            "blocked",
+                            "Action requires confirm=true because it creates a database table and starts writing"
+                                    + " to it.",
+                            durableJournalSettings.tablePrefix()));
+        }
+        if (journal == null || !journal.settings().enabled() || !journal.isOpen()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ActivitySwitchResult(
+                            "unavailable",
+                            "Live Activity cannot start durable history because the runtime journal is unavailable,"
+                                    + " disabled, or closed. In-memory storage remains active.",
+                            durableJournalSettings.tablePrefix()));
+        }
+        JdbcDurableJournalStore candidate =
+                new JdbcDurableJournalStore(dataSource, durableJournalSettings.tablePrefix());
+        DurableJournalCapture capture = null;
+        try {
+            capture = startDurablePersistence(journal, candidate);
+            DurableJournalCapture started = capture;
+            boolean published = journal.commitWhileOpen(() -> activateDurablePersistence(candidate, started));
+            if (!published) {
+                capture.close();
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(new ActivitySwitchResult(
+                                "unavailable",
+                                "The runtime journal closed before durable capture could be published."
+                                        + " In-memory storage remains active.",
+                                durableJournalSettings.tablePrefix()));
+            }
+            return ResponseEntity.ok(new ActivitySwitchResult(
+                    "success",
+                    "Live Activity is now saving durable journal history to \""
+                            + durableJournalSettings.tablePrefix()
+                            + "\" tables. This switch applies to this running instance only; configure"
+                            + " bootui.activity.persistence.enabled=true to persist it across restarts.",
+                    durableJournalSettings.tablePrefix()));
+        } catch (RuntimeException ex) {
+            if (capture != null) {
+                capture.close();
+            }
+            log.warn(
+                    "Failed to switch to durable Live Activity history; the live in-memory endpoint remains active",
+                    ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ActivitySwitchResult(
+                            "failed",
+                            "Failed to switch to durable Live Activity history: " + ex.getMessage()
+                                    + ". In-memory storage remains active.",
+                            durableJournalSettings.tablePrefix()));
+        }
+    }
+
     /**
      * The trace-id-only per-request profile drill-down, served by the shared
      * {@link ExecutionProfileAssembler}. The serving-thread and time-window tiers are reported unavailable:
@@ -558,19 +1003,103 @@ public class ReactiveLiveActivityController implements InitializingBean {
      */
     @GetMapping("/request/{id}/journal")
     public RequestJournalProfileDto requestJournal(
-            @PathVariable("id") String id, @RequestParam(value = "compareWith", required = false) String compareWith) {
+            @PathVariable("id") String id,
+            @RequestParam(value = "compareWith", required = false) String compareWith,
+            @RequestParam(value = "namespace", required = false) String namespace,
+            @RequestParam(value = "application", required = false) String application,
+            @RequestParam(value = "run", required = false) String run,
+            @RequestParam(value = "instance", required = false) String instance) {
         RequestJournalProfiles profiles = requestJournalProfiles;
-        return profiles == null
-                ? new RequestJournalProfiles(
-                                null,
-                                null,
-                                properties.getActivity().getRequestSlowThresholdMs(),
-                                properties.getActivity().getNPlusOneThreshold(),
-                                properties::isPanelEnabled,
-                                exposure)
-                        .profile(id, compareWith)
-                : profiles.profile(id, compareWith);
+        if (profiles == null) {
+            profiles = new RequestJournalProfiles(
+                    null,
+                    null,
+                    properties.getActivity().getRequestSlowThresholdMs(),
+                    properties.getActivity().getNPlusOneThreshold(),
+                    properties::isPanelEnabled,
+                    exposure);
+        }
+        try {
+            DurableProfileRead evidence = durableProfileEvidence(namespace, application, run, instance);
+            if (evidence == null) {
+                return profiles.profile(id, compareWith);
+            }
+            RequestJournalProfiles selected = evidence.historical()
+                    ? new RequestJournalProfiles(
+                            null,
+                            null,
+                            properties.getActivity().getRequestSlowThresholdMs(),
+                            properties.getActivity().getNPlusOneThreshold(),
+                            properties::isPanelEnabled,
+                            exposure)
+                    : profiles;
+            return selected.profileFrom(evidence.snapshot(), id, compareWith);
+        } catch (DurableJournalUnavailableException ex) {
+            return RequestJournalProfileDto.unavailable(id, ex.getMessage());
+        } catch (DurableJournalStoreException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE, "Durable request profile evidence is unavailable", ex);
+        }
     }
+
+    public RequestJournalProfileDto requestJournal(String id, String compareWith) {
+        return requestJournal(id, compareWith, null, null, null, null);
+    }
+
+    private DurableProfileRead durableProfileEvidence(
+            String namespace, String application, String run, String instance) {
+        boolean requested = hasText(namespace) || hasText(application) || hasText(run) || hasText(instance);
+        if (durableJournalSettings == null) {
+            if (requested) {
+                throw new DurableJournalUnavailableException("Durable journal archive settings are unavailable");
+            }
+            return null;
+        }
+        DurableJournalScope selected = selectedProfileScope(namespace, application, run);
+        boolean historical = !selected.equals(durableJournalSettings.scope())
+                || hasText(instance) && !instance.strip().equals(durableJournalSettings.instanceId());
+        boolean needsArchive =
+                historical || statusJournal != null && statusJournal.status().offloadedEvents() > 0;
+        if (!needsArchive) {
+            return null;
+        }
+        if (durableJournalRuntime == null || !durableJournalRuntime.active()) {
+            throw new DurableJournalUnavailableException("Durable journal evidence is unavailable for " + selected);
+        }
+        JournalEvidenceSnapshot evidence = new DurableJournalEvidence(durableJournalRuntime.store())
+                .read(historical ? null : statusJournal, selected);
+        if (hasText(instance) && !instance.strip().equals(evidence.status().instanceId())) {
+            throw new DurableJournalUnavailableException(
+                    "Durable journal run " + selected + " is not from instance " + instance.strip());
+        }
+        return new DurableProfileRead(evidence, historical);
+    }
+
+    private DurableJournalScope selectedProfileScope(String namespace, String application, String run) {
+        String selectedNamespace = profileValueOr(namespace, durableJournalSettings.namespaceId());
+        String selectedApplication = profileValueOr(application, durableJournalSettings.applicationId());
+        String selectedRun = profileValueOr(run, durableJournalSettings.runId());
+        if (!selectedNamespace.equals(durableJournalSettings.namespaceId())
+                && !durableJournalSettings.readerArchiveCrossNamespace()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Durable journal namespace selection is disabled by configuration");
+        }
+        try {
+            return new DurableJournalScope(selectedNamespace, selectedApplication, selectedRun);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid durable journal scope", ex);
+        }
+    }
+
+    private static String profileValueOr(String value, String fallback) {
+        return hasText(value) ? value.strip() : fallback;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private record DurableProfileRead(JournalEvidenceSnapshot snapshot, boolean historical) {}
 
     public RequestJournalProfileDto requestJournal(String id) {
         return requestJournal(id, null);

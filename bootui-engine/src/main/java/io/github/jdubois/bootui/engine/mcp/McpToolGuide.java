@@ -145,7 +145,8 @@ public final class McpToolGuide {
             Map.entry(
                     "get_live_activity",
                     "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the"
-                            + " summary, detail, path, or method"),
+                            + " summary, detail, path, or method, optionally combined with namespace:<value>,"
+                            + " application:<value>, run:<value>, instance:<value>, or route:<value>"),
             Map.entry("get_agent_status", "a sensor id, such as executors, for its hooks and self-test steps"),
             Map.entry(
                     "get_sql_traces",

@@ -50,7 +50,8 @@ final class CommandTree {
                                 + "(default http://localhost:8080) and it answers over its local-only HTTP endpoint.",
                         "Output is JSON when piped or with --json, and readable otherwise.",
                         "",
-                        "The 'docs', 'update', 'ci', 'init', and 'instances' commands are client-side exceptions, not MCP tools.")
+                        "The 'docs', 'update', 'ci', 'init', 'instances', and 'archive' commands are client-side"
+                                + " exceptions, not MCP tools.")
                 .footer(
                         "",
                         "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "
@@ -89,6 +90,7 @@ final class CommandTree {
         root.addSubcommand("instances", new CommandLine(instancesCommand(context)));
         InitCommand.add(context, root);
         CiCommands.add(context, root);
+        ArchiveCommands.add(context, root);
         DocsCommand.add(context, root);
         UpdateCommand.add(context, root);
         listCommands(root, context.manifest().tools(), true);

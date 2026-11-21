@@ -3405,6 +3405,19 @@ public class BootUiProperties {
     public static class ActivityPersistence {
 
         /**
+         * Opaque namespace that isolates durable journal rows. When blank, {@code instance-id} is
+         * used as a migration input and otherwise a stable SHA-256-derived {@code local-<hex>} value
+         * is derived from the sanitized local user and host names.
+         */
+        private String namespaceId;
+
+        /**
+         * Application key within the durable namespace. When blank, the adapter uses Spring's existing
+         * run application key.
+         */
+        private String applicationId;
+
+        /**
          * Whether captured Live Activity entries are also durably persisted, in addition to today's
          * in-memory-only default. Disabled by default: no background thread, connection or bean beyond
          * what already exists is created while this is {@code false}.
@@ -3436,8 +3449,8 @@ public class BootUiProperties {
         private String dedicatedDriverClassName;
 
         /**
-         * Table name every BootUI instance pointed at the same database shares. Must be a plain SQL
-         * identifier; created automatically on first use if it does not already exist.
+         * Legacy Live Activity table name and durable journal table prefix. Must be a plain SQL
+         * identifier.
          */
         private String tableName = "bootui_activity";
 
@@ -3451,6 +3464,15 @@ public class BootUiProperties {
          */
         private int bufferMaxEntries = 500;
 
+        /** Maximum number of durable journal entries waiting to be flushed. */
+        private int maxPendingEntries = 500;
+
+        /** Maximum byte size of durable journal entries waiting to be flushed. */
+        private DataSize maxPendingBytes = DataSize.ofMegabytes(32);
+
+        /** Maximum number of recent durable journal entries retained in the hot read cache. */
+        private int hotMaxEntries = 500;
+
         /**
          * How long persisted rows are kept before being pruned; entries older than this are eligible
          * for deletion on this instance's own next prune pass. Only this instance's own rows are ever
@@ -3458,13 +3480,30 @@ public class BootUiProperties {
          */
         private Duration retention = Duration.ofDays(7);
 
+        /** Whether archive readers may explicitly opt in to querying other namespaces. */
+        private boolean readerArchiveCrossNamespace = false;
+
         /**
-         * The multi-tenant partition key this running instance writes and reads its rows under, so
-         * several BootUI instances can safely share one database table. Defaults to the {@code
-         * HOSTNAME} environment variable (a natural, stable identity for a container/Kubernetes pod) or
-         * else a generated {@code <app-name>-<random>} id, computed once at startup.
+         * Legacy Live Activity partition key. For migration, a configured value supplies the durable
+         * {@link #namespaceId} when {@code namespace-id} is blank.
          */
         private String instanceId;
+
+        public String getNamespaceId() {
+            return namespaceId;
+        }
+
+        public void setNamespaceId(String namespaceId) {
+            this.namespaceId = namespaceId;
+        }
+
+        public String getApplicationId() {
+            return applicationId;
+        }
+
+        public void setApplicationId(String applicationId) {
+            this.applicationId = applicationId;
+        }
 
         public boolean isEnabled() {
             return enabled;
@@ -3538,12 +3577,44 @@ public class BootUiProperties {
             this.bufferMaxEntries = bufferMaxEntries;
         }
 
+        public int getMaxPendingEntries() {
+            return maxPendingEntries;
+        }
+
+        public void setMaxPendingEntries(int maxPendingEntries) {
+            this.maxPendingEntries = maxPendingEntries;
+        }
+
+        public DataSize getMaxPendingBytes() {
+            return maxPendingBytes;
+        }
+
+        public void setMaxPendingBytes(DataSize maxPendingBytes) {
+            this.maxPendingBytes = maxPendingBytes;
+        }
+
+        public int getHotMaxEntries() {
+            return hotMaxEntries;
+        }
+
+        public void setHotMaxEntries(int hotMaxEntries) {
+            this.hotMaxEntries = hotMaxEntries;
+        }
+
         public Duration getRetention() {
             return retention;
         }
 
         public void setRetention(Duration retention) {
             this.retention = retention;
+        }
+
+        public boolean isReaderArchiveCrossNamespace() {
+            return readerArchiveCrossNamespace;
+        }
+
+        public void setReaderArchiveCrossNamespace(boolean readerArchiveCrossNamespace) {
+            this.readerArchiveCrossNamespace = readerArchiveCrossNamespace;
         }
 
         public String getInstanceId() {

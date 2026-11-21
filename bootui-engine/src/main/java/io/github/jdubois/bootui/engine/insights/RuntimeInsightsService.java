@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
@@ -474,6 +475,44 @@ public final class RuntimeInsightsService {
         return current().report();
     }
 
+    /** Projects an already-loaded bounded hot or durable evidence snapshot without consulting a store. */
+    public synchronized RuntimeInsightsReportDto reportFrom(JournalEvidenceSnapshot evidence) {
+        return projectionFrom(evidence).report();
+    }
+
+    /** Projects one observation from an already-loaded bounded hot or durable evidence snapshot. */
+    public synchronized RuntimeObservationDetailDto insightFrom(JournalEvidenceSnapshot evidence, String id) {
+        return insight(projectionFrom(evidence), id);
+    }
+
+    private Cached projectionFrom(JournalEvidenceSnapshot evidence) {
+        if (evidence == null) {
+            throw new NullPointerException("evidence must not be null");
+        }
+        codePathsRead = resolve(codePathsReads);
+        codeInventoryRead = resolve(codeInventoryReads);
+        try {
+            if (!evidence.status().enabled()) {
+                return disabled();
+            }
+            PanelVisibility visibility = panelVisibility();
+            SqlCapture capture = sqlCapture();
+            AppEventCapture appEvents = appEventCapture();
+            JournalTextExposure text = JournalTextExposure.of(exposure);
+            return project(
+                    evidence,
+                    evidence.status().lastSequence(),
+                    evidence.status().evictedByCount() + evidence.status().evictedByBytes(),
+                    visibility,
+                    capture,
+                    appEvents,
+                    text);
+        } finally {
+            codePathsRead = null;
+            codeInventoryRead = null;
+        }
+    }
+
     private static final String UNKNOWN_OBSERVATION_PREFIX = "No observation ";
     private static final String UNKNOWN_OBSERVATION_SUFFIX =
             " in this run's retained events: it may have been evicted or cleared.";
@@ -493,7 +532,10 @@ public final class RuntimeInsightsService {
 
     /** One observation by its stable id, with its evidence. */
     public synchronized RuntimeObservationDetailDto insight(String id) {
-        Cached current = current();
+        return insight(current(), id);
+    }
+
+    private static RuntimeObservationDetailDto insight(Cached current, String id) {
         if (!current.report().available()) {
             return new RuntimeObservationDetailDto(
                     false, current.report().unavailableReason(), null, List.of(), List.of(), 0);
@@ -614,19 +656,7 @@ public final class RuntimeInsightsService {
 
     private Cached currentUnderReads() {
         if (journal == null || !journal.settings().enabled()) {
-            return new Cached(
-                    -1,
-                    -1,
-                    new PanelVisibility(Map.of(), Map.of()),
-                    SqlCapture.capturing(),
-                    AppEventCapture.capturing(),
-                    null,
-                    new RuntimeInsightsReportDto(
-                            false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
-                    Map.of(),
-                    0,
-                    Map.of(),
-                    0);
+            return disabled();
         }
         JournalStatus status = journal.status();
         long watermark = status.lastSequence();
@@ -643,6 +673,7 @@ public final class RuntimeInsightsService {
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
+                && cached.offloaded() == status.offloadedEvents()
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
                 && cached.appEventCapture().equals(appEvents)
@@ -652,9 +683,26 @@ public final class RuntimeInsightsService {
                 && cached.inventory() == inventory) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, appEvents, text)
+        cached = project(JournalEvidenceSnapshot.hot(journal), watermark, evicted, visibility, capture, appEvents, text)
                 .withInventory(inventory);
         return cached;
+    }
+
+    private static Cached disabled() {
+        return new Cached(
+                -1,
+                -1,
+                0,
+                new PanelVisibility(Map.of(), Map.of()),
+                SqlCapture.capturing(),
+                AppEventCapture.capturing(),
+                null,
+                new RuntimeInsightsReportDto(
+                        false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
+                Map.of(),
+                0,
+                Map.of(),
+                0);
     }
 
     private boolean codeInventoryVisible() {
@@ -753,6 +801,7 @@ public final class RuntimeInsightsService {
      * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
      */
     private VisibleEntries visibleEntries(
+            JournalEvidenceSnapshot evidence,
             List<JournalEntry> entries,
             PanelVisibility visibility,
             Long lossHorizon,
@@ -767,7 +816,7 @@ public final class RuntimeInsightsService {
         // on last, as framework-warnings-by-route does.
         Map<String, TreeMap<Long, RuntimeEvent>> requestsByThread = new HashMap<>();
         Map<ProjectedRequest.Kind, Set<String>> hiddenPanels = new EnumMap<>(ProjectedRequest.Kind.class);
-        AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
+        AiCallOwners aiCallOwners = new AiCallOwners(evidence::evictedARequestOf);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
@@ -938,14 +987,15 @@ public final class RuntimeInsightsService {
     }
 
     private Cached project(
-            JournalStatus status,
-            List<JournalEntry> entries,
+            JournalEvidenceSnapshot evidence,
             long watermark,
             long evicted,
             PanelVisibility visibility,
             SqlCapture capture,
             AppEventCapture appEvents,
             JournalTextExposure text) {
+        JournalStatus status = evidence.status();
+        List<JournalEntry> entries = evidence.entries();
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -953,21 +1003,22 @@ public final class RuntimeInsightsService {
             resolver = RouteTemplateResolver.empty();
         }
         VisibleEntries projected = visibleEntries(
+                evidence,
                 entries,
                 visibility,
-                journal.lossHorizonMillis(),
-                journal.lostRequestEndMillis(),
-                journal::lostARequestOn);
+                evidence.lossHorizonMillis(),
+                evidence.lostRequestEndMillis(),
+                evidence::lostARequestOn);
         InsightsSnapshot snapshot = InsightsSnapshot.of(
                         projected.entries(),
                         status,
                         resolver == null ? RouteTemplateResolver.empty() : resolver,
-                        journal::records,
+                        evidence::records,
                         visibility::visible,
                         stack,
                         previousRun(status.runId()),
                         poolSizes,
-                        journal::evictedARequestOf)
+                        evidence::evictedARequestOf)
                 .withExposure(text);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
@@ -1086,6 +1137,19 @@ public final class RuntimeInsightsService {
                         snapshot.dropped(source))));
         // What the journal cannot see at all comes first, before what this run's events miss (D39, M4-22).
         List<String> limitations = new ArrayList<>(upFront(capture));
+        if (evidence.durableCaptureLoss() > 0) {
+            limitations.add("The durable capture lost " + evidence.durableCaptureLoss()
+                    + (evidence.durableCaptureLoss() == 1 ? " entry" : " entries")
+                    + ", so this report is incomplete and absence must not be read as no event.");
+        }
+        if (evidence.partial()) {
+            if (evidence.omittedEvents() > 0) {
+                limitations.add("The bounded journal evidence read omitted " + evidence.omittedEvents()
+                        + (evidence.omittedEvents() == 1
+                                ? " entry, so this report may be incomplete."
+                                : " entries, so this report may be incomplete."));
+            }
+        }
         String markers = markersDuring(snapshot.markers());
         if (markers != null) {
             limitations.add(markers);
@@ -1127,6 +1191,7 @@ public final class RuntimeInsightsService {
         return new Cached(
                 watermark,
                 evicted,
+                status.offloadedEvents(),
                 visibility,
                 capture,
                 appEvents,
@@ -1589,6 +1654,7 @@ public final class RuntimeInsightsService {
     private record Cached(
             long watermark,
             long evicted,
+            long offloaded,
             PanelVisibility visibility,
             SqlCapture sqlCapture,
             AppEventCapture appEventCapture,
@@ -1603,6 +1669,7 @@ public final class RuntimeInsightsService {
             return new Cached(
                     watermark,
                     evicted,
+                    offloaded,
                     visibility,
                     sqlCapture,
                     appEventCapture,

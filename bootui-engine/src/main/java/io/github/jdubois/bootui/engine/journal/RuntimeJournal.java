@@ -151,6 +151,9 @@ public final class RuntimeJournal
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
     private volatile ClearBoundary clearBoundary = new ClearBoundary(0, 0, Map.of());
+    private volatile long offloadedEvents;
+    private volatile long durableOffloadedThrough;
+    private final Object offloadState = new Object();
 
     record ClearBoundary(long clears, long epochMillis, Map<JournalSource, Long> dropped) {
         ClearBoundary {
@@ -642,6 +645,27 @@ public final class RuntimeJournal
         }
     }
 
+    /**
+     * Atomically copies the retained recording in sequence order and registers {@code listener} for subsequent
+     * batches. No journal batch can be processed between those operations, so a new listener observes every retained
+     * entry and every future accepted entry without a hand-off gap.
+     *
+     * @return the retained entries, oldest first
+     * @throws IllegalStateException if the journal has already closed
+     */
+    public List<JournalEntry> snapshotAndSubscribe(JournalListener listener) {
+        Objects.requireNonNull(listener, "listener must not be null");
+        synchronized (processing) {
+            synchronized (lifecycle) {
+                if (closed.get()) {
+                    throw new IllegalStateException("The runtime journal is closed.");
+                }
+                listeners.add(listener);
+                return ring.oldestFirst();
+            }
+        }
+    }
+
     private void registerListener(JournalListener listener) {
         synchronized (lifecycle) {
             if (closed.get()) {
@@ -762,6 +786,14 @@ public final class RuntimeJournal
      */
     public boolean lostARequestOn(String thread) {
         return ring.lostARequestOn(thread);
+    }
+
+    public List<String> lostRequestTraces() {
+        return ring.lostRequestTraces();
+    }
+
+    public List<String> lostRequestThreads() {
+        return ring.lostRequestThreads();
     }
 
     /**
@@ -948,6 +980,37 @@ public final class RuntimeJournal
         clearAndCount();
     }
 
+    /**
+     * Compacts acknowledged evidence from memory, preserving a recent hot tail and all currently open units of work.
+     * This is deliberately separate from {@link #clear()}: it does not clear aggregates or listeners, counts neither
+     * eviction nor loss, and never reports the compacted entries as missing to completeness checks.
+     *
+     * @param sequence greatest original journal sequence acknowledged by a durable backend
+     * @param keepNewest newest retained entries to leave hot regardless of acknowledgement
+     * @return the number of entries removed from the in-memory ring
+     */
+    public int offloadDurableThrough(long sequence, int keepNewest) {
+        if (sequence < 0) {
+            throw new IllegalArgumentException("sequence must not be negative");
+        }
+        if (keepNewest < 0) {
+            throw new IllegalArgumentException("keepNewest must not be negative");
+        }
+        synchronized (processing) {
+            long acknowledged = Math.min(sequence, lastSequence.get());
+            synchronized (offloadState) {
+                int removed = ring.offloadDurableThrough(acknowledged, keepNewest);
+                offloadedEvents += removed;
+                durableOffloadedThrough = Math.max(durableOffloadedThrough, acknowledged);
+                return removed;
+            }
+        }
+    }
+
+    void durableCaptureLost(JournalEntry entry) {
+        ring.durableCaptureLost(entry);
+    }
+
     /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
     private long clearAndCount() {
         synchronized (processing) {
@@ -994,14 +1057,17 @@ public final class RuntimeJournal
     }
 
     public JournalStatus status() {
+        return status(lastSequence.get(), ring.counts());
+    }
+
+    private JournalStatus status(long lastProcessedSequence, EvidenceRing.Counts counts) {
         long clearsDone = clearsCompleted;
         JournalQueue current = admission;
-        EvidenceRing.Counts counts = ring.counts();
         return new JournalStatus(
                 settings.enabled(),
                 RunIdentity.instanceId(),
                 run.id(),
-                lastSequence.get(),
+                lastProcessedSequence,
                 counts.retained(),
                 counts.retainedBytes(),
                 dictionary.size(),
@@ -1019,8 +1085,22 @@ public final class RuntimeJournal
                 perSource(accepted),
                 perSource(dropped),
                 listenerFailures.sum(),
-                clearsDone);
+                clearsDone,
+                offloadedEvents,
+                durableOffloadedThrough);
     }
+
+    HotEvidence hotEvidence() {
+        synchronized (offloadState) {
+            EvidenceRing.Snapshot retained = ring.snapshot();
+            long newest = retained.entries().isEmpty()
+                    ? lastSequence.get()
+                    : Math.max(lastSequence.get(), retained.entries().get(0).sequence());
+            return new HotEvidence(status(newest, retained.counts()), retained.entries());
+        }
+    }
+
+    record HotEvidence(JournalStatus status, List<JournalEntry> entries) {}
 
     private JournalQueue newQueue() {
         return new JournalQueue(

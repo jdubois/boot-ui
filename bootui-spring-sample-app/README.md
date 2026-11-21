@@ -220,14 +220,18 @@ profile ([`application-run-history.properties`](src/main/resources/application-r
 BootUI's history across full restarts:
 
 - Live Activity's durable persistence writes the runtime journal's history to the sample's PostgreSQL database (the
-  `bootui_activity` table), so Live Activity still shows the previous runs' requests after a restart.
+  `bootui_activity_runs`, `bootui_activity_events`, and `bootui_activity_details` tables), so Live Activity and
+  historical request profiles still show acknowledged previous-run evidence after a restart. A pre-existing legacy
+  `bootui_activity` table is left untouched.
 - `bootui.runtime-journal.baseline-file` keeps the last run's summary in `bootui-spring-sample-app/.bootui/run-baseline.bin`
   (git-ignored). Stop the application, start it again, and exercise it: **Compared with the previous run** in Runtime
   Insights (also `bootui insights compare`) then compares the new run's behavior and latency with the run before the
   restart. The code changes the agent saw are listed against the previous run in the same JVM, so recompile while it
   runs, as DevTools restarts keep the JVM, to see them first in the comparison.
 
-Both stores hold metadata only, never values. To start from a clean history, delete `.bootui/run-baseline.bin` and
+Both forms hold typed, masked metadata rather than raw payload values. The durable pending queue is volatile until its
+watermark is acknowledged, and retention is seven days by default. To start from a clean history, delete
+`.bootui/run-baseline.bin` and
 remove the database with `docker compose -f bootui-spring-sample-app/compose.yaml down`. As in the full `docker` profile,
 Kafka and Ollama bind the fixed host ports 9092 and 11434, so only one instance of this variant can run at a time.
 
@@ -460,11 +464,11 @@ from source — the [Traces panel's aggregator topology](../docs/features/diagno
 the Quarkus app's own Traces panel, which keeps recording its own spans in-process independently, and it is
 disabled in the published Quarkus Docker image, which has no Spring app nearby.
 
-> **Why not the Live Activity panel?** [Live Activity](../docs/features/live-activity.md) reads one JVM's
-> runtime journal by default and supplements its rows with retained local panel details. There is no API for one BootUI instance to pull or receive
-> another instance's Live Activity stream, and BootUI never forwards that raw data off-process (a stated
-> non-goal). The Traces panel's OTLP aggregator topology above is the supported mechanism for seeing
-> cross-service activity from one BootUI instance.
+> **Durable Live Activity is separate from the trace aggregator.** The normal feed reads the current JVM and its
+> local buffers. If several instances share one BootUI SQL journal, readers can see their persisted rows by namespace,
+> application, instance, and run with a global cursor; cross-process rows are discovered by polling, not forwarded SSE.
+> The samples use separate databases, so the supported one-JVM cross-service view here remains the Traces panel's OTLP
+> aggregator topology above.
 
 ## Run it with JVM AOT (faster JVM startup)
 

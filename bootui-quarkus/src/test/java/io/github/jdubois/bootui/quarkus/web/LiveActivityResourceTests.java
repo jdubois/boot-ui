@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
@@ -29,9 +31,20 @@ import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.insights.InsightsStack;
+import io.github.jdubois.bootui.engine.journal.DurableJournalCapture;
+import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRun;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRunMetadata;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -928,6 +941,223 @@ class LiveActivityResourceTests {
             assertThat(rows.next()).isTrue();
             assertThat(rows.getInt(1)).isEqualTo(1);
         }
+    }
+
+    @Test
+    void durableSwitchUsesJournalStoreAndReturnsOriginMetadata() throws Exception {
+        DataSource dataSource = newH2DataSource();
+        SwitchableActivityStore legacyStore = new SwitchableActivityStore(new InMemoryActivityStore(200));
+        LiveActivityResource resource = resourceWith(legacyStore, disabledSettings(), satisfiedDataSource(dataSource));
+        RunIdentity run = RunIdentity.start();
+        DurableJournalSettings settings = durableSettings(run, "namespace-quarkus");
+        resource.setDurableJournal(settings, new UnsatisfiedInstance<>());
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), run);
+        try {
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(journal), new SatisfiedInstance<>(new JournalAggregates()));
+            assertThat(resource.useExistingDatasource(new ActivitySwitchRequest(true))
+                            .getStatus())
+                    .isEqualTo(200);
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    2_000_000,
+                    CorrelationContext.forRequest("durable-request"),
+                    "t",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/durable", "/durable", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            journal.close();
+
+            LiveActivityReport report = resource.activity(null, null, null, null, null, null, null, null);
+            assertThat(report.entries()).extracting(ActivityEntryDto::id).contains("durable-request");
+            assertThat(report.origins()).singleElement().satisfies(origin -> {
+                assertThat(origin.namespace()).isEqualTo("namespace-quarkus");
+                assertThat(origin.application()).isEqualTo("orders");
+                assertThat(origin.run()).isEqualTo(run.id());
+                assertThat(origin.source()).isEqualTo("http");
+            });
+            assertThat(legacyStore.persistent()).isFalse();
+        } finally {
+            cleanup(resource, legacyStore);
+            journal.close();
+        }
+    }
+
+    @Test
+    void historicalRequestProfileUsesTheSelectedDurableRun() throws Exception {
+        RunIdentity currentRun = RunIdentity.start();
+        RuntimeJournal current = new RuntimeJournal(RuntimeJournalSettings.defaults(), currentRun);
+        RunIdentity oldRun = RunIdentity.start();
+        RuntimeJournal old = new RuntimeJournal(RuntimeJournalSettings.defaults(), oldRun);
+        JdbcDurableJournalStore store = newDurableStore();
+        try {
+            old.offer(request("historical-request"));
+            assertThat(old.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            DurableJournalSettings settings = durableSettings(currentRun, "namespace-quarkus");
+            DurableJournalScope scope =
+                    new DurableJournalScope(settings.namespaceId(), settings.applicationId(), oldRun.id());
+            persist(store, scope, old, settings.instanceId());
+            DurableJournalRuntime runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, mock(DurableJournalCapture.class)))
+                    .isTrue();
+
+            LiveActivityResource resource =
+                    resourceWith(new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings());
+            resource.setDurableJournal(settings, new SatisfiedInstance<>(store), runtime);
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(current), new SatisfiedInstance<>(new JournalAggregates()));
+
+            assertThat(resource.requestJournal(
+                            "historical-request",
+                            null,
+                            settings.namespaceId(),
+                            settings.applicationId(),
+                            oldRun.id(),
+                            null))
+                    .satisfies(profile -> {
+                        assertThat(profile.available())
+                                .as(profile.unavailableReason())
+                                .isTrue();
+                        assertThat(profile.requestId()).isEqualTo("historical-request");
+                        assertThat(profile.route()).isEqualTo("GET /durable");
+                    });
+            assertThat(resource.requestJournal(
+                            "historical-request",
+                            null,
+                            settings.namespaceId(),
+                            settings.applicationId(),
+                            "missing-run",
+                            null))
+                    .satisfies(profile -> {
+                        assertThat(profile.available()).isFalse();
+                        assertThat(profile.unavailableReason()).contains("missing-run");
+                    });
+            assertThatThrownBy(() -> resource.requestJournal(
+                            "historical-request", null, "other-namespace", settings.applicationId(), oldRun.id(), null))
+                    .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+                    .hasMessageContaining("namespace");
+        } finally {
+            current.close();
+            old.close();
+        }
+    }
+
+    @Test
+    void anOffloadedCurrentRequestProfileReadsDurableEvidence() throws Exception {
+        RunIdentity currentRun = RunIdentity.start();
+        RuntimeJournal current = new RuntimeJournal(RuntimeJournalSettings.defaults(), currentRun);
+        JdbcDurableJournalStore store = newDurableStore();
+        try {
+            current.offer(request("offloaded-request"));
+            assertThat(current.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            DurableJournalSettings settings = durableSettings(currentRun, "namespace-quarkus");
+            JournalEvidenceSnapshot hot = JournalEvidenceSnapshot.hot(current);
+            persistMetadata(store, settings.scope(), current, settings.instanceId());
+            store.appendBatch(settings.scope(), hot.entries());
+            assertThat(current.offloadDurableThrough(current.lastSequence(), 0)).isEqualTo(1);
+            persistMetadata(store, settings.scope(), current, settings.instanceId());
+            DurableJournalRuntime runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, mock(DurableJournalCapture.class)))
+                    .isTrue();
+
+            LiveActivityResource resource =
+                    resourceWith(new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings());
+            resource.setDurableJournal(settings, new SatisfiedInstance<>(store), runtime);
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(current), new SatisfiedInstance<>(new JournalAggregates()));
+
+            assertThat(resource.requestJournal("offloaded-request")).satisfies(profile -> {
+                assertThat(profile.available()).isTrue();
+                assertThat(profile.requestId()).isEqualTo("offloaded-request");
+            });
+        } finally {
+            current.close();
+        }
+    }
+
+    @Test
+    void aHotUnselectedRequestProfileDoesNotReadDurableStorage() {
+        RunIdentity currentRun = RunIdentity.start();
+        RuntimeJournal current = new RuntimeJournal(RuntimeJournalSettings.defaults(), currentRun);
+        DurableJournalStore store = mock(DurableJournalStore.class);
+        try {
+            DurableJournalSettings settings = durableSettings(currentRun, "namespace-quarkus");
+            DurableJournalRuntime runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, mock(DurableJournalCapture.class)))
+                    .isTrue();
+            LiveActivityResource resource =
+                    resourceWith(new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings());
+            resource.setDurableJournal(settings, new SatisfiedInstance<>(store), runtime);
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(current), new SatisfiedInstance<>(new JournalAggregates()));
+
+            assertThat(resource.requestJournal("not-retained").available()).isFalse();
+            verifyNoInteractions(store);
+        } finally {
+            current.close();
+        }
+    }
+
+    private static DurableJournalSettings durableSettings(RunIdentity run, String namespace) {
+        return new DurableJournalSettings(
+                new DurableJournalIdentity(namespace, "orders", run.id(), "process", "instance"),
+                true,
+                Duration.ofMillis(20),
+                100,
+                1024 * 1024,
+                100,
+                "bootui_activity",
+                Duration.ofDays(7),
+                false);
+    }
+
+    private static JdbcDurableJournalStore newDurableStore() {
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL("jdbc:h2:mem:durable-profile-" + DB_COUNTER.incrementAndGet() + ";DB_CLOSE_DELAY=-1");
+        JdbcDurableJournalStore store = new JdbcDurableJournalStore(dataSource, "bootui_activity");
+        store.verifySchema();
+        return store;
+    }
+
+    private static void persist(
+            JdbcDurableJournalStore store, DurableJournalScope scope, RuntimeJournal journal, String instanceId) {
+        persistMetadata(store, scope, journal, instanceId);
+        store.appendBatch(scope, JournalEvidenceSnapshot.hot(journal).entries());
+    }
+
+    private static void persistMetadata(
+            JdbcDurableJournalStore store, DurableJournalScope scope, RuntimeJournal journal, String instanceId) {
+        DurableJournalRunMetadata metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                new DurableJournalIdentity(scope.namespace(), scope.application(), scope.run(), "process", instanceId),
+                InsightsStack.QUARKUS,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(
+                scope,
+                journal.run().startedAtEpochMillis(),
+                System.currentTimeMillis(),
+                "RUNNING",
+                null,
+                journal.lastSequence(),
+                instanceId,
+                metadata));
+    }
+
+    private static RuntimeEvent request(String requestId) {
+        return RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000,
+                2_000_000,
+                CorrelationContext.forRequest(requestId),
+                "worker",
+                null,
+                false,
+                new HttpPayload("GET", "/durable", "/durable", null, 200));
     }
 
     private static ActivityPersistenceSettings disabledSettings() {

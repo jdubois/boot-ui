@@ -65,6 +65,7 @@ function activityReport(overrides = {}) {
     warnings: [],
     typeCounts: {REQUEST: 1, SQL: 0, EXCEPTION: 0, SECURITY: 0},
     entries: [requestEntry()],
+    origins: [],
     pageInfo: null,
     persistenceOption: {active: false, dataSourceAvailable: false, tableName: 'bootui_activity'},
     ...overrides
@@ -108,7 +109,7 @@ function requestProfile(overrides = {}) {
 function stubFetch(activity, profile, journalProfile = {available: false, unavailableReason: 'Not retained.'}) {
   return vi.fn((url) => {
     if (url === 'api/activity/journal') return Promise.resolve(jsonResponse({enabled: true}))
-    if (typeof url === 'string' && url.startsWith('api/activity/request/') && url.endsWith('/journal')) {
+    if (typeof url === 'string' && url.startsWith('api/activity/request/') && url.split('?')[0].endsWith('/journal')) {
       return Promise.resolve(jsonResponse(journalProfile))
     }
     if (typeof url === 'string' && url.startsWith('api/activity/request/')) {
@@ -310,6 +311,106 @@ describe('LiveActivity', () => {
     }
   })
 
+  it('loads a persisted request journal with its archive origin and skips the current-run buffer', async () => {
+    const origin = {
+      entryId: 'req-archived',
+      namespace: 'team-a',
+      application: 'orders api',
+      run: 'run-7',
+      instanceId: 'orders-2',
+      globalSequence: 71
+    }
+    const fetchMock = stubFetch(
+      activityReport({
+        sources: ['Runtime journal'],
+        pageInfo: {persistent: true, hasMore: false, nextCursor: null},
+        entries: [requestEntry({id: 'req-archived'})],
+        origins: [origin]
+      }),
+      requestProfile(),
+      {
+        available: true,
+        requestId: 'req-archived',
+        route: 'GET /api/todos',
+        status: 200,
+        durationMicros: 120000,
+        timeline: [],
+        notes: []
+      }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const profileCalls = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('api/activity/request/'))
+    expect(profileCalls).toEqual([
+      'api/activity/request/req-archived/journal?namespace=team-a&application=orders+api&run=run-7&instance=orders-2'
+    ])
+    expect(wrapper.text()).toContain('Recorded by the runtime journal')
+  })
+
+  it("uses each persisted row's own archive origin while stepping through profiles", async () => {
+    const fetchMock = stubFetch(
+      activityReport({
+        sources: ['Runtime journal'],
+        pageInfo: {persistent: true, hasMore: false, nextCursor: null},
+        entries: [
+          requestEntry({id: 'shared-request', path: '/api/first', summary: 'GET /api/first → 200'}),
+          requestEntry({id: 'shared-request', path: '/api/second', summary: 'GET /api/second → 200'})
+        ],
+        origins: [
+          {
+            entryId: 'shared-request',
+            namespace: 'team-a',
+            application: 'orders',
+            run: 'run-1',
+            instanceId: 'instance-1',
+            globalSequence: 1
+          },
+          {
+            entryId: 'shared-request',
+            namespace: 'team-b',
+            application: 'billing',
+            run: 'run-2',
+            instanceId: 'instance-2',
+            globalSequence: 2
+          }
+        ]
+      }),
+      requestProfile(),
+      {
+        available: true,
+        requestId: 'shared-request',
+        route: 'GET /api/todos',
+        status: 200,
+        durationMicros: 120000,
+        timeline: [],
+        notes: []
+      }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    await wrapper.get('.activity-next-request').trigger('click')
+    await flushPromises()
+
+    const profileCalls = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('api/activity/request/'))
+    expect(profileCalls).toEqual([
+      'api/activity/request/shared-request/journal?namespace=team-a&application=orders&run=run-1&instance=instance-1',
+      'api/activity/request/shared-request/journal?namespace=team-b&application=billing&run=run-2&instance=instance-2'
+    ])
+  })
+
   it('offers the journal filters when the default feed comes from the runtime journal', async () => {
     safeLocalStorage.removeItem('bootui.activity.filters')
     vi.stubGlobal('fetch', stubFetch(activityReport({sources: ['Runtime journal']}), requestProfile()))
@@ -419,7 +520,7 @@ describe('LiveActivity', () => {
     expect(wrapper.text()).not.toContain('Loading…')
   })
 
-  it('withholds the journal-only filters while persisted history serves the feed', async () => {
+  it('keeps journal and scope controls available while persisted history serves the feed', async () => {
     safeLocalStorage.removeItem('bootui.activity.filters')
     const persisted = activityReport({
       sources: ['Runtime journal'],
@@ -429,10 +530,16 @@ describe('LiveActivity', () => {
     wrapper = mountLiveActivity()
     await flushPromises()
 
-    expect(wrapper.find('#activity-run-filter').exists()).toBe(false)
-    expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
-    expect(wrapper.find('#activity-feed-source').exists()).toBe(false)
-    expect(wrapper.text()).toContain('keeps no run or request grouping')
+    expect(wrapper.find('#activity-feed-source').exists()).toBe(true)
+    expect(wrapper.get('#activity-feed-source').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#activity-feed-source').element.value).toBe('journal')
+    expect(wrapper.find('#activity-route-filter').exists()).toBe(true)
+    expect(wrapper.find('#activity-request-filter').exists()).toBe(true)
+    expect(wrapper.get('label[for="activity-archive-run-filter"]').text()).toBe('Run scope')
+    expect(wrapper.get('label[for="activity-namespace-filter"]').text()).toBe('Namespace scope')
+    expect(wrapper.get('label[for="activity-application-filter"]').text()).toBe('Application scope')
+    expect(wrapper.text()).toContain('spans all runs in the current namespace and application')
+    expect(wrapper.text()).toContain('Choose another namespace only when the API allows cross-namespace reads')
   })
 
   it('does not send a feed source while persisted history serves the feed', async () => {
@@ -451,7 +558,7 @@ describe('LiveActivity', () => {
     expect(urls.every((url) => !url.includes('source='))).toBe(true)
   })
 
-  it('does not blame hidden journal filters for an empty persisted page', async () => {
+  it('applies retained journal filters to an empty persisted page', async () => {
     safeLocalStorage.removeItem('bootui.activity.filters')
     let persistedNow = false
     const base = {entries: [], typeCounts: {}, sources: ['Runtime journal']}
@@ -470,9 +577,9 @@ describe('LiveActivity', () => {
     await new Promise((resolve) => setTimeout(resolve, 400))
     await flushPromises()
 
-    expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('No activity matches the current filters')
-    expect(wrapper.text()).toContain('No visible rows on this page')
+    expect(wrapper.find('#activity-route-filter').exists()).toBe(true)
+    expect(wrapper.text()).toContain('No activity matches the current filters')
+    expect(wrapper.text()).not.toContain('No visible rows on this page')
   })
 
   it('does not claim nothing was recorded when persisted rows are all hidden', async () => {
@@ -526,6 +633,138 @@ describe('LiveActivity', () => {
       vi.useRealTimers()
       safeLocalStorage.removeItem('bootui.activity.filters')
     }
+  })
+
+  it('sends persistent scope filters and keeps them when loading older history', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    try {
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      const persisted = activityReport({
+        sources: ['Runtime journal'],
+        pageInfo: {persistent: true, hasMore: true, nextCursor: 'older-cursor'}
+      })
+      const fetchMock = stubFetch(persisted, requestProfile())
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      await wrapper.get('#activity-text-filter').setValue('invoice')
+      await wrapper.get('#activity-type-filter').setValue('REQUEST')
+      await wrapper.get('#activity-route-filter').setValue('GET /orders/{id}')
+      await wrapper.get('#activity-request-filter').setValue('request-7')
+      await wrapper.get('#activity-namespace-filter').setValue('team-shared')
+      await wrapper.get('#activity-application-filter').setValue('orders-api')
+      await wrapper.get('#activity-archive-run-filter').setValue('run-9')
+      await vi.advanceTimersByTimeAsync(301)
+      await flushPromises()
+
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Load older activity')
+        .trigger('click')
+      await flushPromises()
+
+      const olderCall = fetchMock.mock.calls
+        .map(([url]) => String(url))
+        .find((url) => url.includes('cursor=older-cursor'))
+      const query = new URLSearchParams(olderCall.split('?')[1])
+      expect(query.get('cursor')).toBe('older-cursor')
+      expect(query.get('namespace')).toBe('team-shared')
+      expect(query.get('application')).toBe('orders-api')
+      expect(query.get('run')).toBe('run-9')
+      expect(query.get('route')).toBe('GET /orders/{id}')
+      expect(query.get('requestId')).toBe('request-7')
+      expect(query.get('q')).toBe('invoice')
+      expect(query.get('type')).toBe('REQUEST')
+      expect(query.has('source')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+      safeLocalStorage.removeItem('bootui.activity.filters')
+    }
+  })
+
+  it('shows compact archive origins only when persisted rows differ by scope, run, or instance', async () => {
+    const entry = requestEntry({id: 'shared-entry', summary: 'GET /orders → 200'})
+    const persisted = activityReport({
+      entries: [entry, {...entry}],
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: false, nextCursor: null},
+      origins: [
+        {
+          entryId: 'shared-entry',
+          namespace: 'team-a',
+          application: 'orders-api',
+          run: '01234567-89abcdef',
+          instanceId: 'orders-api-host-a-123456',
+          source: 'HTTP_EXCHANGES',
+          journalSequence: 4,
+          globalSequence: 20
+        },
+        {
+          entryId: 'shared-entry',
+          namespace: 'team-b',
+          application: 'billing-api',
+          run: 'fedcba98-76543210',
+          instanceId: 'billing-api-host-b-654321',
+          source: 'HTTP_EXCHANGES',
+          journalSequence: 4,
+          globalSequence: 21
+        }
+      ]
+    })
+    vi.stubGlobal('fetch', stubFetch(persisted, requestProfile()))
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const rows = wrapper.findAll('tr.activity-row-clickable')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('team-a / orders-api')
+    expect(rows[0].text()).toContain('run 01234567-8…')
+    expect(rows[0].text()).toContain('instance orders-api…')
+    expect(rows[0].get('[title^="Namespace:"]').attributes('title')).toContain('Application: orders-api')
+    expect(rows[0].get('[title^="Run:"]').attributes('title')).toBe('Run: 01234567-89abcdef')
+    expect(rows[1].text()).toContain('team-b / billing-api')
+    expect(wrapper.text()).toContain('2 scopes')
+  })
+
+  it('does not clutter a persisted single-scope feed with origin badges', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport({
+          sources: ['Runtime journal'],
+          pageInfo: {persistent: true, hasMore: false, nextCursor: null},
+          origins: [
+            {
+              entryId: 'req-1',
+              namespace: 'local-team',
+              application: 'orders-api',
+              run: 'run-1',
+              instanceId: 'host-1',
+              source: 'HTTP_EXCHANGES',
+              journalSequence: 1,
+              globalSequence: 1
+            }
+          ]
+        }),
+        requestProfile()
+      )
+    )
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.find('.activity-origin-meta').exists()).toBe(false)
+  })
+
+  it('renders an older response that omits origins', async () => {
+    const legacyReport = activityReport()
+    delete legacyReport.origins
+    vi.stubGlobal('fetch', stubFetch(legacyReport, requestProfile()))
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.get('tr.activity-row-clickable').text()).toContain('GET /api/todos → 200')
+    expect(wrapper.find('.activity-origin-meta').exists()).toBe(false)
   })
 
   it.each(['resolve', 'reject'])(
@@ -1136,6 +1375,76 @@ describe('LiveActivity', () => {
     await drawer.get('.request-journal__baseline-link').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith('api/activity/request/req-warm-2', expect.anything())
+  })
+
+  it('keeps the archive origin when comparing with and opening a persisted baseline', async () => {
+    const origin = {
+      entryId: 'req-1',
+      namespace: 'team-a',
+      application: 'orders',
+      run: 'run-7',
+      instanceId: 'orders-2',
+      globalSequence: 71
+    }
+    const candidates = [
+      {requestId: 'req-warm-1', startedAt: 1700000000000, durationMicros: 12000, status: 200},
+      {requestId: 'req-warm-2', startedAt: 1700000001000, durationMicros: 15000, status: 200}
+    ]
+    const journalProfile = (baselineRequestId) => ({
+      available: true,
+      requestId: 'req-1',
+      route: 'GET /api/todos',
+      status: 500,
+      durationMicros: 120000,
+      baselineComparison: {
+        baselineRequestId,
+        baselineDurationMicros: 15000,
+        routeP50Micros: 12000,
+        durationDeltaMicros: 105000,
+        candidates
+      }
+    })
+    const fetchMock = vi.fn((url) => {
+      const value = String(url)
+      if (value.includes('compareWith=req-warm-2')) {
+        return Promise.resolve(jsonResponse(journalProfile('req-warm-2')))
+      }
+      if (value.startsWith('api/activity/request/')) {
+        return Promise.resolve(jsonResponse(journalProfile('req-warm-1')))
+      }
+      return Promise.resolve(
+        jsonResponse(
+          activityReport({
+            sources: ['Runtime journal'],
+            pageInfo: {persistent: true, hasMore: false, nextCursor: null},
+            origins: [origin]
+          })
+        )
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const originQuery = 'namespace=team-a&application=orders&run=run-7&instance=orders-2'
+    await wrapper.get('.request-journal__baseline-select').setValue('req-warm-2')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledWith(
+      `api/activity/request/req-1/journal?${originQuery}&compareWith=req-warm-2`,
+      expect.anything()
+    )
+
+    await wrapper.get('.request-journal__baseline-link').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledWith(`api/activity/request/req-warm-2/journal?${originQuery}`, expect.anything())
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => String(url).startsWith('api/activity/request/') && !String(url).split('?')[0].endsWith('/journal')
+      )
+    ).toBe(false)
   })
 
   it('ignores out-of-order compareWith responses and preserves the loaded journal profile on compareWith failure', async () => {

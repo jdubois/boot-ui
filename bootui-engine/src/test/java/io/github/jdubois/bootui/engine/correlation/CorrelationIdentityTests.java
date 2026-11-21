@@ -56,7 +56,7 @@ class CorrelationIdentityTests {
         RunIdentity first = RunIdentity.start(() -> 1_000L);
         RunIdentity second = RunIdentity.start(() -> 2_000L);
 
-        assertThat(first.id()).matches("[0-9a-f]{8}");
+        assertThat(first.id()).matches("[0-9a-f]{32}");
         assertThat(second.id()).isNotEqualTo(first.id());
         assertThat(second.ordinal()).isEqualTo(first.ordinal() + 1);
         assertThat(first.startedAtEpochMillis()).isEqualTo(1_000L);

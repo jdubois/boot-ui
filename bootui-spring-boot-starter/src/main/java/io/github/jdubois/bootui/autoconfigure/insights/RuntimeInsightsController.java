@@ -20,24 +20,35 @@ import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.UnrecordedWork;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.journal.DurableJournalArchiveService;
+import io.github.jdubois.bootui.engine.journal.DurableJournalEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStoreException;
+import io.github.jdubois.bootui.engine.journal.DurableJournalUnavailableException;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.spi.BeanProvider;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * The Runtime Insights panel ({@code docs/PLAN-v2.md} §5.5), shared by the Spring MVC and WebFlux adapters:
@@ -56,6 +67,10 @@ public class RuntimeInsightsController {
     private final RunComparisonService comparison;
     private final ChangeImpactService impact;
     private final ResourceProfileService profile;
+    private final RuntimeJournal durableJournal;
+    private final DurableJournalRuntime durableRuntime;
+    private final DurableJournalSettings durableSettings;
+    private final ExposurePolicy historicalExposure;
 
     public RuntimeInsightsController(
             ApplicationContext context,
@@ -67,6 +82,11 @@ public class RuntimeInsightsController {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         this.comparison = new RunComparisonService(
                 journal.getIfAvailable(), journalAggregates, RunHistory.shared(), properties::isPanelEnabled);
+        this.durableJournal = journal.getIfAvailable();
+        this.durableRuntime =
+                context.getBeanProvider(DurableJournalRuntime.class).getIfAvailable();
+        this.durableSettings =
+                context.getBeanProvider(DurableJournalSettings.class).getIfAvailable();
         RuntimeModelService models = new RuntimeModelService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -105,7 +125,8 @@ public class RuntimeInsightsController {
         this.insights.setUnrecordedWork(UnrecordedWork.detect(context.getClassLoader()));
         // The live policy, so a runtime change of bootui.expose-values applies to the next read (PLAN-v2 §8).
         BootUiExposure exposure = context.getBeanProvider(BootUiExposure.class).getIfAvailable();
-        this.insights.setExposure(exposure != null ? exposure : new BootUiExposure(properties));
+        this.historicalExposure = exposure != null ? exposure : new BootUiExposure(properties);
+        this.insights.setExposure(historicalExposure);
         this.insights.setProxyBoundaries(new SpringProxyBoundaries(context));
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
@@ -179,13 +200,121 @@ public class RuntimeInsightsController {
     }
 
     @GetMapping
+    public RuntimeInsightsReportDto report(
+            @RequestParam(name = "namespace", required = false) String namespace,
+            @RequestParam(name = "application", required = false) String application,
+            @RequestParam(name = "run", required = false) String run) {
+        try {
+            DurableJournalScope historical = historicalScope(namespace, application, run);
+            if (historical != null) {
+                return archive().insights(historical);
+            }
+            JournalEvidenceSnapshot evidence = durableEvidence(namespace, application, run);
+            return evidence == null ? insights.report() : insights.reportFrom(evidence);
+        } catch (DurableJournalUnavailableException ex) {
+            return new RuntimeInsightsReportDto(
+                    false, ex.getMessage(), null, List.of(), List.of(), List.of(), List.of(), List.of(), 0);
+        } catch (DurableJournalStoreException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE, "Runtime Insights durable evidence is unavailable", ex);
+        }
+    }
+
     public RuntimeInsightsReportDto report() {
-        return insights.report();
+        return report(null, null, null);
     }
 
     @GetMapping("/insights/{id}")
-    public RuntimeObservationDetailDto insight(@PathVariable String id) {
-        return insights.insight(id);
+    public RuntimeObservationDetailDto insight(
+            @PathVariable String id,
+            @RequestParam(name = "namespace", required = false) String namespace,
+            @RequestParam(name = "application", required = false) String application,
+            @RequestParam(name = "run", required = false) String run) {
+        try {
+            DurableJournalScope historical = historicalScope(namespace, application, run);
+            if (historical != null) {
+                return archive().insight(historical, id);
+            }
+            JournalEvidenceSnapshot evidence = durableEvidence(namespace, application, run);
+            return evidence == null ? insights.insight(id) : insights.insightFrom(evidence, id);
+        } catch (DurableJournalUnavailableException ex) {
+            return new RuntimeObservationDetailDto(false, ex.getMessage(), null, List.of(), List.of(), 0);
+        } catch (DurableJournalStoreException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE, "Runtime Insights durable evidence is unavailable", ex);
+        }
+    }
+
+    public RuntimeObservationDetailDto insight(String id) {
+        return insight(id, null, null, null);
+    }
+
+    private JournalEvidenceSnapshot durableEvidence(String namespace, String application, String run) {
+        boolean requested = hasText(namespace) || hasText(application) || hasText(run);
+        if (durableSettings == null) {
+            if (requested) {
+                throw new DurableJournalUnavailableException("Durable journal archive settings are unavailable");
+            }
+            return null;
+        }
+        DurableJournalScope selected = selectedScope(namespace, application, run);
+        boolean historical = !selected.equals(durableSettings.scope());
+        boolean needsArchive =
+                historical || durableJournal != null && durableJournal.status().offloadedEvents() > 0;
+        if (!needsArchive) {
+            return null;
+        }
+        if (durableRuntime == null || !durableRuntime.active()) {
+            throw new DurableJournalUnavailableException("Durable journal evidence is unavailable for " + selected);
+        }
+        DurableJournalEvidence evidence = new DurableJournalEvidence(durableRuntime.store());
+        return historical ? evidence.read(selected) : evidence.read(durableJournal, selected);
+    }
+
+    private DurableJournalScope historicalScope(String namespace, String application, String run) {
+        boolean requested = hasText(namespace) || hasText(application) || hasText(run);
+        if (durableSettings == null) {
+            if (requested) {
+                throw new DurableJournalUnavailableException("Durable journal archive settings are unavailable");
+            }
+            return null;
+        }
+        DurableJournalScope selected = selectedScope(namespace, application, run);
+        return selected.equals(durableSettings.scope()) ? null : selected;
+    }
+
+    private DurableJournalArchiveService archive() {
+        if (durableRuntime == null || !durableRuntime.active()) {
+            throw new DurableJournalUnavailableException("Durable journal evidence is unavailable");
+        }
+        return durableSettings.readerArchiveCrossNamespace()
+                ? DurableJournalArchiveService.crossNamespaceReader(durableRuntime.store(), historicalExposure)
+                : DurableJournalArchiveService.forNamespace(
+                        durableRuntime.store(), historicalExposure, durableSettings.namespaceId());
+    }
+
+    private DurableJournalScope selectedScope(String namespace, String application, String run) {
+        String selectedNamespace = valueOr(namespace, durableSettings.namespaceId());
+        String selectedApplication = valueOr(application, durableSettings.applicationId());
+        String selectedRun = valueOr(run, durableSettings.runId());
+        if (!selectedNamespace.equals(durableSettings.namespaceId())
+                && !durableSettings.readerArchiveCrossNamespace()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Durable journal namespace selection is disabled by configuration");
+        }
+        try {
+            return new DurableJournalScope(selectedNamespace, selectedApplication, selectedRun);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid durable journal scope", ex);
+        }
+    }
+
+    private static String valueOr(String value, String fallback) {
+        return hasText(value) ? value.strip() : fallback;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**

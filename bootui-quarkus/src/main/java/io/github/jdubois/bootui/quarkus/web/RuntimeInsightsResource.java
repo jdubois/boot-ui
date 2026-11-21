@@ -17,7 +17,15 @@ import io.github.jdubois.bootui.engine.insights.UnrecordedWork;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.journal.DurableJournalArchiveService;
+import io.github.jdubois.bootui.engine.journal.DurableJournalEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStoreException;
+import io.github.jdubois.bootui.engine.journal.DurableJournalUnavailableException;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalEvidenceSnapshot;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
@@ -30,16 +38,20 @@ import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.spi.BeanProvider;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import java.time.Duration;
 import java.util.List;
 import org.eclipse.microprofile.config.Config;
@@ -59,6 +71,10 @@ public class RuntimeInsightsResource {
     private final RunComparisonService comparison;
     private final ChangeImpactService impact;
     private final ResourceProfileService profile;
+    private final ExposurePolicy historicalExposure;
+    private RuntimeJournal durableJournal;
+    private DurableJournalRuntime durableRuntime;
+    private DurableJournalSettings durableSettings;
 
     @Inject
     public RuntimeInsightsResource(
@@ -109,6 +125,7 @@ public class RuntimeInsightsResource {
                 () -> RunHistory.shared().summaries(journalAggregates == null ? null : journalAggregates.application()),
                 BootUiEngineProducer.runtimeInsightsTokenThreshold(config));
         this.insights.setExposure(exposure);
+        this.historicalExposure = exposure;
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
@@ -151,6 +168,18 @@ public class RuntimeInsightsResource {
                 limit -> codeInventory.isResolvable() ? codeInventory.get().changesWithAccess(limit) : null,
                 wanted -> codePaths.isResolvable() ? codePaths.get().methodRoutes(wanted) : null);
         this.insights.setCodePathsService(() -> codePaths.isResolvable() ? codePaths.get() : null);
+        this.durableJournal = journal.isResolvable() ? journal.get() : null;
+    }
+
+    @Inject
+    void setDurableJournal(Instance<DurableJournalRuntime> runtimes, Instance<DurableJournalSettings> settings) {
+        this.durableRuntime = runtimes.isResolvable() ? runtimes.get() : null;
+        this.durableSettings = settings.isResolvable() ? settings.get() : null;
+    }
+
+    void setDurableJournal(DurableJournalRuntime runtime, DurableJournalSettings settings) {
+        this.durableRuntime = runtime;
+        this.durableSettings = settings;
     }
 
     /**
@@ -183,15 +212,128 @@ public class RuntimeInsightsResource {
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
+    public RuntimeInsightsReportDto report(
+            @QueryParam("namespace") String namespace,
+            @QueryParam("application") String application,
+            @QueryParam("run") String run) {
+        try {
+            DurableJournalScope historical = historicalScope(namespace, application, run);
+            if (historical != null) {
+                return archive().insights(historical);
+            }
+            JournalEvidenceSnapshot evidence = durableEvidence(namespace, application, run);
+            return evidence == null ? insights.report() : insights.reportFrom(evidence);
+        } catch (DurableJournalUnavailableException ex) {
+            return new RuntimeInsightsReportDto(
+                    false, ex.getMessage(), null, List.of(), List.of(), List.of(), List.of(), List.of(), 0);
+        } catch (DurableJournalStoreException ex) {
+            throw unavailable(ex);
+        }
+    }
+
     public RuntimeInsightsReportDto report() {
-        return insights.report();
+        return report(null, null, null);
     }
 
     @GET
     @Path("/insights/{id}")
     @Produces(MediaType.APPLICATION_JSON)
-    public RuntimeObservationDetailDto insight(@PathParam("id") String id) {
-        return insights.insight(id);
+    public RuntimeObservationDetailDto insight(
+            @PathParam("id") String id,
+            @QueryParam("namespace") String namespace,
+            @QueryParam("application") String application,
+            @QueryParam("run") String run) {
+        try {
+            DurableJournalScope historical = historicalScope(namespace, application, run);
+            if (historical != null) {
+                return archive().insight(historical, id);
+            }
+            JournalEvidenceSnapshot evidence = durableEvidence(namespace, application, run);
+            return evidence == null ? insights.insight(id) : insights.insightFrom(evidence, id);
+        } catch (DurableJournalUnavailableException ex) {
+            return new RuntimeObservationDetailDto(false, ex.getMessage(), null, List.of(), List.of(), 0);
+        } catch (DurableJournalStoreException ex) {
+            throw unavailable(ex);
+        }
+    }
+
+    public RuntimeObservationDetailDto insight(String id) {
+        return insight(id, null, null, null);
+    }
+
+    private static ServiceUnavailableException unavailable(DurableJournalStoreException cause) {
+        return new ServiceUnavailableException(
+                Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                        .entity("Runtime Insights durable evidence is unavailable")
+                        .build(),
+                cause);
+    }
+
+    private JournalEvidenceSnapshot durableEvidence(String namespace, String application, String run) {
+        boolean requested = hasText(namespace) || hasText(application) || hasText(run);
+        if (durableSettings == null) {
+            if (requested) {
+                throw new DurableJournalUnavailableException("Durable journal archive settings are unavailable");
+            }
+            return null;
+        }
+        DurableJournalScope selected = selectedScope(namespace, application, run);
+        boolean historical = !selected.equals(durableSettings.scope());
+        boolean needsArchive =
+                historical || durableJournal != null && durableJournal.status().offloadedEvents() > 0;
+        if (!needsArchive) {
+            return null;
+        }
+        if (durableRuntime == null || !durableRuntime.active()) {
+            throw new DurableJournalUnavailableException("Durable journal evidence is unavailable for " + selected);
+        }
+        DurableJournalEvidence evidence = new DurableJournalEvidence(durableRuntime.store());
+        return historical ? evidence.read(selected) : evidence.read(durableJournal, selected);
+    }
+
+    private DurableJournalScope historicalScope(String namespace, String application, String run) {
+        boolean requested = hasText(namespace) || hasText(application) || hasText(run);
+        if (durableSettings == null) {
+            if (requested) {
+                throw new DurableJournalUnavailableException("Durable journal archive settings are unavailable");
+            }
+            return null;
+        }
+        DurableJournalScope selected = selectedScope(namespace, application, run);
+        return selected.equals(durableSettings.scope()) ? null : selected;
+    }
+
+    private DurableJournalArchiveService archive() {
+        if (durableRuntime == null || !durableRuntime.active()) {
+            throw new DurableJournalUnavailableException("Durable journal evidence is unavailable");
+        }
+        return durableSettings.readerArchiveCrossNamespace()
+                ? DurableJournalArchiveService.crossNamespaceReader(durableRuntime.store(), historicalExposure)
+                : DurableJournalArchiveService.forNamespace(
+                        durableRuntime.store(), historicalExposure, durableSettings.namespaceId());
+    }
+
+    private DurableJournalScope selectedScope(String namespace, String application, String run) {
+        String selectedNamespace = valueOr(namespace, durableSettings.namespaceId());
+        String selectedApplication = valueOr(application, durableSettings.applicationId());
+        String selectedRun = valueOr(run, durableSettings.runId());
+        if (!selectedNamespace.equals(durableSettings.namespaceId())
+                && !durableSettings.readerArchiveCrossNamespace()) {
+            throw new BadRequestException("Durable journal namespace selection is disabled by configuration");
+        }
+        try {
+            return new DurableJournalScope(selectedNamespace, selectedApplication, selectedRun);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Invalid durable journal scope", ex);
+        }
+    }
+
+    private static String valueOr(String value, String fallback) {
+        return hasText(value) ? value.strip() : fallback;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /** What a change to a bean, class, repository, table, cache, or host reaches in this run ({@code PLAN-v2} §5.7). */

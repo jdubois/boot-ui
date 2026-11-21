@@ -40,6 +40,11 @@ class CliDistributionIT {
                     .isNotNull();
             assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/ci/CiCollection.class"))
                     .isNotNull();
+            assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/ArchiveCommands.class"))
+                    .isNotNull();
+            assertThat(all.getJarEntry("io/github/jdubois/bootui/engine/journal/DurableJournalArchiveService.class"))
+                    .isNotNull();
+            assertThat(all.stream().map(JarEntry::getName)).noneMatch(name -> name.startsWith("org/h2/"));
             assertThat(all.getJarEntry("bootui-tools.json")).isNotNull();
             assertThat(thin.stream().map(JarEntry::getName))
                     .noneMatch(name -> name.startsWith("bootui-docs/")

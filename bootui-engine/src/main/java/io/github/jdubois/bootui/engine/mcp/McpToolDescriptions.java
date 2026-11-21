@@ -62,6 +62,9 @@ public final class McpToolDescriptions {
                             + "run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit "
                             + "(25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity "
                             + "(SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; "
+                            + "combine namespace:<value>, application:<value>, run:<value>, instance:<value>, and "
+                            + "route:<value> qualifiers to select durable scope; entries retain their origins, and "
+                            + "unscoped output warns when it spans multiple applications or runs; "
                             + "pageInfo.hasMore means more entries matched or older ones were not searched (a warning then names "
                             + "the window searched), and typeCounts counts every retained entry."),
             Map.entry(

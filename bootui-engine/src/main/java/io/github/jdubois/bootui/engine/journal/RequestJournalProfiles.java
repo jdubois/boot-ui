@@ -150,14 +150,28 @@ public final class RequestJournalProfiles {
         if (journal == null || !journal.settings().enabled()) {
             return RequestJournalProfileDto.unavailable(requestId, DISABLED);
         }
+        return profileFrom(JournalEvidenceSnapshot.hot(journal), requestId, compareWith);
+    }
+
+    /** Profiles {@code requestId} from an already-loaded bounded evidence snapshot. */
+    public RequestJournalProfileDto profileFrom(JournalEvidenceSnapshot snapshot, String requestId) {
+        return profileFrom(snapshot, requestId, null);
+    }
+
+    /** Profiles {@code requestId} from an already-loaded bounded evidence snapshot, with an optional baseline. */
+    public RequestJournalProfileDto profileFrom(
+            JournalEvidenceSnapshot snapshot, String requestId, String compareWith) {
+        if (snapshot == null || !snapshot.status().enabled()) {
+            return RequestJournalProfileDto.unavailable(requestId, DISABLED);
+        }
         if (requestId == null || requestId.isBlank()) {
             return RequestJournalProfileDto.unavailable(requestId, "No request id was given.");
         }
-        List<JournalEntry> all = journal.entries();
+        List<JournalEntry> all = snapshot.entries();
         JournalEntry request = null;
         List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
-        AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
+        AiCallOwners aiCallOwners = new AiCallOwners(snapshot::evictedARequestOf);
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
@@ -218,8 +232,8 @@ public final class RequestJournalProfiles {
         JournalTextExposure text = feed.exposure();
         for (ActivityEntryDto row : feed.render(
                         rendered,
-                        journal::eventId,
-                        journal.run().id(),
+                        snapshot::eventId,
+                        snapshot.status().runId(),
                         JournalActivityFeed.Filter.NONE,
                         0,
                         JournalRowDetails.NONE,
@@ -236,7 +250,7 @@ public final class RequestJournalProfiles {
                     && !selectedAuthorizations.sequences().contains(child.sequence())) {
                 continue;
             }
-            RequestTimelineItemDto item = item(child, rows.get(journal.eventId(child)), start, text);
+            RequestTimelineItemDto item = item(child, rows.get(snapshot.eventId(child)), start, text);
             if (item != null) {
                 timed.add(new Timed(item, child.sequence(), startNanos(child.event())));
             }
@@ -272,7 +286,20 @@ public final class RequestJournalProfiles {
             notes.add("More collections completed during this request than it keeps, so its GC pause count is a"
                     + " floor.");
         }
-        JournalStatus status = journal.status();
+        JournalStatus status = snapshot.status();
+        if (snapshot.durableCaptureLoss() > 0) {
+            notes.add("The durable capture lost " + snapshot.durableCaptureLoss()
+                    + (snapshot.durableCaptureLoss() == 1 ? " entry" : " entries")
+                    + "; this profile may omit work.");
+        }
+        if (snapshot.partial()) {
+            if (snapshot.omittedEvents() > 0) {
+                notes.add("The bounded journal evidence read omitted " + snapshot.omittedEvents()
+                        + (snapshot.omittedEvents() == 1
+                                ? " entry, so this timeline may be incomplete."
+                                : " entries, so this timeline may be incomplete."));
+            }
+        }
         if (status.oldestRetainedEpochMillis() != null
                 && status.oldestRetainedEpochMillis() > start
                 && status.evictedByCount() + status.evictedByBytes() > 0) {
@@ -293,6 +320,7 @@ public final class RequestJournalProfiles {
                         targetOrm,
                         routeComparison,
                         status,
+                        snapshot,
                         all,
                         aiCalls,
                         aiCallOwners,
@@ -417,6 +445,7 @@ public final class RequestJournalProfiles {
             RequestOrmDto targetOrm,
             RouteComparisonDto routeComparison,
             JournalStatus status,
+            JournalEvidenceSnapshot snapshot,
             List<JournalEntry> all,
             List<JournalEntry> aiCalls,
             AiCallOwners aiCallOwners,
@@ -428,7 +457,7 @@ public final class RequestJournalProfiles {
         }
         boolean evictionsOccurred = status.evictedByCount() + status.evictedByBytes() > 0;
         boolean explicitSelection = compareWith != null && !compareWith.isBlank();
-        if (isPartiallyEvicted(targetHttp, status, evictionsOccurred)) {
+        if (isPartiallyEvicted(targetHttp, status, evictionsOccurred, snapshot)) {
             if (explicitSelection) {
                 notes.add("Baseline comparison is unavailable because this request started before the journal's loss"
                         + " horizon, so some of its work may be missing.");
@@ -470,7 +499,7 @@ public final class RequestJournalProfiles {
             if (payload.status() < 200 || payload.status() >= 300) {
                 continue;
             }
-            if (isPartiallyEvicted(event, status, evictionsOccurred)) {
+            if (isPartiallyEvicted(event, status, evictionsOccurred, snapshot)) {
                 continue;
             }
             warm2xxDurations.add(Math.max(0, event.durationNanos()) / 1_000L);
@@ -508,7 +537,7 @@ public final class RequestJournalProfiles {
                 if (match == null) {
                     notes.add("Baseline comparison request " + safeRequestedId + " is not a retained request on route "
                             + route + ".");
-                } else if (isPartiallyEvicted(match.event(), status, evictionsOccurred)) {
+                } else if (isPartiallyEvicted(match.event(), status, evictionsOccurred, snapshot)) {
                     notes.add("Baseline comparison request " + safeRequestedId
                             + " started before the journal's oldest retained event, so its work may be incomplete.");
                 } else {
@@ -582,10 +611,8 @@ public final class RequestJournalProfiles {
         RequestMetrics targetMetrics = RequestMetrics.of(targetChildren);
         RequestMetrics baselineMetrics = RequestMetrics.of(baselineChildren);
 
-        SqlCaptureScopes.Snapshot sqlScope = journal.sqlCaptureScope();
-        boolean verifiedSqlCoverage =
-                !sqlScope.executions().isEmpty() && sqlScope.preparations().isEmpty() && !sqlScope.incomplete();
-        boolean sqlVerified = sourceAvailable(JournalSource.SQL)
+        boolean verifiedSqlCoverage = snapshot.sqlExecutionQualified();
+        boolean sqlVerified = sourceAvailable(snapshot, JournalSource.SQL)
                 && !targetMetrics.hasUnverifiedSql
                 && !baselineMetrics.hasUnverifiedSql
                 && (targetMetrics.sqlExecutions > 0 || baselineMetrics.sqlExecutions > 0 || verifiedSqlCoverage);
@@ -595,17 +622,17 @@ public final class RequestJournalProfiles {
         List<String> distinctSqlShapes =
                 sqlVerified ? distinguishingSqlShapes(targetMetrics, baselineMetrics) : List.of();
 
-        boolean connectionAvailable = sourceAvailable(JournalSource.CONNECTION)
+        boolean connectionAvailable = sourceAvailable(snapshot, JournalSource.CONNECTION)
                 && (targetMetrics.hasConnection || baselineMetrics.hasConnection);
         Long connectionWaitMicrosDelta =
                 connectionAvailable ? targetMetrics.connectionWaitMicros - baselineMetrics.connectionWaitMicros : null;
 
         boolean cacheAvailable =
-                sourceAvailable(JournalSource.CACHE) && (targetMetrics.hasCache || baselineMetrics.hasCache);
+                sourceAvailable(snapshot, JournalSource.CACHE) && (targetMetrics.hasCache || baselineMetrics.hasCache);
         Integer cacheHitsDelta = cacheAvailable ? targetMetrics.cacheHits - baselineMetrics.cacheHits : null;
         Integer cacheMissesDelta = cacheAvailable ? targetMetrics.cacheMisses - baselineMetrics.cacheMisses : null;
 
-        boolean restAvailable = sourceAvailable(JournalSource.REST_CLIENT)
+        boolean restAvailable = sourceAvailable(snapshot, JournalSource.REST_CLIENT)
                 && (targetMetrics.restClientCalls > 0 || baselineMetrics.restClientCalls > 0);
         Integer restClientCallsDelta =
                 restAvailable ? targetMetrics.restClientCalls - baselineMetrics.restClientCalls : null;
@@ -613,7 +640,8 @@ public final class RequestJournalProfiles {
                 ? targetMetrics.restClientDurationMicros - baselineMetrics.restClientDurationMicros
                 : null;
 
-        boolean ormAvailable = sourceAvailable(JournalSource.ORM) && (targetOrm != null || baselineOrm != null);
+        boolean ormAvailable =
+                sourceAvailable(snapshot, JournalSource.ORM) && (targetOrm != null || baselineOrm != null);
         Integer ormFlushesDelta = ormAvailable
                 ? (targetOrm == null ? 0 : targetOrm.flushes()) - (baselineOrm == null ? 0 : baselineOrm.flushes())
                 : null;
@@ -630,7 +658,7 @@ public final class RequestJournalProfiles {
 
         ResourceUsage targetUsage = targetPayload.resources();
         ResourceUsage baselineUsage = baselinePayload.resources();
-        boolean gcAvailable = journal.records(JournalSource.RESOURCES) && targetUsage != null && baselineUsage != null;
+        boolean gcAvailable = snapshot.records(JournalSource.RESOURCES) && targetUsage != null && baselineUsage != null;
         Long gcPausesTarget = gcAvailable ? targetUsage.gcPauses() : null;
         Long gcPausesBaseline = gcAvailable ? baselineUsage.gcPauses() : null;
 
@@ -698,13 +726,14 @@ public final class RequestJournalProfiles {
         return List.copyOf(shapes);
     }
 
-    private boolean isPartiallyEvicted(RuntimeEvent http, JournalStatus status, boolean evictionsOccurred) {
+    private boolean isPartiallyEvicted(
+            RuntimeEvent http, JournalStatus status, boolean evictionsOccurred, JournalEvidenceSnapshot snapshot) {
         if (evictionsOccurred
                 && status.oldestRetainedEpochMillis() != null
                 && status.oldestRetainedEpochMillis() > http.epochMillis()) {
             return true;
         }
-        Long lossHorizon = journal.lossHorizonMillis();
+        Long lossHorizon = snapshot.lossHorizonMillis();
         return lossHorizon != null && http.epochMillis() <= lossHorizon;
     }
 
@@ -716,8 +745,8 @@ public final class RequestJournalProfiles {
         return sanitized.length() <= 64 ? sanitized : sanitized.substring(0, 64) + "…";
     }
 
-    private boolean sourceAvailable(JournalSource source) {
-        if (!journal.records(source)) {
+    private boolean sourceAvailable(JournalEvidenceSnapshot snapshot, JournalSource source) {
+        if (!snapshot.records(source)) {
             return false;
         }
         for (String panel : JournalSourcePanels.panelsOf(source)) {

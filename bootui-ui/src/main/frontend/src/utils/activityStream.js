@@ -16,21 +16,22 @@
  */
 export function nestEntries(entries) {
   const list = entries || []
-  const byId = new Map(list.map((entry) => [entry.id, entry]))
+  const byId = new Map(list.map((entry) => [parentIdentity(entry, entry.id), entry]))
   const childrenByParent = new Map()
   const topLevel = []
   for (const entry of list) {
     const parentId = entry.parentId
-    if (parentId && parentId !== entry.id && byId.has(parentId)) {
-      const bucket = childrenByParent.get(parentId) || []
+    const parentKey = parentIdentity(entry, parentId)
+    if (parentId && parentId !== entry.id && byId.has(parentKey)) {
+      const bucket = childrenByParent.get(parentKey) || []
       bucket.push(entry)
-      childrenByParent.set(parentId, bucket)
+      childrenByParent.set(parentKey, bucket)
     } else {
       topLevel.push(entry)
     }
   }
   return topLevel.map((entry) => {
-    const kids = childrenByParent.get(entry.id) || []
+    const kids = childrenByParent.get(parentIdentity(entry, entry.id)) || []
     const children = [...kids].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
     return {...entry, children}
   })
@@ -86,6 +87,7 @@ export function groupEntries(entries) {
       previous.type === entry.type &&
       previous.severity === entry.severity &&
       previous.summary === entry.summary &&
+      sameOrigin(previous, entry) &&
       (entry.type !== 'EXCEPTION' || previous.exceptionGroupId === entry.exceptionGroupId)
     ) {
       previous.count += 1
@@ -169,7 +171,7 @@ export function markerPositions(entries) {
  * @returns {{path: string, query?: object, label: string}|null}
  */
 // A runtime journal event id: the run id, then the event's sequence in that run.
-const JOURNAL_EVENT_ID = /^[0-9a-f]{8}-\d+$/
+const JOURNAL_EVENT_ID = /^(?:[0-9a-f]{8}|[0-9a-f]{32})-\d+$/
 
 export function deepLink(entry) {
   if (!entry) return null
@@ -322,8 +324,8 @@ export function mergeActivityPages(head, older) {
   const headList = head || []
   const olderList = older || []
   if (!olderList.length) return headList
-  const seen = new Set(headList.map((entry) => entry.id))
-  const rest = olderList.filter((entry) => !seen.has(entry.id))
+  const seen = new Set(headList.map(activityEntryKey))
+  const rest = olderList.filter((entry) => !seen.has(activityEntryKey(entry)))
   return [...headList, ...rest]
 }
 
@@ -338,9 +340,31 @@ export function mergeActivityPages(head, older) {
  * @returns {Array<object>}
  */
 export function appendOlderPage(head, older, newEntries) {
-  const seen = new Set([...(head || []), ...(older || [])].map((entry) => entry.id))
-  const fresh = (newEntries || []).filter((entry) => !seen.has(entry.id))
+  const seen = new Set([...(head || []), ...(older || [])].map(activityEntryKey))
+  const fresh = (newEntries || []).filter((entry) => !seen.has(activityEntryKey(entry)))
   return [...(older || []), ...fresh]
+}
+
+/** A durable global sequence disambiguates equal entry ids from different archive scopes. */
+export function activityEntryKey(entry) {
+  const sequence = entry?.archiveOrigin?.globalSequence
+  return sequence != null ? `archive:${sequence}` : `entry:${entry?.id ?? ''}`
+}
+
+function parentIdentity(entry, id) {
+  const origin = entry?.archiveOrigin
+  const scope = origin ? `${origin.namespace ?? ''}\0${origin.application ?? ''}\0${origin.run ?? ''}\0` : ''
+  return `${scope}${id ?? ''}`
+}
+
+function sameOrigin(left, right) {
+  const a = left?.archiveOrigin
+  const b = right?.archiveOrigin
+  if (!a && !b) return true
+  if (!a || !b) return false
+  return (
+    a.namespace === b.namespace && a.application === b.application && a.run === b.run && a.instanceId === b.instanceId
+  )
 }
 
 /**

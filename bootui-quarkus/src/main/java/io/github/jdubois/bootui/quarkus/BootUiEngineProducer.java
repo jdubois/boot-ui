@@ -53,6 +53,12 @@ import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.InactiveDurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
@@ -903,6 +909,68 @@ public class BootUiEngineProducer {
     }
 
     /**
+     * Static durable runtime-journal identity and buffering settings. Datasource selection remains
+     * separate from this producer so applications and schema provisioning can be wired later without
+     * changing the configuration contract.
+     */
+    @Produces
+    @Singleton
+    public DurableJournalSettings durableJournalSettings(Config config, QuarkusApplicationInfo application) {
+        DurableJournalIdentity identity = DurableJournalIdentity.create(
+                config.getOptionalValue("bootui.activity.persistence.namespace-id", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.instance-id", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.application-id", String.class)
+                        .orElse(null),
+                runApplicationKey(config, LaunchMode.current()));
+        Long maxPendingBytes = RuntimeJournalSettings.parseBytes(
+                config.getOptionalValue("bootui.activity.persistence.max-pending-bytes", String.class)
+                        .orElse(null),
+                "bootui.activity.persistence.max-pending-bytes");
+        DurableJournalIdentity aligned = identity.withRunId(application.run().id());
+        return new DurableJournalSettings(
+                aligned,
+                config.getOptionalValue("bootui.activity.persistence.enabled", Boolean.class)
+                        .orElse(Boolean.FALSE),
+                config.getOptionalValue("bootui.activity.persistence.flush-interval", Duration.class)
+                        .orElse(DurableJournalSettings.DEFAULT_FLUSH_INTERVAL),
+                config.getOptionalValue("bootui.activity.persistence.max-pending-entries", Integer.class)
+                        .orElse(DurableJournalSettings.DEFAULT_MAX_PENDING_ENTRIES),
+                maxPendingBytes == null ? DurableJournalSettings.DEFAULT_MAX_PENDING_BYTES : maxPendingBytes,
+                config.getOptionalValue("bootui.activity.persistence.hot-max-entries", Integer.class)
+                        .orElse(DurableJournalSettings.DEFAULT_HOT_MAX_ENTRIES),
+                config.getOptionalValue("bootui.activity.persistence.table-name", String.class)
+                        .orElse(DurableJournalSettings.DEFAULT_TABLE_PREFIX),
+                config.getOptionalValue("bootui.activity.persistence.retention", Duration.class)
+                        .orElse(DurableJournalSettings.DEFAULT_RETENTION),
+                config.getOptionalValue("bootui.activity.persistence.reader-archive-cross-namespace", Boolean.class)
+                        .orElse(Boolean.FALSE));
+    }
+
+    /**
+     * Durable journal JDBC boundary. Shared mode reuses the application's selected {@link DataSource};
+     * dedicated mode uses the same explicit-connection datasource policy as legacy migration storage.
+     */
+    @Produces
+    @Singleton
+    public DurableJournalStore durableJournalStore(
+            ActivityPersistenceSettings persistence, DurableJournalSettings durable, Instance<DataSource> dataSources) {
+        if (!durable.enabled()) {
+            return new InactiveDurableJournalStore();
+        }
+        DataSource dataSource =
+                ActivityStoreFactory.resolveDataSource(persistence, () -> resolveDataSource(dataSources));
+        return new JdbcDurableJournalStore(dataSource, durable.tablePrefix());
+    }
+
+    @Produces
+    @Singleton
+    public DurableJournalRuntime durableJournalRuntime() {
+        return new DurableJournalRuntime();
+    }
+
+    /**
      * The Live Activity durable store. Produced <em>unconditionally</em> (like the Cache/Flyway/Liquibase/
      * Connection-Pools services): {@link ActivityStoreFactory#create} itself branches on {@code
      * settings.enabled()}, returning a {@link SwitchableActivityStore} wrapping a bare {@code
@@ -925,7 +993,11 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public SwitchableActivityStore activityStore(
-            ActivityPersistenceSettings settings, Instance<DataSource> dataSources) {
+            ActivityPersistenceSettings settings, DurableJournalSettings durable, Instance<DataSource> dataSources) {
+        if (durable.enabled()) {
+            return new SwitchableActivityStore(new io.github.jdubois.bootui.engine.activity.InMemoryActivityStore(
+                    Math.max(1, settings.bufferMaxEntries())));
+        }
         return ActivityStoreFactory.create(settings, () -> resolveDataSource(dataSources));
     }
 

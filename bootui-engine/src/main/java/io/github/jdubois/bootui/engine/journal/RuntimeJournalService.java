@@ -70,6 +70,11 @@ public final class RuntimeJournalService {
 
     /** The journal's status, or a disabled status when there is no journal. */
     public RuntimeJournalStatusDto status() {
+        return status(null);
+    }
+
+    /** The journal's status, optionally joined to the active durable capture state. */
+    public RuntimeJournalStatusDto status(DurableJournalCaptureStatus durableCapture) {
         if (journal == null) {
             return new RuntimeJournalStatusDto(
                     false,
@@ -90,7 +95,16 @@ public final class RuntimeJournalService {
                     0,
                     List.of(),
                     null,
-                    evidenceStatus());
+                    evidenceStatus(),
+                    0,
+                    0,
+                    durableCapture != null,
+                    durableCapture == null ? 0 : durableCapture.accepted(),
+                    durableCapture == null ? 0 : durableCapture.pending(),
+                    durableCapture == null ? 0 : durableCapture.pendingBytes(),
+                    durableCapture == null ? 0 : durableCapture.dropped(),
+                    durableCapture == null ? 0 : durableCapture.quarantined(),
+                    durableCapture == null ? 0 : durableCapture.durableWatermark());
         }
         JournalStatus status = journal.status();
         return new RuntimeJournalStatusDto(
@@ -112,7 +126,16 @@ public final class RuntimeJournalService {
                 status.droppedTotal(),
                 previousRuns(status.runId()),
                 history.unavailableReason(),
-                evidenceStatus());
+                evidenceStatus(),
+                status.offloadedEvents(),
+                status.durableOffloadedThrough(),
+                durableCapture != null,
+                durableCapture == null ? 0 : durableCapture.accepted(),
+                durableCapture == null ? 0 : durableCapture.pending(),
+                durableCapture == null ? 0 : durableCapture.pendingBytes(),
+                durableCapture == null ? 0 : durableCapture.dropped(),
+                durableCapture == null ? 0 : durableCapture.quarantined(),
+                durableCapture == null ? 0 : durableCapture.durableWatermark());
     }
 
     private RuntimeAgentEvidenceDto evidenceStatus() {

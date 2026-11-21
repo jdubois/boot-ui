@@ -296,7 +296,7 @@ name matching that lets `bootui config --query bootui.mcp.enabled` find a value 
 Large reads answer with a short first page when no `--limit` is given, such as the newest 20 statements for
 `bootui sql traces`, the newest 20 calls for `bootui rest-client traces`, or 25 entries for `bootui activity`, and `page.hasMore` says when rows were left out: narrow
 `--query` or raise `--limit`. [Agent-sized defaults](AI-AGENTS.md#agent-sized-defaults) lists each command's default.
-A 1.x CLI keeps calling these commands, without the newer options, and gets the same short first page.
+An older CLI keeps calling existing commands, without the newer options, and gets the same short first page.
 
 Auto-detection is a convenience, not a contract: on a JDK 22 or later runtime a redirected stream can still
 report a console. Pass `--json` explicitly in scripts.
@@ -549,6 +549,62 @@ it, or the request carried nothing to correlate.
 The command is `request-profile`, at the top level, because `bootui activity` is itself a command and a command path
 cannot also be the parent of another. It is unavailable, and exits `2`, when the Live Activity panel is disabled. See
 [Investigate one request](AI-AGENTS.md#investigate-one-request) for the same workflow over MCP.
+
+## Read durable journal history offline
+
+`bootui archive` is a local, client-side exception to the generated MCP command tree. It reads BootUI's durable
+runtime-journal tables directly over JDBC, without a running application. Every read is masked, bounded, and strict:
+the store never creates, migrates, or changes schema.
+
+```bash
+export BOOTUI_ARCHIVE_JDBC_URL='jdbc:postgresql://localhost/orders'
+export BOOTUI_ARCHIVE_USERNAME='bootui_reader'
+export BOOTUI_ARCHIVE_PASSWORD='…'
+
+bootui archive runs --namespace orders-local --application orders --json
+bootui archive activity --namespace orders-local --application orders \
+  --type REQUEST --route 'GET /api/orders/{id}' --limit 100 --json
+bootui archive profile <requestId> --namespace orders-local --application orders \
+  --run <runId> --json
+bootui archive insights --namespace orders-local --application orders --run <runId> --json
+```
+
+The configured table prefix (default `bootui_activity`) names `bootui_activity_runs`,
+`bootui_activity_events`, and `bootui_activity_details`. The CLI requires a database driver on the Java classpath.
+Auto-registration works when the driver exposes its service entry; otherwise pass `--driver org.example.Driver`.
+Because `java -jar` cannot extend its classpath, launch the `bootui-cli-…-all.jar` main class with `java -cp` and both
+the CLI and driver JARs:
+
+```bash
+java -cp 'bootui-cli-<version>-all.jar:postgresql-<version>.jar' \
+  io.github.jdubois.bootui.cli.BootUiCli archive runs \
+  --jdbc-url 'jdbc:postgresql://localhost/orders' \
+  --namespace orders-local --application orders --json
+```
+
+Common options:
+
+| Option / environment | Purpose |
+| --- | --- |
+| `--jdbc-url` / `BOOTUI_ARCHIVE_JDBC_URL` | Read-only JDBC target |
+| `--username` / `BOOTUI_ARCHIVE_USERNAME` | Database user |
+| `--password` / `BOOTUI_ARCHIVE_PASSWORD` | Database password; prefer the environment variable |
+| `--driver` / `BOOTUI_ARCHIVE_DRIVER` | Optional driver class |
+| `--table-prefix` / `BOOTUI_ARCHIVE_TABLE_PREFIX` | Durable journal prefix, not the old single table |
+| `--namespace`, `--application`, `--run` / matching `BOOTUI_ARCHIVE_*` variables | Durable scope |
+| `--allow-cross-namespace` | Explicitly permit a global activity read or multi-namespace scopes |
+
+`archive runs` lists newest runs. `archive activity` accepts `--instance`, `--source`, `--type`, `--severity`,
+`--query`, `--route`, `--request-id`, `--since`, `--until`, `--no-request`, and a global `--cursor`; continue with the
+returned `nextCursor` until `hasMore` is false. With `--allow-cross-namespace` and no namespace, the head is store-wide
+and remains ordered by `globalSequence`, which is also suitable for cursor-based polling/deduplication.
+`archive profile <requestId>` requires one exact namespace/application/run. `archive insights` reads the selected run;
+without `--run`, it projects the newest bounded runs for one application. Repeat `--scope
+namespace/application/run` for explicit multi-run output (at most 100).
+
+Archive output can be incomplete: each run is bounded, a crash may leave the latest metadata checkpoint without an end
+snapshot, and missing safe details or agent-only evidence are reported in limitations. Raw payloads cannot be recovered
+by archive commands. Cross-namespace reads require the explicit opt-in on every invocation.
 
 ### Investigating a blocked thread
 
@@ -881,7 +937,11 @@ exposes a tool is still what `bootui tools` says.
 
 | Command | MCP tool | Arguments | Kind | Stacks |
 | --- | --- | --- | --- | --- |
-| `bootui activity` | `get_live_activity` | `--query`, `--limit` | read | all |
+| `bootui activity` | `get_live_activity` | `--query` (`namespace:`, `application:`, `run:`, `instance:`, `route:` qualifiers plus type/severity/text), `--limit` | read | all |
+| `bootui archive runs` | — (offline JDBC) | `--namespace`, `--application`, optional `--run`, `--limit`, connection options | read | any JDK with a driver |
+| `bootui archive activity` | — (offline JDBC) | Scope/filter options, `--cursor`, `--limit`, connection options | read | any JDK with a driver |
+| `bootui archive profile` | — (offline JDBC) | `<requestId> --namespace … --application … --run …`, connection options | read | any JDK with a driver |
+| `bootui archive insights` | — (offline JDBC) | Optional `--run`, `--scope`, `--limit`, connection options | read | any JDK with a driver |
 | `bootui agent status` | `get_agent_status` | `--query` | read | all |
 | `bootui agent sensor disable` | `disable_agent_sensor` | `<id>` (switchable sensor); needs approval | action | all |
 | `bootui agent sensor enable` | `enable_agent_sensor` | `<id>` (switchable sensor); needs approval | action | all |

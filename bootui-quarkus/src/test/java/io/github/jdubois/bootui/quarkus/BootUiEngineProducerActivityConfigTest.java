@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
 import io.quarkus.runtime.configuration.DurationConverter;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
@@ -94,5 +95,64 @@ class BootUiEngineProducerActivityConfigTest {
                 .activityPersistenceSettings(config(Map.of("bootui.activity.persistence.data-source-mode", "bogus")));
 
         assertThat(settings.dataSourceMode()).isEqualTo(ActivityPersistenceSettings.DataSourceMode.SHARED);
+    }
+
+    @Test
+    void bindsDurableJournalConfiguration() {
+        var config = config(Map.ofEntries(
+                Map.entry("bootui.activity.persistence.namespace-id", "namespace-a"),
+                Map.entry("bootui.activity.persistence.application-id", "orders-override"),
+                Map.entry("bootui.activity.persistence.enabled", "true"),
+                Map.entry("bootui.activity.persistence.flush-interval", "11s"),
+                Map.entry("bootui.activity.persistence.max-pending-entries", "321"),
+                Map.entry("bootui.activity.persistence.max-pending-bytes", "12MB"),
+                Map.entry("bootui.activity.persistence.hot-max-entries", "123"),
+                Map.entry("bootui.activity.persistence.table-name", "bootui_durable"),
+                Map.entry("bootui.activity.persistence.retention", "P3D"),
+                Map.entry("bootui.activity.persistence.reader-archive-cross-namespace", "true")));
+        QuarkusApplicationInfo application = new QuarkusApplicationInfo(config);
+        DurableJournalSettings settings = new BootUiEngineProducer().durableJournalSettings(config, application);
+
+        assertThat(settings.namespaceId()).isEqualTo("namespace-a");
+        assertThat(settings.applicationId()).isEqualTo("orders-override");
+        assertThat(settings.runId()).isEqualTo(application.run().id());
+        assertThat(settings.enabled()).isTrue();
+        assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(11));
+        assertThat(settings.maxPendingEntries()).isEqualTo(321);
+        assertThat(settings.maxPendingBytes()).isEqualTo(12L * 1024 * 1024);
+        assertThat(settings.hotMaxEntries()).isEqualTo(123);
+        assertThat(settings.tablePrefix()).isEqualTo("bootui_durable");
+        assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
+        assertThat(settings.readerArchiveCrossNamespace()).isTrue();
+    }
+
+    @Test
+    void mapsLegacyInstanceIdToNamespaceAndUsesQuarkusApplicationKey() {
+        var config = config(Map.ofEntries(
+                Map.entry("bootui.activity.persistence.instance-id", "legacy-instance"),
+                Map.entry("quarkus.application.name", "orders")));
+        DurableJournalSettings settings =
+                new BootUiEngineProducer().durableJournalSettings(config, new QuarkusApplicationInfo(config));
+
+        assertThat(settings.namespaceId()).isEqualTo("legacy-instance");
+        assertThat(settings.applicationId()).endsWith(":orders");
+    }
+
+    @Test
+    void appliesDurableJournalDefaultsWhenUnset() {
+        var config = config(Map.of("quarkus.application.name", "orders"));
+        DurableJournalSettings settings =
+                new BootUiEngineProducer().durableJournalSettings(config, new QuarkusApplicationInfo(config));
+
+        assertThat(settings.enabled()).isFalse();
+        assertThat(settings.namespaceId()).matches("local-[0-9a-f]{64}");
+        assertThat(settings.applicationId()).endsWith(":orders");
+        assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(settings.maxPendingEntries()).isEqualTo(500);
+        assertThat(settings.maxPendingBytes()).isEqualTo(32L * 1024 * 1024);
+        assertThat(settings.hotMaxEntries()).isEqualTo(500);
+        assertThat(settings.tablePrefix()).isEqualTo("bootui_activity");
+        assertThat(settings.retention()).isEqualTo(Duration.ofDays(7));
+        assertThat(settings.readerArchiveCrossNamespace()).isFalse();
     }
 }

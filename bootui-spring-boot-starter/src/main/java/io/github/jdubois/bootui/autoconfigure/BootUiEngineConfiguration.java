@@ -78,6 +78,7 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractService;
 import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.LogCoverage;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceService;
@@ -91,6 +92,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory;
 import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
@@ -102,6 +104,12 @@ import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.InactiveDurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
@@ -2006,23 +2014,89 @@ public class BootUiEngineConfiguration {
      * bean beyond the in-memory store itself is created until persistence is actually enabled — at
      * startup via configuration, or later via that runtime switch.
      *
-     * <p>{@link ActivityPersistenceSettings} is exposed as its own small {@code @Bean} (not inlined into
-     * the {@link SwitchableActivityStore} bean method, unlike e.g. {@code HeapDumpSettings}) because two
-     * independent consumers need to agree on the exact same resolved settings — in particular the same
-     * resolved {@code instanceId} — to stay correctly partitioned: the store bean bakes it into the
-     * durable store's own query/prune scope, and {@code LiveActivityController} stamps it onto every entry
-     * its capture coordinator captures. A shared singleton bean is the simplest way to guarantee both see
-     * one, consistently resolved value (in particular, a generated instance id must be computed exactly
-     * once per process, not independently by each consumer).</p>
+     * <p>The legacy {@link SwitchableActivityStore} remains available for in-process migration fallback.
+     * Once the durable journal is configured it stays in-memory, so only {@link DurableJournalCapture} writes
+     * durable rows.</p>
      *
      * <p>The {@link SwitchableActivityStore} bean is not explicitly closed anywhere in this
      * configuration: it exposes a public no-arg {@code close()} that Spring's default
      * inferred-destroy-method behavior detects and invokes automatically when the context shuts down,
-     * delegating to whatever the current delegate is — a durable store's flush/prune scheduler is
-     * stopped exactly the same way whether persistence was enabled from startup or switched on later.</p>
+     * delegating to whatever legacy delegate is active.</p>
      */
     @Configuration(proxyBeanMethods = false)
     static class ActivityPersistenceBackendConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        DurableJournalRuntime bootUiDurableJournalRuntime() {
+            return new DurableJournalRuntime();
+        }
+
+        @Bean
+        io.github.jdubois.bootui.autoconfigure.activity.BootUiDurableJournalStartup bootUiDurableJournalStartup(
+                BootUiProperties properties,
+                RuntimeJournal journal,
+                JournalAggregates aggregates,
+                DurableJournalSettings settings,
+                DurableJournalRuntime runtime,
+                ObjectProvider<DurableJournalStore> stores,
+                ObjectProvider<ExceptionStore> exceptions,
+                ApplicationContext context) {
+            return new io.github.jdubois.bootui.autoconfigure.activity.BootUiDurableJournalStartup(
+                    properties,
+                    journal,
+                    aggregates,
+                    settings,
+                    runtime,
+                    stores,
+                    exceptions,
+                    context instanceof ReactiveWebApplicationContext
+                            ? InsightsStack.SPRING_WEBFLUX
+                            : InsightsStack.SPRING_MVC);
+        }
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        DurableJournalSettings bootUiDurableJournalSettings(
+                BootUiProperties properties,
+                Environment environment,
+                ApplicationContext context,
+                RunIdentity runIdentity) {
+            BootUiProperties.ActivityPersistence persistence =
+                    properties.getActivity().getPersistence();
+            DurableJournalIdentity identity = DurableJournalIdentity.create(
+                    persistence.getNamespaceId(),
+                    persistence.getInstanceId(),
+                    persistence.getApplicationId(),
+                    RunApplicationKey.of(environment, context));
+            DurableJournalIdentity aligned = identity.withRunId(runIdentity.id());
+            return new DurableJournalSettings(
+                    aligned,
+                    persistence.isEnabled(),
+                    persistence.getFlushInterval(),
+                    persistence.getMaxPendingEntries(),
+                    persistence.getMaxPendingBytes().toBytes(),
+                    persistence.getHotMaxEntries(),
+                    persistence.getTableName(),
+                    persistence.getRetention(),
+                    persistence.isReaderArchiveCrossNamespace());
+        }
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        DurableJournalStore bootUiDurableJournalStore(
+                ActivityPersistenceSettings persistence,
+                DurableJournalSettings durable,
+                ObjectProvider<DataSource> dataSourceProvider) {
+            if (!durable.enabled()) {
+                return new InactiveDurableJournalStore();
+            }
+            DataSource dataSource = ActivityStoreFactory.resolveDataSource(
+                    persistence, () -> resolveActivityDataSource(dataSourceProvider));
+            return new JdbcDurableJournalStore(dataSource, durable.tablePrefix());
+        }
 
         @Bean
         @Lazy
@@ -2055,7 +2129,13 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         SwitchableActivityStore bootUiActivityStore(
-                ActivityPersistenceSettings settings, ObjectProvider<DataSource> dataSourceProvider) {
+                ActivityPersistenceSettings settings,
+                DurableJournalSettings durable,
+                ObjectProvider<DataSource> dataSourceProvider) {
+            if (durable.enabled()) {
+                return new SwitchableActivityStore(new io.github.jdubois.bootui.engine.activity.InMemoryActivityStore(
+                        Math.max(1, settings.bufferMaxEntries())));
+            }
             return ActivityStoreFactory.create(settings, () -> resolveActivityDataSource(dataSourceProvider));
         }
     }

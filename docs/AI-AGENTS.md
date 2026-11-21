@@ -381,6 +381,12 @@ user; BootUI's own panel and read-only gates still apply.
   that keep recent failed and slow records longer than routine ones; each includes a `retention` object with the
   capacity and the retained, reserved, and evicted counts, so an agent can tell a partial window from "it never
   happened". See [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention).
+
+  For durable history, a `get_live_activity` query can combine `namespace:<value>`, `application:<value>`,
+  `run:<value>`, `instance:<value>`, and `route:<value>` with a type, severity, or free text. Returned origins
+  disambiguate equal local IDs; unscoped output warns when it spans applications or runs. Cross-namespace selection is
+  refused unless the application opts in. `get_request_profile` does not accept historical scope qualifiers; use an
+  origin-scoped browser profile or `bootui archive profile` for a previous run.
 - **Runtime Insights reads:** `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
   `get_runtime_run_comparison`, compact facts an agent can refuse to act on; see
   [Runtime Insights for agents](#runtime-insights-for-agents).
@@ -455,7 +461,8 @@ through MCP and the CLI:
 
 1. **List activity.** Call `get_live_activity` (`bootui activity --limit 50 --json`) and pick the `REQUEST` entry in
    question (or a scheduled/message execution). Only entries with `profileable: true` have a profile, and `sqlNPlusOneSuspected` or an `ERROR` or `SLOW`
-   severity marks the ones worth opening.
+   severity marks the ones worth opening. For durable rows, narrow one origin with
+   `namespace:<value> application:<value> run:<value>` query qualifiers; add `instance:` or `route:` when useful.
 2. **Fetch its profile.** Call `get_request_profile` with that entry's `id` (`bootui request-profile <id> --json`). The
    `source: "journal"` carries the `journal` profile's timeline, route or execution label, resources and touched
    metadata. `source: "buffers"` carries the `buffers` HTTP-exchange profile's normalized SQL groups with N+1 flags,
@@ -482,6 +489,10 @@ previewed with what it omits before anything reaches the clipboard. It sends not
 
 [Runtime Insights](features/runtime-insights.md) answers what this run did that no single panel shows. Its four
 read tools return short, stable facts rather than a dashboard:
+
+These MCP tools read the current application run. Historical Runtime Insights require the scoped REST endpoint or
+`bootui archive insights`; archived reports are bounded and explicitly partial when events/details/metadata are absent,
+and cannot consult the current Java agent.
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
@@ -894,22 +905,23 @@ They carry the `page` envelope above (Live Activity uses `pageInfo`):
 | `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
 | `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions; the first read after startup parses the newest session files and can take seconds on a large session directory | Id, model, working directory, status, or last activity |
 | `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
-| `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
+| `get_live_activity` (`bootui activity`) | 25 newest entries | Type, severity, text, plus durable `namespace:`, `application:`, `run:`, `instance:`, and `route:` qualifiers |
 | `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
 | `get_thread_snapshots`, `get_thread_analysis`, `get_thread_observation` | bounded by configured `max-results` and engine limits | Passive retained evidence; explicit expired IDs never acquire or silently fall back |
 | `get_http_exchanges` (`bootui http exchanges`) | 25 newest exchanges | No `query` argument; raise `limit` within the server cap |
 
 Totals such as the vulnerabilities report's `total` and `vulnerable` still count the whole report. Live Activity keeps
 its own shape: `typeCounts` counts every retained entry by type, and `pageInfo.hasMore` says whether more entries
-matched. A filtered read searches the newest entries the feed returns (up to 5,000 from the runtime journal, or
-`bootui.activity.max-entries` from Spring's panel buffers); when older retained entries were not searched, `hasMore` is
-true and a warning names the window, so no match there does not mean the route never ran. `get_config` leaves
+matched. A durable filtered read is pushed into the database; `hasMore` means more matching durable rows remain.
+An in-memory filtered read searches only the newest returned window (up to 5,000 journal entries or
+`bootui.activity.max-entries` from panel buffers), and names that boundary, so no match there does not mean the route
+never ran. `get_config` leaves
 out `propertySuggestions`, the browser's completion list of every known property. `get_agent_status` and
 `get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks; `get_agent_status`
 lists every matching sensor and takes no `limit`, ignoring one sent by an older CLI. Side Effects
 lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
-`executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
-options, keeps working for commands it already provides and gets the same first page. New Java-agent commands require
+`executors`, for its hooks (and, from agent status, its self-test steps). An older CLI keeps working for commands it
+already provides and gets the same first page. New Java-agent commands require
 a CLI version that includes them; an old binary does not gain commands just because the running server advertises them.
 
 ### Investigate a blocked thread
@@ -1074,18 +1086,18 @@ BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, a
 compatibility rules describe. Protocol fields belong in `params._meta`, not at the JSON-RPC envelope's top level:
 
 - **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
-  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes `-32000`
+  `initialize`, keeps the established protocol-era behavior: `initialize`, `ping`, the same result shapes, and error codes `-32000`
   (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An `MCP-Protocol-Version`
   header with any value other than `2025-06-18` or `2026-07-28`, or sent more than once, is refused with `400` and
   `-32600`; `2026-07-28` without the modern `_meta` is a malformed modern request (`400`, `-32602`, echoing the request
-  id; BootUI 1.x answered `-32600` with a `null` id). For `initialize`, only an absent header or `2025-06-18` is
+  id; the legacy-era validation answered `-32600` with a `null` id). For `initialize`, only an absent header or `2025-06-18` is
   accepted; a `2026-07-28` header is refused with `400`, `-32600`, even if `_meta` is present. The envelope fields
   `jsonrpc`, `method`, and `params.name` count
   only when they are strings, so a `null` or numeric `method` is `Missing 'method'` and a `null` tool name is `Missing
   tool name` on every stack. `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or
   batch body reports that problem first.
 - **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
-  being `400`: first, for any request BootUI 1.x never saw (its `_meta` names a version other than `2025-06-18`, or
+  being `400`: first, for any request outside the legacy validation contract (its `_meta` names a version other than `2025-06-18`, or
   one that is not a string, or its only `MCP-Protocol-Version` header is `2026-07-28`), the `id` must be a string or an
   integer (`-32600`, with a `null` id echoed), so `null`, fractional, and other ids are refused, and a request method
   sent without an id is refused rather than run as a notification (only a `notifications/` method may omit it); the version must be a string (`-32602`);
@@ -1121,7 +1133,7 @@ compatibility rules describe. Protocol fields belong in `params._meta`, not at t
   `responseLimitRefusals`. A string `progressToken` longer than 128 characters is
   refused on a modern request and ignored on a legacy one, which then answers with one JSON response. Any
   other call, apart from an unanswerable byte-budget transport refusal, stays a single JSON response, including other
-  refusals and a call without a token; ordinary legacy replies keep BootUI 1.x's bytes.
+  refusals and a call without a token; ordinary legacy replies keep the established 2025-06-18 bytes.
   A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the
   `-32000`…`-32003` codes.
 - **Cancellation by closing the stream (modern).** Closing the response stream cancels the call, as MCP 2026-07-28 requires:

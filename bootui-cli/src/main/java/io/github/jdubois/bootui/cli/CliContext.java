@@ -284,6 +284,10 @@ final class CliContext {
         return tool.action() ? "action" : "ready";
     }
 
+    void emit(JsonValue payload) {
+        emit(payload, null);
+    }
+
     private void emit(JsonValue payload, String rawBody) {
         if (options.json(terminal)) {
             out.println(rawBody == null || rawBody.isBlank() ? JsonWriter.pretty(payload) : rawBody);

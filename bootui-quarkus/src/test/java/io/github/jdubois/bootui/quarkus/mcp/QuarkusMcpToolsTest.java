@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.quarkus.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
+import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.MySqlInsightReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
@@ -15,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
@@ -260,12 +264,75 @@ class QuarkusMcpToolsTest {
                         "resume_sql_trace_recording");
     }
 
+    @Test
+    void liveActivityPassesArchiveQualifiersAndTheFetchLimitAsPageSize() {
+        QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
+        when(availability.isPanelAvailable(anyString())).thenReturn(true);
+        LiveActivityResource liveActivity = mock(LiveActivityResource.class);
+        when(liveActivity.activity(
+                        JournalActivityReports.MAX_LIMIT,
+                        "SQL",
+                        null,
+                        "/orders",
+                        null,
+                        null,
+                        null,
+                        JournalActivityReports.MAX_LIMIT,
+                        null,
+                        "/api/orders",
+                        "prod",
+                        "shop",
+                        "host-a",
+                        "run-7",
+                        null,
+                        false))
+                .thenReturn(new LiveActivityReport(true, List.of(), Map.of(), null, List.of(), List.of()));
+
+        invoke(
+                tools(availability, liveActivity, mock(SqlTraceResource.class), mock(RestClientTraceResource.class)),
+                "get_live_activity",
+                new McpArguments(
+                        "SQL SLOW /orders namespace:prod application:shop run:run-7 instance:host-a"
+                                + " route:/api/orders",
+                        7,
+                        null,
+                        null,
+                        null));
+
+        verify(liveActivity)
+                .activity(
+                        eq(JournalActivityReports.MAX_LIMIT),
+                        eq("SQL"),
+                        isNull(),
+                        eq("/orders"),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        eq(JournalActivityReports.MAX_LIMIT),
+                        isNull(),
+                        eq("/api/orders"),
+                        eq("prod"),
+                        eq("shop"),
+                        eq("host-a"),
+                        eq("run-7"),
+                        isNull(),
+                        eq(false));
+    }
+
     private static List<McpTool> tools(QuarkusPanelAvailability availability) {
         return tools(availability, mock(SqlTraceResource.class), mock(RestClientTraceResource.class));
     }
 
     private static List<McpTool> tools(
             QuarkusPanelAvailability availability, SqlTraceResource sqlTrace, RestClientTraceResource restClientTrace) {
+        return tools(availability, mock(LiveActivityResource.class), sqlTrace, restClientTrace);
+    }
+
+    private static List<McpTool> tools(
+            QuarkusPanelAvailability availability,
+            LiveActivityResource liveActivity,
+            SqlTraceResource sqlTrace,
+            RestClientTraceResource restClientTrace) {
         return new QuarkusMcpTools(
                         availability,
                         mock(ArchitectureResource.class),
@@ -276,7 +343,7 @@ class QuarkusMcpToolsTest {
                         mock(PentestingResource.class),
                         mock(RestApiResource.class),
                         mock(ExceptionsResource.class),
-                        mock(LiveActivityResource.class),
+                        liveActivity,
                         mock(SecurityLogsResource.class),
                         sqlTrace,
                         mock(TracesResource.class),

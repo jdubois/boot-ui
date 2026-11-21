@@ -36,15 +36,19 @@
         </dependency>
 
         <!--
-            The engine is test-scoped only. It is the source the checked-in tool manifest is generated from,
-            and the test that regenerates it is what fails the build when a tool is added to the MCP registry
-            without being given a command. The CLI itself must not carry the engine: it has to run against
-            applications on a different BootUI version than the one it was built with.
+            Archive commands deliberately use the engine offline. The dependency stays optional so the
+            dependency-free io.github.jdubois.bootui.client package still brings no runtime dependencies to
+            consumers of the thin jar. The shaded runnable "all" classifier includes it.
         -->
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-engine</artifactId>
             <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
