@@ -144,8 +144,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **GitHub response integrity** keeps malformed alert responses unavailable rather than reporting zero, marks failed
   alert signals partial, and preserves HTTP status without exposing response bodies
   ([GitHub](docs/features/developer-tools.md#github)).
-- **JDBC batching checks** keep prior rewrite findings unverified when batching evidence becomes unreadable, even if
-  other datasources can still be checked ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver)).
+- **JDBC batching checks** keep prior rewrite findings unverified when batching evidence becomes unreadable, without
+  hiding confirmed fixes on other datasources ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver)).
 - **Cache proxy-bypass accuracy** no longer treats disabled or unavailable cache capture as a bypass on Spring MVC and WebFlux
   ([Runtime Insights](docs/features/runtime-insights.md)).
 - **Architecture self-proxy precision** clears recognized lazy self-proxy calls while retaining direct self-call findings

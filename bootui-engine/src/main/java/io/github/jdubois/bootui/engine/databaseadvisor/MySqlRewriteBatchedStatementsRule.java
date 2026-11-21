@@ -35,6 +35,11 @@ final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
     }
 
     @Override
+    boolean compareAssessedDatasourcesWhenIncomplete() {
+        return true;
+    }
+
+    @Override
     Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
         DriverEvidence driver = schema.driver();
         Outcome applicability = MySqlConnectorJ.applicability(schema, driver);

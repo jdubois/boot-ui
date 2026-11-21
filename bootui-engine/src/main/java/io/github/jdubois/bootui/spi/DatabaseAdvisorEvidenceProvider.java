@@ -21,8 +21,9 @@ public interface DatabaseAdvisorEvidenceProvider {
     List<DataSourceConfiguration> dataSourceConfigurations();
 
     /**
-     * The effective JDBC batching per datasource name, derived from the Hibernate observations. A datasource that
-     * Hibernate does not demonstrably use is absent, which a consumer must read as unknown.
+     * The effective JDBC batching per datasource name, derived from the Hibernate observations. A datasource with no
+     * attributed persistence unit is absent. An explicit {@link JdbcBatching.Status#UNKNOWN} means a unit was
+     * attributed to the datasource but the effective batching status could not be determined.
      */
     Map<String, JdbcBatching> jdbcBatching();
 

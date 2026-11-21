@@ -526,7 +526,8 @@ persistence unit attributed to the datasource's pool.
 
 These checks skip datasources with a different driver (including MariaDB Connector/J) or insufficient evidence.
 The batching checks also skip datasources with batching off or no attributed persistence unit. When a unit is
-attributed but its pool's effective batching is unknown, that gap can leave prior findings unverified, not resolved.
+attributed but its pool's effective batching is unknown, prior findings on that datasource stay unverified without
+blocking comparison for fully assessed datasources.
 See [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#jdbc-driver).
 :::
 

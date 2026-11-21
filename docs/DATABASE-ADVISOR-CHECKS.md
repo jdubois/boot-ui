@@ -631,8 +631,8 @@ These rules judge **driver settings**, not the schema, and need two kinds of evi
   Several persistence units on one pool count as batching when any of them batches. A datasource is reported as not
   batching only when every unit on it is known not to batch and no unit could be hiding elsewhere. If a unit is
   attributed but effective batching cannot be determined, the datasource is unassessed. In a mixed inventory this is
-  a coverage gap: findings on other datasources stay visible, but previously reported findings that are no longer
-  present are unverified, not resolved.
+  a coverage gap: a prior finding on that datasource remains unverified, but a fully assessed datasource can still
+  confirm a fix or report a finding.
 
 On an individual datasource, a rule skips evaluation with a reason when: the driver is not the one the rule
 verifies (MariaDB Connector/J is not evaluated: it has a different bulk setting); for the batching rules, batching is

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mockStatic;
 
+import io.github.jdubois.bootui.core.dto.AdvisorRuleChangeDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -404,15 +406,20 @@ class DatabaseAdvisorScannerTests {
         assertThat(page.changes()).containsOnly("UNCHANGED");
     }
 
-    @Test
-    void unreadableBatchingLeavesAPreviousRewriteFindingUnverified() {
-        String ruleId = "DB-DRIVER-001";
-        var driver = DatabaseAdvisorFixtures.driverEvidence("PostgreSQL JDBC Driver", Map.of());
-        var batching =
-                new HashMap<>(Map.of("primary", JdbcBatching.enabled(30), "secondary", JdbcBatching.enabled(30)));
-        var sources = List.of(
-                new NamedDataSource("primary", dataSource),
-                new NamedDataSource("secondary", new FailingDataSource("not used by this fixture")));
+    @ParameterizedTest
+    @CsvSource({
+        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts",
+        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements"
+    })
+    void unreadableBatchingDoesNotHideAResolvedRewriteFindingOnAnotherDatasource(
+            String ruleId, Dialect dialect, String driverName, String setting) {
+        var driver = DatabaseAdvisorFixtures.driverEvidence(driverName, Map.of());
+        var fixedDriver = DatabaseAdvisorFixtures.driverEvidence(
+                driverName, DatabaseAdvisorFixtures.urlSettings(setting, "true"));
+        var batching = new HashMap<String, JdbcBatching>();
+        var sources = List.of("fixed|pool", "unreadable", "peer").stream()
+                .map(name -> new NamedDataSource(name, new FailingDataSource("not used by this fixture")))
+                .toList();
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
                 () -> new DatabaseAdvisorDataSourceDiscovery(sources, List.of()),
                 () -> EntityDiscovery.absent(null),
@@ -421,30 +428,35 @@ class DatabaseAdvisorScannerTests {
                 FIXED_CLOCK);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             for (NamedDataSource source : sources) {
+                batching.put(source.name(), JdbcBatching.enabled(30));
+                var before = DatabaseAdvisorFixtures.driverSchema(source.name(), dialect, driver);
+                var after = source.name().equals("fixed|pool")
+                        ? DatabaseAdvisorFixtures.driverSchema(source.name(), dialect, fixedDriver)
+                        : before;
                 introspector
                         .when(() -> SchemaIntrospector.introspect(
                                 eq(source.name()), any(DataSource.class), any(), any(), any()))
-                        .thenReturn(DatabaseAdvisorFixtures.driverSchema(source.name(), Dialect.POSTGRESQL, driver));
+                        .thenReturn(before, after);
             }
 
             DatabaseAdvisorReport first = scanner.scan();
             assertThat(first.results())
                     .filteredOn(result -> result.id().equals(ruleId))
                     .singleElement()
-                    .satisfies(result -> assertThat(result.violationCount()).isEqualTo(2));
+                    .satisfies(result -> assertThat(result.violationCount()).isEqualTo(3));
 
-            batching.put("primary", JdbcBatching.unknown());
+            batching.put("unreadable", JdbcBatching.unknown());
             DatabaseAdvisorReport second = scanner.scan();
             var changes = second.violationDetails().changes();
             assertThat(changes.previousScanId())
                     .isEqualTo(first.violationDetails().scanId());
             assertThat(changes.rules())
                     .filteredOn(change -> change.ruleId().equals(ruleId))
+                    .containsExactly(new AdvisorRuleChangeDto(ruleId, 0, 1, 1));
+            assertThat(changes.resolved())
+                    .filteredOn(finding -> finding.ruleId().equals(ruleId))
                     .singleElement()
-                    .satisfies(change -> {
-                        assertThat(change.resolvedCount()).isZero();
-                        assertThat(change.unverifiedCount()).isEqualTo(1);
-                    });
+                    .satisfies(finding -> assertThat(finding.text()).contains("`fixed|pool`"));
             assertThat(second.results())
                     .filteredOn(result -> result.id().equals(ruleId))
                     .singleElement()
@@ -453,7 +465,7 @@ class DatabaseAdvisorScannerTests {
                         assertThat(result.sampleViolations())
                                 .singleElement()
                                 .asString()
-                                .contains("secondary");
+                                .contains("`peer`");
                     });
         }
     }

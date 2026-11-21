@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Shared skeleton of the JDBC driver rules. A subclass judges one datasource at a time and answers with an
@@ -32,14 +35,30 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
      */
     abstract Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings);
 
+    /** Whether this rule can compare a fully assessed datasource even when another has a coverage gap. */
+    boolean compareAssessedDatasourcesWhenIncomplete() {
+        return false;
+    }
+
     @Override
     final DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         DatabaseFindings findings = new DatabaseFindings();
         List<String> reasons = new ArrayList<>();
         List<String> gaps = new ArrayList<>();
+        Map<String, Boolean> conclusiveDatasources = new HashMap<>();
+        boolean compareByDatasource =
+                compareAssessedDatasourcesWhenIncomplete() && context.violationCollector() != null;
         int assessed = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             Outcome outcome = assess(context, schema, findings);
+            if (compareByDatasource) {
+                // Duplicate names identify an ambiguous scope, even when one candidate was fully assessed.
+                conclusiveDatasources.merge(
+                        schema.dataSourceName(),
+                        outcome.kind() == Outcome.Kind.ASSESSED
+                                && outcome.gaps().isEmpty(),
+                        (first, duplicate) -> false);
+            }
             String text = schema.dataSourceName() + ": " + outcome.text();
             switch (outcome.kind()) {
                 case NOT_APPLICABLE -> {}
@@ -59,7 +78,16 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         }
         // Only a mixed inventory journals gaps: with something assessed, a clean result must not hide them.
         gaps.forEach(gap -> unknown(context, gap));
-        return VendorRuleSupport.assessed(this, context, assessed, findings);
+        DatabaseAdvisorRuleResultDto result = VendorRuleSupport.assessed(this, context, assessed, findings);
+        if (compareByDatasource && !gaps.isEmpty()) {
+            conclusiveDatasources.forEach((name, conclusive) -> {
+                if (conclusive) {
+                    context.violationCollector()
+                            .markConcluded(definition().id(), AdvisorFindingIdentity.encode("ds=" + name));
+                }
+            });
+        }
+        return result;
     }
 
     /** The datasource's driver evidence, or a gap when the driver could not be identified at all. */

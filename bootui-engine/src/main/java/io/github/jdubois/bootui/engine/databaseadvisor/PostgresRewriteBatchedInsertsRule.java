@@ -33,6 +33,11 @@ final class PostgresRewriteBatchedInsertsRule extends AbstractDriverRule {
     }
 
     @Override
+    boolean compareAssessedDatasourcesWhenIncomplete() {
+        return true;
+    }
+
+    @Override
     Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
         if (schema.dialect() != Dialect.POSTGRESQL) {
             return Outcome.notApplicable();
