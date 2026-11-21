@@ -1504,6 +1504,44 @@ describe('Runtime Insights panel', () => {
     expect(document.activeElement?.id).toBe('insights-panel-coverage')
   })
 
+  it.each(['a click', 'a deep link'])(
+    'shows the single observation’s check title in Subject grouping when opened by %s',
+    async (openedBy) => {
+      const {id, subject} = report.observations[0]
+      routeState.query = openedBy === 'a deep link' ? {groupBy: 'subject', insight: id} : {groupBy: 'subject'}
+      const fetchMock = vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountPanel()
+      await flushPromises()
+
+      const group = wrapper.get('.insight-group-toggle')
+      if (openedBy === 'a click') {
+        expect(group.attributes('aria-expanded')).toBe('false')
+        await group.trigger('click')
+        await flushPromises()
+      }
+      expect(group.attributes('aria-expanded')).toBe('true')
+      expect(wrapper.get('.insight-group-title').text()).toBe(subject)
+      expect(wrapper.get('.insight-observation-subject').text()).toBe('Repeated SELECTs')
+      expect(wrapper.get('.insight-row.open').attributes('id')).toBe(`insight-row-${id}`)
+
+      const [checkButton, subjectButton] = wrapper.findAll('.insight-groupby-btn')
+      await checkButton.trigger('click')
+      expect(wrapper.get('.insight-observation-subject').text()).toBe(subject)
+      expect(wrapper.get('.insight-row.open').attributes('id')).toBe(`insight-row-${id}`)
+      await subjectButton.trigger('click')
+      await flushPromises()
+      expect(wrapper.get('.insight-observation-subject').text()).toBe('Repeated SELECTs')
+      expect(wrapper.get('.insight-row.open').attributes('id')).toBe(`insight-row-${id}`)
+      expect(wrapper.get('.insight-exemplar-meta').text()).toContain('Executions: 6')
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/')).map(([url]) => url)).toEqual([
+        `api/runtime-insights/insights/${encodeURIComponent(id)}`
+      ])
+    }
+  )
+
   it('pivots between Check and Subject grouping, shows subject preview chips, and passes return context on exemplar links', async () => {
     const breakdown = {
       ...report.observations[0],

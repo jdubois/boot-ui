@@ -802,7 +802,7 @@ provide(
                     <div v-else class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                       <p class="insight-observation-subject mb-0">
                         <code class="bootui-break-anywhere">{{
-                          groupBy === 'subject' && selected.checkTitle ? selected.checkTitle : selected.subject
+                          (groupBy === 'subject' && group.observations[0].checkTitle) || selected.subject
                         }}</code>
                       </p>
                       <button
