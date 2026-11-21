@@ -1,11 +1,14 @@
 <script setup>
-import {computed} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {formatDuration} from '../../utils/format.js'
 
 const props = defineProps({
   spans: {type: /** @type {import('vue').PropType<any[]>} */ (Array), required: true},
-  compact: {type: Boolean, default: false}
+  compact: {type: Boolean, default: false},
+  focusOnOverflow: {type: Boolean, default: false}
 })
+const scrollRegion = ref(null)
+const hasHorizontalOverflow = ref(false)
 
 const waterfall = computed(() => {
   if (!props.spans || props.spans.length === 0) return null
@@ -44,6 +47,27 @@ const waterfall = computed(() => {
   return {spans: ordered, totalNanos, ticks}
 })
 
+// Dialogs need an explicit Tab stop for a scroll region, but only while it actually scrolls.
+watch(
+  [scrollRegion, () => props.focusOnOverflow, waterfall],
+  ([region, focusOnOverflow], _, onCleanup) => {
+    if (!region || !focusOnOverflow) {
+      hasHorizontalOverflow.value = false
+      return
+    }
+    const measure = () => {
+      hasHorizontalOverflow.value = region.scrollWidth > region.clientWidth
+    }
+    measure()
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(measure)
+      observer.observe(region)
+      onCleanup(() => observer.disconnect())
+    }
+  },
+  {flush: 'post'}
+)
+
 const kindLegend = [
   {cls: 'kind-server', label: 'Server'},
   {cls: 'kind-client', label: 'Client'},
@@ -68,7 +92,14 @@ function spanColor(span) {
         <i :class="k.cls" class="waterfall-swatch"></i>{{ k.label }}
       </span>
     </div>
-    <div aria-label="Trace span waterfall" class="waterfall" role="table">
+    <div
+      ref="scrollRegion"
+      aria-label="Trace span waterfall"
+      class="waterfall"
+      :class="{'bootui-keyboard-target': hasHorizontalOverflow}"
+      :tabindex="hasHorizontalOverflow ? 0 : null"
+      role="table"
+    >
       <div class="waterfall-row waterfall-ruler" role="row">
         <div role="columnheader">Span</div>
         <div class="waterfall-ticks" role="columnheader">

@@ -2408,7 +2408,7 @@ function toggleFlow() {
                 </span>
                 <span>Trace waterfall</span>
               </h3>
-              <TraceWaterfall :spans="profile.trace.spans" compact />
+              <TraceWaterfall :spans="profile.trace.spans" compact focus-on-overflow />
             </section>
 
             <section

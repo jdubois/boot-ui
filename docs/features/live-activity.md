@@ -157,8 +157,9 @@ capped) and places them on the unified timeline; denied authorization checks als
 the Live Activity feed. On `401` and `403` requests when the **Spring Security** panel is available, **Explain in Spring
 Security** deep-links to `#/spring-security` with the request's method and path pre-filled for static filter-chain
 matching. Span status messages, exception events, and attribute values follow the
-[trace value exposure](diagnostics.md#trace-value-exposure) rule. **Escape** dismisses it, and focus is trapped while it
-is open. Opening a profile only reads evidence BootUI already captured. It captures nothing new, calls no network
+[trace value exposure](diagnostics.md#trace-value-exposure) rule. **Escape** dismisses the drawer, and focus stays
+inside it while it is open. If the trace waterfall overflows, press **Tab** to reach it and use the arrow keys to scroll
+horizontally. Opening a profile only reads evidence BootUI already captured. It captures nothing new, calls no network
 service, and changes no state. Open Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's
 **Profile** link does, to open a request's profile directly.
 
