@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 /**
@@ -962,12 +963,12 @@ public final class RuntimeJournal
     }
 
     /**
-     * Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>, and counts the retained and still-queued events
-     * it discarded; recording settings are kept.
+     * Drops the hot recording for <b>Free BootUI memory</b> and counts the retained and still-queued events it
+     * discarded. Recording settings, durable history, and work already submitted to the durable writer are kept.
      */
     @Override
     public long offloadRetainedData() {
-        return clearAndCount();
+        return clearAndCount(JournalListener::onMemoryOffload);
     }
 
     /**
@@ -978,7 +979,7 @@ public final class RuntimeJournal
      * It waits for a batch being processed, so no event recorded before the clear is processed after it.
      */
     public void clear() {
-        clearAndCount();
+        clearAndCount(JournalListener::onClear);
     }
 
     /**
@@ -1012,8 +1013,8 @@ public final class RuntimeJournal
         ring.durableCaptureLost(entry);
     }
 
-    /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
-    private long clearAndCount() {
+    /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
+    private long clearAndCount(Consumer<JournalListener> notifyListener) {
         synchronized (processing) {
             ClearBoundary boundary = new ClearBoundary(
                     clearsCompleted + 1,
@@ -1043,7 +1044,7 @@ public final class RuntimeJournal
             Arrays.fill(processedSources, 0);
             for (JournalListener listener : listeners) {
                 try {
-                    listener.onClear();
+                    notifyListener.accept(listener);
                 } catch (RuntimeException ex) {
                     listenerFailures.increment();
                     if (listener instanceof JournalAggregates aggregates) {

@@ -125,9 +125,9 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
                 visible, journal::eventId, pendingSelects, pendingWorkEnds, count -> overflowedSelects += count));
     }
 
-    /** Forgets the open {@code SELECT} counts of the cleared recording's requests. */
+    /** Forgets the open {@code SELECT} counts of the discarded hot recording's requests. */
     @Override
-    public synchronized void onClear() {
+    public synchronized void onMemoryOffload() {
         pendingSelects.clear();
         pendingWorkEnds.clear();
         overflowedSelects = 0;

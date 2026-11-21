@@ -936,7 +936,7 @@ public final class JournalAggregates implements JournalListener {
      * clear is counted after it.
      */
     @Override
-    public synchronized void onClear() {
+    public synchronized void onMemoryOffload() {
         reset();
         windowMissed = Map.of();
         completenessVerified = journal != null && journal.notifies(this);
