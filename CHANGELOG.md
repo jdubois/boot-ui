@@ -133,6 +133,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([scope and gate impact](docs/HIBERNATE-CHECKS.md#hib-query-007---queries-should-not-join-fetch-more-than-one-collection)).
 - **Explicit GitHub refresh** opens cached data without contacting GitHub, requires opt-in polling, preserves cached
   data on HTTP and report errors, and supports cache-only read-only retries ([GitHub](docs/features/developer-tools.md#github)).
+- **WebFlux Copilot and Claude Code streams** skip superseded snapshots for slow clients without splitting updates
+  ([WebFlux support](docs/WEBFLUX-SUPPORT.md)).
 - **Host-bound GitHub credentials** prevent public or other Enterprise tokens from authenticating a different host
   ([GitHub](docs/features/developer-tools.md#github)).
 - **Consistent CSP reviews** keep weak script policies at the missing-policy LOW baseline across all advisors without double-counting hardening gaps
