@@ -17,6 +17,9 @@ import io.github.jdubois.bootui.spi.ThreadKind;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -116,7 +119,7 @@ class DurableJournalEvidenceTests {
     }
 
     @Test
-    void contiguousDurableSequencesDoNotHideAnUndispatchedDiscard() {
+    void contiguousSequencesDoNotHideAnUndispatchedDiscardDuringLaterDispatch() throws Exception {
         RuntimeJournal journal = journal(100, 1_000_000);
         JdbcDurableJournalStore store = store();
         DurableJournalScope scope = scope(journal);
@@ -142,11 +145,30 @@ class DurableJournalEvidenceTests {
         journal.offer(requestSql("request-1", 1_200));
         assertThat(journal.offloadRetainedData()).isEqualTo(2);
 
-        JournalEvidenceSnapshot snapshot =
-                new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
-        assertThat(snapshot.entries()).extracting(JournalEntry::sequence).containsExactly(1L);
-        assertThat(snapshot.omittedEvents()).isZero();
-        assertThat(snapshot.lossHorizonMillis()).isEqualTo(1_200L);
+        CountDownLatch inListener = new CountDownLatch(1);
+        CountDownLatch finishDispatch = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            inListener.countDown();
+            try {
+                assertThat(finishDispatch.await(10, TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(ex);
+            }
+        });
+        assertThat(journal.offer(requestHttp("request-2", 1_300))).isTrue();
+        CompletableFuture<Void> dispatch = CompletableFuture.runAsync(journal::dispatchPending);
+        try {
+            assertThat(inListener.await(5, TimeUnit.SECONDS)).isTrue();
+            JournalEvidenceSnapshot snapshot =
+                    new DurableJournalEvidence(store).read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+            assertThat(snapshot.entries()).extracting(JournalEntry::sequence).containsExactly(2L, 1L);
+            assertThat(snapshot.omittedEvents()).isZero();
+            assertThat(snapshot.lossHorizonMillis()).isEqualTo(1_200L);
+        } finally {
+            finishDispatch.countDown();
+            dispatch.get(5, TimeUnit.SECONDS);
+        }
     }
 
     @Test

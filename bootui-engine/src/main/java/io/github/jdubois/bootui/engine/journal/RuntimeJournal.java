@@ -112,6 +112,7 @@ public final class RuntimeJournal
     private final LongAdder acceptedTotal = new LongAdder();
     private final AtomicLong processed = new AtomicLong();
     private final AtomicLong lastSequence = new AtomicLong();
+    private volatile boolean unsequencedLoss;
     private final long[] processedSources = new long[JournalSource.values().length];
     private final LongAdder listenerFailures = new LongAdder();
     private final CorrelationSource correlation = new CorrelationSource();
@@ -512,7 +513,7 @@ public final class RuntimeJournal
                     if (queue != admission) {
                         // Offered before a clear that ran while the dispatcher held it: cleared with the recording.
                         ring.lost(first);
-                        processed.incrementAndGet();
+                        finishDiscarded(1);
                         continue;
                     }
                     batch.add(first);
@@ -554,6 +555,7 @@ public final class RuntimeJournal
 
     private void process(List<RuntimeEvent> batch) {
         List<JournalEntry> entries = new ArrayList<>(batch.size());
+        int sequenced = 0;
         try {
             for (RuntimeEvent offered : batch) {
                 RuntimeEvent event = interned(offered);
@@ -561,6 +563,7 @@ public final class RuntimeJournal
                 JournalEntry entry = new JournalEntry(sequence, event, event.estimatedBytes(dictionary));
                 ring.add(entry);
                 lastSequence.set(sequence);
+                sequenced++;
                 processedSources[event.source().ordinal()]++;
                 entries.add(entry);
             }
@@ -577,6 +580,9 @@ public final class RuntimeJournal
                 }
             }
         } finally {
+            if (sequenced < batch.size()) {
+                unsequencedLoss = true;
+            }
             processed.addAndGet(batch.size());
         }
     }
@@ -1017,9 +1023,16 @@ public final class RuntimeJournal
         return offloadedEvents;
     }
 
-    /** A consumed admission may have been discarded before it received a sequence the archive can account for. */
+    /** An admission in this run was lost before it received a sequence the archive can account for. */
     boolean hasUnsequencedLoss() {
-        return processed.get() > lastSequence.get();
+        return unsequencedLoss;
+    }
+
+    private void finishDiscarded(int count) {
+        if (count > 0) {
+            unsequencedLoss = true;
+            processed.addAndGet(count);
+        }
     }
 
     /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
@@ -1045,7 +1058,7 @@ public final class RuntimeJournal
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);
             }
-            processed.addAndGet(queued);
+            finishDiscarded(queued);
             long dropped = ring.counts().retained() + queued;
             ring.clear();
             dictionary.clear();
@@ -1155,9 +1168,9 @@ public final class RuntimeJournal
             // and the events still queued are dropped with their frames, counted as processed as a clear counts them.
             JournalQueue last = (JournalQueue) ADMISSION.getAndSet(this, JournalQueue.closed());
             JournalQueue.Detached discarded = last.detach();
-            processed.addAndGet(discarded.count());
             // Counted as processed, not dropped, so no check is made partial by them: their work lost them instead.
             discarded.forEach(ring::lost);
+            finishDiscarded(discarded.count());
             return;
         }
         if (settings.enabled()) {
