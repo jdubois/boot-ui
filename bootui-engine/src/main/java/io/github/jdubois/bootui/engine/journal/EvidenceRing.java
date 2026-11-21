@@ -53,6 +53,8 @@ final class EvidenceRing {
     private final LinkedHashSet<String> evictedRequestTraces = new LinkedHashSet<>();
 
     private LinkedHashSet<String> currentArchiveEvictedTraces;
+    private LinkedHashSet<String> preSequenceOffloadTraces;
+    private boolean preSequenceOffloadOverflow;
 
     /** The most thread names of requests that lost events remembered. */
     static final int MAX_LOST_REQUEST_THREADS = 1_024;
@@ -145,8 +147,40 @@ final class EvidenceRing {
 
     synchronized void lostBeforeOffload(RuntimeEvent event) {
         lost(event, false);
-        if (event.source() == JournalSource.HTTP && event.traceId() != null) {
-            rememberTrace(currentArchiveTraces(), event.traceId());
+        if (event.source() != JournalSource.HTTP || event.traceId() == null || preSequenceOffloadOverflow) {
+            return;
+        }
+        if (preSequenceOffloadTraces == null) {
+            preSequenceOffloadTraces = new LinkedHashSet<>();
+        }
+        if (event.traceId().length() > DurableJournalRunMetadata.MAX_IDENTIFIER_LENGTH
+                || preSequenceOffloadTraces.add(event.traceId())
+                        && preSequenceOffloadTraces.size()
+                                > DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS) {
+            preSequenceOffloadOverflow = true;
+            preSequenceOffloadTraces = null;
+        }
+    }
+
+    synchronized OffloadTraceSnapshot offloadTraceSnapshot() {
+        return new OffloadTraceSnapshot(
+                preSequenceOffloadTraces == null ? List.of() : List.copyOf(preSequenceOffloadTraces),
+                preSequenceOffloadOverflow);
+    }
+
+    record OffloadTraceSnapshot(List<String> traceIds, boolean overflowed) {
+        DurableJournalRunMetadata.OffloadTraceLoss fingerprint(DurableJournalScope scope) {
+            if (overflowed) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;
+            }
+            if (traceIds.isEmpty()) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.NONE;
+            }
+            return new DurableJournalRunMetadata.OffloadTraceLoss(
+                    traceIds.stream()
+                            .map(traceId -> DurableJournalIds.offloadTraceFingerprint(scope, traceId))
+                            .collect(java.util.stream.Collectors.toSet()),
+                    false);
         }
     }
 
@@ -246,10 +280,18 @@ final class EvidenceRing {
 
     /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */
     synchronized boolean evictedARequestOf(String traceId, boolean currentArchive) {
+        if (traceId == null) {
+            return false;
+        }
+        if (currentArchive
+                && (preSequenceOffloadOverflow
+                        || preSequenceOffloadTraces != null && preSequenceOffloadTraces.contains(traceId))) {
+            return true;
+        }
         var traces = currentArchive && currentArchiveEvictedTraces != null
                 ? currentArchiveEvictedTraces
                 : evictedRequestTraces;
-        return traceId != null && traces.contains(traceId);
+        return traces.contains(traceId);
     }
 
     synchronized List<String> lostRequestTraces() {
@@ -287,6 +329,8 @@ final class EvidenceRing {
         reserved.clear();
         if (!memoryOffload) {
             currentArchiveEvictedTraces = null;
+            preSequenceOffloadTraces = null;
+            preSequenceOffloadOverflow = false;
         } else if (currentArchiveEvictedTraces == null && !evictedRequestTraces.isEmpty()) {
             // The active archive can still contain other requests with these traces after the hot reset.
             currentArchiveTraces();

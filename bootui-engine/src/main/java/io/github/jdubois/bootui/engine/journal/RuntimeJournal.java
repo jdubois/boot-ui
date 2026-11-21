@@ -826,6 +826,19 @@ public final class RuntimeJournal
         return ring.lostRequestTraces();
     }
 
+    record DurableTraceSnapshot(JournalStatus status, DurableJournalRunMetadata.OffloadTraceLoss offloadTraceLoss) {}
+
+    DurableTraceSnapshot durableTraceSnapshot(DurableJournalScope scope) {
+        JournalStatus status;
+        EvidenceRing.OffloadTraceSnapshot traceLoss;
+        synchronized (processing) {
+            // A checkpoint must not associate pre-Clear loss with the new recording's sequence window.
+            status = status();
+            traceLoss = ring.offloadTraceSnapshot();
+        }
+        return new DurableTraceSnapshot(status, traceLoss.fingerprint(scope));
+    }
+
     public List<String> lostRequestThreads() {
         return ring.lostRequestThreads();
     }

@@ -368,7 +368,12 @@ journal's own `droppedEvents`. A capture drop is recorded in run metadata and ev
 ring can compact through it, so historical profiles and Runtime Insights mark the result partial instead of treating an
 absent durable row as proof of absence.
 
-Start, checkpoint, and end metadata is refreshed independently. Historical readers can label an interrupted run and
+Start, checkpoint, and end metadata is refreshed independently. If memory offload discards an HTTP request before
+it receives a journal sequence, later metadata stores a bounded, run-scoped fingerprint of its trace, not the lost
+request's trace ID. Historical profiles do not assign calls linked only by that trace to another request. If the
+bound is exceeded, trace-only attribution is withheld for that recording until **Clear recording**.
+
+Historical readers can label an interrupted run and
 project its last checkpoint without inventing a graceful shutdown. After acknowledgement, BootUI compacts the
 acknowledged in-memory prefix, preserves the configured hot tail and all open request/execution work, and does not count
 that compaction as eviction or loss.

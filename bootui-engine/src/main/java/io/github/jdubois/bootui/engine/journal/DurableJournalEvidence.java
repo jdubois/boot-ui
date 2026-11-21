@@ -157,8 +157,8 @@ public final class DurableJournalEvidence {
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
         boolean currentArchive = sameRun && liveWindow != null;
         boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
-        JournalEvidenceSnapshot.Completeness completeness =
-                completeness(journal, sameRun, metadata, settings, durableComplete, currentArchive, recoveredOffload);
+        JournalEvidenceSnapshot.Completeness completeness = completeness(
+                scope, journal, sameRun, metadata, settings, durableComplete, currentArchive, recoveredOffload);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
@@ -253,6 +253,7 @@ public final class DurableJournalEvidence {
     }
 
     private static JournalEvidenceSnapshot.Completeness completeness(
+            DurableJournalScope scope,
             RuntimeJournal journal,
             boolean sameRun,
             DurableJournalRunMetadata metadata,
@@ -309,9 +310,13 @@ public final class DurableJournalEvidence {
 
             @Override
             public boolean evictedARequestOf(String traceId) {
-                return !durableComplete
-                        && (lostTraces.contains(traceId)
-                                || sameRun && journal.evictedARequestOf(traceId, currentArchive));
+                // Contiguous sequences cannot prove the presence of a request lost before sequencing.
+                return metadata != null
+                                && scope.run().equals(metadata.journalStatus().runId())
+                                && metadata.offloadTraceLoss().matches(scope, traceId)
+                        || !durableComplete
+                                && (lostTraces.contains(traceId)
+                                        || sameRun && journal.evictedARequestOf(traceId, currentArchive));
             }
 
             @Override

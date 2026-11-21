@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
@@ -411,16 +412,9 @@ class DurableJournalEvidenceTests {
         assertThat(journal.lastSequence()).isZero();
 
         assertThat(journal.offer(tracedHttp("later", 2_000, traceId))).isTrue();
-        assertThat(journal.offer(RuntimeEvent.of(
-                        JournalSource.AI,
-                        2_000,
-                        1_000_000,
-                        CorrelationContext.NONE.withTrace(traceId, null),
-                        "ai-worker",
-                        ThreadKind.WORKER,
-                        false,
-                        new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false))))
-                .isTrue();
+        assertThat(journal.offer(tracedAi(2_000, traceId))).isTrue();
+        assertThat(journal.offer(tracedHttp("unrelated", 3_000, "other-trace"))).isTrue();
+        assertThat(journal.offer(tracedAi(3_000, "other-trace"))).isTrue();
         journal.dispatchPending();
         DurableJournalIdentity identity = new DurableJournalIdentity(
                 scope.namespace(),
@@ -437,9 +431,13 @@ class DurableJournalEvidenceTests {
                 null,
                 null);
         assertThat(metadata.lostRequestTraces()).isEmpty();
-        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 2, identity.instanceId(), metadata));
+        store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 4, identity.instanceId(), metadata));
+        assertThat(new String(store.findRun(scope).metadataPayload(), StandardCharsets.ISO_8859_1))
+                .doesNotContain(traceId);
+        assertThat(store.findRunMetadata(scope).offloadTraceLoss().matches(scope, traceId))
+                .isEqualTo(memoryOffload);
         persist(store, scope, journal.entries());
-        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+        assertThat(journal.offloadRetainedData()).isEqualTo(4);
 
         DurableJournalEvidence reader = new DurableJournalEvidence(store);
         JournalEvidenceSnapshot current = reader.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
@@ -451,9 +449,83 @@ class DurableJournalEvidenceTests {
         assertThat(profile.timeline().stream().anyMatch(item -> item.source().equals("ai")))
                 .as("the trace-only call must not be attached if another request with that trace was lost in offload")
                 .isEqualTo(!memoryOffload);
-        assertThat(profiles.profileFrom(reader.read(scope), "later").timeline())
+        JournalEvidenceSnapshot archived = reader.read(scope);
+        assertThat(archived.omittedEvents()).isZero();
+        assertThat(profiles.profileFrom(archived, "later").timeline().stream()
+                        .anyMatch(item -> item.source().equals("ai")))
+                .as("archiving the same evidence must not revive attribution lost by offload")
+                .isEqualTo(!memoryOffload);
+        assertThat(profiles.profileFrom(archived, "unrelated").timeline())
                 .anyMatch(item -> item.source().equals("ai"));
         assertThat(journal.evictedARequestOf(traceId)).isFalse();
+
+        journal.clear();
+        store.clearRunThrough(scope, 4);
+        assertThat(journal.offer(tracedHttp("new-recording", 4_000, traceId))).isTrue();
+        assertThat(journal.offer(tracedAi(4_000, traceId))).isTrue();
+        journal.dispatchPending();
+        var afterClear = DurableJournalRunMetadata.snapshot(
+                        DurableJournalRunMetadata.Phase.CHECKPOINT,
+                        journal,
+                        identity,
+                        InsightsStack.SPRING_MVC,
+                        Map.of(),
+                        null,
+                        null)
+                .withCaptureLoss(0, 0, 4);
+        store.upsertRun(new DurableJournalRun(scope, 1, 2, "RUNNING", null, 6, identity.instanceId(), afterClear));
+        persist(store, scope, journal.entries());
+        assertThat(store.findRunMetadata(scope).offloadTraceLoss().isEmpty()).isTrue();
+        assertThat(profiles.profileFrom(reader.read(scope), "new-recording").timeline())
+                .anyMatch(item -> item.source().equals("ai"));
+    }
+
+    @Test
+    void offloadTraceOverflowConservativelyVetoesUntrackedTracesUntilClear() {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        DurableJournalScope scope = scope(journal);
+        for (int i = 0; i <= DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS; i++) {
+            assertThat(journal.offer(tracedHttp("never-dispatched", 1_000, "trace-" + i)))
+                    .isTrue();
+            assertThat(journal.offloadRetainedData()).isOne();
+        }
+
+        var traceLoss = journal.durableTraceSnapshot(scope).offloadTraceLoss();
+        assertThat(traceLoss.fingerprints()).isEmpty();
+        assertThat(traceLoss.matches(scope, "untracked")).isTrue();
+        assertThat(journal.evictedARequestOf("untracked", true)).isTrue();
+        assertThat(journal.evictedARequestOf("untracked")).isFalse();
+        journal.clear();
+        assertThat(journal.durableTraceSnapshot(scope).offloadTraceLoss().isEmpty())
+                .isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aDispatcherHeldRequestBelongsToItsOriginalOffloadGeneration(boolean followedByClear) throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        journals.add(journal);
+        var processing = RuntimeJournal.class.getDeclaredField("processing");
+        processing.setAccessible(true);
+        String trace = "dispatcher-held-trace";
+        synchronized (processing.get(journal)) {
+            assertThat(journal.offer(tracedHttp("held", 1_000, trace))).isTrue();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (journal.status().queueDepth() != 0 && System.nanoTime() < deadline) {
+                TimeUnit.MILLISECONDS.sleep(1);
+            }
+            assertThat(journal.status().queueDepth()).isZero();
+            assertThat(journal.lastSequence()).isZero();
+            assertThat(journal.offloadRetainedData()).isZero();
+            if (followedByClear) {
+                journal.clear();
+            }
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        DurableJournalScope scope = scope(journal);
+        assertThat(journal.durableTraceSnapshot(scope).offloadTraceLoss().matches(scope, trace))
+                .isEqualTo(!followedByClear);
+        assertThat(journal.evictedARequestOf(trace)).isFalse();
     }
 
     @Test
@@ -914,6 +986,18 @@ class DurableJournalEvidenceTests {
                 ThreadKind.WORKER,
                 false,
                 new HttpPayload("GET", "/orders/42", "/orders/{id}", null, 200));
+    }
+
+    private static RuntimeEvent tracedAi(long start, String traceId) {
+        return RuntimeEvent.of(
+                JournalSource.AI,
+                start,
+                1_000_000,
+                CorrelationContext.NONE.withTrace(traceId, null),
+                "ai-worker",
+                ThreadKind.WORKER,
+                false,
+                new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false));
     }
 
     private static RuntimeEvent requestHttp(String requestId, long start) {

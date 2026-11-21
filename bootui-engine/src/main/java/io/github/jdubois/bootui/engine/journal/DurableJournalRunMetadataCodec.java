@@ -25,8 +25,12 @@ import java.util.Objects;
  */
 public final class DurableJournalRunMetadataCodec {
 
-    public static final int VERSION = 2;
-    public static final int MAX_ENCODED_BYTES = 320 * 1024;
+    public static final int VERSION = 3;
+    private static final int MAX_BASE_BYTES = 320 * 1024;
+    public static final int MAX_ENCODED_BYTES = MAX_BASE_BYTES
+            + Integer.BYTES
+            + DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS
+                    * DurableJournalRunMetadata.OffloadTraceLoss.FINGERPRINT_BYTES;
     public static final int MAX_SUMMARY_BYTES = RunHistory.MAX_SUMMARY_BYTES;
 
     private static final int MAGIC = 0x42554a4d;
@@ -42,7 +46,8 @@ public final class DurableJournalRunMetadataCodec {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(bytes);
             out.writeInt(MAGIC);
-            out.writeInt(VERSION);
+            var traceLoss = metadata.offloadTraceLoss();
+            out.writeInt(traceLoss.isEmpty() ? 2 : VERSION);
             out.writeByte(metadata.phase().ordinal());
             out.writeLong(metadata.capturedAtEpochMillis());
             writeString(out, metadata.instanceId());
@@ -86,13 +91,20 @@ public final class DurableJournalRunMetadataCodec {
             out.writeLong(metadata.durableDroppedEvents());
             out.writeLong(metadata.durableQuarantinedEvents());
             out.writeLong(metadata.durableClearedThrough());
-            out.flush();
-            byte[] encoded = bytes.toByteArray();
-            if (encoded.length > MAX_ENCODED_BYTES) {
+            if (bytes.size() > MAX_BASE_BYTES) {
                 throw new IllegalArgumentException(
-                        "Durable journal run metadata exceeds " + MAX_ENCODED_BYTES + " bytes");
+                        "Durable journal run metadata exceeds " + MAX_BASE_BYTES + " base bytes");
             }
-            return encoded;
+            if (!traceLoss.isEmpty()) {
+                out.writeInt(
+                        traceLoss.overflowed() ? -1 : traceLoss.fingerprints().size());
+                for (String fingerprint :
+                        traceLoss.fingerprints().stream().sorted().toList()) {
+                    out.write(java.util.HexFormat.of().parseHex(fingerprint));
+                }
+            }
+            out.flush();
+            return bytes.toByteArray();
         } catch (IOException ex) {
             throw new IllegalArgumentException("Cannot encode durable journal run metadata", ex);
         }
@@ -147,6 +159,11 @@ public final class DurableJournalRunMetadataCodec {
             long durableDroppedEvents = in.data.readLong();
             long durableQuarantinedEvents = in.data.readLong();
             long durableClearedThrough = in.data.readLong();
+            if (bytes.length - in.data.available() > MAX_BASE_BYTES) {
+                throw new IllegalArgumentException(
+                        "Durable journal run metadata exceeds " + MAX_BASE_BYTES + " base bytes");
+            }
+            var traceLoss = version >= 3 ? in.offloadTraceLoss() : DurableJournalRunMetadata.OffloadTraceLoss.NONE;
             in.finish();
             return new DurableJournalRunMetadata(
                     phase,
@@ -168,7 +185,8 @@ public final class DurableJournalRunMetadataCodec {
                     summary,
                     durableDroppedEvents,
                     durableQuarantinedEvents,
-                    durableClearedThrough);
+                    durableClearedThrough,
+                    traceLoss);
         } catch (IOException ex) {
             throw new IllegalArgumentException("Malformed durable journal run metadata", ex);
         }
@@ -287,6 +305,25 @@ public final class DurableJournalRunMetadataCodec {
 
         In(byte[] bytes) {
             data = new DataInputStream(new java.io.ByteArrayInputStream(bytes));
+        }
+
+        DurableJournalRunMetadata.OffloadTraceLoss offloadTraceLoss() throws IOException {
+            int count = data.readInt();
+            if (count == -1) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;
+            }
+            if (count < 1 || count > DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS) {
+                throw new IllegalArgumentException("Invalid offload trace fingerprint count");
+            }
+            byte[] digest = new byte[DurableJournalRunMetadata.OffloadTraceLoss.FINGERPRINT_BYTES];
+            var fingerprints = new java.util.HashSet<String>();
+            for (int i = 0; i < count; i++) {
+                data.readFully(digest);
+                if (!fingerprints.add(java.util.HexFormat.of().formatHex(digest))) {
+                    throw new IllegalArgumentException("Duplicate offload trace fingerprint");
+                }
+            }
+            return new DurableJournalRunMetadata.OffloadTraceLoss(fingerprints, false);
         }
 
         RuntimeJournalSettings settings() throws IOException {
