@@ -30,7 +30,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 /**
@@ -784,6 +783,10 @@ public final class RuntimeJournal
         return ring.lossHorizonMillis();
     }
 
+    Long lossHorizonWithoutMemoryOffload() {
+        return ring.lossHorizonWithoutMemoryOffload();
+    }
+
     /**
      * When the latest request whose HTTP event the journal evicted, could not fit, or cleared ended, by the wall clock,
      * or {@code null} while it lost none: an {@code ERROR} logged without a request id shortly after, as a container
@@ -980,7 +983,7 @@ public final class RuntimeJournal
      */
     @Override
     public long offloadRetainedData() {
-        return clearAndCount(JournalListener::onMemoryOffload);
+        return clearAndCount(true);
     }
 
     /**
@@ -991,7 +994,7 @@ public final class RuntimeJournal
      * It waits for a batch being processed, so no event recorded before the clear is processed after it.
      */
     public void clear() {
-        clearAndCount(JournalListener::onClear);
+        clearAndCount(false);
     }
 
     /**
@@ -1042,7 +1045,7 @@ public final class RuntimeJournal
     }
 
     /** Clears the hot recording and notifies listeners, counting retained and queued events under the same lock. */
-    private long clearAndCount(Consumer<JournalListener> notifyListener) {
+    private long clearAndCount(boolean memoryOffload) {
         synchronized (processing) {
             ClearBoundary boundary = new ClearBoundary(
                     clearsCompleted + 1,
@@ -1066,13 +1069,17 @@ public final class RuntimeJournal
             }
             finishDiscarded(queued);
             long dropped = ring.counts().retained() + queued;
-            ring.clear();
+            ring.clear(memoryOffload);
             dictionary.clear();
             SqlShapes.clear();
             Arrays.fill(processedSources, 0);
             for (JournalListener listener : listeners) {
                 try {
-                    notifyListener.accept(listener);
+                    if (memoryOffload) {
+                        listener.onMemoryOffload();
+                    } else {
+                        listener.onClear();
+                    }
                 } catch (RuntimeException ex) {
                     listenerFailures.increment();
                     if (listener instanceof JournalAggregates aggregates) {

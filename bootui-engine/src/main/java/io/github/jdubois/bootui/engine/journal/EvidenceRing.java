@@ -59,6 +59,8 @@ final class EvidenceRing {
      */
     private long lossHorizonMillis = Long.MIN_VALUE;
 
+    private long lossHorizonWithoutMemoryOffload = Long.MIN_VALUE;
+
     /**
      * When the latest request whose HTTP event the ring lost ended, by the wall clock; {@link Long#MIN_VALUE} while it
      * lost none. A container logs a request's failure once its id is gone, so an error without an id written shortly
@@ -156,6 +158,10 @@ final class EvidenceRing {
 
     /** Moves the loss horizon past {@code event} when it belonged to a request, an execution, or a trace. */
     synchronized void lost(RuntimeEvent event) {
+        lost(event, false);
+    }
+
+    private void lost(RuntimeEvent event, boolean memoryOffload) {
         if (event == null) {
             return;
         }
@@ -172,6 +178,9 @@ final class EvidenceRing {
         long started = Math.min(event.epochMillis(), System.currentTimeMillis());
         if (started > lossHorizonMillis) {
             lossHorizonMillis = started;
+        }
+        if (!memoryOffload && started > lossHorizonWithoutMemoryOffload) {
+            lossHorizonWithoutMemoryOffload = started;
         }
         if (event.requestId() != null
                 && event.thread() != null
@@ -207,6 +216,10 @@ final class EvidenceRing {
      */
     synchronized Long lossHorizonMillis() {
         return lossHorizonMillis == Long.MIN_VALUE ? null : lossHorizonMillis;
+    }
+
+    synchronized Long lossHorizonWithoutMemoryOffload() {
+        return lossHorizonWithoutMemoryOffload == Long.MIN_VALUE ? null : lossHorizonWithoutMemoryOffload;
     }
 
     /** The latest start of an event of {@code source} the ring lost, or {@code null} while it lost none. */
@@ -250,9 +263,9 @@ final class EvidenceRing {
      * Drops every retained event. Eviction counts are kept: they report events lost to the bounds since startup. The
      * loss horizon moves past them, since a request still running loses the events it recorded before the clear.
      */
-    synchronized void clear() {
-        routine.forEach(entry -> lost(entry.event()));
-        reserved.forEach(entry -> lost(entry.event()));
+    synchronized void clear(boolean memoryOffload) {
+        routine.forEach(entry -> lost(entry.event(), memoryOffload));
+        reserved.forEach(entry -> lost(entry.event(), memoryOffload));
         routine.clear();
         reserved.clear();
         evictedRequestTraces.clear();

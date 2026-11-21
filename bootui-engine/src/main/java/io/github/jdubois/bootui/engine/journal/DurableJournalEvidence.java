@@ -155,8 +155,9 @@ public final class DurableJournalEvidence {
                 && metadata.durableDroppedEvents() == 0
                 && metadata.durableQuarantinedEvents() == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
+        boolean recoveredOffload = sameRun && liveWindow != null && metadata != null && omitted == 0;
         JournalEvidenceSnapshot.Completeness completeness =
-                completeness(journal, sameRun, metadata, settings, durableComplete);
+                completeness(journal, sameRun, metadata, settings, durableComplete, recoveredOffload);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
@@ -255,7 +256,8 @@ public final class DurableJournalEvidence {
             boolean sameRun,
             DurableJournalRunMetadata metadata,
             RuntimeJournalSettings settings,
-            boolean durableComplete) {
+            boolean durableComplete,
+            boolean recoveredOffload) {
         Set<String> lostTraces = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestTraces());
         Set<String> lostThreads = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestThreads());
         return new JournalEvidenceSnapshot.Completeness() {
@@ -271,6 +273,11 @@ public final class DurableJournalEvidence {
             public Long lossHorizonMillis() {
                 if (durableComplete) {
                     return null;
+                }
+                if (recoveredOffload) {
+                    // Both the hot and saved horizon include memory-only discards; the complete sequence merge
+                    // recovered those rows. Keep actual loss, including admissions without a sequence.
+                    return journal.lossHorizonWithoutMemoryOffload();
                 }
                 return maximum(
                         sameRun ? journal.lossHorizonMillis() : null,

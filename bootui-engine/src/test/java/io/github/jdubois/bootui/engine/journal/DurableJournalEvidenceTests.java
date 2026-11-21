@@ -210,6 +210,59 @@ class DurableJournalEvidenceTests {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    void anEarlierDiscardDoesNotHideALaterOffloadedRequestUnlessItsEvidenceIsMissing(boolean missingChild) {
+        RuntimeJournal journal = journal(100, 1_000_000);
+        JdbcDurableJournalStore store = store();
+        DurableJournalScope scope = scope(journal);
+        assertThat(journal.offer(requestHttp("earlier", 1_000))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> earlier = journal.entries();
+        assertThat(journal.offer(requestSql("earlier", 1_010))).isTrue();
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        assertThat(journal.offer(requestSql("later", 2_010))).isTrue();
+        assertThat(journal.offer(requestHttp("later", 2_000))).isTrue();
+        journal.dispatchPending();
+        List<JournalEntry> later = journal.entries();
+        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+
+        DurableJournalIdentity identity = new DurableJournalIdentity(
+                scope.namespace(),
+                scope.application(),
+                scope.run(),
+                "process",
+                journal.status().instanceId());
+        var metadata = DurableJournalRunMetadata.snapshot(
+                DurableJournalRunMetadata.Phase.CHECKPOINT,
+                journal,
+                identity,
+                InsightsStack.SPRING_MVC,
+                Map.of(),
+                null,
+                null);
+        store.upsertRun(new DurableJournalRun(
+                scope, 1, 1, "RUNNING", null, journal.lastSequence(), identity.instanceId(), metadata));
+        persist(store, scope, earlier);
+        persist(
+                store,
+                scope,
+                later.stream()
+                        .filter(entry -> !missingChild || entry.event().source() != JournalSource.SQL)
+                        .toList());
+
+        DurableJournalEvidence evidence = new DurableJournalEvidence(store);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(2_010L);
+        assertThat(evidence.read(scope).lossHorizonMillis()).isEqualTo(missingChild ? 2_010L : null);
+        JournalEvidenceSnapshot snapshot = evidence.read(scope, journal, new DurableJournalCapture.ReadWindow(0));
+        assertThat(snapshot.omittedEvents()).isEqualTo(missingChild ? 1 : 0);
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).reportFrom(snapshot);
+        assertThat(report.window().requests()).isEqualTo(missingChild ? 0 : 1);
+        assertThat(snapshot.lossHorizonMillis()).isEqualTo(missingChild ? 2_010L : 1_010L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     void currentReadNeverReturnsArchiveEvidenceAcrossAClearBlockedBeforeTheWriter(boolean readStartsFirst)
             throws Exception {
         RuntimeJournal journal = journal(100, 1_000_000);
