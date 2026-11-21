@@ -1632,6 +1632,48 @@ describe('LiveActivity', () => {
     }
   })
 
+  it('wraps around overflowing authorization decisions when no links follow the table', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback) => callback())
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(activityReport(), requestProfile({sqlGroups: [], timing: null}), {
+        available: true,
+        status: 403,
+        authorizations: [{target: 'METHOD', subject: 'ExampleService#read', granted: false}]
+      })
+    )
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 48, 48)])
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(850)
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(250)
+
+    wrapper = mountLiveActivity({
+      attachTo: document.body,
+      global: {provide: {panels: ref({panels: [{id: 'activity', available: true}]})}}
+    })
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    const drawer = wrapper.get('.activity-drawer')
+    const wide = drawer.get('.activity-drawer-expand').element
+    const journal = drawer.get('#request-profile-tab-journal')
+    await drawer.get('#request-profile-tab-all').trigger('keydown', {key: 'ArrowRight'})
+    expect(document.activeElement).toBe(journal.element)
+    const decisions = drawer.get('.request-journal .table-responsive').element
+    expect(drawer.findAll('a[href]')).toHaveLength(0)
+
+    const tab = (element, shiftKey = false) => {
+      const event = new KeyboardEvent('keydown', {key: 'Tab', shiftKey, bubbles: true, cancelable: true})
+      element.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    expect(tab(journal.element)).toBe(false)
+    wide.focus()
+    expect(tab(wide, true)).toBe(true)
+    expect(document.activeElement).toBe(decisions)
+    expect(tab(decisions)).toBe(true)
+    expect(document.activeElement).toBe(wide)
+  })
+
   it.each([
     ['Tab', false],
     ['Shift+Tab', true]

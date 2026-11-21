@@ -1,6 +1,7 @@
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, ref} from 'vue'
 import {formatDuration} from '../../utils/format.js'
+import {useHorizontalOverflow} from '../../utils/useHorizontalOverflow.js'
 
 const props = defineProps({
   spans: {type: /** @type {import('vue').PropType<any[]>} */ (Array), required: true},
@@ -8,7 +9,6 @@ const props = defineProps({
   focusOnOverflow: {type: Boolean, default: false}
 })
 const scrollRegion = ref(null)
-const hasHorizontalOverflow = ref(false)
 
 const waterfall = computed(() => {
   if (!props.spans || props.spans.length === 0) return null
@@ -47,26 +47,7 @@ const waterfall = computed(() => {
   return {spans: ordered, totalNanos, ticks}
 })
 
-// Dialogs need an explicit Tab stop for a scroll region, but only while it actually scrolls.
-watch(
-  [scrollRegion, () => props.focusOnOverflow, waterfall],
-  ([region, focusOnOverflow], _, onCleanup) => {
-    if (!region || !focusOnOverflow) {
-      hasHorizontalOverflow.value = false
-      return
-    }
-    const measure = () => {
-      hasHorizontalOverflow.value = region.scrollWidth > region.clientWidth
-    }
-    measure()
-    if (typeof ResizeObserver === 'function') {
-      const observer = new ResizeObserver(measure)
-      observer.observe(region)
-      onCleanup(() => observer.disconnect())
-    }
-  },
-  {flush: 'post'}
-)
+const hasHorizontalOverflow = useHorizontalOverflow(scrollRegion, waterfall, () => props.focusOnOverflow)
 
 const kindLegend = [
   {cls: 'kind-server', label: 'Server'},
