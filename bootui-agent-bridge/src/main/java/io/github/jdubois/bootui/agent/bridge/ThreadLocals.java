@@ -23,7 +23,8 @@ import java.util.concurrent.atomic.LongAdder;
  * or a {@code ForkJoinWorkerThread}, never a thread the application started); and an explicit pair the engine opens
  * itself ({@link #open()}, {@link #close(long)}): a Quarkus blocking resource method on its worker, a scheduled run, a
  * Quarkus managed executor's task. Only the outermost scope on a thread scans; virtual threads, which are not pooled,
- * event loops, BootUI's work, and scopes with no owner never do.
+ * event loops, BootUI's work, and scopes with no owner never do. An application scope that closes while the sensor
+ * is off or after its claim generation ended is cleared without a second scan.
  *
  * <p><b>Leftovers.</b> A key with a value at the close that had none, or was absent, at the open; a {@code null} value
  * counts as cleared. Skipped without reflection: the bridge's own thread locals, by identity; a thread local whose class
@@ -553,18 +554,23 @@ public final class ThreadLocals {
     /** Closes the scope: its leftovers are recorded, and no key stays in the frame afterwards. */
     private static void diff(CodePaths.Frame frame, Scope scope) {
         Object[] keys = scope.keys;
-        int found = 0;
         try {
             Scanner current = scanner;
             if (current == null) {
                 return;
             }
-            if (scope.request == 0L && scope.execution == 0L && Thread.currentThread() != selfTestThread) {
-                // An unowned scope nothing claimed, as a scheduler's task no request's context reached: not scanned.
-                UNOWNED.increment();
-                return;
+            boolean testing = Thread.currentThread() == selfTestThread;
+            if (!testing) {
+                if (scope.request == 0L && scope.execution == 0L) {
+                    // A scheduler task, for example, may never acquire a request's context.
+                    UNOWNED.increment();
+                    return;
+                }
+                if (!canReport(scope.generation)) {
+                    return;
+                }
             }
-            found = current.leftovers(scope.open, scope.openCount, keys, scope.hashes, scope.inheritable);
+            int found = current.leftovers(scope.open, scope.openCount, keys, scope.hashes, scope.inheritable);
             SCANS.increment();
             if (found == TOO_LARGE) {
                 TOO_LARGE_SCOPES.increment();
@@ -573,7 +579,7 @@ public final class ThreadLocals {
             if (found > keys.length) {
                 OVERFLOW_SCOPES.increment();
             }
-            report(frame, scope, Math.min(found, keys.length));
+            report(frame, scope, Math.min(found, keys.length), testing);
         } finally {
             for (int i = 0; i < keys.length; i++) {
                 keys[i] = null;
@@ -583,17 +589,19 @@ public final class ThreadLocals {
         }
     }
 
-    private static void report(CodePaths.Frame frame, Scope scope, int found) {
-        boolean testing = Thread.currentThread() == selfTestThread;
+    private static boolean canReport(long generation) {
+        Claim claim = AgentBridge.current();
+        return claim != null
+                && claim.armed
+                && claim.generation == generation
+                && (SideEffects.mask & SideEffects.MASK_THREAD_LOCALS) != 0;
+    }
+
+    private static void report(CodePaths.Frame frame, Scope scope, int found, boolean testing) {
         if (testing) {
             SELF_TEST_SCANS.increment();
-        }
-        Claim claim = AgentBridge.current();
-        if (!testing
-                && (claim == null
-                        || !claim.armed
-                        || claim.generation != scope.generation
-                        || (SideEffects.mask & SideEffects.MASK_THREAD_LOCALS) == 0)) {
+        } else if (!canReport(scope.generation)) {
+            // The claim or sensor may have changed during the scan.
             return;
         }
         Registry registry = testing ? null : registry(scope.generation);
