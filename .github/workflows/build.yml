@@ -116,8 +116,8 @@ jobs:
           python3 .github/scripts/check-changelog.py CHANGELOG.md
           python3 -B -m unittest discover -s .github/scripts -p 'test_changelog.py'
 
-      - name: Test the agent legs' path list
-        run: python3 -B -m unittest discover -s .github/scripts -p 'test_agent_changes.py'
+      - name: Test the agent legs' path list and overhead gate
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_agent_*.py'
 
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v6
@@ -1212,9 +1212,10 @@ jobs:
           # closes one socket and reads one file per request, the default sensors against the default sensors without
           # resources (its own increment on sockets and, files being on by default (D49), file streams, fifteen pairs)
           # and against no agent (the cumulative overhead, fifteen pairs), then, for the record, with files off on both
-          # sides (its own increment on sockets alone). resources is a default sensor, so its own median must stay at
-          # most 3 %: the check step prints PASS or FAIL and fails the job on a FAIL. The cumulative median and its 95 %
-          # interval are printed for the record only, with what D48's rule would say: it is mostly the other default
+          # sides (its own increment on sockets alone). resources is a default sensor, so the lower bound of its median's
+          # 95 % interval must stay at most 3 % (D48): the check step prints PASS or FAIL and fails the job on a FAIL.
+          # The cumulative median and its 95 % interval are printed for the record only, with what D48's rule would
+          # say: it is mostly the other default
           # sensors' overhead, which the agent-overhead job gates under D48 (D47). Pushes, manual runs, and pull
           # requests labelled agent. The first run measured -0.5 % own, 0.3 % beside files, and 6.9 % cumulative.
           - id: spring-mvc-resources-ab
@@ -1567,6 +1568,8 @@ jobs:
           done
           read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
           increment=$(read_value spring-mvc-resources-ab.properties overheadPercent)
+          increment_low=$(read_value spring-mvc-resources-ab.properties lowOverheadPercent)
+          increment_high=$(read_value spring-mvc-resources-ab.properties highOverheadPercent)
           increment_range="$(read_value spring-mvc-resources-ab.properties minOverheadPercent) to $(read_value spring-mvc-resources-ab.properties maxOverheadPercent)"
           cumulative=$(read_value spring-mvc-agent-io-resources.properties overheadPercent)
           cumulative_range="$(read_value spring-mvc-agent-io-resources.properties minOverheadPercent) to $(read_value spring-mvc-agent-io-resources.properties maxOverheadPercent)"
@@ -1574,14 +1577,18 @@ jobs:
           if [ -f "$directory/spring-mvc-resources-sockets-ab.properties" ]; then
             sockets_only="$(read_value spring-mvc-resources-sockets-ab.properties overheadPercent) %"
           fi
-          for value in "$increment" "$cumulative"; do
+          for value in "$increment" "$increment_low" "$increment_high" "$cumulative"; do
             if ! [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
               echo "::error::The resources sensor's default cannot be checked: '$value' is not a percentage."
               exit 1
             fi
           done
+          if awk -v low="$increment_low" -v median="$increment" -v high="$increment_high" 'BEGIN { exit !(low > median || median > high) }'; then
+            echo "::error::The resources sensor's default cannot be checked: its median is outside its interval."
+            exit 1
+          fi
           verdict=PASS
-          if awk -v increment="$increment" 'BEGIN { exit !(increment > 3) }'; then
+          if awk -v low="$increment_low" 'BEGIN { exit !(low > 3) }'; then
             verdict=FAIL
           fi
           cumulative_low=$(read_value spring-mvc-agent-io-resources.properties lowOverheadPercent)
@@ -1598,13 +1605,13 @@ jobs:
           if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'RESOURCES|"resources"'; then
             default=yes
           fi
-          line="Resources sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %), on the I/O route with the default sensors, files included; increment on sockets alone, without files, ${sockets_only}. On by default: ${default}."
+          line="Resources sensor overhead: ${verdict}. Increment median ${increment} % (95 % interval ${increment_low} to ${increment_high} %, pairs ${increment_range} %; fails when the interval's lower bound is above 3 %), on the I/O route with the default sensors, files included; increment on sockets alone, without files, ${sockets_only}. On by default: ${default}."
           report="Report only, not enforced (D47): the default set's cumulative median with resources is ${cumulative} % (95 % interval ${cumulative_interval}, pairs ${cumulative_range} %); ${cumulative_note}. It is mostly the other default sensors' overhead, which the agent-overhead job gates under D48."
           echo "$line"
           echo "$report"
           printf '\n**%s**\n\n%s\n' "$line" "$report" >> "$GITHUB_STEP_SUMMARY"
           if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
-            echo "::error::$line resources is a default sensor (D47), so its own increment must stay within 3 %."
+            echo "::error::$line resources is a default sensor (D47), so its own increment's median interval lower bound must stay within 3 % (D48)."
             exit 1
           fi
           if [ "$verdict" = FAIL ]; then
