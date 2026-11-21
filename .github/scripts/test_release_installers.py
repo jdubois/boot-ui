@@ -63,11 +63,58 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi
         digest = value if value is not None else hashlib.new(algorithm, self.jar.read_bytes()).hexdigest()
         self.jar.with_name(self.jar.name + "." + algorithm).write_text(digest)
 
-    def install(self, *options):
+    def install(self, *options, version="test"):
         return subprocess.run(
-            ["/bin/sh", str(PUBLIC / "install.sh"), "--version", "test", "--repo", "https://fixture.invalid", *options],
+            ["/bin/sh", str(PUBLIC / "install.sh"), "--version", version, "--repo", "https://fixture.invalid", *options],
             env=self.environment, capture_output=True, text=True, check=False,
         )
+
+    def prepare_upgrade(self):
+        self.checksum()
+        self.tool("java", """#!/bin/sh
+if [ "$1" = -version ]; then echo 'java version 17'; exit 0; fi
+[ "$1" = -jar ] || exit 99
+cat "$2" || exit 99
+shift 2
+printf '\\n%s\\n' "$@"
+exit 2
+""")
+        self.environment["JAVA_HOME"] = str(self.root / "missing-java")
+        installed = self.install()
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        next_jar = self.repository / "bootui-cli-next-all.jar"
+        next_jar.write_bytes(b"next artifact")
+        next_jar.with_suffix(".jar.sha256").write_text(hashlib.sha256(next_jar.read_bytes()).hexdigest())
+        return (
+            self.root / "install" / self.jar.name,
+            self.root / "install" / next_jar.name,
+            self.root / "bin" / "bootui",
+            self.root / "install" / "installation-v1",
+        )
+
+    def assert_launcher_runs(self, launcher, artifact):
+        result = subprocess.run(
+            [str(launcher), "argument with spaces"], env=self.environment, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, f"{artifact}\nargument with spaces\n")
+
+    def assert_failed_upgrade_preserves_install(self, tool, script, failure_code):
+        previous, _, launcher, record = self.prepare_upgrade()
+        previous_launcher = launcher.read_bytes()
+        previous_record = record.read_bytes()
+        self.tool(tool, script)
+        result = self.install(version="next")
+        self.assertEqual(result.returncode, failure_code, result.stdout + result.stderr)
+        self.assertEqual(
+            (launcher.read_bytes(), previous.exists()),
+            (previous_launcher, True),
+            "the previous launcher and its JAR must both survive",
+        )
+        self.assertEqual(previous.read_bytes(), self.jar.read_bytes())
+        self.assertEqual(record.read_bytes(), previous_record)
+        self.assertEqual(list(launcher.parent.iterdir()), [launcher])
+        self.assert_launcher_runs(launcher, "test artifact")
 
     def assert_not_installed(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -100,6 +147,37 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi
         self.assertIn("published SHA-256 checksum matched", result.stdout)
         self.assertIn("signer not authenticated", result.stdout)
         self.assertEqual((self.root / "install" / self.jar.name).read_bytes(), self.jar.read_bytes())
+
+    def test_failed_launcher_write_keeps_previous_installation(self):
+        self.assert_failed_upgrade_preserves_install("cat", """#!/bin/sh
+if [ "$#" -eq 0 ]; then
+  printf 'partial launcher\\n'
+  exit 42
+fi
+exec /bin/cat "$@"
+""", failure_code=42)
+
+    def test_failed_launcher_replacement_keeps_previous_installation(self):
+        self.assert_failed_upgrade_preserves_install("mv", """#!/bin/sh
+for argument do
+  case "$argument" in */bootui) exit 43;; esac
+done
+exec /bin/mv "$@"
+""", failure_code=1)
+
+    def test_successful_upgrade_replaces_launcher_and_cleans_up_previous_jar(self):
+        previous, target, launcher, record = self.prepare_upgrade()
+        self.assert_launcher_runs(launcher, "test artifact")
+        result = self.install(version="next")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(list(target.parent.glob("bootui-cli-*-all.jar")), [target])
+        self.assertFalse(previous.exists())
+        self.assertEqual(
+            record.read_text().splitlines(),
+            ["bootui-install-v1", str(target.resolve()), str(launcher.resolve()), "https://fixture.invalid"],
+        )
+        self.assertEqual(list(launcher.parent.iterdir()), [launcher])
+        self.assert_launcher_runs(launcher, "next artifact")
 
     def test_legacy_sha1_is_retained_with_an_explicit_warning(self):
         self.checksum("sha1")
