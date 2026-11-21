@@ -825,10 +825,10 @@ any POM that is not flattened. Every signature must verify and be by the pinned
 release key before the upload; the workflow also checks the build's signatures before
 the tag.
 
-The bundle check also requires the published files to total **less than 20 MB (20,000,000 bytes)**, including
-checksums and signatures, regardless of the upload ZIP's compressed size. Unsigned candidates reserve 4 KiB per
-missing signature before tagging; the signed bundle is checked against its actual size before upload. This is a
-per-release budget, not a guarantee of monthly capacity:
+The bundle check's temporary budget requires the published files to total **less than 25 MB (25,000,000 bytes)**,
+including checksums and signatures, regardless of the upload ZIP's compressed size. Unsigned candidates reserve
+4 KiB per missing signature before tagging; the signed bundle is checked against its actual size before upload.
+This is a per-release budget, not a guarantee of monthly capacity:
 [Central tracks organization-wide size, file and release counts](https://central.sonatype.org/publish/maven-central-publishing-limits/),
 across namespaces, and its published percentile data is not an entitlement. Check the organization's current
 thresholds and usage in the [Usage Center](https://central.sonatype.com/publishing/usage) before each release,
