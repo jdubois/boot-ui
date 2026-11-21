@@ -147,22 +147,25 @@ public final class DurableJournalEvidence {
         }
         long unique = durableCount + hotEntries.size() - overlap;
         long omitted = Math.max(0, durableOmitted + unique - entries.size()) + missingSequences;
+        boolean currentArchive = sameRun && liveWindow != null;
+        long liveWriterLoss = currentArchive ? journal.currentWriterLosses() : 0;
         // Memory offload also discards undispatched events, which have no sequence to check against disk.
-        boolean durableComplete = (liveWindow == null || !journal.hasUnsequencedLoss())
+        boolean durableComplete = (!currentArchive || !journal.hasUnsequencedLoss())
+                && liveWriterLoss == 0
                 && metadata != null
                 && omitted == 0
                 && base.droppedTotal() == 0
                 && metadata.durableDroppedEvents() == 0
                 && metadata.durableQuarantinedEvents() == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
-        boolean currentArchive = sameRun && liveWindow != null;
         boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
         JournalEvidenceSnapshot.Completeness completeness = completeness(
                 scope, journal, sameRun, metadata, settings, durableComplete, currentArchive, recoveredOffload);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
-        return new JournalEvidenceSnapshot(entries, status, omitted, captureLoss, completeness);
+        return new JournalEvidenceSnapshot(
+                entries, status, omitted, Math.max(captureLoss, liveWriterLoss), completeness);
     }
 
     private List<JournalEntry> enrich(DurableJournalScope scope, List<JournalEntry> entries) {
@@ -310,6 +313,9 @@ public final class DurableJournalEvidence {
 
             @Override
             public boolean evictedARequestOf(String traceId) {
+                if (currentArchive && journal.lostArchiveTrace(traceId)) {
+                    return true;
+                }
                 // A live window uses the ring's Clear generation, not a potentially stale checkpoint.
                 // Historical reads cannot infer pre-sequence losses or writer conflicts from sequence coverage.
                 return !currentArchive

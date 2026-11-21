@@ -248,17 +248,23 @@ public record DurableJournalRunMetadata(
                 offloadTraceLoss);
     }
 
-    /** Run-scoped fingerprints only; overflow vetoes trace-only ownership until an explicit clear. */
-    public record OffloadTraceLoss(java.util.Set<String> fingerprints, boolean overflowed) {
+    /** Run-scoped fingerprints; untraced loss affects completeness but never vetoes an unrelated trace. */
+    public record OffloadTraceLoss(java.util.Set<String> fingerprints, boolean overflowed, boolean onlyUntraced) {
         static final int MAX_FINGERPRINTS = 256;
         static final int FINGERPRINT_BYTES = 32;
         static final OffloadTraceLoss NONE = new OffloadTraceLoss(java.util.Set.of(), false);
         static final OffloadTraceLoss OVERFLOW = new OffloadTraceLoss(java.util.Set.of(), true);
+        static final OffloadTraceLoss UNTRACED = new OffloadTraceLoss(java.util.Set.of(), false, true);
+
+        OffloadTraceLoss(java.util.Set<String> fingerprints, boolean overflowed) {
+            this(fingerprints, overflowed, false);
+        }
 
         public OffloadTraceLoss {
             fingerprints = java.util.Set.copyOf(Objects.requireNonNull(fingerprints));
             if (fingerprints.size() > MAX_FINGERPRINTS
                     || overflowed && !fingerprints.isEmpty()
+                    || onlyUntraced && (overflowed || !fingerprints.isEmpty())
                     || fingerprints.stream().anyMatch(value -> !value.matches("[0-9a-f]{64}"))) {
                 throw new IllegalArgumentException("Invalid offload trace loss fingerprints");
             }
@@ -273,7 +279,7 @@ public record DurableJournalRunMetadata(
         }
 
         boolean isEmpty() {
-            return !overflowed && fingerprints.isEmpty();
+            return !overflowed && !onlyUntraced && fingerprints.isEmpty();
         }
     }
 

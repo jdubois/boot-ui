@@ -187,6 +187,63 @@ class DurableJournalArchiveServiceTests {
     }
 
     @Test
+    void untracedHttpOffloadLossCannotLeaveACompletedArchiveMarkedComplete() {
+        Fixture fixture = fixture();
+        DurableJournalScope scope = new DurableJournalScope("alpha", "orders", "run-untraced-loss");
+        long start = DAY;
+        var settings = new RuntimeJournalSettings(true, 100, 1_000_000, 100, 10, 10, JournalSource.all());
+        var run = new RunIdentity(scope.run(), 1, start);
+        var identity = new DurableJournalIdentity(
+                scope.namespace(), scope.application(), scope.run(), "process", RunIdentity.instanceId());
+        try (var journal = new RuntimeJournal(settings, run, false)) {
+            assertThat(journal.offer(new RuntimeEvent(
+                            JournalSource.HTTP,
+                            start,
+                            2_000_000,
+                            "never-dispatched",
+                            null,
+                            null,
+                            "worker",
+                            ThreadKind.WORKER,
+                            false,
+                            new HttpPayload("GET", "/lost", "/lost", null, 200))))
+                    .isTrue();
+            assertThat(journal.offloadRetainedData()).isOne();
+            assertThat(journal.lastSequence()).isZero();
+            List<JournalEntry> surviving = List.of(http(1, "retained", start + 1_000, "/orders", "/orders", 200));
+            assertThat(journal.offer(surviving.get(0).event())).isTrue();
+            journal.dispatchPending();
+            JournalAggregates aggregates = new JournalAggregates();
+            aggregates.onEntries(surviving);
+            var summary = RunSummary.of(run, "dev:orders", aggregates.snapshot(), null, null, start + 2_000);
+            var metadata = DurableJournalRunMetadata.snapshot(
+                    DurableJournalRunMetadata.Phase.END,
+                    journal,
+                    identity,
+                    InsightsStack.SPRING_MVC,
+                    Map.of(),
+                    null,
+                    summary);
+            fixture.store()
+                    .upsertRun(new DurableJournalRun(
+                            scope, start, start + 2_000, "STOPPED", null, 1, identity.instanceId(), metadata));
+            fixture.store().appendBatch(scope, surviving);
+            fixture.store()
+                    .upsertDetail(DurableJournalDetail.request(scope, 1, "GET", "/orders", "OrderController.get", 200));
+        }
+        var archive = DurableJournalArchiveService.forNamespace(fixture.store(), MASKED, "alpha");
+        var result = archive.multiRunInsights(List.of(scope)).runs().get(0);
+        assertThat(result.completeness().omittedEvents()).isZero();
+        assertThat(result.completeness().complete())
+                .as("untraced loss is still loss, not a missing sequence")
+                .isFalse();
+        assertThat(archive.profile(scope, "retained").notes())
+                .anyMatch(note -> note.startsWith("HTTP requests are missing from durable history"));
+        assertThat(new DurableJournalEvidence(fixture.store()).read(scope).evictedARequestOf("independent-trace"))
+                .isFalse();
+    }
+
+    @Test
     void anArchivedRunWithPreSequenceOffloadLossIsIncompleteWithoutAnOmittedRowCount() {
         Fixture fixture = fixture();
         DurableJournalScope scope = new DurableJournalScope("alpha", "orders", "run-unsequenced-loss");
@@ -230,7 +287,7 @@ class DurableJournalArchiveServiceTests {
                         run.checkpoint(),
                         run.instanceId()));
 
-        String loss = "Traced HTTP requests are missing from durable history";
+        String loss = "HTTP requests are missing from durable history";
         assertThat(archive.profile(scope, "retained").notes()).anyMatch(note -> note.startsWith(loss));
         assertThat(archive.multiRunInsights(List.of(scope)).runs())
                 .singleElement()

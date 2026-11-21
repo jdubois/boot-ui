@@ -100,12 +100,18 @@ class DurableJournalRunMetadataCodecTests {
         var saturated = DurableJournalRunMetadataCodec.decode(overflow);
         assertThat(saturated.offloadTraceLoss().matches(scope, "another-trace")).isTrue();
         assertThat(DurableJournalRunMetadataCodec.encode(saturated)).isEqualTo(overflow);
+        byte[] untraced = v3(v2, -2);
+        var knownLoss = DurableJournalRunMetadataCodec.decode(untraced);
+        assertThat(knownLoss.offloadTraceLoss().isEmpty()).isFalse();
+        assertThat(knownLoss.offloadTraceLoss().matches(scope, trace)).isFalse();
+        assertThat(DurableJournalRunMetadataCodec.encode(knownLoss)).isEqualTo(untraced);
         for (byte[] malformed : List.of(
                 v3(v2, 0),
-                v3(v2, -2),
+                v3(v2, -3),
                 v3(v2, DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS + 1),
                 v3(v2, 2, fingerprint, fingerprint),
                 v3(v2, -1, fingerprint),
+                v3(v2, -2, fingerprint),
                 Arrays.copyOf(one, one.length - 1),
                 Arrays.copyOf(one, one.length + 1))) {
             assertThatThrownBy(() -> DurableJournalRunMetadataCodec.decode(malformed))

@@ -334,7 +334,7 @@ public final class RuntimeJournal
 
                 @Override
                 public void discard(RuntimeEvent event) {
-                    deferredLost(queue, event);
+                    ring.lostDeferred(event, queue.recording());
                 }
             };
         }
@@ -350,7 +350,7 @@ public final class RuntimeJournal
                     || closed.get()
                     || !settings.records(event.source())
                     || admission != queue) {
-                deferredLost(queue, event);
+                ring.lostDeferred(event, queue.recording());
                 return false;
             }
             int outcome;
@@ -363,7 +363,7 @@ public final class RuntimeJournal
                 return true;
             }
             if (outcome == JournalQueue.DETACHED) {
-                deferredLost(queue, event);
+                ring.lostDeferred(event, queue.recording());
                 return false;
             }
             int source = event.source().ordinal();
@@ -371,12 +371,6 @@ public final class RuntimeJournal
             droppedAt.set(source, System.currentTimeMillis());
             return false;
         }
-    }
-
-    private void deferredLost(JournalQueue queue, RuntimeEvent event) {
-        JournalQueue current = admission;
-        // Only memory offload replaces a queue without changing the recording token.
-        ring.lostDeferred(event, queue.recording(), current != queue && current.recording() == queue.recording());
     }
 
     /**
@@ -778,6 +772,10 @@ public final class RuntimeJournal
         return ring.evictedARequestOf(traceId, currentArchive);
     }
 
+    boolean lostArchiveTrace(String traceId) {
+        return ring.lostArchiveTrace(traceId);
+    }
+
     /**
      * The latest start, by the wall clock, of an event of a request, an execution, or a trace that the journal evicted,
      * could not fit, or cleared, or {@code null} while it lost none. A request or an execution that started then or
@@ -1058,13 +1056,17 @@ public final class RuntimeJournal
         return ring.durableCaptureLost(entry);
     }
 
+    long currentWriterLosses() {
+        return ring.writerLosses();
+    }
+
     long compactedEventCount() {
         return offloadedEvents;
     }
 
     /** An admission in the current recording was lost before it received a sequence the archive can account for. */
     boolean hasUnsequencedLoss() {
-        return unsequencedLoss || ring.hasDeferredOffloadLoss();
+        return unsequencedLoss || ring.hasDeferredSqlLoss();
     }
 
     private void finishDiscarded(int count, boolean evidenceLost) {

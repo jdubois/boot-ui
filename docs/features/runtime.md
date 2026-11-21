@@ -82,10 +82,9 @@ durable writer continue to flush asynchronously; events still waiting for the jo
 Request profiles and Runtime Insights can still use the persisted evidence from the current run. Events recovered
 from storage are not treated as lost just because they left memory. Recovery does not fill gaps from events that were
 never dispatched or whose durable write is still pending.
-If memory offload interrupts an in-progress SQL capture, the live archive treats that recording's evidence as
-incomplete. A statement that started before an explicit **Clear recording** does not taint the next recording.
-When current-run evidence is incomplete, a trace-only AI call is not attributed to another request if a request
-sharing its trace was lost, even if that request never reached the journal dispatcher.
+The live archive treats deferred SQL lost in the same recording as incomplete evidence. A statement that started
+before an explicit **Clear recording** does not affect the next recording. A trace-only AI call is not attributed
+to another request if one sharing its trace was lost, even before sequencing or while durable metadata catches up.
 
 ::: warning Cleared data is gone
 Evidence kept only in the discarded buffers cannot be recovered, and exception triage statuses are dropped with their

@@ -41,6 +41,129 @@ class DurableJournalEvidenceTests {
     private static final AtomicInteger DATABASES = new AtomicInteger();
     private final List<RuntimeJournal> journals = new java.util.ArrayList<>();
 
+    @Test
+    void zeroSequenceOffloadKeepsKnownTraceAmbiguityInTheCurrentHotFallback() {
+        var journal = journal(100, 1_000_000);
+        var store = store();
+        var scope = scope(journal);
+        var settings = new DurableJournalCaptureSettings(
+                64, 16_000, 64, 16_000, 8, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (var capture = captureWithMetadata(journal, durableIdentity(journal, scope), store, settings)) {
+            var runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, capture)).isTrue();
+            assertThat(journal.offer(tracedHttp("lost", 1_000, "shared"))).isTrue();
+            assertThat(journal.offloadRetainedData()).isOne();
+            assertThat(journal.lastSequence()).isZero();
+            assertThat(journal.offer(tracedHttp("later", 2_000, "shared"))).isTrue();
+            assertThat(journal.offer(tracedAi(2_000, "shared"))).isTrue();
+            journal.dispatchPending();
+            assertThat(runtime.readCurrentEvidence(journal, scope)).isNull();
+            assertThat(journal.evictedARequestOf("shared", true)).isTrue();
+            var profile = new RequestJournalProfiles(journal, null, 0, 2, null).profile("later");
+            assertThat(profile.available()).isTrue();
+            assertThat(profile.timeline())
+                    .as("hot fallback must not guess an owner when this recording lost one")
+                    .noneMatch(item -> item.source().equals("ai"));
+            journal.clear();
+            assertThat(journal.offer(tracedHttp("next-recording", 3_000, "shared")))
+                    .isTrue();
+            assertThat(journal.offer(tracedAi(3_000, "shared"))).isTrue();
+            journal.dispatchPending();
+            assertThat(new RequestJournalProfiles(journal, null, 0, 2, null)
+                            .profile("next-recording")
+                            .timeline())
+                    .anyMatch(item -> item.source().equals("ai"));
+        }
+    }
+
+    @Test
+    void aWriterConflictStillVetoesTheLiveTraceWhileItsMetadataIsStale() throws Exception {
+        var journal = journal(100, 1_000_000);
+        var store = spy(store());
+        var scope = scope(journal);
+        var identity = durableIdentity(journal, scope);
+        store.upsertRun(new DurableJournalRun(
+                scope,
+                1,
+                1,
+                "RUNNING",
+                null,
+                1,
+                identity.instanceId(),
+                runMetadata(journal, identity, DurableJournalRunMetadata.Phase.CHECKPOINT)));
+        persist(store, scope, List.of(new JournalEntry(1, requestHttp("different-row", 900), 128)));
+        CountDownLatch refreshFailed = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    DurableJournalRun run = invocation.getArgument(0);
+                    if (run.checkpoint() > 0) {
+                        refreshFailed.countDown();
+                        throw new DurableJournalStoreException("Synthetic failed metadata refresh");
+                    }
+                    return invocation.callRealMethod();
+                })
+                .when(store)
+                .upsertRun(any());
+        var settings = new DurableJournalCaptureSettings(
+                64, 16_000, 64, 16_000, 8, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (var capture = captureWithMetadata(journal, identity, store, settings)) {
+            var runtime = new DurableJournalRuntime();
+            assertThat(runtime.activate(store, capture)).isTrue();
+            assertThat(journal.offer(tracedHttp("conflicting-request", 1_000, "shared")))
+                    .isTrue();
+            assertThat(journal.offer(tracedHttp("later", 2_000, "shared"))).isTrue();
+            assertThat(journal.offer(tracedAi(2_000, "shared"))).isTrue();
+            journal.dispatchPending();
+            capture.flushNow();
+            assertThat(refreshFailed.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(capture.status().quarantined()).isOne();
+            assertThat(store.findRunMetadata(scope).durableQuarantinedEvents()).isZero();
+            assertThat(store.findRunMetadata(scope).offloadTraceLoss().isEmpty())
+                    .isTrue();
+            assertThat(journal.offloadRetainedData()).isEqualTo(3);
+
+            var snapshot = runtime.readCurrentEvidence(journal, scope);
+            assertThat(snapshot).isNotNull();
+            assertThat(snapshot.entries()).extracting(JournalEntry::sequence).containsExactly(3L, 2L, 1L);
+            assertThat(snapshot.omittedEvents()).isZero();
+            assertThat(snapshot.durableCaptureLoss()).isOne();
+            assertThat(snapshot.complete()).isFalse();
+            assertThat(journal.evictedARequestOf("shared", true)).isTrue();
+            var profile = new RequestJournalProfiles(journal, null, 0, 2, null).profileFrom(snapshot, "later");
+            assertThat(profile.timeline())
+                    .as("contiguous sequences plus stale metadata must not lift a known writer veto")
+                    .noneMatch(item -> item.source().equals("ai"));
+        }
+    }
+
+    @Test
+    void deferredDiscardCannotMissAnOffloadWhileWaitingForTheLossLock() throws Exception {
+        var journal = journal(100, 1_000_000);
+        var deferred = journal.beginCapture(JournalSource.SQL);
+        assertThat(deferred).isNotNull();
+        var ring = RuntimeJournal.class.getDeclaredField("ring");
+        ring.setAccessible(true);
+        var completion = new java.util.concurrent.FutureTask<Void>(() -> {
+            deferred.discard(requestSql("request", 2_010));
+            return null;
+        });
+        Thread recorder = new Thread(completion, "deferred-discard-probe");
+        synchronized (ring.get(journal)) {
+            recorder.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (recorder.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                TimeUnit.MILLISECONDS.sleep(1);
+            }
+            assertThat(recorder.getState()).isEqualTo(Thread.State.BLOCKED);
+            assertThat(journal.offloadRetainedData()).isZero();
+        }
+        completion.get(5, TimeUnit.SECONDS);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(2_010L);
+        assertThat(journal.hasUnsequencedLoss())
+                .as("a genuine deferred loss belongs to the recording regardless of admission swap timing")
+                .isTrue();
+        assertThat(journal.status().accepted()).isEmpty();
+    }
+
     @ParameterizedTest
     @CsvSource({"false, false", "false, true", "true, false", "true, true"})
     void deferredSqlRejectedAfterOffloadOnlyQualifiesItsOwnRecording(boolean clear, boolean discardedByRecorder)
@@ -493,21 +616,35 @@ class DurableJournalEvidenceTests {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void offloadPreservesTheLiveTraceVetoUnlessTheArchiveRecoversTheRequest(boolean requestMissing) {
-        RuntimeJournal journal = journal(100, 1_000_000);
+    void offloadPreservesAnOrdinaryHotEvictionVetoUnlessTheArchiveRecoversTheRequest(boolean requestMissing) {
+        String traceId = "shared-trace";
+        RuntimeEvent first = tracedHttp("first", 1_000, traceId);
+        RuntimeEvent next = requestHttp("next", 2_000);
+        long maxBytes = first.estimatedBytes() + next.estimatedBytes();
+        RuntimeJournal journal = journal(100, maxBytes);
+        String dictionaryOnly = "x"
+                .repeat(Math.toIntExact(
+                        maxBytes * RuntimeJournal.DICTIONARY_BYTES_PERCENT / 100 - RuntimeEvent.stringBytes("") - 48));
+        // Fill the dictionary with unrelated text so the hot ring cannot keep both rows, unlike the archive.
+        assertThat(journal.dictionary().intern(dictionaryOnly)).isNotEqualTo(JournalDictionary.NOT_INTERNED);
         JdbcDurableJournalStore store = store();
         DurableJournalScope scope = scope(journal);
-        String traceId = "shared-trace";
         DurableJournalIdentity identity = new DurableJournalIdentity(
                 scope.namespace(),
                 scope.application(),
                 scope.run(),
                 "process",
                 journal.status().instanceId());
-        assertThat(journal.offer(tracedHttp("first", 1_000, traceId))).isTrue();
-        assertThat(journal.offer(requestHttp("next", 2_000))).isTrue();
+        assertThat(journal.offer(first)).isTrue();
+        journal.dispatchPending();
+        JournalEntry evicted = journal.entries().get(0);
+        assertThat(journal.offer(next)).isTrue();
         journal.dispatchPending();
         List<JournalEntry> entries = journal.entries();
+        assertThat(entries).extracting(JournalEntry::sequence).containsExactly(2L);
+        assertThat(journal.evictedARequestOf(traceId)).isTrue();
+        assertThat(journal.lostArchiveTrace(traceId)).isFalse();
+        assertThat(journal.offloadRetainedData()).isOne();
         var metadata = DurableJournalRunMetadata.snapshot(
                 DurableJournalRunMetadata.Phase.CHECKPOINT,
                 journal,
@@ -517,16 +654,7 @@ class DurableJournalEvidenceTests {
                 null,
                 null);
         store.upsertRun(new DurableJournalRun(scope, 1, 1, "RUNNING", null, 2, identity.instanceId(), metadata));
-        persist(
-                store,
-                scope,
-                entries.stream()
-                        .filter(entry -> !requestMissing || entry.sequence() != 1)
-                        .toList());
-
-        journal.durableCaptureLost(entries.get(1));
-        assertThat(journal.evictedARequestOf(traceId)).isTrue();
-        assertThat(journal.offloadRetainedData()).isEqualTo(2);
+        persist(store, scope, requestMissing ? entries : List.of(evicted, entries.get(0)));
         assertThat(store.findRunMetadata(scope).lostRequestTraces()).isEmpty();
         assertThat(journal.evictedARequestOf(traceId)).isFalse();
 

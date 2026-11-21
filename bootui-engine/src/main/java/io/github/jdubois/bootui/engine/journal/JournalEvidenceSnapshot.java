@@ -130,7 +130,7 @@ public final class JournalEvidenceSnapshot {
 
             @Override
             public boolean evictedARequestOf(String traceId) {
-                return journal.evictedARequestOf(traceId);
+                return journal.evictedARequestOf(traceId) || journal.lostArchiveTrace(traceId);
             }
 
             @Override

@@ -55,9 +55,11 @@ final class EvidenceRing {
     private LinkedHashSet<String> currentArchiveEvictedTraces;
     private LinkedHashSet<String> archiveLostTraces;
     private boolean archiveLostTraceOverflow;
+    private boolean archiveLostUntracedRequest;
     private Object recording = new Object();
     private long clearedThrough;
-    private boolean deferredOffloadLoss;
+    private boolean deferredSqlLoss;
+    private long writerLosses;
 
     /** The most thread names of requests that lost events remembered. */
     static final int MAX_LOST_REQUEST_THREADS = 1_024;
@@ -154,7 +156,11 @@ final class EvidenceRing {
     }
 
     private void rememberArchiveLoss(RuntimeEvent event) {
-        if (event.source() != JournalSource.HTTP || event.traceId() == null || archiveLostTraceOverflow) {
+        if (event.source() != JournalSource.HTTP || archiveLostTraceOverflow) {
+            return;
+        }
+        if (event.traceId() == null || event.traceId().isBlank()) {
+            archiveLostUntracedRequest = true;
             return;
         }
         if (archiveLostTraces == null) {
@@ -175,35 +181,45 @@ final class EvidenceRing {
     synchronized Object beginRecording(long sequence) {
         recording = new Object();
         clearedThrough = sequence;
-        deferredOffloadLoss = false;
+        deferredSqlLoss = false;
+        writerLosses = 0;
         archiveLostTraces = null;
         archiveLostTraceOverflow = false;
+        archiveLostUntracedRequest = false;
         return recording;
     }
 
-    synchronized void lostDeferred(RuntimeEvent event, Object expectedRecording, boolean offloaded) {
+    synchronized void lostDeferred(RuntimeEvent event, Object expectedRecording) {
         if (recording == expectedRecording && event != null) {
             lost(event, false);
-            deferredOffloadLoss |= offloaded && event.source() == JournalSource.SQL;
+            deferredSqlLoss |= event.source() == JournalSource.SQL;
         }
     }
 
-    synchronized boolean hasDeferredOffloadLoss() {
-        return deferredOffloadLoss;
+    synchronized boolean hasDeferredSqlLoss() {
+        return deferredSqlLoss;
+    }
+
+    synchronized long writerLosses() {
+        return writerLosses;
     }
 
     synchronized OffloadTraceSnapshot offloadTraceSnapshot() {
         return new OffloadTraceSnapshot(
-                archiveLostTraces == null ? List.of() : List.copyOf(archiveLostTraces), archiveLostTraceOverflow);
+                archiveLostTraces == null ? List.of() : List.copyOf(archiveLostTraces),
+                archiveLostTraceOverflow,
+                archiveLostUntracedRequest);
     }
 
-    record OffloadTraceSnapshot(List<String> traceIds, boolean overflowed) {
+    record OffloadTraceSnapshot(List<String> traceIds, boolean overflowed, boolean untracedRequest) {
         DurableJournalRunMetadata.OffloadTraceLoss fingerprint(DurableJournalScope scope) {
             if (overflowed) {
                 return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;
             }
             if (traceIds.isEmpty()) {
-                return DurableJournalRunMetadata.OffloadTraceLoss.NONE;
+                return untracedRequest
+                        ? DurableJournalRunMetadata.OffloadTraceLoss.UNTRACED
+                        : DurableJournalRunMetadata.OffloadTraceLoss.NONE;
             }
             return new DurableJournalRunMetadata.OffloadTraceLoss(
                     traceIds.stream()
@@ -312,14 +328,15 @@ final class EvidenceRing {
         if (traceId == null) {
             return false;
         }
-        if (currentArchive
-                && (archiveLostTraceOverflow || archiveLostTraces != null && archiveLostTraces.contains(traceId))) {
-            return true;
-        }
         var traces = currentArchive && currentArchiveEvictedTraces != null
                 ? currentArchiveEvictedTraces
                 : evictedRequestTraces;
-        return traces.contains(traceId);
+        return traces.contains(traceId) || (currentArchive && lostArchiveTrace(traceId));
+    }
+
+    synchronized boolean lostArchiveTrace(String traceId) {
+        return traceId != null
+                && (archiveLostTraceOverflow || archiveLostTraces != null && archiveLostTraces.contains(traceId));
     }
 
     synchronized List<String> lostRequestTraces() {
@@ -337,6 +354,7 @@ final class EvidenceRing {
         rememberEvictedRequest(entry.event());
         rememberArchiveLoss(entry.event());
         lost(entry.event());
+        writerLosses++;
         return true;
     }
 

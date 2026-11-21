@@ -96,8 +96,8 @@ public final class DurableJournalRunMetadataCodec {
                         "Durable journal run metadata exceeds " + MAX_BASE_BYTES + " base bytes");
             }
             if (!traceLoss.isEmpty()) {
-                out.writeInt(
-                        traceLoss.overflowed() ? -1 : traceLoss.fingerprints().size());
+                int count = traceLoss.fingerprints().size();
+                out.writeInt(traceLoss.overflowed() ? -1 : traceLoss.onlyUntraced() ? -2 : count);
                 for (String fingerprint :
                         traceLoss.fingerprints().stream().sorted().toList()) {
                     out.write(java.util.HexFormat.of().parseHex(fingerprint));
@@ -311,6 +311,9 @@ public final class DurableJournalRunMetadataCodec {
             int count = data.readInt();
             if (count == -1) {
                 return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;
+            }
+            if (count == -2) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.UNTRACED;
             }
             if (count < 1 || count > DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS) {
                 throw new IllegalArgumentException("Invalid offload trace fingerprint count");
