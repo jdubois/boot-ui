@@ -1,9 +1,13 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Shared skeleton of the JDBC driver rules. A subclass judges one datasource at a time and answers with an
@@ -32,15 +36,37 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
      */
     abstract Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings);
 
+    /** The setting that can be compared per datasource even when another datasource has a coverage gap. */
+    ScopedSetting scopedSetting() {
+        return null;
+    }
+
     @Override
     final DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         DatabaseFindings findings = new DatabaseFindings();
-        List<String> reasons = new ArrayList<>();
+        ScopedSetting scoped = scopedSetting();
+        Set<String> ambiguousNames = scoped == null ? Set.of() : ambiguousNames(context.schemas());
+        Set<String> reportedAmbiguities = new HashSet<>();
         List<String> gaps = new ArrayList<>();
+        List<String> reasons = new ArrayList<>();
+        List<String> conclusiveDatasources = new ArrayList<>();
         int assessed = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
-            Outcome outcome = assess(context, schema, findings);
-            String text = schema.dataSourceName() + ": " + outcome.text();
+            String name = schema.dataSourceName();
+            Outcome outcome;
+            if (scoped != null && ambiguousNames.contains(name)) {
+                outcome = scoped.driverApplicability().apply(schema);
+                if (outcome == null || outcome.kind() == Outcome.Kind.GAP) {
+                    if (!reportedAmbiguities.add(name)) {
+                        continue;
+                    }
+                    outcome =
+                            Outcome.gap("multiple datasources share this name, so JDBC batching cannot be attributed.");
+                }
+            } else {
+                outcome = assess(context, schema, findings);
+            }
+            String text = name + ": " + outcome.text();
             switch (outcome.kind()) {
                 case NOT_APPLICABLE -> {}
                 case SKIP -> reasons.add(text);
@@ -50,7 +76,10 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
                 }
                 case ASSESSED -> {
                     assessed++;
-                    outcome.gaps().forEach(gap -> gaps.add(schema.dataSourceName() + ": " + gap));
+                    if (scoped != null && outcome.gaps().isEmpty()) {
+                        conclusiveDatasources.add(name);
+                    }
+                    outcome.gaps().forEach(gap -> gaps.add(name + ": " + gap));
                 }
             }
         }
@@ -59,7 +88,35 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         }
         // Only a mixed inventory journals gaps: with something assessed, a clean result must not hide them.
         gaps.forEach(gap -> unknown(context, gap));
-        return VendorRuleSupport.assessed(this, context, assessed, findings);
+        DatabaseAdvisorRuleResultDto result = VendorRuleSupport.assessed(this, context, assessed, findings);
+        var collector = context.violationCollector();
+        if (collector != null && scoped != null) {
+            for (String name : conclusiveDatasources) {
+                String originalScope = AdvisorFindingIdentity.encode("ds=" + name);
+                String findingScope = AdvisorFindingIdentity.scope(scoped.identity(name));
+                if (!gaps.isEmpty() || !originalScope.equals(findingScope)) {
+                    collector.markConcludedFromObservedScope(definition().id(), findingScope, originalScope);
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Set<String> ambiguousNames(List<SchemaSnapshot> schemas) {
+        Set<String> seen = new HashSet<>();
+        Set<String> ambiguous = new HashSet<>();
+        for (SchemaSnapshot schema : schemas) {
+            if (!seen.add(schema.dataSourceName())) {
+                ambiguous.add(schema.dataSourceName());
+            }
+        }
+        return ambiguous;
+    }
+
+    record ScopedSetting(String name, Function<SchemaSnapshot, Outcome> driverApplicability) {
+        String identity(String dataSourceName) {
+            return settingIdentity(dataSourceName, name);
+        }
     }
 
     /** The datasource's driver evidence, or a gap when the driver could not be identified at all. */
@@ -74,10 +131,14 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
     /** {@code null} when JDBC batching is demonstrably enabled; otherwise why this rule does not apply or is unsure. */
     static Outcome batchingGate(DatabaseAdvisorContext context, SchemaSnapshot schema) {
         JdbcBatching batching = context.jdbcBatchingOf(schema.dataSourceName());
-        if (batching == null || batching.status() == JdbcBatching.Status.UNKNOWN) {
+        if (batching == null) {
             // A skip, not a gap: a datasource Hibernate does not use is not a hole in the coverage of the others.
             return Outcome.skip("JDBC batching status unknown: no Hibernate persistence unit could be attributed to"
-                    + " this datasource's connection pool, or its batch size could not be read.");
+                    + " this datasource's connection pool.");
+        }
+        if (batching.status() == JdbcBatching.Status.UNKNOWN) {
+            return Outcome.gap("JDBC batching status unknown: effective Hibernate batching could not be determined"
+                    + " for this datasource's connection pool.");
         }
         if (batching.status() == JdbcBatching.Status.DISABLED) {
             return Outcome.skip("JDBC batching is not enabled for this datasource (see HIB-CONFIG-004).");

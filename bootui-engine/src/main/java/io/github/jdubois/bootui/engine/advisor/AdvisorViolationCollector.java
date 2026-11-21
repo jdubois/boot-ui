@@ -163,6 +163,17 @@ public final class AdvisorViolationCollector {
     }
 
     /**
+     * Concludes a finding scope that may have been shortened by the identity length cap. The original scope must
+     * have been observed and not blocked by the scanner before its finding scope can be compared.
+     */
+    public void markConcludedFromObservedScope(String ruleId, String scope, String originalScope) {
+        if (observedScopes.contains(originalScope) && !unverifiedScopes.contains(originalScope)) {
+            markScopeObserved(scope);
+            markConcluded(ruleId, scope);
+        }
+    }
+
+    /**
      * Declares that {@code scope} was looked at in this scan. Once any scope is declared observed, a scope that was not
      * is treated as unread: its findings cannot be resolved by this scan.
      */

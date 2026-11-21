@@ -3,8 +3,10 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mockStatic;
 
+import io.github.jdubois.bootui.core.dto.AdvisorRuleChangeDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
@@ -27,6 +29,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +40,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -401,6 +406,139 @@ class DatabaseAdvisorScannerTests {
                 "DB-SCHEMA-001", removed.violationDetails().scanId(), 0, 10);
         assertThat(page.identities()).doesNotContainNull();
         assertThat(page.changes()).containsOnly("UNCHANGED");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts, false",
+        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements, false",
+        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts, true",
+        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements, true"
+    })
+    void unreadableBatchingDoesNotHideAResolvedRewriteFindingOnAnotherDatasource(
+            String ruleId, Dialect dialect, String driverName, String setting, boolean longName) {
+        String fixedName = "fixed|pool" + (longName ? "/tenant".repeat(27) : "");
+        var driver = DatabaseAdvisorFixtures.driverEvidence(driverName, Map.of());
+        var fixedDriver = DatabaseAdvisorFixtures.driverEvidence(
+                driverName, DatabaseAdvisorFixtures.urlSettings(setting, "true"));
+        var batching = new HashMap<String, JdbcBatching>();
+        var sources = List.of(fixedName, "unreadable", "peer").stream()
+                .map(name -> new NamedDataSource(name, new FailingDataSource("not used by this fixture")))
+                .toList();
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
+                () -> new DatabaseAdvisorDataSourceDiscovery(sources, List.of()),
+                () -> EntityDiscovery.absent(null),
+                List::of,
+                evidence(List.of(), batching),
+                FIXED_CLOCK);
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            for (NamedDataSource source : sources) {
+                batching.put(source.name(), JdbcBatching.enabled(30));
+                var before = DatabaseAdvisorFixtures.driverSchema(source.name(), dialect, driver);
+                var after = source.name().equals(fixedName)
+                        ? DatabaseAdvisorFixtures.driverSchema(source.name(), dialect, fixedDriver)
+                        : before;
+                introspector
+                        .when(() -> SchemaIntrospector.introspect(
+                                eq(source.name()), any(DataSource.class), any(), any(), any()))
+                        .thenReturn(before, after);
+            }
+
+            DatabaseAdvisorReport first = scanner.scan();
+            assertThat(first.results())
+                    .filteredOn(result -> result.id().equals(ruleId))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.violationCount()).isEqualTo(3));
+
+            batching.put("unreadable", JdbcBatching.unknown());
+            DatabaseAdvisorReport second = scanner.scan();
+            var changes = second.violationDetails().changes();
+            assertThat(changes.previousScanId())
+                    .isEqualTo(first.violationDetails().scanId());
+            assertThat(changes.rules())
+                    .filteredOn(change -> change.ruleId().equals(ruleId))
+                    .containsExactly(new AdvisorRuleChangeDto(ruleId, 0, 1, 1));
+            assertThat(changes.resolved())
+                    .filteredOn(finding -> finding.ruleId().equals(ruleId))
+                    .singleElement()
+                    .satisfies(finding -> assertThat(finding.text()).contains("`" + fixedName + "`"));
+            assertThat(second.results())
+                    .filteredOn(result -> result.id().equals(ruleId))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.violationCount()).isEqualTo(1);
+                        assertThat(result.sampleViolations())
+                                .singleElement()
+                                .asString()
+                                .contains("`peer`");
+                    });
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "DB-DRIVER-001, POSTGRESQL, PostgreSQL JDBC Driver, reWriteBatchedInserts",
+        "DB-DRIVER-002, MYSQL, MySQL Connector/J, rewriteBatchedStatements"
+    })
+    void collidingDatasourceNamesDoNotResolveAnAmbiguousRewriteFinding(
+            String ruleId, Dialect dialect, String driverName, String setting) {
+        String routingName = "routing[tenant]";
+        var primary = new NamedDataSource(routingName, new FailingDataSource("not used by this fixture"));
+        var collision = new NamedDataSource(routingName, new FailingDataSource("not used by this fixture"));
+        var peer = new NamedDataSource("peer", new FailingDataSource("not used by this fixture"));
+        var sources = new ArrayList<>(List.of(primary, peer));
+        var batching = new HashMap<>(Map.of(routingName, JdbcBatching.enabled(30), "peer", JdbcBatching.enabled(30)));
+        var driver = DatabaseAdvisorFixtures.driverEvidence(driverName, Map.of());
+        var fixedDriver = DatabaseAdvisorFixtures.driverEvidence(
+                driverName, DatabaseAdvisorFixtures.urlSettings(setting, "true"));
+        var scanner = DatabaseAdvisorScanner.usingDiscovery(
+                () -> new DatabaseAdvisorDataSourceDiscovery(sources, List.of()),
+                () -> EntityDiscovery.absent(null),
+                List::of,
+                evidence(List.of(), batching),
+                FIXED_CLOCK);
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq(routingName), same(primary.dataSource()), any(), any(), any()))
+                    .thenReturn(DatabaseAdvisorFixtures.driverSchema(routingName, dialect, driver));
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq(routingName), same(collision.dataSource()), any(), any(), any()))
+                    .thenReturn(DatabaseAdvisorFixtures.driverSchema(
+                            routingName,
+                            Dialect.GENERIC,
+                            DatabaseAdvisorFixtures.driverEvidence("H2 JDBC Driver", Map.of())));
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(eq("peer"), any(DataSource.class), any(), any(), any()))
+                    .thenReturn(
+                            DatabaseAdvisorFixtures.driverSchema("peer", dialect, driver),
+                            DatabaseAdvisorFixtures.driverSchema("peer", dialect, fixedDriver));
+
+            var first = scanner.scan();
+            assertThat(first.results())
+                    .filteredOn(result -> result.id().equals(ruleId))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.violationCount()).isEqualTo(2));
+
+            sources.add(collision);
+            // The default provider leaves duplicate datasource names out of its batching evidence.
+            batching.remove(routingName);
+            var second = scanner.scan();
+            var changes = second.violationDetails().changes();
+            assertThat(changes.rules())
+                    .filteredOn(change -> change.ruleId().equals(ruleId))
+                    .containsExactly(new AdvisorRuleChangeDto(ruleId, 0, 1, 1));
+            assertThat(changes.resolved())
+                    .filteredOn(finding -> finding.ruleId().equals(ruleId))
+                    .singleElement()
+                    .satisfies(finding -> assertThat(finding.text()).contains("`peer`"));
+            assertThat(second.diagnostics()).anySatisfy(diagnostic -> {
+                assertThat(diagnostic.source()).isEqualTo(ruleId);
+                assertThat(diagnostic.level()).isEqualTo("WARNING");
+                assertThat(diagnostic.message()).contains(routingName, "share this name");
+            });
+        }
     }
 
     @Test
