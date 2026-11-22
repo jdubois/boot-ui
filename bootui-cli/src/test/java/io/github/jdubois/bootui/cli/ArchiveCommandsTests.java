@@ -130,6 +130,42 @@ class ArchiveCommandsTests {
     }
 
     @Test
+    void validatesArchiveActivityCursorsWithoutChangingPagination() {
+        Fixture fixture = fixture();
+        persist(fixture, new DurableJournalScope("alpha", "orders", "older"), "older-request");
+        persist(fixture, new DurableJournalScope("alpha", "orders", "newer"), "newer-request");
+        Map<String, String> environment = Map.of("BOOTUI_ARCHIVE_NAMESPACE", "alpha");
+
+        Result first = run(fixture, environment, "activity", "--limit", "1", "--json");
+        assertThat(first.exitCode()).isZero();
+        JsonValue firstPage = JsonValue.parse(first.out());
+        assertThat(firstPage.get("entries").size()).isOne();
+        assertThat(firstPage.get("entries").get(0).get("run").asString(null)).isEqualTo("newer");
+        assertThat(firstPage.get("hasMore").asBoolean(false)).isTrue();
+        String cursor = firstPage.get("nextCursor").asString(null);
+        assertThat(cursor).isNotBlank();
+
+        for (String blank : List.of("", "   ")) {
+            Result result = run(fixture, environment, "activity", "--limit", "1", "--cursor", blank, "--json");
+            assertThat(result).isEqualTo(first);
+        }
+
+        Result second = run(fixture, environment, "activity", "--limit", "1", "--cursor", cursor, "--json");
+        assertThat(second.exitCode()).isZero();
+        JsonValue secondPage = JsonValue.parse(second.out());
+        assertThat(secondPage.get("entries").size()).isOne();
+        assertThat(secondPage.get("entries").get(0).get("run").asString(null)).isEqualTo("older");
+        assertThat(secondPage.get("hasMore").asBoolean(true)).isFalse();
+
+        for (String malformed : List.of("not-a-cursor", "-1", "9223372036854775808")) {
+            Result result = run(fixture, environment, "activity", "--limit", "1", "--cursor", malformed, "--json");
+            assertThat(result.exitCode()).as("cursor %s", malformed).isEqualTo(ExitCodes.ERROR);
+            assertThat(result.out()).isEmpty();
+            assertThat(result.err()).isEqualTo("Invalid durable journal cursor" + System.lineSeparator());
+        }
+    }
+
+    @Test
     void crossNamespaceReadsAreExplicitAndActivityCanReadGlobally() {
         Fixture fixture = fixture();
         persist(fixture, new DurableJournalScope("alpha", "orders", "alpha-run"), "alpha-request");

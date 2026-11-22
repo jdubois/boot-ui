@@ -437,8 +437,7 @@ final class ArchiveCommands {
 
         @Override
         JsonValue read() throws ReflectiveOperationException {
-            DurableJournalGlobalCursor decodedCursor =
-                    cursor == null || cursor.isBlank() ? null : DurableJournalGlobalCursor.decode(cursor);
+            DurableJournalGlobalCursor decodedCursor = DurableJournalGlobalCursor.decodeStrict(cursor);
             DurableJournalFeedQuery query = new DurableJournalFeedQuery(
                     options.activityNamespace(),
                     options.application(),
