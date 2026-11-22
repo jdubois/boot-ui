@@ -44,8 +44,8 @@ through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`,
 tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
 
 Live Activity links here in two places. Under its KPIs, **Why is … slow?** opens the slowest route's time breakdown. In a
-request's drawer, **Why this route is slow** loads that route's breakdown on demand. For a persisted request, it shows the
-breakdown for that recording in the drawer instead of linking to the current run's report.
+request's drawer, **Why this route is slow** loads that route's breakdown on demand. A persisted request shows the
+breakdown for its own recording; the link to Runtime Insights is only shown for the current run.
 
 ## Findings
 

@@ -16,11 +16,11 @@ const report = {
   ]
 }
 
-function mountWhySlow(route, panels = null, origin = null) {
+function mountWhySlow(route, panels = null, origin = null, overview = null) {
   return mount(RouteWhySlow, {
     props: {route, origin},
     global: {
-      provide: {panels: ref(panels)},
+      provide: {panels: ref(panels), overview: ref(overview)},
       stubs: {'router-link': {props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>'}}
     }
   })
@@ -51,6 +51,25 @@ describe('RouteWhySlow', () => {
       path: '/runtime-insights',
       query: {q: 'GET /api/orders/{id}', insight: 'route-time-breakdown:abcdef0123'}
     })
+  })
+
+  it('keeps the link for a persisted request from the current run without dropping its scope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ok: true, status: 200, json: () => Promise.resolve(report)})
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountWhySlow(
+      'GET /api/orders/{id}',
+      null,
+      {namespace: 'team-a', application: 'orders', run: 'current-run'},
+      {run: {runId: 'current-run'}}
+    )
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'api/runtime-insights?namespace=team-a&application=orders&run=current-run',
+      expect.anything()
+    )
+    expect(wrapper.get('a').text()).toBe('Open in Runtime Insights')
   })
 
   it('says so when the route has no breakdown yet', async () => {

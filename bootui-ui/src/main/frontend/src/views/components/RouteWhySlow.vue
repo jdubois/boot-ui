@@ -13,7 +13,12 @@ const props = defineProps({
 })
 
 const panels = inject('panels', ref(null))
+const overview = inject('overview', ref(null))
 const usable = computed(() => insightsUsable(panels.value))
+const linksToCurrentRun = computed(() => {
+  const currentRun = overview.value?.run?.runId
+  return !props.origin || (Boolean(currentRun) && props.origin.run === currentRun)
+})
 const loading = ref(false)
 const error = ref(null)
 const loaded = ref(false)
@@ -73,14 +78,17 @@ async function load() {
           <InsightText :text="breakdown.whatToCheck[0]" />
         </p>
         <router-link
-          v-if="!origin"
+          v-if="linksToCurrentRun"
           :to="{path: '/runtime-insights', query: {q: route, insight: breakdown.id}}"
           class="btn btn-outline-secondary btn-sm"
         >
           Open in Runtime Insights
         </router-link>
       </template>
-      <p v-else class="mb-0 text-muted">Runtime Insights has no time breakdown for this route in this run yet.</p>
+      <p v-else class="mb-0 text-muted">
+        Runtime Insights has no time breakdown for this route
+        {{ linksToCurrentRun ? 'in this run yet.' : 'in the selected recording.' }}
+      </p>
     </div>
   </div>
 </template>
