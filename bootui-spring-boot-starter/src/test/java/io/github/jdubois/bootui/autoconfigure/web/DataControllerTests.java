@@ -1,22 +1,39 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
 import java.io.Serializable;
 import java.lang.reflect.Method;
+import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartFactoryBean;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.data.repository.Repository;
+import org.springframework.data.repository.config.BootstrapMode;
 import org.springframework.data.repository.core.RepositoryInformation;
 import org.springframework.data.repository.core.support.RepositoryFactoryInformation;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.persistenceunit.PersistenceManagedTypes;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.stereotype.Component;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -30,13 +47,11 @@ import org.springframework.test.web.servlet.MockMvc;
 class DataControllerTests {
 
     private static ListableBeanFactory beanFactoryWithRepository(String beanName, Class<?> repositoryInterface) {
-        ListableBeanFactory factory = mock(ListableBeanFactory.class);
+        var factory = new DefaultListableBeanFactory();
         RepositoryFactoryInformation<?, ?> info = mock(RepositoryFactoryInformation.class);
         RepositoryInformation information = mock(RepositoryInformation.class);
 
-        when(factory.getBeanNamesForType(RepositoryFactoryInformation.class)).thenReturn(new String[] {beanName});
-        when(factory.getBean(eq(beanName), eq(RepositoryFactoryInformation.class)))
-                .thenAnswer(invocation -> info);
+        factory.registerSingleton(beanName, info);
         when(info.getRepositoryInformation()).thenReturn(information);
 
         // Mockito cannot return Class<?> from raw-typed getters without an unchecked
@@ -90,10 +105,8 @@ class DataControllerTests {
 
     @Test
     void repositoriesReturnsEmptyReportWhenNoRepositoryBeans() throws Exception {
-        ListableBeanFactory factory = mock(ListableBeanFactory.class);
-        when(factory.getBeanNamesForType(RepositoryFactoryInformation.class)).thenReturn(new String[0]);
-
-        MockMvc mvc = standaloneSetup(new DataController(providerOf(factory))).build();
+        MockMvc mvc = standaloneSetup(new DataController(providerOf(new DefaultListableBeanFactory())))
+                .build();
 
         mvc.perform(get("/bootui/api/data/repositories"))
                 .andExpect(status().isOk())
@@ -164,9 +177,76 @@ class DataControllerTests {
         mvc.perform(get("/bootui/api/data/repositories/UnknownRepository")).andExpect(status().isNotFound());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/widgetRepository"})
+    void readsDoNotInitializeLazyJpaRepositories(String suffix) throws Exception {
+        try (var context = new AnnotationConfigApplicationContext(LazyJpaRepositories.class)) {
+            var factory = context.getBeanFactory();
+            assertThat(factory.getBeanDefinition("widgetRepository").isLazyInit())
+                    .isTrue();
+            assertThat(factory.containsSingleton("widgetRepository")).isFalse();
+            MockMvc mvc =
+                    standaloneSetup(new DataController(providerOf(factory))).build();
+
+            var response = mvc.perform(get("/bootui/api/data/repositories" + suffix));
+            assertThat(factory.containsSingleton("widgetRepository"))
+                    .as("BootUI must not initialize the JPA repository factory")
+                    .isFalse();
+            if (suffix.isEmpty()) {
+                response.andExpect(status().isOk())
+                        .andExpect(jsonPath("$.repositories").isEmpty());
+            } else {
+                response.andExpect(status().isNotFound());
+            }
+
+            // The application uses the repository independently; BootUI can now read real Spring Data metadata.
+            context.getBean("widgetRepository", WidgetRepository.class);
+            mvc.perform(get("/bootui/api/data/repositories"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.repositories[0].beanName").value("widgetRepository"));
+            mvc.perform(get("/bootui/api/data/repositories/widgetRepository"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.methods[?(@.name=='findByName')].origin")
+                            .value("QUERY"));
+        }
+    }
+
+    @Test
+    void readsDoNotQueryAnUnrelatedInitializedSmartFactory() throws Exception {
+        var factory = new DefaultListableBeanFactory();
+        var unrelated = mock(SmartFactoryBean.class);
+        factory.registerSingleton("unrelatedFactory", unrelated);
+        MockMvc mvc = standaloneSetup(new DataController(providerOf(factory))).build();
+
+        mvc.perform(get("/bootui/api/data/repositories")).andExpect(status().isOk());
+        mvc.perform(get("/bootui/api/data/repositories/missing")).andExpect(status().isNotFound());
+
+        verifyNoInteractions(unrelated);
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    @EnableJpaRepositories(
+            basePackageClasses = DataControllerTests.class,
+            considerNestedRepositories = true,
+            bootstrapMode = BootstrapMode.LAZY)
+    static class LazyJpaRepositories {
+        @Bean
+        LocalContainerEntityManagerFactoryBean entityManagerFactory() {
+            var dataSource = new JdbcDataSource();
+            dataSource.setURL("jdbc:h2:mem:bootui-passive-data");
+            var factory = new LocalContainerEntityManagerFactoryBean();
+            factory.setDataSource(dataSource);
+            factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            factory.setManagedTypes(PersistenceManagedTypes.of(Widget.class.getName()));
+            return factory;
+        }
+    }
+
     /**
      * Test-only repository fixture used to exercise method classification.
      */
+    @Component("widgetRepository")
     public interface WidgetRepository extends Repository<Widget, Long> {
         Widget findByName(String name);
     }
@@ -174,8 +254,11 @@ class DataControllerTests {
     /**
      * Test-only domain class for the synthetic repository fixture.
      */
+    @Entity
     public static class Widget implements Serializable {
+        @Id
         private Long id;
+
         private String name;
 
         public Long getId() {

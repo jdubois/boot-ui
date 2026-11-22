@@ -2456,12 +2456,14 @@ Acceptance criteria:
 
 ### 5.17 Spring Data Explorer
 
-Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they
-expose?"
+Purpose: answer "Which initialized Spring Data repositories have readable metadata, against which store, and what
+queries do they expose?"
 
 Data sources:
 
-- Spring Data `RepositoryFactoryInformation` beans discovered in the application context.
+- Spring Data `RepositoryFactoryInformation` singletons already initialized in the application context. The
+  inventory does not initialize lazy factories or create repository products. An empty inventory does not rule out
+  repository declarations; detail is unavailable until the application initializes the factory.
 - Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class,
   query methods, fragment methods).
 

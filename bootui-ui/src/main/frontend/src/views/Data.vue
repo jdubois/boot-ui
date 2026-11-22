@@ -107,10 +107,11 @@ onMounted(load)
     </UnavailableState>
 
     <UnavailableState v-else-if="report && report.total === 0">
-      Spring Data is on the classpath, but no repository beans were detected in the application context.
+      No initialized repository metadata is available. BootUI does not initialize lazy repositories.
     </UnavailableState>
 
     <template v-else-if="report">
+      <p class="small text-muted mb-2">Only initialized repositories with available metadata are listed.</p>
       <div class="row g-2 mb-3">
         <div class="col-md-6">
           <input

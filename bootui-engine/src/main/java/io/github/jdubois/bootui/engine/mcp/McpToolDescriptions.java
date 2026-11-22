@@ -723,8 +723,9 @@ public final class McpToolDescriptions {
                         + "steps first (a parent includes its children) matching query (a step name or tag value, such "
                         + "as a bean name).";
             case "get_spring_data_repositories" ->
-                "Return Spring Data repository metadata already computed by the application context. This read never "
-                        + "invokes a repository method or executes a database query.";
+                "Return available Spring Data metadata from already initialized repository factories. An empty list "
+                        + "does not rule out lazy repositories. This read does not initialize factories, invoke "
+                        + "repository methods, or execute database queries.";
             case "get_spring_security" ->
                 "Return the current Spring Security filter-chain and authentication configuration report. This passive "
                         + "read does not authenticate, authorize, or send a request through a chain.";
