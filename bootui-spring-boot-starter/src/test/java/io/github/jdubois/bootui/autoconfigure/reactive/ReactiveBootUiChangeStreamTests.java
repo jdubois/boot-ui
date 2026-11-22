@@ -5,9 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.reactivestreams.Subscription;
+import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.Disposable;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.test.StepVerifier;
+import reactor.test.scheduler.VirtualTimeScheduler;
 
 class ReactiveBootUiChangeStreamTests {
 
@@ -93,6 +98,69 @@ class ReactiveBootUiChangeStreamTests {
                     assertThat(data).containsKey("ts");
                     assertThat(data.get("ts")).isInstanceOf(Long.class);
                 })
+                .then(stream::close)
+                .expectComplete()
+                .verify(Duration.ofSeconds(2));
+    }
+
+    @Test
+    void aStalledSubscriberDoesNotDelayOtherSubscribersOrAccumulateRefreshes() {
+        var window = Duration.ofMillis(10);
+        var stream = new ReactiveBootUiChangeStream("test", window);
+        var resumedEvents = new AtomicInteger();
+        var stalled = new BaseSubscriber<ServerSentEvent<Map<String, Object>>>() {
+            @Override
+            protected void hookOnSubscribe(Subscription subscription) {
+                // The client resumes demand only after three independent refreshes.
+            }
+
+            @Override
+            protected void hookOnNext(ServerSentEvent<Map<String, Object>> event) {
+                resumedEvents.incrementAndGet();
+            }
+        };
+        try {
+            StepVerifier.withVirtualTime(() -> {
+                        stream.open().subscribe(stalled);
+                        return stream.open();
+                    })
+                    .then(() -> {
+                        for (int i = 0; i < 3; i++) {
+                            stream.signal();
+                            VirtualTimeScheduler.get().advanceTimeBy(window);
+                        }
+                    })
+                    .expectNextCount(3)
+                    .then(() -> {
+                        assertThat(resumedEvents).hasValue(0);
+                        stalled.request(Long.MAX_VALUE);
+                        assertThat(resumedEvents).hasValue(1);
+                    })
+                    .then(stream::close)
+                    .expectComplete()
+                    .verify(Duration.ofSeconds(2));
+        } finally {
+            stalled.dispose();
+        }
+    }
+
+    @Test
+    void reconnectingAfterAllSubscribersLeaveReceivesOnlyFutureRefreshes() {
+        var window = Duration.ofMillis(10);
+        var stream = new ReactiveBootUiChangeStream("test", window);
+        StepVerifier.withVirtualTime(() -> {
+                    var original = stream.open().subscribe();
+                    stream.signal();
+                    original.dispose();
+                    // Let the pending refresh flush with no subscribers before reconnecting.
+                    VirtualTimeScheduler.get().advanceTimeBy(window);
+                    return stream.open();
+                })
+                .expectSubscription()
+                .expectNoEvent(window)
+                .then(stream::signal)
+                .thenAwait(window)
+                .expectNextCount(1)
                 .then(stream::close)
                 .expectComplete()
                 .verify(Duration.ofSeconds(2));

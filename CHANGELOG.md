@@ -29,6 +29,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Filtered collection fetches** add a bounded MEDIUM review for supported static queries that may initialize
   only part of a managed collection, without running queries. Unsupported shapes stay unassessed; query text and
   values are not exposed ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
+- **WebFlux panel refreshes** continue for healthy clients when another client falls behind
+  ([WebFlux support](docs/WEBFLUX-SUPPORT.md)).
 - **Production logger declarations** include explicit Hibernate bind and SQL category levels only when their
   captured category minimum permits them. Unobserved production configuration stays incomplete; global logger
   evidence is not assigned to a persistence unit ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md)).
