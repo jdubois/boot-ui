@@ -19,6 +19,7 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.aop.framework.Advised;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.target.LazyInitTargetSource;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -219,8 +220,9 @@ class DataControllerTests {
         }
     }
 
-    @Test
-    void readsDoNotResolveALazyRepositoryFactoryTarget() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void readsDoNotResolveALazyRepositoryFactoryTarget(boolean opaque) throws Exception {
         try (var context = new AnnotationConfigApplicationContext(LazyJpaRepositories.class)) {
             var factory = context.getBeanFactory();
             var source = new LazyInitTargetSource();
@@ -228,7 +230,8 @@ class DataControllerTests {
             source.setTargetClass(RepositoryFactoryInformation.class);
             source.setBeanFactory(factory);
             var proxy = new ProxyFactory();
-            proxy.setInterfaces(RepositoryFactoryInformation.class);
+            proxy.setInterfaces(RepositoryFactoryInformation.class, Advised.class);
+            proxy.setOpaque(opaque);
             proxy.setTargetSource(source);
             factory.registerSingleton("lazyMetadataProxy", proxy.getProxy());
             assertThat(factory.containsSingleton("widgetRepository")).isFalse();
@@ -246,7 +249,7 @@ class DataControllerTests {
     }
 
     @Test
-    void readsMetadataFromAnAlreadyHeldProxyTargetWithoutInvokingAdvice() throws Exception {
+    void omitsMetadataOnlyReachableThroughAnInitializedProxy() throws Exception {
         var source = beanFactoryWithRepository("widgetRepository", WidgetRepository.class);
         var proxy = new ProxyFactory(source.getSingleton("widgetRepository"));
         proxy.addAdvice((MethodInterceptor) invocation -> {
@@ -258,10 +261,8 @@ class DataControllerTests {
 
         mvc.perform(get("/bootui/api/data/repositories"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories[0].beanName").value("widgetRepository"));
-        mvc.perform(get("/bootui/api/data/repositories/WidgetRepository"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.methods[?(@.name=='findByName')].origin").value("QUERY"));
+                .andExpect(jsonPath("$.repositories").isEmpty());
+        mvc.perform(get("/bootui/api/data/repositories/WidgetRepository")).andExpect(status().isNotFound());
     }
 
     @TestConfiguration(proxyBeanMethods = false)

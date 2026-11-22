@@ -2462,8 +2462,8 @@ queries do they expose?"
 Data sources:
 
 - Spring Data `RepositoryFactoryInformation` singletons already initialized in the application context. The
-  inventory does not initialize lazy factories or create repository products. An empty inventory does not rule out
-  repository declarations; detail is unavailable until the application initializes the factory.
+  inventory does not initialize lazy factories, dispatch through factory proxies, or create repository products.
+  An empty inventory does not rule out repository declarations; detail requires directly readable metadata.
 - Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class,
   query methods, fragment methods).
 

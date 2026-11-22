@@ -12,7 +12,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.aop.framework.AopProxyUtils;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
@@ -78,8 +77,10 @@ public class DataController implements BeanFactoryAware {
             if (!registry.containsSingleton(beanName)) {
                 continue;
             }
-            RepositoryFactoryInformation<?, ?> info = heldRepositoryFactory(registry.getSingleton(beanName));
-            if (info == null) {
+            // Even probing an opaque proxy for its target source can initialize the target.
+            if (!(registry.getSingleton(beanName) instanceof RepositoryFactoryInformation<?, ?> info)
+                    || Proxy.isProxyClass(info.getClass())
+                    || AopUtils.isAopProxy(info)) {
                 continue;
             }
             try {
@@ -97,22 +98,6 @@ public class DataController implements BeanFactoryAware {
             }
         }
         return entries;
-    }
-
-    @Nullable
-    private RepositoryFactoryInformation<?, ?> heldRepositoryFactory(@Nullable Object candidate) {
-        if (!(candidate instanceof RepositoryFactoryInformation<?, ?>)) {
-            return null;
-        }
-        // A registered proxy can still have a lazy or scoped target. Read only a target Spring already holds.
-        if (AopUtils.isAopProxy(candidate)) {
-            candidate = AopProxyUtils.getSingletonTarget(candidate);
-        }
-        return candidate instanceof RepositoryFactoryInformation<?, ?> info
-                        && !AopUtils.isAopProxy(info)
-                        && !Proxy.isProxyClass(info.getClass())
-                ? info
-                : null;
     }
 
     private boolean matches(RepositoryEntry entry, String name) {
