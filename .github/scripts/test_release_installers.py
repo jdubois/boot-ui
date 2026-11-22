@@ -305,6 +305,8 @@ try {{
     def test_powershell_failed_upgrade_keeps_previous_launch_files(self):
         if os.name != "nt" and sys.platform != "darwin":
             self.skipTest("failure fixture needs a Windows sharing lock or macOS immutable flag")
+        payload = b"replacement artifact"
+        repo = "https://fixture.invalid/upgraded"
         for locked, requested in (
             (self.launcher, "next"),
             (self.record, "next"),
@@ -314,9 +316,8 @@ try {{
                 installed = self.install("previous", b"previous artifact")
                 self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
                 previous = {path: path.read_bytes() for path in (self.launcher, self.record, self.jar("previous"))}
-                result = self.install(
-                    requested, b"replacement artifact", repo="https://fixture.invalid/upgraded", locked=locked,
-                )
+                result = self.install(requested, payload, repo=repo, locked=locked)
+                self.assert_replacement_failure(result)
                 self.assert_previous_install(result, previous)
                 if sys.platform == "darwin":
                     # .NET on macOS can create a hard-linked backup before the failed rename.
@@ -326,6 +327,9 @@ try {{
                         self.assertEqual(backup.read_bytes(), previous[locked])
                         backup.unlink()
                 self.assert_only_previous_files()
+                retry = self.install(requested, payload, repo=repo)
+                self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+                self.assertEqual(self.jar(requested).read_bytes(), payload)
 
     def test_powershell_failed_launcher_write_keeps_previous_launch_files(self):
         installed = self.install("previous", b"previous artifact")
@@ -341,7 +345,7 @@ try {{
         initial = self.install("previous", self.launcher_probe_jar())
         self.assertEqual(initial.returncode, 0, initial.stdout + initial.stderr)
         failure = self.install("next", b"replacement artifact", locked=self.launcher)
-        self.assertNotEqual(failure.returncode, 0, failure.stdout + failure.stderr)
+        self.assert_replacement_failure(failure)
         self.assert_only_previous_files()
 
         for use_java_home in (True, False):
@@ -378,6 +382,11 @@ try {{
             cwd=self.root, timeout=30, check=True,
         )
         return (self.root / "launcher-probe.jar").read_bytes()
+
+    def assert_replacement_failure(self, result):
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertIn("bootui install: could not complete installation:", result.stderr, output)
 
     def assert_previous_install(self, result, previous):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
