@@ -214,7 +214,7 @@ public final class CaughtExceptions {
     private static final int C_ENTRY = 3;
 
     /**
-     * A thread's scratch, so a caught exception allocates nothing on its path: {@code [int[] chain identities,
+     * A thread's reusable scratch for the caught-exception path: {@code [int[] chain identities,
      * Throwable[] walk, long[] owner]}. JDK types, so the thread-local pins no class loader; the walk's references to
      * the application's throwables are cleared once each walk ends, so it never retains one.
      */
@@ -430,8 +430,8 @@ public final class CaughtExceptions {
      * The identities of {@code thrown}, its causes, and their suppressed throwables, at most {@value #CHAIN}, each with
      * its class's identity, in {@code out}: returns how many. Cycles are cut by identity; a throwable whose
      * {@code getCause()} or {@code getSuppressed()} throws ends its branch. {@code walk} ({@code 2 * CHAIN} long) holds
-     * the throwables seen, then those queued, and is cleared before returning. {@code getSuppressed()} allocates only
-     * when a throwable has suppressed ones: the JDK answers a shared empty array otherwise.
+     * the throwables seen, then those queued, and is cleared before returning. {@code getSuppressed()} is called only
+     * while there is room to queue another throwable; it still copies the whole list when it is nonempty.
      */
     static int chain(Throwable thrown, int[] out, Throwable[] walk) {
         int count = 0;
@@ -457,10 +457,12 @@ public final class CaughtExceptions {
                     if (cause != null && cause != next && tail < CHAIN) {
                         walk[CHAIN + tail++] = cause;
                     }
-                    Throwable[] suppressed = next.getSuppressed();
-                    for (int i = 0; suppressed != null && i < suppressed.length && tail < CHAIN; i++) {
-                        if (suppressed[i] != null) {
-                            walk[CHAIN + tail++] = suppressed[i];
+                    if (tail < CHAIN) {
+                        Throwable[] suppressed = next.getSuppressed();
+                        for (int i = 0; suppressed != null && i < suppressed.length && tail < CHAIN; i++) {
+                            if (suppressed[i] != null) {
+                                walk[CHAIN + tail++] = suppressed[i];
+                            }
                         }
                     }
                 } catch (Throwable ex) {
