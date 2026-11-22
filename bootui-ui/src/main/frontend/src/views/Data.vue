@@ -42,7 +42,7 @@ async function open(repo) {
   detailLoading.value = true
 
   try {
-    const key = encodeURIComponent(repo.repositoryInterface || repo.beanName)
+    const key = encodeURIComponent(repo.beanName)
     const response = await getJson(`api/data/repositories/${key}`)
     if (requestId === detailRequestId) detail.value = response
   } catch (e) {
@@ -79,6 +79,17 @@ const shortName = (name) => {
   const i = name.lastIndexOf('.')
   return i < 0 ? name : name.substring(i + 1)
 }
+
+const duplicateNames = computed(() => {
+  const seen = new Set()
+  const duplicates = new Set()
+  for (const repo of report.value?.repositories ?? []) {
+    const name = shortName(repo.repositoryInterface)
+    if (seen.has(name)) duplicates.add(name)
+    seen.add(name)
+  }
+  return duplicates
+})
 
 const storeClass = (s) =>
   ({
@@ -151,6 +162,7 @@ onMounted(load)
               v-for="r in filtered"
               :key="r.beanName"
               :class="{active: selected === r.beanName}"
+              :aria-current="selected === r.beanName ? 'true' : undefined"
               class="list-group-item list-group-item-action"
               type="button"
               @click="open(r)"
@@ -159,6 +171,9 @@ onMounted(load)
                 <div class="repository-summary">
                   <div>
                     <strong class="bootui-break-anywhere">{{ shortName(r.repositoryInterface) }}</strong>
+                  </div>
+                  <div v-if="duplicateNames.has(shortName(r.repositoryInterface))" class="small">
+                    <code class="bootui-break-anywhere">{{ r.beanName }}</code>
                   </div>
                   <div class="small text-muted">
                     {{ shortName(r.domainType) }}

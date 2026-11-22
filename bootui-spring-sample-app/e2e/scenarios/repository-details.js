@@ -18,6 +18,7 @@ export function registerRepositoryDetailTests(test, expect) {
       queryMethodCount: 1,
       fragmentCount: 0
     }
+    const archive = {...repository, beanName: 'archiveOrderRepository'}
     // Run against the real shell with a Spring Data-capable fixture, even when the sample has no repository beans.
     await page.route('**/api/panels', async (route) => {
       const response = await route.fetch()
@@ -26,26 +27,42 @@ export function registerRepositoryDetailTests(test, expect) {
       await route.fulfill({response, json: manifest})
     })
     await page.route('**/api/data/repositories', (route) =>
-      route.fulfill({json: {springDataPresent: true, total: 1, repositories: [repository]}})
+      route.fulfill({json: {springDataPresent: true, total: 2, repositories: [repository, archive]}})
+    )
+    await page.route(`**/api/data/repositories/${repository.beanName}`, (route) =>
+      route.fulfill({json: {...repository, methods: []}})
     )
 
     const first = Promise.withResolvers()
     let attempts = 0
-    await page.route(`**/api/data/repositories/${repository.repositoryInterface}`, async (route) => {
+    await page.route(`**/api/data/repositories/${archive.beanName}`, async (route) => {
       if (++attempts === 1) {
         await first.promise
         await route.fulfill({status: 503})
       } else {
-        await route.fulfill({json: {...repository, methods: [{origin: 'DERIVED', signature: 'findByNumber(String)'}]}})
+        await route.fulfill({json: {...archive, methods: [{origin: 'DERIVED', signature: 'findByNumber(String)'}]}})
       }
     })
 
     try {
       await openView('data', 'Spring Data repositories')
       const main = page.getByRole('main')
-      const button = main.getByRole('button', {name: /OrderRepository/})
+      const primary = main.getByRole('button', {name: /OrderRepository.*orderRepository/})
+      const button = main.getByRole('button', {name: /OrderRepository.*archiveOrderRepository/})
+      const current = main.locator('button[aria-current="true"]')
+      await expect(primary.getByText('orderRepository', {exact: true})).toBeVisible()
+      await expect(button.getByText('archiveOrderRepository', {exact: true})).toBeVisible()
+      await expect(current).toHaveCount(0)
+
+      await primary.focus()
+      await page.keyboard.press('Enter')
+      await expect(current).toHaveCount(1)
+      await expect(primary).toHaveAttribute('aria-current', 'true')
+
       await button.focus()
       await page.keyboard.press('Enter')
+      await expect(current).toHaveCount(1)
+      await expect(button).toHaveAttribute('aria-current', 'true')
       const loading = main.getByRole('status').filter({hasText: 'Loading repository details…'})
       await expect(loading).toHaveCount(1)
       await expect(loading).toBeVisible()
@@ -63,6 +80,8 @@ export function registerRepositoryDetailTests(test, expect) {
       await expect(main.getByRole('heading', {name: 'OrderRepository'})).toBeVisible()
       await expect(main.getByText('findByNumber(String)')).toBeVisible()
       await expect(error).toHaveCount(0)
+      await expect(current).toHaveCount(1)
+      await expect(button).toHaveAttribute('aria-current', 'true')
       await expect(button).toBeFocused()
     } finally {
       first.resolve(undefined)

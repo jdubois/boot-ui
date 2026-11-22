@@ -86,6 +86,42 @@ describe('Data', () => {
     expect(wrapper.text()).not.toContain('not on the classpath')
     expect(wrapper.text()).toContain('UserRepository')
     expect(wrapper.text()).toContain('1 / 1 repositories')
+    expect(wrapper.get('.list-group-item-action').text()).not.toContain('userRepository')
+  })
+
+  it('labels duplicate interfaces by bean name and marks only the selected bean as current', async () => {
+    const [primary] = repositoriesReport().repositories
+    const archive = {...primary, beanName: 'archiveUserRepository'}
+    const details = [
+      repositoryDetail(),
+      {...repositoryDetail(), ...archive, methods: [{signature: 'findArchivedUsers()', origin: 'ANNOTATED'}]}
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const key = url.split('/').pop()
+        if (key === 'repositories') return jsonResponse({total: 2, repositories: [primary, archive]})
+        const match = details.find((repo) => repo.beanName === key || repo.repositoryInterface === key)
+        return match ? jsonResponse(match) : jsonResponse(null, false, 404)
+      })
+    )
+
+    wrapper = mount(Data)
+    await flushPromises()
+    const [primaryButton, archiveButton] = wrapper.findAll('.list-group-item-action')
+    expect(primaryButton.text()).toContain(primary.beanName)
+    expect(archiveButton.text()).toContain(archive.beanName)
+    expect(wrapper.findAll('button[aria-current="true"]')).toHaveLength(0)
+
+    await archiveButton.trigger('click')
+    await flushPromises()
+
+    expect(primaryButton.classes()).not.toContain('active')
+    expect(archiveButton.classes()).toContain('active')
+    expect(wrapper.findAll('button[aria-current="true"]')).toHaveLength(1)
+    expect(archiveButton.attributes('aria-current')).toBe('true')
+    expect(wrapper.get('.card dl').text()).toContain('archiveUserRepository')
+    expect(wrapper.get('.data-methods-table').text()).toContain('findArchivedUsers()')
   })
 
   it('keeps the selected repository details when an older response arrives last', async () => {
