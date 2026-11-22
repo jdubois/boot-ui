@@ -6,8 +6,8 @@ import java.lang.System.Logger.Level;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * A bounded, asynchronous capture of one runtime journal into a pluggable durable backend.
@@ -47,19 +48,9 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     private final Duration retention;
     private final ScheduledExecutorService scheduler;
     private final Deque<PendingEntry> pendingQueue = new ArrayDeque<>();
-    private final List<JournalEntry> deferredSeed = new ArrayList<>();
-    private final Map<String, Map<String, Integer>> pendingSelects = new LinkedHashMap<>() {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Map<String, Integer>> eldest) {
-            return size() > JournalActivityCapture.MAX_PENDING_REQUESTS;
-        }
-    };
-    private final Map<String, Long> pendingWorkEnds = new LinkedHashMap<>() {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
-            return size() > JournalActivityCapture.MAX_PENDING_HANDOFFS;
-        }
-    };
+    private final Map<String, Map<String, Integer>> pendingSelects =
+            boundedOwners(JournalActivityCapture.MAX_PENDING_REQUESTS);
+    private final Map<String, Long> pendingWorkEnds = boundedOwners(JournalActivityCapture.MAX_PENDING_HANDOFFS);
     private final Object pendingLock = new Object();
     private final AtomicLong accepted = new AtomicLong();
     private final AtomicLong dropped = new AtomicLong();
@@ -79,7 +70,8 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     private List<PendingEntry> inFlight = List.of();
     private boolean accepting;
     private boolean subscribed;
-    private boolean seedComplete;
+    private RetainedSeed seed;
+    private long handledClearThrough;
     private boolean runReady;
     private boolean finalFlushCompleted;
     private long closedAtEpochMillis;
@@ -278,30 +270,27 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     }
 
     private void begin() {
-        List<JournalEntry> retained;
-        synchronized (pendingLock) {
-            accepting = true;
-        }
-        retained = journal.snapshotAndSubscribe(this);
-        subscribed = true;
-        synchronized (pendingLock) {
-            List<JournalEntry> seed = new ArrayList<>(retained.size() + deferredSeed.size());
-            seed.addAll(retained);
-            seed.addAll(deferredSeed);
-            seed.sort(Comparator.comparingLong(JournalEntry::sequence));
-            accepted.addAndGet(retained.size());
-            for (DurableJournalEvent event : project(seed)) {
-                enqueue(event);
+        journal.snapshotAndSubscribe(this, retained -> {
+            synchronized (pendingLock) {
+                accepting = true;
+                subscribed = true;
+                if (!retained.isEmpty()) {
+                    seed = new RetainedSeed(retained);
+                    accepted.addAndGet(retained.size());
+                }
+                state = State.RUNNING;
             }
-            deferredSeed.clear();
-            seedComplete = true;
-            state = State.RUNNING;
-            if (thresholdReached()) {
+        });
+        synchronized (pendingLock) {
+            if (state != State.RUNNING) {
+                return; // The journal already delivered onClose after installing the subscription.
+            }
+            scheduleTasks();
+            if (seed != null) {
                 requestFlush();
             }
+            scheduler.execute(() -> writeHeartbeat(RUNNING));
         }
-        scheduleTasks();
-        scheduler.execute(() -> writeHeartbeat(RUNNING));
     }
 
     private void scheduleTasks() {
@@ -318,6 +307,7 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     private void abortStart() {
         synchronized (pendingLock) {
             accepting = false;
+            seed = null;
             state = State.CLOSED;
             closedAtEpochMillis = System.currentTimeMillis();
         }
@@ -344,10 +334,7 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
                 dropped.addAndGet(entries.size());
                 return;
             }
-            if (!seedComplete) {
-                deferredSeed.addAll(entries);
-                return;
-            }
+            prepareSeed();
             for (DurableJournalEvent durable : project(entries)) {
                 enqueue(durable);
             }
@@ -359,18 +346,22 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     }
 
     private List<DurableJournalEvent> project(List<JournalEntry> entries) {
-        if (entries.isEmpty()) {
-            return List.of();
-        }
+        return project(
+                entries,
+                () -> feed.durableEvents(entries, this::durableEventId, pendingSelects, pendingWorkEnds, ignored -> {}),
+                List.of());
+    }
+
+    private <T> T project(List<JournalEntry> entries, Supplier<T> projection, T fallback) {
         try {
-            return feed.durableEvents(entries, this::durableEventId, pendingSelects, pendingWorkEnds, ignored -> {});
+            return projection.get();
         } catch (RuntimeException | LinkageError ex) {
             quarantine(ex, "Cannot project durable journal entry");
             quarantined.addAndGet(Math.max(0, entries.size() - 1));
             for (JournalEntry entry : entries) {
                 journal.durableCaptureLost(entry);
             }
-            return List.of();
+            return fallback;
         }
     }
 
@@ -385,17 +376,18 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
             clearedThrough = Math.max(clearedThrough, sequence);
             dropCleared(pendingQueue);
             dropCleared(inFlight);
-            deferredSeed.removeIf(entry -> entry.sequence() <= clearedThrough);
+            // Subscription and Clear are serialized, so every unexamined snapshot row predates this Clear.
+            seed = null;
             pendingSelects.clear();
             pendingWorkEnds.clear();
             // A clear consumes the sequence even when it deletes never-flushed rows. Checkpoints are monotonic
             // progress and may consequently remain ahead of the currently retained durable rows.
             durableWatermark.accumulateAndGet(clearedThrough, Math::max);
-        }
-        try {
-            scheduler.execute(() -> clearRunThrough(sequence));
-        } catch (RuntimeException ex) {
-            clearWarning(ex, sequence);
+            try {
+                scheduler.execute(() -> clearRunThrough(sequence));
+            } catch (RuntimeException ex) {
+                clearWarning(ex, sequence);
+            }
         }
     }
 
@@ -404,11 +396,7 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
             return;
         }
         try {
-            JournalEntry diskEntry = JournalEntryDiskView.of(event.entry());
-            ActivityEntryDto activity = JournalEntryDiskView.activity(diskEntry, event.activity());
-            PendingEntry pendingEntry = new PendingEntry(
-                    new DurableJournalEvent(diskEntry, activity),
-                    JournalEntryCodec.encode(diskEntry).length + projectionBytes(activity));
+            PendingEntry pendingEntry = encode(event);
             pendingQueue.addLast(pendingEntry);
             pending++;
             pendingBytes += pendingEntry.bytes();
@@ -417,6 +405,90 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
             journal.durableCaptureLost(event.entry());
         }
         trimToBounds();
+    }
+
+    private static PendingEntry encode(DurableJournalEvent event) {
+        JournalEntry diskEntry = JournalEntryDiskView.of(event.entry());
+        ActivityEntryDto activity = JournalEntryDiskView.activity(diskEntry, event.activity());
+        return new PendingEntry(
+                new DurableJournalEvent(diskEntry, activity),
+                JournalEntryCodec.encode(diskEntry).length + projectionBytes(activity));
+    }
+
+    private static <T> Map<String, T> boundedOwners(int limit) {
+        return new LinkedHashMap<>() {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, T> eldest) {
+                return size() > limit;
+            }
+        };
+    }
+
+    private void prepareSeed() {
+        if (seed == null || seed.projection != null) {
+            return;
+        }
+        seed.projection = project(
+                seed.entries,
+                () -> feed.prepareCaptureProjection(
+                        seed.entries, this::durableEventId, seed.selects, seed.workEnds, ignored -> {}),
+                null);
+        if (seed.projection == null) {
+            seed = null;
+            return;
+        }
+        // Live batches can arrive before the writer finishes. Give them the owner state after the snapshot, without
+        // mutating the bounded prepass state still needed to render the older rows.
+        seed.selects.forEach((owner, counts) -> pendingSelects.put(owner, new HashMap<>(counts)));
+        pendingWorkEnds.putAll(seed.workEnds);
+        for (JournalEntry entry : seed.entries) {
+            JournalActivityFeed.forgetCaptureOwner(entry, pendingSelects, pendingWorkEnds);
+        }
+    }
+
+    /** Takes retained rows in order, ahead of live rows, without a second pending queue. Holds pendingLock. */
+    private List<PendingEntry> takeSeedChunk() {
+        var chunk = new ArrayList<PendingEntry>();
+        inFlight = new ArrayList<>();
+        for (int count = 0; count < settings.maxFlushEntries() && seed != null; count++) {
+            JournalEntry entry = seed.peek();
+            PendingEntry next = project(List.of(entry), () -> encode(seed.projection.renderEntry(entry)), null);
+            if (next == null) {
+                advanceSeed();
+                continue;
+            }
+            if (next.bytes() > settings.maxPendingBytes()) {
+                // An individually oversized row never fits. Apply the same drop accounting as live admission.
+                pendingQueue.addFirst(next);
+                trimToBounds();
+                advanceSeed();
+                continue;
+            }
+            if (!chunk.isEmpty()
+                    && (pending == settings.maxPendingEntries()
+                            || next.bytes() > settings.maxPendingBytes() - pendingBytes)) {
+                break;
+            }
+            inFlight.add(next);
+            chunk.add(next);
+            pending++;
+            pendingBytes += next.bytes();
+            // If live rows occupy all available capacity, evict only enough queued live rows to fit the first
+            // older row. This method never runs ahead of an already-admitted retry.
+            if (pending > settings.maxPendingEntries() || pendingBytes > settings.maxPendingBytes()) {
+                trimToBounds();
+            }
+            advanceSeed();
+        }
+        return chunk;
+    }
+
+    private void advanceSeed() {
+        JournalActivityFeed.forgetCaptureOwner(seed.peek(), seed.selects, seed.workEnds);
+        seed.entries.set(seed.index++, null);
+        if (seed.index == seed.entries.size()) {
+            seed = null;
+        }
     }
 
     private void prependFailed(List<PendingEntry> failed) {
@@ -474,21 +546,33 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
 
     private void safeFlush() {
         try {
+            boolean backfilling = false;
             for (int chunk = 0; chunk < 8; chunk++) {
                 int before;
+                boolean hasSeed;
                 synchronized (pendingLock) {
-                    reconcilePending();
-                    before = pending;
-                }
-                if (before == 0) {
-                    return;
-                }
-                flushOneChunk();
-                synchronized (pendingLock) {
-                    reconcilePending();
-                    if (pending >= before) {
+                    if (state != State.RUNNING) {
                         return;
                     }
+                    reconcilePending();
+                    before = pending;
+                    hasSeed = seed != null;
+                }
+                if ((!hasSeed && before == 0) || !flushOneChunk()) {
+                    return;
+                }
+                backfilling |= hasSeed;
+                synchronized (pendingLock) {
+                    reconcilePending();
+                    if (!hasSeed && pending >= before) {
+                        return;
+                    }
+                }
+            }
+            synchronized (pendingLock) {
+                if (backfilling && state == State.RUNNING) {
+                    // Yield so an already queued clear or heartbeat runs before the next group of chunks.
+                    requestFlush();
                 }
             }
         } catch (Throwable ex) {
@@ -496,22 +580,38 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
         }
     }
 
-    private void flushOneChunk() {
+    private boolean flushOneChunk() {
         List<PendingEntry> chunk;
         synchronized (pendingLock) {
-            if (scheduler.isShutdown() || !seedComplete || pendingQueue.isEmpty()) {
-                return;
+            if (scheduler.isShutdown() || handledClearThrough < clearedThrough) {
+                return false;
             }
-            chunk = new ArrayList<>(Math.min(settings.maxFlushEntries(), pendingQueue.size()));
-            for (int count = 0; count < settings.maxFlushEntries() && !pendingQueue.isEmpty(); count++) {
-                chunk.add(pendingQueue.removeFirst());
+            boolean hadSeed = seed != null;
+            prepareSeed();
+            // Failed retained rows re-enter at the head and must be retried before advancing the snapshot cursor.
+            long seedSequence = seed == null ? Long.MAX_VALUE : seed.peek().sequence();
+            if (seed != null
+                    && (pendingQueue.isEmpty()
+                            || pendingQueue.getFirst().event().entry().sequence() >= seedSequence)) {
+                chunk = takeSeedChunk();
+            } else {
+                chunk = new ArrayList<>(Math.min(settings.maxFlushEntries(), pendingQueue.size()));
+                while (chunk.size() < settings.maxFlushEntries()
+                        && !pendingQueue.isEmpty()
+                        && (seed == null
+                                || pendingQueue.getFirst().event().entry().sequence() < seedSequence)) {
+                    chunk.add(pendingQueue.removeFirst());
+                }
+                inFlight = new ArrayList<>(chunk);
             }
-            inFlight = new ArrayList<>(chunk);
+            if (chunk.isEmpty()) {
+                return hadSeed; // The retained rows that were examined could not be projected or admitted.
+            }
         }
         lastFlushAtEpochMillis.set(System.currentTimeMillis());
         if (!ensureRun(RUNNING)) {
             requeue(chunk);
-            return;
+            return false;
         }
 
         List<DurableJournalEvent> entries =
@@ -527,7 +627,7 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
                     completed(chunk, entries);
                     checkpoint();
                     journal.offloadDurableThrough(durableWatermark.get(), hotMaxEntries);
-                    return;
+                    return true;
                 } catch (DurableJournalConflictException conflict) {
                     DurableJournalEvent poison = removeConflict(entries, conflict.journalSequence());
                     if (poison == null) {
@@ -543,9 +643,11 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
                 }
             }
             completed(chunk, List.of());
+            return true;
         } catch (RuntimeException ex) {
             error(ex, "Durable journal flush failed; the chunk will be retried");
             requeue(chunk);
+            return false;
         }
     }
 
@@ -707,6 +809,10 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
             store.clearRunThrough(scope, sequence);
         } catch (RuntimeException ex) {
             failure = ex;
+        } finally {
+            synchronized (pendingLock) {
+                handledClearThrough = Math.max(handledClearThrough, sequence);
+            }
         }
         checkpoint();
         requestFlush();
@@ -900,24 +1006,20 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
         scheduler.execute(() -> {
             try {
                 while (System.nanoTime() < deadline) {
-                    int before;
-                    synchronized (pendingLock) {
-                        reconcilePending();
-                        before = pending;
+                    if (flushOneChunk()) {
+                        continue;
                     }
-                    flushOneChunk();
                     synchronized (pendingLock) {
-                        if (pending == 0) {
+                        if (pending == 0 && seed == null) {
                             break;
                         }
-                        if (pending >= before) {
-                            sleepForRetry(deadline);
-                        }
                     }
+                    sleepForRetry(deadline);
                 }
                 synchronized (pendingLock) {
                     reconcilePending();
-                    finalFlushCompleted = pending == 0;
+                    // The closing thread may already have timed out and discarded the unexamined cursor.
+                    finalFlushCompleted = state == State.CLOSING && pending == 0 && seed == null;
                 }
                 writeHeartbeat(STOPPED);
             } finally {
@@ -929,7 +1031,8 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
 
         synchronized (pendingLock) {
             reconcilePending();
-            finalFlushCompleted = finalFlushCompleted && pending == 0;
+            finalFlushCompleted = finalFlushCompleted && pending == 0 && seed == null;
+            seed = null;
             closedAtEpochMillis = System.currentTimeMillis();
             state = State.CLOSED;
         }
@@ -956,4 +1059,22 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     }
 
     private record PendingEntry(DurableJournalEvent event, int bytes) {}
+
+    private static final class RetainedSeed {
+
+        private final List<JournalEntry> entries;
+        private final Map<String, Map<String, Integer>> selects =
+                boundedOwners(JournalActivityCapture.MAX_PENDING_REQUESTS);
+        private final Map<String, Long> workEnds = boundedOwners(JournalActivityCapture.MAX_PENDING_HANDOFFS);
+        private JournalActivityFeed.CaptureProjection projection;
+        private int index;
+
+        private RetainedSeed(List<JournalEntry> entries) {
+            this.entries = entries;
+        }
+
+        private JournalEntry peek() {
+            return entries.get(index);
+        }
+    }
 }

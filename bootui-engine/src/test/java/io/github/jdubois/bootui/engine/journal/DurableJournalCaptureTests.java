@@ -12,8 +12,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.stream.LongStream;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class DurableJournalCaptureTests {
 
@@ -55,6 +58,228 @@ class DurableJournalCaptureTests {
             assertThat(run.instanceId()).isEqualTo(identity.instanceId());
         });
         assertThat(capture.status().durableWatermark()).isEqualTo(2);
+    }
+
+    @Test
+    void quietDatasourceActivationBackfillsMoreThanTheDefaultPendingCapacity() throws Exception {
+        int retained = 600;
+        RuntimeJournal journal = journal(1_000);
+        for (int sequence = 1; sequence <= retained; sequence++) {
+            assertThat(journal.offer(event(sequence, "request-" + sequence))).isTrue();
+            if (sequence % 100 == 0) {
+                journal.dispatchPending();
+            }
+        }
+        assertThat(journal.entries()).hasSize(retained);
+        DurableJournalSettings durable = new DurableJournalSettings(
+                "local",
+                "orders",
+                journal.run().id(),
+                "1234",
+                "instance",
+                false,
+                DurableJournalSettings.DEFAULT_FLUSH_INTERVAL,
+                DurableJournalSettings.DEFAULT_MAX_PENDING_ENTRIES,
+                DurableJournalSettings.DEFAULT_MAX_PENDING_BYTES,
+                DurableJournalSettings.DEFAULT_HOT_MAX_ENTRIES,
+                DurableJournalSettings.DEFAULT_TABLE_PREFIX,
+                DurableJournalSettings.DEFAULT_RETENTION,
+                false);
+        RecordingWriter writer = new RecordingWriter();
+        DurableJournalCapture capture =
+                DurableJournalCapture.start(journal, durable, writer, new JournalActivityFeed(0, 2, null));
+        captures.add(capture);
+
+        await(() -> writer.checkpoints.contains((long) retained));
+
+        assertThat(writer.entries.size())
+                .as("persisted rows (capture dropped %s)", capture.status().dropped())
+                .isEqualTo(retained);
+        assertThat(writer.entries)
+                .extracting(JournalEntry::sequence)
+                .containsExactlyElementsOf(
+                        LongStream.rangeClosed(1, retained).boxed().toList());
+        assertThat(capture.status().dropped()).isZero();
+    }
+
+    @Test
+    void liveCompletionDuringBlockedBackfillKeepsSequenceAndProjection() throws Exception {
+        RuntimeJournal journal = journal();
+        assertThat(journal.offer(event(1, "retained"))).isTrue();
+        assertThat(journal.offer(completion(2, "retained"))).isTrue();
+        journal.dispatchPending();
+        // The startup prepass still sees a SELECT dispatched after the retained completion.
+        assertThat(journal.offer(event(3, "retained"))).isTrue();
+        assertThat(journal.offer(event(4, "live"))).isTrue();
+        assertThat(journal.offer(event(5, "live"))).isTrue();
+        journal.dispatchPending();
+        RecordingWriter writer = new RecordingWriter();
+        writer.blockAppend = new CountDownLatch(1);
+        DurableJournalCapture capture = capture(journal, writer, settings(2, 2_000, 2, 1, seconds(60), seconds(60)));
+        try {
+            assertThat(writer.appendStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(journal.offer(completion(6, "live"))).isTrue();
+            journal.dispatchPending();
+
+            assertThat(writer.entries).isEmpty();
+            assertThat(capture.status().durableWatermark()).isZero();
+            assertThat(capture.status().pending()).isEqualTo(2);
+            assertThat(capture.status().pendingBytes()).isBetween(1L, 2_000L);
+        } finally {
+            writer.blockAppend.countDown();
+        }
+        await(() -> writer.checkpoints.contains(6L));
+
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(1L, 2L, 3L, 4L, 5L, 6L);
+        assertThat(writer.checkpoints).containsExactly(1L, 2L, 3L, 4L, 5L, 6L);
+        assertThat(writer.events.get(1).activity().sqlNPlusOneSuspected()).isTrue();
+        assertThat(writer.events.get(5).activity().sqlNPlusOneSuspected()).isTrue();
+        assertThat(capture.status().dropped()).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aFullLiveQueueShedsOnlyItsOldestRowToResumeBackfill(boolean byteLimited) throws Exception {
+        RuntimeJournal journal = journal();
+        retainFive(journal);
+        RecordingWriter writer = new RecordingWriter();
+        writer.blockAfterFirstAcknowledgement = new CountDownLatch(1);
+        // 2,600 bytes holds three of these rows, not four. On that path the count cap leaves headroom.
+        int countLimit = byteLimited ? 4 : 3;
+        long byteLimit = byteLimited ? 2_600 : 8_000;
+        DurableJournalCapture capture =
+                capture(journal, writer, settings(countLimit, byteLimit, 3, 1, seconds(60), seconds(60)));
+        try {
+            assertThat(writer.firstAcknowledgementEntered.await(5, TimeUnit.SECONDS))
+                    .isTrue();
+            // The first retained row is acknowledged, but the worker has not taken its next chunk.
+            for (int sequence = 6; sequence <= 8; sequence++) {
+                assertThat(journal.offer(event(sequence, "live-" + sequence))).isTrue();
+            }
+            journal.dispatchPending();
+
+            assertThat(capture.status().pending()).isEqualTo(3);
+            assertThat(capture.status().pendingBytes()).isLessThanOrEqualTo(byteLimit);
+            assertThat(capture.status().dropped()).isZero();
+            assertThat(capture.status().durableWatermark()).isEqualTo(1);
+        } finally {
+            writer.blockAfterFirstAcknowledgement.countDown();
+        }
+        await(() -> writer.checkpoints.contains(8L));
+
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(1L, 2L, 3L, 4L, 5L, 7L, 8L);
+        assertThat(writer.checkpoints).containsExactly(1L, 2L, 3L, 4L, 5L, 7L, 8L);
+        assertThat(capture.status().dropped()).isEqualTo(1L);
+        assertThat(journal.lossHorizonMillis()).isEqualTo(6L);
+    }
+
+    @Test
+    void anIndividuallyOversizedSeedRowDoesNotDisplaceItsNeighbors() throws Exception {
+        RuntimeJournal journal = journal();
+        assertThat(journal.offer(event(1, "first"))).isTrue();
+        assertThat(journal.offer(event(2, "long-request-id-" + "x".repeat(3_000))))
+                .isTrue();
+        assertThat(journal.offer(event(3, "third"))).isTrue();
+        journal.dispatchPending();
+        assertThat(journal.entries()).hasSize(3);
+        RecordingWriter writer = new RecordingWriter();
+        DurableJournalCapture capture = capture(journal, writer, settings(10, 2_000, 10, 10, seconds(60), seconds(60)));
+        await(() -> writer.checkpoints.contains(3L));
+
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(1L, 3L);
+        assertThat(capture.status().dropped()).isEqualTo(1L);
+        assertThat(capture.status().quarantined()).isZero();
+        assertThat(journal.lossHorizonMillis()).isEqualTo(2L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void clearDiscardsTheRemainingBackfillRegardlessOfTheInFlightAppendResult(boolean failAppend) throws Exception {
+        RuntimeJournal journal = journal();
+        retainFive(journal);
+        RecordingWriter writer = new RecordingWriter();
+        writer.failAppends.set(failAppend ? 1 : 0);
+        writer.blockAppend = new CountDownLatch(1);
+        DurableJournalCapture capture = capture(journal, writer, settings(2, 2_000, 2, 1, seconds(60), seconds(60)));
+        try {
+            assertThat(writer.appendStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            journal.clear();
+            assertThat(journal.offer(event(6, "after-clear"))).isTrue();
+            journal.dispatchPending();
+            assertThat(capture.status().pending()).isEqualTo(1);
+        } finally {
+            writer.blockAppend.countDown();
+        }
+        await(() -> writer.checkpoints.contains(6L));
+
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(6L);
+        assertThat(writer.operations)
+                .filteredOn(operation -> !"checkpoint".equals(operation))
+                .containsExactly("append", "clear", "append");
+        assertThat(capture.status().dropped()).isZero();
+    }
+
+    @Test
+    void backfillRetriesAnEarlierChunkBeforeAdvancingItsCursor() throws Exception {
+        RuntimeJournal journal = journal();
+        retainFive(journal);
+        RecordingWriter writer = new RecordingWriter();
+        writer.failAppends.set(1);
+        DurableJournalCapture capture = capture(journal, writer, settings(2, 2_000, 2, 2, millis(10), seconds(60)));
+        await(() -> writer.checkpoints.contains(5L));
+
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(writer.checkpoints).containsExactly(2L, 4L, 5L);
+        assertThat(writer.attempts).hasValue(4);
+        assertThat(capture.status().lastError()).contains("the chunk will be retried");
+        assertThat(capture.status().dropped()).isZero();
+    }
+
+    @Test
+    void closeDrainsTheRemainingBackfillAfterTheFirstAppendUnblocks() throws Exception {
+        RuntimeJournal journal = journal();
+        retainFive(journal);
+        RecordingWriter writer = new RecordingWriter();
+        writer.blockAppend = new CountDownLatch(1);
+        DurableJournalCapture capture = capture(journal, writer, settings(2, 2_000, 2, 1, seconds(60), seconds(60)));
+        Thread closer = new Thread(capture::close);
+        try {
+            assertThat(writer.appendStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            closer.start();
+            await(() -> capture.status().state().equals("CLOSING"));
+            assertThat(capture.status().finalFlushCompleted()).isFalse();
+        } finally {
+            writer.blockAppend.countDown();
+            closer.join(5_000);
+        }
+
+        assertThat(closer.isAlive()).isFalse();
+        assertThat(writer.entries).extracting(JournalEntry::sequence).containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(writer.runs).last().extracting(DurableJournalRun::status).isEqualTo("STOPPED");
+        assertThat(capture.status().finalFlushCompleted()).isTrue();
+    }
+
+    @Test
+    void aCloseTimeoutDoesNotCallAnUndrainedBackfillComplete() throws Exception {
+        RuntimeJournal journal = journal();
+        retainFive(journal);
+        RecordingWriter writer = new RecordingWriter();
+        writer.blockAppend = new CountDownLatch(1);
+        DurableJournalCapture capture = capture(
+                journal,
+                writer,
+                new DurableJournalCaptureSettings(2, 2_000, 2, 2_000, 1, seconds(60), seconds(60), millis(100)));
+        try {
+            assertThat(writer.appendStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            capture.close();
+
+            assertThat(capture.status().state()).isEqualTo("CLOSED");
+            assertThat(capture.status().finalFlushCompleted()).isFalse();
+            assertThat(capture.status().durableWatermark()).isZero();
+            assertThat(writer.entries).isEmpty();
+        } finally {
+            writer.blockAppend.countDown();
+        }
     }
 
     @Test
@@ -478,11 +703,22 @@ class DurableJournalCaptureTests {
     }
 
     private RuntimeJournal journal() {
-        RuntimeJournalSettings settings =
-                new RuntimeJournalSettings(true, 128, 1_000_000, 256, 10, 10, java.util.Set.of(JournalSource.SQL));
+        return journal(128);
+    }
+
+    private RuntimeJournal journal(int capacity) {
+        RuntimeJournalSettings settings = new RuntimeJournalSettings(
+                true, capacity, 1_000_000, 256, 10, 10, java.util.Set.of(JournalSource.SQL, JournalSource.HTTP));
         RuntimeJournal journal = new RuntimeJournal(settings, RunIdentity.start(), false);
         journals.add(journal);
         return journal;
+    }
+
+    private static void retainFive(RuntimeJournal journal) {
+        for (int sequence = 1; sequence <= 5; sequence++) {
+            assertThat(journal.offer(event(sequence, "retained-" + sequence))).isTrue();
+        }
+        journal.dispatchPending();
     }
 
     private static DurableJournalCaptureSettings settings(
@@ -525,6 +761,20 @@ class DurableJournalCaptureTests {
                 new SqlPayload("select * from orders where id = ?", null, "primary", false));
     }
 
+    private static RuntimeEvent completion(long epochMillis, String requestId) {
+        return new RuntimeEvent(
+                JournalSource.HTTP,
+                epochMillis,
+                1,
+                requestId,
+                null,
+                "trace",
+                "worker",
+                ThreadKind.WORKER,
+                false,
+                new HttpPayload("GET", "/orders", "/orders", null, 200));
+    }
+
     private static JournalEntry entry(long sequence, long epochMillis, String requestId) {
         return new JournalEntry(sequence, event(epochMillis, requestId), 128);
     }
@@ -551,6 +801,8 @@ class DurableJournalCaptureTests {
 
     private static final class RecordingWriter implements DurableJournalWriter {
 
+        private final CountDownLatch firstAcknowledgementEntered = new CountDownLatch(1);
+        private volatile CountDownLatch blockAfterFirstAcknowledgement;
         private final List<JournalEntry> entries = new CopyOnWriteArrayList<>();
         private final List<DurableJournalEvent> events = new CopyOnWriteArrayList<>();
         private final List<DurableJournalRun> runs = new CopyOnWriteArrayList<>();
@@ -575,6 +827,10 @@ class DurableJournalCaptureTests {
             if (failRunErrors.getAndDecrement() > 0) {
                 throw new AssertionError("simulated heartbeat failure");
             }
+            if (run.checkpoint() == 1) {
+                firstAcknowledgementEntered.countDown();
+                waitFor(blockAfterFirstAcknowledgement);
+            }
             runs.add(run);
             return run;
         }
@@ -585,15 +841,7 @@ class DurableJournalCaptureTests {
             scopes.add(scope);
             attempts.incrementAndGet();
             appendStarted.countDown();
-            CountDownLatch blocker = blockAppend;
-            if (blocker != null) {
-                try {
-                    blocker.await(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    throw new DurableJournalStoreException("interrupted", ex);
-                }
-            }
+            waitFor(blockAppend);
             if (failAppends.getAndDecrement() > 0) {
                 throw new DurableJournalStoreException("database unavailable");
             }
@@ -642,6 +890,17 @@ class DurableJournalCaptureTests {
             DurableJournalRun run =
                     new DurableJournalRun(scope, 1, System.currentTimeMillis(), "RUNNING", null, sequence, "instance");
             return run;
+        }
+
+        private static void waitFor(CountDownLatch blocker) {
+            if (blocker != null) {
+                try {
+                    blocker.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new DurableJournalStoreException("interrupted", ex);
+                }
+            }
         }
     }
 

@@ -387,7 +387,9 @@ removes old `_events`, their `_details`, and old run rows only after that run ha
 active run's metadata row current.
 
 **Use the existing datasource** verifies the schema, atomically snapshots/subscribes to the open journal, starts the
-writer, and publishes the durable store only after capture is live. A failed start leaves the in-memory feed active;
+writer, and publishes the durable store only after capture is live. The writer backfills retained events in order in
+the background, sharing its pending limits with live capture. If live rows fill that budget, the oldest queued live
+rows may be dropped and counted to make room for the next retained row. A failed start leaves the in-memory feed active;
 it may already have created the three tables, which BootUI never deletes to roll back a host database. The switch is
 confirmation-gated, read-only-policy aware, idempotent, and runtime-only unless
 `bootui.activity.persistence.enabled=true` is configured for the next start.
