@@ -488,26 +488,6 @@ class LiveActivityResourceTests {
         });
     }
 
-    private static void clear(HttpExchangeBuffer buffer) {
-        buffer.suspendForIdle();
-        buffer.resumeFromIdle();
-    }
-
-    private static CapturedHttpExchange timedExchange(long timestamp, String path, int status, long durationMs) {
-        return new CapturedHttpExchange(
-                Instant.ofEpochMilli(timestamp),
-                "GET",
-                URI.create("http://localhost:8080" + path),
-                status,
-                durationMs,
-                "127.0.0.1",
-                null,
-                null,
-                Map.of(),
-                Map.of(),
-                null);
-    }
-
     private static String requestSeverity(HttpExchangeBuffer buffer) {
         buffer.record(new CapturedHttpExchange(
                 Instant.ofEpochMilli(1_000L),
@@ -1377,18 +1357,6 @@ class LiveActivityResourceTests {
 
     private static Instance<EmailCaptureService> satisfiedEmailCaptureService(EmailCaptureService service) {
         return new SatisfiedInstance<>(service);
-    }
-
-    private static Thread awaitThreadNamed(String name) throws InterruptedException {
-        for (int i = 0; i < 100; i++) {
-            for (Thread thread : Thread.getAllStackTraces().keySet()) {
-                if (name.equals(thread.getName())) {
-                    return thread;
-                }
-            }
-            Thread.sleep(10);
-        }
-        return null;
     }
 
     /** Records the last {@link ActivityQuery} it was asked and answers a fixed page, like a test spy. */

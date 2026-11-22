@@ -125,13 +125,6 @@ class QuarkusActivityCaptureTests {
         return null;
     }
 
-    private static boolean awaitNotAlive(Thread thread) throws InterruptedException {
-        for (int i = 0; i < 100 && thread.isAlive(); i++) {
-            Thread.sleep(10);
-        }
-        return !thread.isAlive();
-    }
-
     /** Minimal always-unsatisfied {@link Instance} fake — see {@code LiveActivityResourceTests} for details. */
     private static final class UnsatisfiedInstance<T> implements Instance<T> {
 
