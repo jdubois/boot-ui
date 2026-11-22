@@ -42,6 +42,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Captured management-port references** support `management.server.port=${server.port}` only when the matching
   literal value was already captured with consistent provenance. Other expressions and uncertain sources remain
   unassessed ([Security checks](docs/SECURITY-CHECKS.md)).
+- **Durable Live Activity text search** treats punctuation literally, so wildcard matches no longer displace matching
+  rows during pagination ([Durable history](docs/features/live-activity.md#durable-history)).
 - **Active Hibernate grades** follow the remaining known findings after a per-finding dismissal when retention is
   complete. Raw snapshots, all-active grading, identities and strict CI suppression guards are unchanged; incomplete
   retention remains conservative ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).

@@ -2,10 +2,16 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
@@ -13,6 +19,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class JdbcDurableJournalProjectionTests {
 
@@ -155,6 +163,76 @@ class JdbcDurableJournalProjectionTests {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"Regular, H2", "MSSQLServer, Microsoft SQL Server", "Oracle, Oracle"})
+    void searchesLiteralPunctuationBeforePaginatingTheDurableFeed(String h2Mode, String productName)
+            throws SQLException {
+        DataSource dataSource = dataSource(";MODE=" + h2Mode);
+        var writer = new JdbcDurableJournalStore(dataSource, "durable");
+        var scope = new DurableJournalScope("local", "orders", "run-1");
+        writer.upsertRun(run(scope, "orders-a"));
+        var feed = new JournalActivityFeed(20, 2, null);
+        String maxLengthPath = "/" + "_".repeat(DurableJournalStore.MAX_TEXT_PROJECTION_LENGTH - 1);
+        writer.appendEvents(
+                scope,
+                feed.durableEvents(
+                        List.of(
+                                http(
+                                        1,
+                                        "older-literal",
+                                        "/alpha_key/50%off/bang!done/set[ab]/!%_",
+                                        "/orders/{label}",
+                                        200,
+                                        1),
+                                http(
+                                        2,
+                                        "newer-literal",
+                                        "/ALPHA_KEY/50%OFF/BANG!DONE/SET[AB]/!%_",
+                                        "/orders/{label}",
+                                        200,
+                                        1),
+                                http(
+                                        3,
+                                        "unrelated",
+                                        "/alphaXkey/50percentoff/bangdone/seta/!AB",
+                                        "/orders/{label}",
+                                        200,
+                                        1),
+                                http(4, "max-length", maxLengthPath, "/orders/{label}", 200, 1)),
+                        entry -> "event-" + entry.sequence(),
+                        new HashMap<>(),
+                        new HashMap<>(),
+                        count -> {}));
+
+        // H2 compatibility modes exercise SQL syntax, not native database behavior.
+        var reader = new JdbcDurableJournalStore(
+                "H2".equals(productName) ? dataSource : withProductName(dataSource, productName), "durable", true);
+        for (String text : List.of("alpha_key", "50%off", "bang!done", "bang!", "set[ab]", "!%_")) {
+            var query = new DurableJournalFeedQuery(
+                    "local", "orders", "run-1", null, null, null, null, text, null, null, null, 1);
+            var first = reader.queryFeed(query);
+            assertThat(first.entries())
+                    .as("first page for %s", text)
+                    .extracting(item -> item.activity().id())
+                    .containsExactly("newer-literal");
+            assertThat(first.hasMore()).isTrue();
+            assertThat(first.nextCursor()).isNotNull();
+
+            var second = reader.queryFeed(query.withCursor(first.nextCursor()));
+            assertThat(second.entries())
+                    .as("next page for %s", text)
+                    .extracting(item -> item.activity().id())
+                    .containsExactly("older-literal");
+            assertThat(second.hasMore()).isFalse();
+            assertThat(second.nextCursor()).isNull();
+        }
+
+        var longest = reader.queryFeed(new DurableJournalFeedQuery(
+                "local", "orders", "run-1", null, null, null, null, maxLengthPath, null, null, null, 1));
+        assertThat(longest.entries()).extracting(item -> item.activity().id()).containsExactly("max-length");
+        assertThat(longest.hasMore()).isFalse();
+    }
+
     @Test
     void derivesMaskedProjectionAndNPlusOneThroughTheExactActivityFeedLogic() {
         JdbcDurableJournalStore store = new JdbcDurableJournalStore(dataSource(), "durable");
@@ -292,10 +370,28 @@ class JdbcDurableJournalProjectionTests {
     }
 
     private static DataSource dataSource() {
+        return dataSource("");
+    }
+
+    private static DataSource dataSource(String options) {
         JdbcDataSource dataSource = new JdbcDataSource();
-        dataSource.setURL("jdbc:h2:mem:durable-projection-" + DATABASES.incrementAndGet() + ";DB_CLOSE_DELAY=-1");
+        dataSource.setURL(
+                "jdbc:h2:mem:durable-projection-" + DATABASES.incrementAndGet() + ";DB_CLOSE_DELAY=-1" + options);
         dataSource.setUser("sa");
         dataSource.setPassword("");
         return dataSource;
+    }
+
+    private static DataSource withProductName(DataSource dataSource, String productName) throws SQLException {
+        DataSource reader = mock(DataSource.class);
+        when(reader.getConnection()).thenAnswer(invocation -> {
+            Connection connection = dataSource.getConnection();
+            Connection forwarded = mock(Connection.class, delegatesTo(connection));
+            DatabaseMetaData metadata = mock(DatabaseMetaData.class, delegatesTo(connection.getMetaData()));
+            doReturn(productName).when(metadata).getDatabaseProductName();
+            doReturn(metadata).when(forwarded).getMetaData();
+            return forwarded;
+        });
+        return reader;
     }
 }

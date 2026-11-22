@@ -433,9 +433,25 @@ public final class JdbcDurableJournalStore implements DurableJournalStore {
                 parameters.add(value.route());
             }
             if (value.text() != null) {
-                String needle = "%" + value.text().toUpperCase(Locale.ROOT) + "%";
-                sql.append(" AND (UPPER(e.summary) LIKE ? OR UPPER(e.detail) LIKE ? OR UPPER(e.path) LIKE ?"
-                        + " OR UPPER(e.method) LIKE ?)");
+                String needle = value.text().toUpperCase(Locale.ROOT);
+                switch (dialectType()) {
+                    case SQL_SERVER -> {
+                        // LIKE also interprets brackets and limits the pattern to 8,000 bytes.
+                        sql.append(" AND (CHARINDEX(?, UPPER(e.summary)) > 0 OR CHARINDEX(?, UPPER(e.detail)) > 0"
+                                + " OR CHARINDEX(?, UPPER(e.path)) > 0 OR CHARINDEX(?, UPPER(e.method)) > 0)");
+                    }
+                    case ORACLE -> {
+                        // An escaped pattern can outgrow the standard 4,000-byte SQL VARCHAR2 limit.
+                        sql.append(" AND (INSTR(UPPER(e.summary), ?) > 0 OR INSTR(UPPER(e.detail), ?) > 0"
+                                + " OR INSTR(UPPER(e.path), ?) > 0 OR INSTR(UPPER(e.method), ?) > 0)");
+                    }
+                    default -> {
+                        needle = "%"
+                                + needle.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+                        sql.append(" AND (UPPER(e.summary) LIKE ? ESCAPE '!' OR UPPER(e.detail) LIKE ? ESCAPE '!'"
+                                + " OR UPPER(e.path) LIKE ? ESCAPE '!' OR UPPER(e.method) LIKE ? ESCAPE '!')");
+                    }
+                }
                 parameters.add(needle);
                 parameters.add(needle);
                 parameters.add(needle);
