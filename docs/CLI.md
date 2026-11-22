@@ -77,9 +77,6 @@ When GnuPG is available, a valid OpenPGP signature from the pinned BootUI releas
 failures cannot be bypassed. Output distinguishes repository checksums from signer authentication and warns when only
 legacy SHA-1 is available. See [manual verification](https://github.com/jdubois/boot-ui/blob/main/SECURITY.md#cli-download-verification).
 
-The Windows installer stages its files before switching versions and restores the previous installation if the file
-switch fails. If it reports that a file could not be restored, it lists any backup it retained for recovery.
-
 To pin a version or install somewhere else, pass options after `sh -s --`:
 
 ```bash
@@ -91,6 +88,9 @@ The PowerShell script takes `-Version` and `-BinDir`, but has to be run rather t
 ```powershell
 & ([scriptblock]::Create((irm https://www.julien-dubois.com/boot-ui/install.ps1))) -Version <version>
 ```
+
+The Windows installer stages its files before switching versions and restores the previous installation if the file
+switch fails. If it reports that a file could not be restored, it lists any backup it retained for recovery.
 
 The shell script explains itself with `--help`. Both read `BOOTUI_VERSION`, `BOOTUI_INSTALL_DIR`,
 `BOOTUI_BIN_DIR` and `BOOTUI_MAVEN_REPO`, so a build agent behind a mirror can be pointed at its own
