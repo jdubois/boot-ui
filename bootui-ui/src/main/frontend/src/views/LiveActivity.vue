@@ -216,6 +216,16 @@ restoreFilters()
 // Whether the backend served this response from the durable activity store rather than the
 // default live in-memory re-merge. Only known once the first response arrives.
 const persistent = computed(() => report.value?.pageInfo?.persistent === true)
+// Learn the query capability before publishing the first durable page, including while its filtered replacement loads.
+let lastKnownPersistent = false
+const durableFilters = computed(() =>
+  buildActivityQueryParams({
+    type: typeFilter.value,
+    severity: severityFilter.value,
+    text: textFilter.value,
+    errorsOnly: errorsOnly.value
+  })
+)
 
 // Drives the "Currently saving X events in memory" tip and "Use a database" disclosure: always
 // populated on every response (see ActivityPersistenceOptionDto), independent of whether persistence
@@ -229,19 +239,14 @@ const memoryEventCount = computed(() => report.value?.entries?.length ?? 0)
 // changes shape (it keeps fetching the bare, unfiltered endpoint exactly as before and filters
 // entirely client-side). When persistent, pushing filters server-side lets search/filter reach the
 // full durable history instead of only whatever fits in the live merge window.
-function activityUrl(extra = {}) {
+/** @param {{cursor?: string | null, queryPersistent?: boolean}} [options] */
+function activityUrl({cursor, queryPersistent = persistent.value} = {}) {
   const params = new URLSearchParams()
-  if (persistent.value) {
-    const filterParams = buildActivityQueryParams({
-      type: typeFilter.value,
-      severity: severityFilter.value,
-      text: textFilter.value,
-      errorsOnly: errorsOnly.value
-    })
-    for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
+  if (queryPersistent) {
+    for (const [key, value] of Object.entries(durableFilters.value)) params.set(key, value)
   }
-  if (feedSource.value && !persistent.value) params.set('source', feedSource.value)
-  if (fromJournal.value || persistent.value) {
+  if (feedSource.value && !queryPersistent) params.set('source', feedSource.value)
+  if (fromJournal.value || queryPersistent) {
     if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
     if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
     if (runFilter.value.trim()) params.set('run', runFilter.value.trim())
@@ -249,11 +254,15 @@ function activityUrl(extra = {}) {
   }
   if (namespaceFilter.value.trim()) params.set('namespace', namespaceFilter.value.trim())
   if (applicationFilter.value.trim()) params.set('application', applicationFilter.value.trim())
-  for (const [key, value] of Object.entries(extra)) {
-    if (value != null) params.set(key, value)
-  }
+  if (cursor != null) params.set('cursor', cursor)
   const qs = params.toString()
   return qs ? `api/activity?${qs}` : 'api/activity'
+}
+
+async function fetchActivityPage(url) {
+  const response = await apiFetch(url)
+  if (!response.ok) throw new Error(`Request failed with status ${response.status}`)
+  return response.json()
 }
 
 async function loadActivity({propagateError = true} = {}) {
@@ -262,12 +271,16 @@ async function loadActivity({propagateError = true} = {}) {
   const token = ++headLoadToken
   const isCurrent = () => !disposed && generation === activityGeneration.value && token === headLoadToken
   try {
-    const response = await apiFetch(activityUrl())
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`)
-    }
-    const loaded = await response.json()
+    const requestedPersistent = lastKnownPersistent
+    let loaded = await fetchActivityPage(activityUrl({queryPersistent: requestedPersistent}))
     if (!isCurrent()) return
+    if (!requestedPersistent && loaded?.pageInfo?.persistent === true && Object.keys(durableFilters.value).length) {
+      // The discovery page omitted the durable filters. Neither its rows nor its cursor answer this query.
+      lastKnownPersistent = true
+      loaded = await fetchActivityPage(activityUrl({queryPersistent: true}))
+      if (!isCurrent()) return
+    }
+    lastKnownPersistent = loaded?.pageInfo?.persistent === true
     if (backingFeed(loaded) !== backingFeed(report.value)) resetOlderPages()
     report.value = {
       ...loaded,
@@ -313,11 +326,7 @@ async function loadOlder() {
   const isCurrent = () => !disposed && generation === activityGeneration.value
   loadingOlder.value = true
   try {
-    const response = await apiFetch(activityUrl({cursor: info.nextCursor}))
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`)
-    }
-    const page = await response.json()
+    const page = await fetchActivityPage(activityUrl({cursor: info.nextCursor}))
     if (!isCurrent()) return
     olderEntries.value = appendOlderPage(
       report.value?.entries,
@@ -1033,7 +1042,7 @@ let filterReloadTimer = null
 
 watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   persistFilters()
-  if (!persistent.value) return
+  if (!lastKnownPersistent) return
   resetOlderPages()
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
   filterReloadTimer = setTimeout(refreshNow, 300)
