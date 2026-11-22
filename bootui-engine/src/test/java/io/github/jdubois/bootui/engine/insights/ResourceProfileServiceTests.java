@@ -19,11 +19,18 @@ import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class ResourceProfileServiceTests {
+
+    private static final CountDownLatch CHECKOUT_PIN_ENTERED = new CountDownLatch(1);
+    private static final CountDownLatch RELEASE_CHECKOUT_PIN = new CountDownLatch(1);
+    private static final long PIN_TIMEOUT_MILLIS = 5_000;
 
     private static volatile long sink;
 
@@ -49,40 +56,44 @@ class ResourceProfileServiceTests {
                 .as("reading the status starts nothing")
                 .isIn("IDLE", "COMPLETED");
 
-        RuntimeResourceProfileDto running = service.start();
-        assertThat(running.state()).isEqualTo("RUNNING");
-        assertThat(running.maxDurationSeconds()).isEqualTo(60);
-        assertThat(running.endsAt() - running.startedAt()).isEqualTo(60_000);
-        String recorded = RequestIds.next();
-        String evicted = RequestIds.next();
-        Method startVirtual = virtualThreads();
-        String pinned = startVirtual != null ? RequestIds.next() : null;
-        run(recorded);
-        run(evicted);
-        if (pinned != null) {
-            runPinned(startVirtual, pinned);
+        String pinned;
+        RuntimeResourceProfileDto done;
+        try {
+            RuntimeResourceProfileDto running = service.start();
+            assertThat(running.state()).isEqualTo("RUNNING");
+            assertThat(running.maxDurationSeconds()).isEqualTo(60);
+            assertThat(running.endsAt() - running.startedAt()).isEqualTo(60_000);
+            String recorded = RequestIds.next();
+            String evicted = RequestIds.next();
+            Method startVirtual = virtualThreads();
+            pinned = startVirtual != null ? RequestIds.next() : null;
+            run(recorded);
+            run(evicted);
+            if (pinned != null) {
+                runPinned(startVirtual, pinned);
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.HTTP,
+                        System.currentTimeMillis(),
+                        10_000_000L,
+                        CorrelationContext.forRequest(pinned),
+                        "http-2",
+                        null,
+                        false,
+                        new HttpPayload("POST", "/api/orders/checkout", "/api/orders/checkout", null, 200)));
+            }
             journal.offer(RuntimeEvent.of(
                     JournalSource.HTTP,
                     System.currentTimeMillis(),
-                    10_000_000L,
-                    CorrelationContext.forRequest(pinned),
-                    "http-2",
+                    600_000_000L,
+                    CorrelationContext.forRequest(recorded),
+                    "http-1",
                     null,
                     false,
-                    new HttpPayload("POST", "/api/orders/checkout", "/api/orders/checkout", null, 200)));
+                    new HttpPayload("GET", "/api/report/7", "/api/report/{id}", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } finally {
+            done = service.stop();
         }
-        journal.offer(RuntimeEvent.of(
-                JournalSource.HTTP,
-                System.currentTimeMillis(),
-                600_000_000L,
-                CorrelationContext.forRequest(recorded),
-                "http-1",
-                null,
-                false,
-                new HttpPayload("GET", "/api/report/7", "/api/report/{id}", null, 200)));
-        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
-
-        RuntimeResourceProfileDto done = service.stop();
 
         assertThat(done.state()).isEqualTo("COMPLETED");
         assertThat(done.requests()).isEqualTo(pinned != null ? 3 : 2);
@@ -165,10 +176,12 @@ class ResourceProfileServiceTests {
     }
 
     static void pinCheckout() {
+        CHECKOUT_PIN_ENTERED.countDown();
         try {
-            Thread.sleep(8);
+            RELEASE_CHECKOUT_PIN.await();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            throw new AssertionError("checkout pin interrupted", ex);
         }
     }
 
@@ -181,7 +194,8 @@ class ResourceProfileServiceTests {
     }
 
     private static void runPinned(Method startVirtual, String requestId) throws Exception {
-        ((Thread) startVirtual.invoke(null, (Runnable) () -> {
+        FutureTask<Void> task = new FutureTask<>(
+                () -> {
                     SegmentMeter meter = SegmentMeter.shared();
                     meter.begin(requestId);
                     try (BootUiCorrelation.Scope ignored =
@@ -191,8 +205,35 @@ class ResourceProfileServiceTests {
                         meter.switchTo(null);
                         meter.take(requestId);
                     }
-                }))
-                .join();
+                },
+                null);
+        Thread worker = (Thread) startVirtual.invoke(null, task);
+        boolean entered;
+        boolean parked = false;
+        try {
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PIN_TIMEOUT_MILLIS);
+            entered = CHECKOUT_PIN_ENTERED.await(PIN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+            while (entered && worker.isAlive() && System.nanoTime() - deadline < 0) {
+                if (worker.getState() == Thread.State.WAITING) {
+                    parked = true;
+                    // Keep the carrier pinned past the JFR threshold, without counting setup time.
+                    Thread.sleep(8);
+                    break;
+                }
+                Thread.sleep(1);
+            }
+        } finally {
+            RELEASE_CHECKOUT_PIN.countDown();
+            worker.join(PIN_TIMEOUT_MILLIS);
+        }
+        assertThat(worker.isAlive())
+                .as("checkout pin worker stopped (state: %s)", worker.getState())
+                .isFalse();
+        task.get(0, TimeUnit.MILLISECONDS);
+        assertThat(entered).as("checkout class initializer entered").isTrue();
+        assertThat(parked)
+                .as("virtual thread parked in checkout class initializer")
+                .isTrue();
     }
 
     private static Method virtualThreads() {
