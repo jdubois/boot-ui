@@ -10,6 +10,7 @@ import {registerMemoryHistogramTests} from '../scenarios/memory-histogram.js'
 import {registerVulnerabilityCandidateTests} from '../scenarios/vulnerability-candidates.js'
 import {registerHomeGuideTests} from '../scenarios/home-guide.js'
 import {registerFeedbackPopoverTests} from '../scenarios/feedback-popover.js'
+import {registerArchivedRouteBreakdownTest} from '../scenarios/archived-route-breakdown.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
 registerActionPolicyTests(test, expect)
@@ -20,6 +21,7 @@ registerMemoryHistogramTests(test, expect)
 registerVulnerabilityCandidateTests(test, expect)
 registerHomeGuideTests(test, expect)
 registerFeedbackPopoverTests(test, expect)
+registerArchivedRouteBreakdownTest(test, expect)
 
 async function expandAllSidebarGroups(page) {
   const toggles = page.locator('aside .bootui-nav-group__toggle')
