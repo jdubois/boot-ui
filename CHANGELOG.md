@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Spring Data repository details** stay in sync with the selected repository and can be retried after a load fails
+  ([Spring Data](docs/features/database.md#spring-data)).
 - **Reactive execution evidence** counts native synchronous Spring HTTP calls on their classified issuing thread,
   preserves independent SQL and client evidence, and keeps matrix parameters out of fallback site identity.
   Thread names no longer diagnose `@Async` proxy bypass; unassessed async frames retain independently judgeable

@@ -88,6 +88,109 @@ describe('Data', () => {
     expect(wrapper.text()).toContain('1 / 1 repositories')
   })
 
+  it('keeps the selected repository details when an older response arrives last', async () => {
+    const user = repositoriesReport().repositories[0]
+    const order = {...user, beanName: 'orderRepository', repositoryInterface: 'com.example.OrderRepository'}
+    let finishUser
+    const slowUser = new Promise((resolve) => {
+      finishUser = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({total: 2, repositories: [user, order]}))
+        .mockReturnValueOnce(slowUser)
+        .mockResolvedValueOnce(jsonResponse({...repositoryDetail(), ...order, methods: []}))
+    )
+
+    wrapper = mount(Data)
+    await flushPromises()
+    const [userButton, orderButton] = wrapper.findAll('.list-group-item-action')
+    await userButton.trigger('click')
+    await orderButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.card-title').text()).toBe('OrderRepository')
+
+    finishUser(jsonResponse(repositoryDetail()))
+    await flushPromises()
+    expect(orderButton.classes()).toContain('active')
+    expect(wrapper.get('.card-title').text()).toBe('OrderRepository')
+    expect(wrapper.findAll('.data-methods-table tbody tr')).toHaveLength(0)
+  })
+
+  it('ignores a slow body from an earlier request for the same repository', async () => {
+    const user = repositoriesReport().repositories[0]
+    const order = {...user, beanName: 'orderRepository', repositoryInterface: 'com.example.OrderRepository'}
+    const {promise, resolve} = Promise.withResolvers()
+    const readBody = vi.fn(() => promise)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({total: 2, repositories: [user, order]}))
+        .mockResolvedValueOnce({ok: true, json: readBody})
+        .mockResolvedValueOnce(jsonResponse({...repositoryDetail(), ...order, methods: []}))
+        .mockResolvedValueOnce(jsonResponse(repositoryDetail()))
+    )
+
+    wrapper = mount(Data)
+    await flushPromises()
+    const [userButton, orderButton] = wrapper.findAll('.list-group-item-action')
+    await userButton.trigger('click')
+    await flushPromises()
+    expect(readBody).toHaveBeenCalledOnce()
+
+    await orderButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.card-title').text()).toBe('OrderRepository')
+    await userButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.data-methods-table').text()).toContain('findUsersWithAnIntentionallyLongMethodSignature')
+
+    resolve({...repositoryDetail(), methods: []})
+    await flushPromises()
+    expect(wrapper.get('.data-methods-table').text()).toContain('findUsersWithAnIntentionallyLongMethodSignature')
+  })
+
+  it('keeps loading through an older failure and allows retry after the latest failure', async () => {
+    const {promise: older, reject} = Promise.withResolvers()
+    const {promise: latest, resolve} = Promise.withResolvers()
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(repositoriesReport()))
+        .mockReturnValueOnce(older)
+        .mockReturnValueOnce(latest)
+        .mockResolvedValueOnce(jsonResponse(repositoryDetail()))
+    )
+
+    wrapper = mount(Data)
+    await flushPromises()
+    const button = wrapper.get('.list-group-item-action')
+    await button.trigger('click')
+    await button.trigger('click')
+    reject(new TypeError('Failed to fetch'))
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toBe('Loading repository details…')
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('Select a repository to see its methods')
+
+    resolve(jsonResponse(null, false, 503))
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toBe('')
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
+    expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load repository details: HTTP 503')
+    expect(wrapper.get('[role="alert"]').text()).toContain('Select the repository again to retry.')
+    expect(wrapper.find('.card-title').exists()).toBe(false)
+
+    await button.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(0)
+    expect(wrapper.get('.card-title').text()).toBe('UserRepository')
+  })
+
   it('contains long repository method values in a responsive table', async () => {
     vi.stubGlobal(
       'fetch',

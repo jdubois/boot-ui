@@ -1,7 +1,7 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {describeLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
@@ -14,6 +14,9 @@ const storeFilter = ref('')
 const error = ref(null)
 const springDataPresent = ref(true)
 const initialLoading = ref(true)
+const detailLoading = ref(false)
+const detailError = ref(null)
+let detailRequestId = 0
 
 async function load() {
   try {
@@ -32,12 +35,22 @@ async function load() {
 }
 
 async function open(repo) {
-  selected.value = repo.repositoryInterface
+  const requestId = ++detailRequestId
+  selected.value = repo.beanName
   detail.value = null
-  const key = encodeURIComponent(repo.repositoryInterface || repo.beanName)
-  const res = await apiFetch(`api/data/repositories/${key}`)
-  if (res.ok) {
-    detail.value = await res.json()
+  detailError.value = null
+  detailLoading.value = true
+
+  try {
+    const key = encodeURIComponent(repo.repositoryInterface || repo.beanName)
+    const response = await getJson(`api/data/repositories/${key}`)
+    if (requestId === detailRequestId) detail.value = response
+  } catch (e) {
+    if (requestId === detailRequestId) {
+      detailError.value = formatLoadError(e, 'Unable to load repository details')
+    }
+  } finally {
+    if (requestId === detailRequestId) detailLoading.value = false
   }
 }
 
@@ -137,7 +150,7 @@ onMounted(load)
             <button
               v-for="r in filtered"
               :key="r.beanName"
-              :class="{active: selected === r.repositoryInterface}"
+              :class="{active: selected === r.beanName}"
               class="list-group-item list-group-item-action"
               type="button"
               @click="open(r)"
@@ -165,8 +178,11 @@ onMounted(load)
         </div>
 
         <div class="col-md-7">
-          <div v-if="!detail" class="text-muted small">Select a repository to see its methods.</div>
-          <div v-else class="card">
+          <div class="text-muted small" role="status">{{ detailLoading ? 'Loading repository details…' : '' }}</div>
+          <UnavailableState v-if="detailError" icon="bi-exclamation-triangle" variant="danger">
+            {{ detailError }} Select the repository again to retry.
+          </UnavailableState>
+          <div v-else-if="detail" class="card">
             <div class="card-body">
               <h3 class="h5 card-title mb-1">{{ shortName(detail.repositoryInterface) }}</h3>
               <div class="text-muted small mb-3">
@@ -231,6 +247,7 @@ onMounted(load)
               </div>
             </div>
           </div>
+          <div v-else-if="!detailLoading" class="text-muted small">Select a repository to see its methods.</div>
         </div>
       </div>
     </template>

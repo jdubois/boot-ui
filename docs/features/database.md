@@ -505,7 +505,8 @@ not apply, because these are process-global counters.
 ![BootUI Spring Data panel](../images/bootui-data.webp)
 
 The Spring Data panel lists the application's Spring Data repositories with their interfaces, domain types, ID types,
-and query methods. It shows an empty state when Spring Data is absent or no repositories are registered.
+and query methods. If the selected repository's details fail to load, select that repository again to retry. The panel
+shows an empty state when Spring Data is absent or no repositories are registered.
 
 ## Flyway
 

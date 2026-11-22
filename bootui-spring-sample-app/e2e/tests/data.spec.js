@@ -1,5 +1,8 @@
 // @ts-check
+import {registerRepositoryDetailTests} from '../scenarios/repository-details.js'
 import {expect, test} from './fixtures.js'
+
+registerRepositoryDetailTests(test, expect)
 
 test.describe('Data (Spring Data repositories) view', () => {
   test('lists the ProductRepository and shows its searchByName query', async ({openView, page}) => {
