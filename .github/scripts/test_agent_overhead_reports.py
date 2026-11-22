@@ -36,8 +36,9 @@ def write_files(root, files):
 
 class AgentOverheadReportsTests(unittest.TestCase):
     def setUp(self):
-        temporary = self.enterContext(tempfile.TemporaryDirectory())
-        self.root = Path(temporary)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
         self.summary_job = self.root / "summary-job"
         self.summary_job.mkdir()
         self.summary = self.summary_job / "summary.md"
