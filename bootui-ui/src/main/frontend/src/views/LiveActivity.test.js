@@ -311,7 +311,7 @@ describe('LiveActivity', () => {
     }
   })
 
-  it('loads a persisted request journal with its archive origin and skips the current-run buffer', async () => {
+  it('keeps both the profile and the route breakdown scoped to the persisted request', async () => {
     const origin = {
       entryId: 'req-archived',
       namespace: 'team-a',
@@ -320,7 +320,7 @@ describe('LiveActivity', () => {
       instanceId: 'orders-2',
       globalSequence: 71
     }
-    const fetchMock = stubFetch(
+    const activityFetch = stubFetch(
       activityReport({
         sources: ['Runtime journal'],
         pageInfo: {persistent: true, hasMore: false, nextCursor: null},
@@ -338,6 +338,25 @@ describe('LiveActivity', () => {
         notes: []
       }
     )
+    const scopedInsights = 'api/runtime-insights?namespace=team-a&application=orders+api&run=run-7'
+    const fetchMock = vi.fn((url) => {
+      if (url === scopedInsights || url === 'api/runtime-insights') {
+        return Promise.resolve(
+          jsonResponse({
+            available: true,
+            observations: [
+              {
+                id: 'route-breakdown',
+                kind: 'route-time-breakdown',
+                subject: 'GET /api/todos',
+                sentence: url === scopedInsights ? 'Archived route took 120 ms.' : 'Current route took 9 ms.'
+              }
+            ]
+          })
+        )
+      }
+      return activityFetch(url)
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     wrapper = mountLiveActivity()
@@ -352,6 +371,16 @@ describe('LiveActivity', () => {
       'api/activity/request/req-archived/journal?namespace=team-a&application=orders+api&run=run-7&instance=orders-2'
     ])
     expect(wrapper.text()).toContain('Recorded by the runtime journal')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('api/runtime-insights'))).toBe(false)
+
+    const breakdown = wrapper.get('.activity-drawer .route-why-slow')
+    await breakdown.get('button').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(scopedInsights, expect.anything())
+    expect(breakdown.text()).toContain('Archived route took 120 ms.')
+    expect(breakdown.text()).not.toContain('Current route took 9 ms.')
+    expect(breakdown.find('a').exists()).toBe(false)
   })
 
   it("uses each persisted row's own archive origin while stepping through profiles", async () => {

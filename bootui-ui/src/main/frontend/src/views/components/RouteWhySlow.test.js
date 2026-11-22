@@ -16,9 +16,9 @@ const report = {
   ]
 }
 
-function mountWhySlow(route, panels = null) {
+function mountWhySlow(route, panels = null, origin = null) {
   return mount(RouteWhySlow, {
-    props: {route},
+    props: {route, origin},
     global: {
       provide: {panels: ref(panels)},
       stubs: {'router-link': {props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>'}}
@@ -60,6 +60,39 @@ describe('RouteWhySlow', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('no time breakdown for this route')
+  })
+
+  it('shows why a report is unavailable instead of claiming that the route has no breakdown', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            available: false,
+            unavailableReason: 'The durable journal is unavailable.',
+            observations: []
+          })
+      })
+    )
+    wrapper = mountWhySlow('GET /api/orders/{id}')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="status"]').text()).toBe('The durable journal is unavailable.')
+    expect(wrapper.text()).not.toContain('no time breakdown for this route')
+    expect(wrapper.get('button').element.disabled).toBe(false)
+  })
+
+  it('does not fall back to the current run when the persisted request lacks a complete scope', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountWhySlow('GET /api/orders/{id}', null, {namespace: 'team-a', application: 'orders'})
+    await wrapper.get('button').trigger('click')
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="status"]').text()).toContain('does not identify a recording')
   })
 
   it('stays hidden when the Runtime Insights panel is disabled or unavailable', () => {

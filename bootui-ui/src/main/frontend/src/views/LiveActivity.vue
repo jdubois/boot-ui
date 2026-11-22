@@ -2079,6 +2079,7 @@ function toggleFlow() {
             <RequestJournalProfile
               v-if="journalProfile"
               :profile="journalProfile"
+              :origin="profileOrigin"
               :method="profile?.request?.method || resolvedProfileEntry?.method"
               :path="profile?.request?.path || resolvedProfileEntry?.path"
               :status="profile?.request?.status ?? resolvedProfileEntry?.status"
@@ -2199,6 +2200,7 @@ function toggleFlow() {
               <RequestJournalProfile
                 v-if="journalProfile"
                 :profile="journalProfile"
+                :origin="profileOrigin"
                 :method="profile.request?.method || resolvedProfileEntry?.method"
                 :path="profile.request?.path || resolvedProfileEntry?.path"
                 :status="profile.request?.status ?? resolvedProfileEntry?.status"

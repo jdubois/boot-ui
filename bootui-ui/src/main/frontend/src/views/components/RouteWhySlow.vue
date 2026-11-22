@@ -7,7 +7,10 @@ import InsightText from './InsightText.vue'
 
 // "Why this route is slow" in a request's drawer (docs/PLAN-v2.md §5.3): the route's time breakdown from Runtime
 // Insights. Loaded only when the developer asks, so opening a request makes no extra call.
-const props = defineProps({route: {type: String, required: true}})
+const props = defineProps({
+  route: {type: String, required: true},
+  origin: {type: Object, default: null}
+})
 
 const panels = inject('panels', ref(null))
 const usable = computed(() => insightsUsable(panels.value))
@@ -20,7 +23,23 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const report = await getJson('api/runtime-insights')
+    const params = new URLSearchParams()
+    if (props.origin) {
+      for (const field of ['namespace', 'application', 'run']) {
+        const value = props.origin[field]
+        if (typeof value !== 'string' || !value.trim()) {
+          error.value = 'This persisted request does not identify a recording for Runtime Insights.'
+          return
+        }
+        params.set(field, value)
+      }
+    }
+    const scope = params.toString()
+    const report = await getJson(scope ? `api/runtime-insights?${scope}` : 'api/runtime-insights')
+    if (report.available === false) {
+      error.value = report.unavailableReason || 'Runtime Insights is unavailable.'
+      return
+    }
     breakdown.value =
       (report.observations ?? []).find(
         (observation) => observation.kind === 'route-time-breakdown' && observation.subject === props.route
@@ -54,6 +73,7 @@ async function load() {
           <InsightText :text="breakdown.whatToCheck[0]" />
         </p>
         <router-link
+          v-if="!origin"
           :to="{path: '/runtime-insights', query: {q: route, insight: breakdown.id}}"
           class="btn btn-outline-secondary btn-sm"
         >
