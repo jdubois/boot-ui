@@ -394,6 +394,9 @@ events/details through the clear boundary. Lifetime counters remain, and previou
 delete fails, durable history stays as it was and the failure is logged; volatile rows are not restored. Disabling
 persistence does not delete existing rows.
 
+Current-run profiles and Runtime Insights still treat requests that may have lost work to **Clear recording** as
+incomplete, even when all events recorded after the clear are recoverable from durable history.
+
 Retention applies to event recording time within the selected namespace/application, not to one process. Pruning
 removes old `_events`, their `_details`, and old run rows only after that run has no retained events. Heartbeats keep an
 active run's metadata row current.

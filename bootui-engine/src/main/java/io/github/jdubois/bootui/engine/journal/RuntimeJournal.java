@@ -790,6 +790,10 @@ public final class RuntimeJournal
         return ring.lossHorizonMillis(recoveredOffload);
     }
 
+    Long explicitClearLossHorizon() {
+        return ring.explicitClearLossHorizon();
+    }
+
     /**
      * When the latest request whose HTTP event the journal evicted, could not fit, or cleared ended, by the wall clock,
      * or {@code null} while it lost none: an {@code ERROR} logged without a request id shortly after, as a container
@@ -1104,7 +1108,7 @@ public final class RuntimeJournal
                 queued = cleared.count();
                 discarded = cleared.discardedCount();
                 // Outside the queue's lock: their requests and executions lost them to the clear.
-                cleared.forEach(memoryOffload ? ring::lostBeforeOffload : ring::lost);
+                cleared.forEach(memoryOffload ? ring::lostBeforeOffload : ring::lostBeforeClear);
             }
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);

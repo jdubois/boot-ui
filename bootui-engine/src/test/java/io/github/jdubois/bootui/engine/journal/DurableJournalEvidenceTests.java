@@ -41,6 +41,79 @@ class DurableJournalEvidenceTests {
     private static final AtomicInteger DATABASES = new AtomicInteger();
     private final List<RuntimeJournal> journals = new java.util.ArrayList<>();
 
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "true, true"})
+    void currentProfilesAndInsightsKeepTheLossOfWorkClearedBeforeTheRequestCompleted(
+            boolean clear, boolean offloadBeforeClear) throws Exception {
+        var journal = journal(100, 1_000_000);
+        var store = store();
+        var scope = scope(journal);
+        var runtime = new DurableJournalRuntime();
+        var settings = new DurableJournalCaptureSettings(
+                64, 16_000, 64, 16_000, 8, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofSeconds(2));
+        try (var capture = captureWithMetadata(journal, durableIdentity(journal, scope), store, settings)) {
+            assertThat(runtime.activate(store, capture)).isTrue();
+            assertThat(journal.offer(requestSql("crossing", 2_010))).isTrue();
+            journal.dispatchPending();
+            flushThrough(store, scope, capture, 1);
+            if (offloadBeforeClear) {
+                assertThat(journal.offloadRetainedData()).isOne();
+            }
+            if (clear) {
+                journal.clear();
+            }
+
+            assertThat(journal.offer(requestHttp("crossing", 2_000))).isTrue();
+            assertThat(journal.offer(requestHttp("fresh", 3_000))).isTrue();
+            journal.dispatchPending();
+            flushThrough(store, scope, capture, 3);
+            journal.offloadRetainedData();
+
+            var evidence = runtime.readCurrentEvidence(journal, scope);
+            assertThat(evidence).isNotNull();
+            assertThat(evidence.entries())
+                    .extracting(JournalEntry::sequence)
+                    .containsExactlyElementsOf(clear ? List.of(3L, 2L) : List.of(3L, 2L, 1L));
+            assertThat(evidence.omittedEvents()).isZero();
+            assertThat(evidence.lossHorizonMillis()).isEqualTo(clear ? 2_010L : null);
+            var report = new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null)
+                    .reportFrom(evidence);
+            assertThat(report.window().requests()).isEqualTo(clear ? 1 : 2);
+
+            var profiles = new RequestJournalProfiles(journal, null, 0, 2, null);
+            var crossing = profiles.profileFrom(evidence, "crossing", "fresh");
+            assertThat(crossing.available()).isTrue();
+            assertThat(crossing.baselineComparison() == null).isEqualTo(clear);
+            assertThat(crossing.timeline().stream()
+                            .anyMatch(item -> item.source().equals("sql")))
+                    .isEqualTo(!clear);
+            var fresh = profiles.profileFrom(evidence, "fresh", "crossing");
+            assertThat(fresh.available()).isTrue();
+            assertThat(fresh.baselineComparison() == null).isEqualTo(clear);
+            if (clear) {
+                assertThat(crossing.notes()).anyMatch(note -> note.contains("loss horizon"));
+                assertThat(fresh.notes()).anyMatch(note -> note.contains("crossing") && note.contains("incomplete"));
+            }
+        }
+    }
+
+    private static void flushThrough(
+            DurableJournalStore store, DurableJournalScope scope, DurableJournalCapture capture, long sequence)
+            throws InterruptedException {
+        capture.flushNow();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            var metadata = store.findRunMetadata(scope);
+            if (metadata != null
+                    && metadata.journalStatus().lastSequence() == sequence
+                    && store.findRun(scope).checkpoint() == sequence) {
+                return;
+            }
+            TimeUnit.MILLISECONDS.sleep(5);
+        }
+        throw new AssertionError("The fixture did not checkpoint sequence " + sequence);
+    }
+
     @Test
     void zeroSequenceOffloadKeepsKnownTraceAmbiguityInTheCurrentHotFallback() {
         var journal = journal(100, 1_000_000);

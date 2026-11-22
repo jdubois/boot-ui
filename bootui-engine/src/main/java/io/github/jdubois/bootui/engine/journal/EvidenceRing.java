@@ -60,6 +60,8 @@ final class EvidenceRing {
     private long clearedThrough;
     private long deferredSqlLossHorizon = Long.MIN_VALUE;
     private long writerLosses;
+    private long recordingWorkHorizon = Long.MIN_VALUE;
+    private long explicitClearLossHorizon = Long.MIN_VALUE;
 
     /** The most thread names of requests that lost events remembered. */
     static final int MAX_LOST_REQUEST_THREADS = 1_024;
@@ -75,6 +77,7 @@ final class EvidenceRing {
     }
 
     synchronized void add(JournalEntry entry) {
+        observeWork(entry.event());
         if (entry.estimatedBytes() + externalBytes.getAsLong() > maxBytes) {
             rememberEvictedRequest(entry.event());
             lost(entry.event());
@@ -153,6 +156,21 @@ final class EvidenceRing {
     synchronized void lostBeforeOffload(RuntimeEvent event) {
         lost(event, false);
         rememberArchiveLoss(event);
+    }
+
+    synchronized void lostBeforeClear(RuntimeEvent event) {
+        lost(event, false);
+        observeWork(event);
+    }
+
+    private void observeWork(RuntimeEvent event) {
+        if (event.requestId() != null || event.executionId() != null || event.traceId() != null) {
+            recordingWorkHorizon = Math.max(recordingWorkHorizon, event.epochMillis());
+        }
+    }
+
+    synchronized Long explicitClearLossHorizon() {
+        return lossOrNull(explicitClearLossHorizon);
     }
 
     private void rememberArchiveLoss(RuntimeEvent event) {
@@ -381,6 +399,10 @@ final class EvidenceRing {
         routine.clear();
         reserved.clear();
         if (!memoryOffload) {
+            // Clear invalidates sequenced work even if its rows had already left the hot ring.
+            explicitClearLossHorizon =
+                    Math.max(explicitClearLossHorizon, Math.min(recordingWorkHorizon, System.currentTimeMillis()));
+            recordingWorkHorizon = Long.MIN_VALUE;
             currentArchiveEvictedTraces = null;
         } else if (currentArchiveEvictedTraces == null && !evictedRequestTraces.isEmpty()) {
             // The active archive can still contain other requests with these traces after the hot reset.

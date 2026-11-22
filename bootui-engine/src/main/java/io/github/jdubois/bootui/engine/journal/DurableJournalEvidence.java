@@ -159,8 +159,21 @@ public final class DurableJournalEvidence {
                 && metadata.durableQuarantinedEvents() == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
         boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
+        Long clearHorizon = currentArchive ? journal.explicitClearLossHorizon() : null;
+        Long liveClearLoss = clearHorizon != null
+                        && entries.stream().anyMatch(entry -> entry.event().epochMillis() <= clearHorizon)
+                ? clearHorizon
+                : null;
         JournalEvidenceSnapshot.Completeness completeness = completeness(
-                scope, journal, sameRun, metadata, settings, durableComplete, currentArchive, recoveredOffload);
+                scope,
+                journal,
+                sameRun,
+                metadata,
+                settings,
+                durableComplete,
+                currentArchive,
+                recoveredOffload,
+                liveClearLoss);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
@@ -263,7 +276,8 @@ public final class DurableJournalEvidence {
             RuntimeJournalSettings settings,
             boolean durableComplete,
             boolean currentArchive,
-            boolean recoveredOffload) {
+            boolean recoveredOffload,
+            Long liveClearLoss) {
         Set<String> lostTraces = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestTraces());
         Set<String> lostThreads = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestThreads());
         Long archivedSqlLoss = !sameRun
@@ -283,16 +297,16 @@ public final class DurableJournalEvidence {
             @Override
             public Long lossHorizonMillis() {
                 if (durableComplete) {
-                    return archivedSqlLoss;
+                    return maximum(archivedSqlLoss, liveClearLoss);
                 }
                 if (recoveredOffload) {
                     // Both the hot and saved horizon include memory-only discards; the complete sequence merge
                     // recovered those rows. Keep actual loss, including admissions without a sequence.
-                    return journal.lossHorizonMillis(true);
+                    return maximum(journal.lossHorizonMillis(true), liveClearLoss);
                 }
-                return maximum(
-                        sameRun ? journal.lossHorizonMillis() : null,
-                        maximum(archivedSqlLoss, metadata == null ? null : metadata.lossHorizonMillis()));
+                Long liveLoss = sameRun ? journal.lossHorizonMillis() : null;
+                Long archivedLoss = metadata == null ? null : metadata.lossHorizonMillis();
+                return maximum(maximum(liveLoss, liveClearLoss), maximum(archivedLoss, archivedSqlLoss));
             }
 
             @Override
