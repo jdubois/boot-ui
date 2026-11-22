@@ -14,12 +14,16 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 /** §5.11's acceptance: a real JFR recording joins samples to the right request, including on a virtual thread. */
 class JfrProfilerTests {
 
     private static volatile long sink;
+    private static final PinGate REQUEST_PIN = new PinGate();
+    private static final PinGate OUTSIDE_PIN = new PinGate();
 
     private final JfrProfiler profiler =
             new JfrProfiler(type -> type.startsWith("java.") || type.startsWith("jdk.") || type.startsWith("sun."));
@@ -166,20 +170,22 @@ class JfrProfilerTests {
         profiler.start(Duration.ofMinutes(1));
         String pinnedRequest = RequestIds.next();
         SegmentMeter meter = SegmentMeter.shared();
-        ((Thread) startVirtual.invoke(null, (Runnable) () -> {
-                    meter.begin(pinnedRequest);
-                    try (BootUiCorrelation.Scope ignored =
-                            BootUiCorrelation.open(CorrelationContext.forRequest(pinnedRequest))) {
-                        RequestPinTrigger.trigger();
-                    } finally {
-                        meter.switchTo(null);
-                        meter.take(pinnedRequest);
-                    }
-                }))
-                .join();
-        ((Thread) startVirtual.invoke(null, (Runnable) OutsidePinTrigger::trigger)).join();
-
-        Snapshot done = profiler.stop();
+        Snapshot done;
+        try {
+            REQUEST_PIN.run(startVirtual, () -> {
+                meter.begin(pinnedRequest);
+                try (BootUiCorrelation.Scope ignored =
+                        BootUiCorrelation.open(CorrelationContext.forRequest(pinnedRequest))) {
+                    RequestPinTrigger.trigger();
+                } finally {
+                    meter.switchTo(null);
+                    meter.take(pinnedRequest);
+                }
+            });
+            OUTSIDE_PIN.run(startVirtual, OutsidePinTrigger::trigger);
+        } finally {
+            done = profiler.stop();
+        }
 
         assertThat(done.state()).isEqualTo(State.COMPLETED);
         assertThat(done.virtualThreadPinningSupported()).isTrue();
@@ -227,19 +233,61 @@ class JfrProfilerTests {
                 .isFalse();
     }
 
+    // Keep the untimed waits in these methods: JfrProfiler attributes the first application frame.
     static void pinCarrierInsideRequest() {
+        REQUEST_PIN.entered.countDown();
         try {
-            Thread.sleep(8);
+            REQUEST_PIN.release.await();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
         }
     }
 
     static void pinCarrierOutsideRequest() {
+        OUTSIDE_PIN.entered.countDown();
         try {
-            Thread.sleep(8);
+            OUTSIDE_PIN.release.await();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+    }
+
+    private static final class PinGate {
+
+        private static final long TIMEOUT_SECONDS = 10;
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        private void run(Method startVirtual, Runnable action) throws Exception {
+            FutureTask<Void> task = new FutureTask<>(action, null);
+            Thread worker = (Thread) startVirtual.invoke(null, task);
+            boolean initializerEntered;
+            boolean parked = false;
+            try {
+                initializerEntered = entered.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                if (initializerEntered) {
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+                    while (worker.isAlive() && System.nanoTime() - deadline < 0) {
+                        if (worker.getState() == Thread.State.WAITING) {
+                            parked = true;
+                            // Dwell after the worker parks so setup time cannot consume the JFR measurement window.
+                            Thread.sleep(8);
+                            break;
+                        }
+                        Thread.sleep(1);
+                    }
+                }
+            } finally {
+                release.countDown();
+                worker.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
+            }
+            assertThat(worker.isAlive()).as("pinning initializer terminated").isFalse();
+            task.get(0, TimeUnit.SECONDS);
+            assertThat(initializerEntered).as("pinning initializer entered").isTrue();
+            assertThat(parked).as("virtual thread parked in the initializer").isTrue();
         }
     }
 
