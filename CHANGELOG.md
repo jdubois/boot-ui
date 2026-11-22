@@ -129,6 +129,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   verdicts can change ([scope and verdict impact](docs/SECURITY-CHECKS.md#sec-authz-001---every-filter-chain-should-enforce-authorization)).
 - **Ignored security paths** use new SEC-AUTHZ-006 instead of filterless-chain SEC-AUTHZ-001 findings;
   existing SEC-AUTHZ-001 dismissals are not copied ([Security checks](docs/SECURITY-CHECKS.md)).
+- **Live Activity outage fallback** keeps text searches and inclusive end times when showing the bounded
+  in-memory window instead of durable history ([Live Activity](docs/features/live-activity.md#durable-history)).
 - **Hibernate query coverage** excludes narrowly proven static bulk DML from HIB-QUERY-007; discharging the last gap can expose existing findings to unchanged strict CI gates
   ([scope and gate impact](docs/HIBERNATE-CHECKS.md#hib-query-007---queries-should-not-join-fetch-more-than-one-collection)).
 - **Explicit GitHub refresh** opens cached data without contacting GitHub, requires opt-in polling, preserves cached

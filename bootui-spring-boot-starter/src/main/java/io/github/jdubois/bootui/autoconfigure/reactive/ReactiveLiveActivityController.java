@@ -43,6 +43,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
+import io.github.jdubois.bootui.engine.activity.ReadableActivityPages;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
@@ -548,6 +549,36 @@ public class ReactiveLiveActivityController implements InitializingBean {
                 requestId, noRequest);
     }
 
+    /** MCP filters the fallback window itself so it can report how much of that window it searched. */
+    public LiveActivityReport activityForMcp(
+            int fetch,
+            String type,
+            String text,
+            String route,
+            String namespace,
+            String application,
+            String instance,
+            String run) {
+        return readActivity(
+                type,
+                null,
+                0,
+                fetch,
+                text,
+                null,
+                null,
+                fetch,
+                null,
+                route,
+                namespace,
+                application,
+                instance,
+                run,
+                null,
+                false,
+                false);
+    }
+
     @GetMapping
     public LiveActivityReport activity(
             @RequestParam(name = "type", required = false) String type,
@@ -566,6 +597,44 @@ public class ReactiveLiveActivityController implements InitializingBean {
             @RequestParam(name = "run", required = false) String run,
             @RequestParam(name = "requestId", required = false) String requestId,
             @RequestParam(name = "noRequest", required = false, defaultValue = "false") boolean noRequest) {
+        return readActivity(
+                type,
+                severity,
+                since,
+                limit,
+                q,
+                until,
+                cursor,
+                pageSize,
+                source,
+                route,
+                namespace,
+                application,
+                instance,
+                run,
+                requestId,
+                noRequest,
+                true);
+    }
+
+    private LiveActivityReport readActivity(
+            String type,
+            String severity,
+            long since,
+            int limit,
+            String q,
+            Long until,
+            String cursor,
+            int pageSize,
+            String source,
+            String route,
+            String namespace,
+            String application,
+            String instance,
+            String run,
+            String requestId,
+            boolean noRequest,
+            boolean filterFallbackText) {
         LiveActivityReport live = live(
                 source, new JournalActivityFeed.Filter(type, severity, since, route, run, requestId, noRequest), limit);
         ActivityFeedSource resolvedSource = parseFeedSource(source);
@@ -592,7 +661,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
                     pageSize,
                     route,
                     requestId,
-                    noRequest);
+                    noRequest,
+                    filterFallbackText);
         }
         if (!activityStore.persistent() || durableJournalSettings != null) {
             return new LiveActivityReport(
@@ -612,7 +682,7 @@ public class ReactiveLiveActivityController implements InitializingBean {
         ActivityQuery query = new ActivityQuery(
                 persistenceSettings.instanceId(), type, severity, q, since > 0 ? since : null, until, cursor, pageSize);
         JournalTextExposure storedRule = JournalTextExposure.of(exposure);
-        ActivityPage page = io.github.jdubois.bootui.engine.activity.ReadableActivityPages.query(
+        ActivityPage page = ReadableActivityPages.query(
                 activityStore,
                 query,
                 row -> JournalSourcePanels.isReadable(row, properties::isPanelEnabled),
@@ -646,7 +716,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
             int pageSize,
             String route,
             String requestId,
-            boolean noRequest) {
+            boolean noRequest,
+            boolean filterFallbackText) {
         String selectedNamespace =
                 blankToNull(namespace) == null ? durableJournalSettings.namespaceId() : namespace.strip();
         String selectedApplication =
@@ -720,18 +791,9 @@ public class ReactiveLiveActivityController implements InitializingBean {
                     throw new ResponseStatusException(
                             HttpStatus.SERVICE_UNAVAILABLE, "Durable Live Activity history is unavailable", ex);
                 }
-                List<String> warnings = new ArrayList<>(live.warnings());
-                warnings.add("Durable Live Activity history is unavailable; showing the current run from memory.");
                 log.warn("Durable Live Activity read failed; serving the current run from the runtime journal", ex);
-                return new LiveActivityReport(
-                        live.available(),
-                        live.entries(),
-                        live.typeCounts(),
-                        live.kpis(),
-                        live.sources(),
-                        warnings,
-                        null,
-                        persistenceOption);
+                return ReadableActivityPages.durableFallback(
+                        live, persistenceOption, filterFallbackText ? query.text() : null, query.until());
             }
             throw new ResponseStatusException(
                     HttpStatus.SERVICE_UNAVAILABLE, "Durable Live Activity history is unavailable", ex);

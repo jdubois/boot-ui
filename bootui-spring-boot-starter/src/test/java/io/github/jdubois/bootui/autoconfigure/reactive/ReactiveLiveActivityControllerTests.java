@@ -488,8 +488,8 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
-    void durableSwitchUsesJournalStoreAndReturnsOriginMetadata() throws Exception {
-        DataSource dataSource = newDataSource();
+    void durableSwitchUsesJournalStoreAndFiltersTheMemoryFallbackOnOutage() throws Exception {
+        DataSource dataSource = org.mockito.Mockito.spy(newDataSource());
         SwitchableActivityStore legacyStore = defaultActivityStore();
         ReactiveLiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
@@ -532,6 +532,28 @@ class ReactiveLiveActivityControllerTests {
                 assertThat(origin.source()).isEqualTo("http");
             });
             assertThat(legacyStore.persistent()).isFalse();
+
+            doThrow(new java.sql.SQLException("Fixture outage", "08006"))
+                    .when(dataSource)
+                    .getConnection();
+            LiveActivityReport outage = controller.activity(null, null, 0, 0, "DURABLE", 1_000L, null, 20);
+            assertThat(outage.entries()).extracting(ActivityEntryDto::id).containsExactly("durable-request");
+            assertThat(outage.origins()).isEmpty();
+            assertThat(outage.pageInfo()).isNull();
+            assertThat(outage.warnings()).anyMatch(warning -> warning.contains("showing the current run from memory"));
+            assertThat(controller
+                            .activity(null, null, 0, 0, "other", null, null, 20)
+                            .entries())
+                    .isEmpty();
+            assertThat(controller
+                            .activity(null, null, 0, 0, null, 999L, null, 20)
+                            .entries())
+                    .isEmpty();
+            assertThat(controller
+                            .activityForMcp(20, null, "other", null, null, null, null, null)
+                            .entries())
+                    .extracting(ActivityEntryDto::id)
+                    .containsExactly("durable-request");
         } finally {
             controller.shutdown();
             journal.close();

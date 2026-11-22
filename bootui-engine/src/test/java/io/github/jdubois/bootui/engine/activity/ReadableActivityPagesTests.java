@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
+import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
@@ -75,6 +78,36 @@ class ReadableActivityPagesTests {
                         .entryDtos())
                 .extracting(ActivityEntryDto::id, ActivityEntryDto::summary)
                 .containsExactly(tuple("6", ""), tuple("5", "secret 5"));
+    }
+
+    @Test
+    void durableFallbackFiltersOnlyVisibleRowsInMemoryWithoutChangingTheOverview() {
+        LiveActivityReport memory = new LiveActivityReport(
+                true,
+                List.of(
+                        entry(5, "REQUEST", "ALPHA%_"),
+                        entry(3, "REQUEST", "Alpha%_"),
+                        entry(2, "REQUEST", "alpha%_"),
+                        entry(1, "REQUEST", "[masked]"),
+                        entry(0, "REQUEST", "alphaXX")),
+                Map.of("REQUEST", 8),
+                null,
+                List.of("Runtime journal"),
+                List.of("Existing warning"));
+        ActivityPersistenceOptionDto persistence = new ActivityPersistenceOptionDto(true, true, "bootui_activity");
+
+        LiveActivityReport filtered = ReadableActivityPages.durableFallback(memory, persistence, "aLpHa%_", 1_003L);
+
+        assertThat(filtered.entries()).extracting(ActivityEntryDto::id).containsExactly("3", "2");
+        assertThat(filtered.typeCounts()).isEqualTo(memory.typeCounts());
+        assertThat(filtered.sources()).isEqualTo(memory.sources());
+        assertThat(filtered.warnings())
+                .containsExactly(
+                        "Existing warning",
+                        "Durable Live Activity history is unavailable; showing the current run from memory.");
+        assertThat(filtered.pageInfo()).isNull();
+        assertThat(filtered.origins()).isEmpty();
+        assertThat(filtered.persistenceOption()).isEqualTo(persistence);
     }
 
     private static ActivityEntryDto entry(int index, String type) {

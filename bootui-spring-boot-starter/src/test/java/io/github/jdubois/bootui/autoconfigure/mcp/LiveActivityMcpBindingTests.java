@@ -1,7 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.mcp;
 
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -26,23 +24,15 @@ class LiveActivityMcpBindingTests {
     void mvcPassesArchiveQualifiersAndTheFetchLimitAsPageSize() {
         LiveActivityController controller = mock(LiveActivityController.class);
         LiveActivityReport report = emptyReport();
-        when(controller.activity(
+        when(controller.activityForMcp(
+                        JournalActivityReports.MAX_LIMIT,
                         "SQL",
-                        null,
-                        0,
-                        JournalActivityReports.MAX_LIMIT,
                         "/orders",
-                        null,
-                        null,
-                        JournalActivityReports.MAX_LIMIT,
-                        null,
                         "/api/orders",
                         "prod",
                         "shop",
                         "host-a",
-                        "run-7",
-                        null,
-                        false))
+                        "run-7"))
                 .thenReturn(report);
 
         liveActivityTool(McpToolsRegistryFixture.maximalRegistry(
@@ -50,46 +40,30 @@ class LiveActivityMcpBindingTests {
                 .invoke(new McpArguments(QUERY, 7, null, null, null));
 
         verify(controller)
-                .activity(
-                        eq("SQL"),
-                        isNull(),
-                        eq(0L),
-                        eq(JournalActivityReports.MAX_LIMIT),
-                        eq("/orders"),
-                        isNull(),
-                        isNull(),
-                        eq(JournalActivityReports.MAX_LIMIT),
-                        isNull(),
-                        eq("/api/orders"),
-                        eq("prod"),
-                        eq("shop"),
-                        eq("host-a"),
-                        eq("run-7"),
-                        isNull(),
-                        eq(false));
+                .activityForMcp(
+                        JournalActivityReports.MAX_LIMIT,
+                        "SQL",
+                        "/orders",
+                        "/api/orders",
+                        "prod",
+                        "shop",
+                        "host-a",
+                        "run-7");
     }
 
     @Test
     void webFluxPassesArchiveQualifiersAndTheFetchLimitAsPageSize() {
         ReactiveLiveActivityController controller = mock(ReactiveLiveActivityController.class);
         LiveActivityReport report = emptyReport();
-        when(controller.activity(
+        when(controller.activityForMcp(
+                        JournalActivityReports.MAX_LIMIT,
                         "SQL",
-                        null,
-                        0,
-                        JournalActivityReports.MAX_LIMIT,
                         "/orders",
-                        null,
-                        null,
-                        JournalActivityReports.MAX_LIMIT,
-                        null,
                         "/api/orders",
                         "prod",
                         "shop",
                         "host-a",
-                        "run-7",
-                        null,
-                        false))
+                        "run-7"))
                 .thenReturn(report);
 
         liveActivityTool(McpToolsRegistryFixture.maximalRegistry(
@@ -99,23 +73,15 @@ class LiveActivityMcpBindingTests {
                 .invoke(new McpArguments(QUERY, 7, null, null, null));
 
         verify(controller)
-                .activity(
-                        eq("SQL"),
-                        isNull(),
-                        eq(0L),
-                        eq(JournalActivityReports.MAX_LIMIT),
-                        eq("/orders"),
-                        isNull(),
-                        isNull(),
-                        eq(JournalActivityReports.MAX_LIMIT),
-                        isNull(),
-                        eq("/api/orders"),
-                        eq("prod"),
-                        eq("shop"),
-                        eq("host-a"),
-                        eq("run-7"),
-                        isNull(),
-                        eq(false));
+                .activityForMcp(
+                        JournalActivityReports.MAX_LIMIT,
+                        "SQL",
+                        "/orders",
+                        "/api/orders",
+                        "prod",
+                        "shop",
+                        "host-a",
+                        "run-7");
     }
 
     private static McpTool liveActivityTool(List<McpTool> tools) {
