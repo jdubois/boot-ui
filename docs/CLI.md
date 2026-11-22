@@ -90,7 +90,8 @@ The PowerShell script takes `-Version` and `-BinDir`, but has to be run rather t
 ```
 
 The Windows installer stages its files before switching versions and restores the previous installation if the file
-switch fails. If it reports that a file could not be restored, it lists any backup it retained for recovery.
+switch fails. If it reports that a file could not be restored, it lists any backup it retained for recovery. After
+the switch succeeds, cleanup, Java checks, or PATH problems are reported as warnings without undoing the install.
 
 The shell script explains itself with `--help`. Both read `BOOTUI_VERSION`, `BOOTUI_INSTALL_DIR`,
 `BOOTUI_BIN_DIR` and `BOOTUI_MAVEN_REPO`, so a build agent behind a mirror can be pointed at its own

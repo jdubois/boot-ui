@@ -115,7 +115,7 @@ function Remove-InstallScratchFile([string] $Path) {
     try {
       Remove-Item -LiteralPath $Path -Force
     } catch {
-      Write-Warning "Could not remove installer scratch file ${Path}: $($_.Exception.Message)"
+      Write-Warning "Could not remove installer scratch file ${Path}: $($_.Exception.Message)" -WarningAction Continue
     }
   }
 }
@@ -326,18 +326,23 @@ exit /b 1
   Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Only prune older managed jars after the launcher and record are in place.
-Get-ChildItem -LiteralPath $InstallDir -Filter "$Artifact-*-all.jar" -File |
-  Where-Object { $_.FullName -ne $targetJar } |
-  ForEach-Object {
-    $previousJar = $_
+# The install is committed. Cleanup and reporting must not turn it into a failed install.
+try {
+  $olderJars = Get-ChildItem -LiteralPath $InstallDir -Filter "$Artifact-*-all.jar" -File |
+    Where-Object { $_.FullName -ne $targetJar }
+  foreach ($previousJar in $olderJars) {
     try {
       Remove-Item -LiteralPath $previousJar.FullName -Force
       Write-Step "Removed the previous $($previousJar.Name)"
     } catch {
-      Write-Warning "Could not remove the previous $($previousJar.Name): $($_.Exception.Message)"
+      Write-Warning ("Could not remove '$($previousJar.FullName)'. Close any process using it and remove it manually. " +
+        $_.Exception.Message) -WarningAction Continue
     }
   }
+} catch {
+  Write-Warning ("Could not list older BootUI CLI JARs in '$InstallDir'. Remove obsolete versions manually; " +
+    "keep '$targetJar'. $($_.Exception.Message)") -WarningAction Continue
+}
 
 Write-Step "Installed $jarName in $InstallDir"
 Write-Step "Installed the bootui command at $shim"
@@ -346,42 +351,52 @@ Write-Step "Installed the bootui command at $shim"
 
 # The jar cannot run without a JDK 17, but someone installing tooling may be about
 # to install one, so say it plainly rather than refuse to finish.
-$java = Get-Command java -ErrorAction SilentlyContinue
-if ($java) {
-  $javaVersion = Invoke-NativeCommand -Command $java.Source -Arguments @('-version')
-  $versionLine = ($javaVersion.Output | Select-Object -First 1) -as [string]
-  if ($versionLine -match '(\d+)') {
-    $major = [int] $Matches[1]
-    if ($major -lt 17) {
+try {
+  $java = Get-Command java -CommandType Application -ErrorAction SilentlyContinue
+  if ($java) {
+    $javaVersion = Invoke-NativeCommand -Command $java.Source -Arguments @('-version')
+    $versionLine = ($javaVersion.Output | Select-Object -First 1) -as [string]
+    if ($javaVersion.ExitCode -ne 0 -or $versionLine -notmatch '(\d+)') {
+      Write-Warning 'Could not determine the Java version. Run java -version to check for JDK 17 or later.' -WarningAction Continue
+    } elseif ([int] $Matches[1] -lt 17) {
       Write-Step ''
-      Write-Step "Warning: the java on your PATH is version $major. BootUI needs 17 or later."
+      Write-Step "Warning: the java on your PATH is version $($Matches[1]). BootUI needs 17 or later."
     }
-  } elseif ($javaVersion.ExitCode -ne 0) {
-    Write-Step 'Warning: could not determine the Java version. Run java -version to check for JDK 17 or later.'
+  } else {
+    Write-Step ''
+    Write-Step 'Warning: no java was found on your PATH. BootUI needs a JDK 17 or later to run.'
   }
-} else {
-  Write-Step ''
-  Write-Step 'Warning: no java was found on your PATH. BootUI needs a JDK 17 or later to run.'
+} catch {
+  Write-Warning ("Could not determine the Java version. Run java -version to check for JDK 17 or later. " +
+    $_.Exception.Message) -WarningAction Continue
 }
 
-$isWindowsHost = -not (Test-Path variable:IsWindows) -or $IsWindows
-$userPath = if ($isWindowsHost) { [Environment]::GetEnvironmentVariable('Path', 'User') } else { $env:PATH }
-$separator = if ($isWindowsHost) { ';' } else { [IO.Path]::PathSeparator }
-$onPath = ($userPath -split $separator) -contains $BinDir
-if (-not $onPath -and -not $NoPathUpdate -and $isWindowsHost) {
-  $updated = if ($userPath) { "$($userPath.TrimEnd(';'));$BinDir" } else { $BinDir }
-  [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
-  $env:Path = "$env:Path;$BinDir"
-  Write-Step ''
-  Write-Step "Added $BinDir to your user PATH. Open a new terminal for it to take effect elsewhere."
-} elseif (-not $onPath) {
-  Write-Step ''
-  Write-Step "$BinDir is not on your PATH. To use the command in this session:"
-  Write-Step ''
-  Write-Step "    `$env:Path = `"`$env:Path;$BinDir`""
+try {
+  $isWindowsHost = -not (Test-Path variable:IsWindows) -or $IsWindows
+  $updateUserPath = $isWindowsHost -and -not $NoPathUpdate
+  $userPath = if ($updateUserPath) { [Environment]::GetEnvironmentVariable('Path', 'User') } else { $env:PATH }
+  $separator = [IO.Path]::PathSeparator
+  $onPath = ($userPath -split $separator) -contains $BinDir
+  if (-not $onPath -and $updateUserPath) {
+    $updated = if ($userPath) { "$($userPath.TrimEnd(';'));$BinDir" } else { $BinDir }
+    [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
+    $env:Path = "$env:Path;$BinDir"
+    Write-Step ''
+    Write-Step "Added $BinDir to your user PATH. Open a new terminal for it to take effect elsewhere."
+  } elseif (-not $onPath) {
+    Write-Step ''
+    Write-Step "$BinDir is not on your PATH. To use the command in this session:"
+    Write-Step ''
+    Write-Step "    `$env:Path = `"`$env:Path$separator$BinDir`""
+  }
+} catch {
+  Write-Warning ("Could not finish checking or updating PATH. Check that '$BinDir' is on PATH, " +
+    "or run '$shim' directly. $($_.Exception.Message)") -WarningAction Continue
 }
 
 Write-Step ''
 Write-Step 'Done. Try it against a running application:'
 Write-Step ''
 Write-Step '    bootui --url http://localhost:8080 tools'
+# Reflect the install outcome, not the status of the optional native Java probe.
+$global:LASTEXITCODE = 0

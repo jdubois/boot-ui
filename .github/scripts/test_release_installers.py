@@ -225,7 +225,10 @@ printf '[GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}\\n'
     def jar(self, version):
         return self.install_dir / f"bootui-cli-{version}-all.jar"
 
-    def install(self, version, payload, *, repo="https://fixture.invalid", locked=None, fail_launcher_write=False):
+    def install(
+        self, version, payload, *, repo="https://fixture.invalid", locked=None,
+        fail_launcher_write=False, fail_old_jar_lookup=False,
+    ):
         fixture = self.repository / self.jar(version).name
         fixture.write_bytes(payload)
         fixture.with_suffix(".jar.sha256").write_text(hashlib.sha256(payload).hexdigest())
@@ -245,6 +248,10 @@ function Set-Content {
   }
 }
 """ if fail_launcher_write else ""
+        old_jar_lookup_fault = """
+$WarningPreference = 'Stop'
+function Get-ChildItem { throw 'Fixture could not enumerate old JARs' }
+""" if fail_old_jar_lookup else ""
         bootstrap.write_text(f"""
 $ErrorActionPreference = 'Stop'
 function Invoke-WebRequest {{
@@ -256,6 +263,7 @@ function Invoke-WebRequest {{
   [pscustomobject] @{{ Content = [IO.File]::ReadAllText($source) }}
 }}
 {launcher_write_fault}
+{old_jar_lookup_fault}
 $path = {lock_path}
 $lock = if ($path) {{ [IO.File]::Open($path, 'Open', 'Read', 'Read') }}
 try {{
@@ -301,6 +309,33 @@ try {{
         self.assertFalse(self.jar("previous").exists())
         self.assertCountEqual(self.install_dir.iterdir(), [self.record, self.jar("next")])
         self.assertCountEqual(self.bin_dir.iterdir(), [self.launcher])
+
+    def test_powershell_cleanup_lookup_failure_leaves_new_install_runnable(self):
+        if os.name != "nt" and not all(shutil.which(tool) for tool in ("java", "javac", "jar")):
+            self.skipTest("a local JDK is needed for the runnable JAR fixture")
+        previous = self.install("previous", b"previous artifact")
+        self.assertEqual(previous.returncode, 0, previous.stdout + previous.stderr)
+        payload = self.launcher_probe_jar()
+        result = self.install("next", payload, fail_old_jar_lookup=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Fixture could not enumerate old JARs", result.stdout)
+        self.assertIn("WARNING:", result.stdout)
+        self.assertIn("Installed bootui-cli-next-all.jar", result.stdout)
+        self.assertEqual(self.jar("previous").read_bytes(), b"previous artifact")
+        self.assertEqual(self.jar("next").read_bytes(), payload)
+        self.assertEqual(self.record.read_text(encoding="utf-8").splitlines()[1], str(self.jar("next")))
+        self.assertIn(f'set "BOOTUI_JAR={self.jar("next")}"', self.launcher.read_text())
+
+        # Exercise the generated launcher on Windows and its target JAR on other platforms.
+        command = [os.environ["ComSpec"], "/d", "/c", r".\bootui.cmd"] if os.name == "nt" else [
+            "java", "-jar", str(self.jar("next")),
+        ]
+        probe = subprocess.run(
+            [*command, "0", "new install"], cwd=self.bin_dir, env=self.environment,
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
+        self.assertEqual(probe.stdout.splitlines(), ["0", "new install"])
 
     def test_powershell_failed_upgrade_keeps_previous_launch_files(self):
         if os.name != "nt" and sys.platform != "darwin":
