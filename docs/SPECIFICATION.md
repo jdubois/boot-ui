@@ -1888,7 +1888,8 @@ Features:
   run, instance, source, type, severity, route, request/execution id, occurrence range, text, or no-request state.
   Polling a first page observes other writers; `nextCursor` pages older rows. Every returned origin carries scope,
   instance, original sequence, and global sequence. Local SSE signals only the current JVM and is not a distributed
-  subscription.
+  subscription. Durable REST reads return HTTP `400` for a filter exceeding its supported length or a nonblank
+  `cursor` that cannot be decoded as a nonnegative global sequence. An omitted or blank cursor still starts at the head.
 - The same bounded evidence reader reconstructs a historical request profile and projects Runtime Insights from one
   stored run. It merges durable events with the current run's hot tail when they match. Reads apply the original
   event/byte bounds and mark omitted rows, missing safe details, interrupted metadata, absent run summary, incomplete SQL

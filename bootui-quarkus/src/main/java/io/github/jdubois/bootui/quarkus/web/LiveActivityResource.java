@@ -522,28 +522,27 @@ public class LiveActivityResource {
                 && !durableJournalSettings.readerArchiveCrossNamespace()) {
             throw new BadRequestException("Durable journal namespace selection is disabled by configuration");
         }
-        DurableJournalGlobalCursor decodedCursor;
+        DurableJournalFeedQuery query;
         try {
-            decodedCursor = cursor == null || cursor.isBlank() ? null : DurableJournalGlobalCursor.decode(cursor);
+            query = new DurableJournalFeedQuery(
+                    selectedNamespace,
+                    selectedApplication,
+                    run,
+                    instance,
+                    null,
+                    type,
+                    severity,
+                    q,
+                    route,
+                    requestId,
+                    since != null && since > 0 ? since : null,
+                    until,
+                    noRequest,
+                    DurableJournalGlobalCursor.decodeStrict(cursor),
+                    pageSize == null ? 0 : pageSize);
         } catch (IllegalArgumentException ex) {
-            throw new BadRequestException("Invalid durable journal cursor", ex);
+            throw new BadRequestException(ex.getMessage(), ex);
         }
-        DurableJournalFeedQuery query = new DurableJournalFeedQuery(
-                selectedNamespace,
-                selectedApplication,
-                run,
-                instance,
-                null,
-                type,
-                severity,
-                q,
-                route,
-                requestId,
-                since != null && since > 0 ? since : null,
-                until,
-                noRequest,
-                decodedCursor,
-                pageSize == null ? 0 : pageSize);
         try {
             DurableJournalFeedPage page = durableJournalRuntime.store().queryFeed(query);
             JournalTextExposure storedRule = JournalTextExposure.of(exposure);
