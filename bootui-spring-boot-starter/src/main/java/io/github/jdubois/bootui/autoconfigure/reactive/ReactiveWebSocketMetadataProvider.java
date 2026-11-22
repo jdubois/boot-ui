@@ -5,11 +5,19 @@ import io.github.jdubois.bootui.spi.WebSocketEndpointSnapshot;
 import io.github.jdubois.bootui.spi.WebSocketMetadataProvider;
 import io.github.jdubois.bootui.spi.WebSocketTopologySnapshot;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.web.reactive.DispatcherHandler;
 import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 
@@ -22,8 +30,9 @@ import org.springframework.web.reactive.socket.WebSocketHandler;
  * beans. BootUI therefore reports the endpoints honestly and marks frame capture unsupported with a
  * reason, rather than silently showing an always-empty activity list or reaching into private state.</p>
  *
- * <p>Resolving the topology is a pure read of already-registered beans: no handshake, no session, no
- * frame, so the panel stays network-free on render.</p>
+ * <p>Manifest availability reads existing registrations without resolving beans or calling handlers.
+ * The separate topology report reads handler metadata, including advertised subprotocols, without
+ * opening a session or sending a frame.</p>
  */
 public class ReactiveWebSocketMetadataProvider implements WebSocketMetadataProvider {
 
@@ -41,6 +50,92 @@ public class ReactiveWebSocketMetadataProvider implements WebSocketMetadataProvi
     }
 
     @Override
+    public boolean hasEndpoints() {
+        return initializedMappings().map(RegisteredMapping::mapping).anyMatch(mapping -> {
+            var handlers = mapping.getHandlerMap();
+            return handlers != null && handlers.values().stream().anyMatch(WebSocketHandler.class::isInstance);
+        });
+    }
+
+    private Stream<RegisteredMapping> initializedMappings() {
+        if (!(applicationContext instanceof ConfigurableApplicationContext context) || !context.isActive()) {
+            return Stream.empty();
+        }
+        var factory = context.getBeanFactory();
+        String[] singletonNames = factory.getSingletonNames();
+        // Keep local definition order for paths exposed by more than one mapping.
+        var localMappings = Stream.concat(
+                        Arrays.stream(factory.getBeanDefinitionNames()),
+                        Arrays.stream(singletonNames).filter(name -> !factory.containsBeanDefinition(name)))
+                .filter(factory::containsSingleton)
+                .map(factory::getSingleton)
+                .filter(SimpleUrlHandlerMapping.class::isInstance)
+                .map(SimpleUrlHandlerMapping.class::cast)
+                .map(mapping -> new RegisteredMapping(mapping, true));
+        // The dispatcher also holds FactoryBean products, prototype mappings and ancestor mappings.
+        var dispatchedMappings = Arrays.stream(singletonNames)
+                .filter(factory::containsSingleton)
+                .map(factory::getSingleton)
+                .filter(DispatcherHandler.class::isInstance)
+                .map(DispatcherHandler.class::cast)
+                .map(DispatcherHandler::getHandlerMappings)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .filter(SimpleUrlHandlerMapping.class::isInstance)
+                .map(SimpleUrlHandlerMapping.class::cast)
+                .map(mapping -> new RegisteredMapping(mapping, false));
+        return Stream.concat(localMappings, dispatchedMappings);
+    }
+
+    private record RegisteredMapping(SimpleUrlHandlerMapping mapping, boolean hasLocalOrder) {}
+
+    private List<SimpleUrlHandlerMapping> orderedReportMappings() {
+        List<SimpleUrlHandlerMapping> mappings = new ArrayList<>();
+        Set<SimpleUrlHandlerMapping> remaining = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<String> paths = new HashSet<>();
+        boolean needsLocalOrder = false;
+        for (var registration : initializedMappings().toList()) {
+            var mapping = registration.mapping();
+            if (!remaining.add(mapping)) {
+                continue;
+            }
+            mappings.add(mapping);
+            var handlers = mapping.getHandlerMap();
+            if (handlers == null || needsLocalOrder) {
+                continue;
+            }
+            for (var entry : handlers.entrySet()) {
+                if (entry.getValue() instanceof WebSocketHandler
+                        && !paths.add(normalizePath(entry.getKey().getPatternString()))
+                        && !registration.hasLocalOrder()) {
+                    needsLocalOrder = true;
+                    break;
+                }
+            }
+        }
+        if (!needsLocalOrder) {
+            return mappings;
+        }
+
+        // Dispatcher entries do not carry bean names. On a duplicate path, use the report's original local
+        // bean order (including FactoryBean products), but do not add mappings to the held snapshot.
+        List<SimpleUrlHandlerMapping> ordered = new ArrayList<>();
+        for (var mapping : applicationContext
+                .getBeansOfType(SimpleUrlHandlerMapping.class, false, false)
+                .values()) {
+            if (remaining.remove(mapping)) {
+                ordered.add(mapping);
+            }
+        }
+        for (var mapping : mappings) {
+            if (remaining.remove(mapping)) {
+                ordered.add(mapping);
+            }
+        }
+        return ordered;
+    }
+
+    @Override
     public WebSocketTopologySnapshot topology() {
         List<WebSocketEndpointSnapshot> endpoints = endpoints();
         if (endpoints.isEmpty()) {
@@ -53,8 +148,12 @@ public class ReactiveWebSocketMetadataProvider implements WebSocketMetadataProvi
     private List<WebSocketEndpointSnapshot> endpoints() {
         List<WebSocketEndpointSnapshot> endpoints = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        for (SimpleUrlHandlerMapping mapping : beans(SimpleUrlHandlerMapping.class)) {
-            for (Map.Entry<?, ?> entry : mapping.getHandlerMap().entrySet()) {
+        for (SimpleUrlHandlerMapping mapping : orderedReportMappings()) {
+            var handlers = mapping.getHandlerMap();
+            if (handlers == null) {
+                continue;
+            }
+            for (Map.Entry<?, ?> entry : handlers.entrySet()) {
                 if (!(entry.getValue() instanceof WebSocketHandler handler)) {
                     continue;
                 }
@@ -88,15 +187,6 @@ public class ReactiveWebSocketMetadataProvider implements WebSocketMetadataProvi
     private List<String> subprotocols(WebSocketHandler handler) {
         List<String> protocols = handler.getSubProtocols();
         return protocols == null ? List.of() : List.copyOf(protocols);
-    }
-
-    private <T> List<T> beans(Class<T> type) {
-        try {
-            return List.copyOf(
-                    applicationContext.getBeansOfType(type, false, false).values());
-        } catch (RuntimeException ex) {
-            return List.of();
-        }
     }
 
     static String normalizePath(String pattern) {

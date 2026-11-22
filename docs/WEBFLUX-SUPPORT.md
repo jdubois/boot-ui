@@ -417,7 +417,11 @@ linked on a WebFlux-only classpath (their `@ConditionalOnClass` gate requires `s
 only sees `WebClient` customization on this stack — the correct signal.
 
 **WebSockets.** Endpoint topology is read from the reactive `SimpleUrlHandlerMapping` beans that map
-`org.springframework.web.reactive.socket.WebSocketHandler`s. *Fidelity gap, accepted and reported honestly:*
+`org.springframework.web.reactive.socket.WebSocketHandler`s. The panel manifest checks those initialized registrations
+without creating lazy mappings or asking handlers for subprotocols. Both the manifest and the detailed report see
+mappings held by the dispatcher. If a handler's subprotocol lookup fails, the detailed report still reports unavailable,
+but the manifest does not hide the panel.
+*Fidelity gap, accepted and reported honestly:*
 `@EnableWebSocketMessageBroker` and its `WebSocketHandlerDecoratorFactory`/`ChannelInterceptor` seams are servlet-only,
 so the reactive report sets `frameCaptureSupported=false` with that reason and the panel shows endpoints only — it never
 fabricates a frame log or an empty capture buffer. There is likewise no reactive session registry, so

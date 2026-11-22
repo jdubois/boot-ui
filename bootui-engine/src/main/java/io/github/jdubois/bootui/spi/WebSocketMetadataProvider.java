@@ -14,4 +14,12 @@ public interface WebSocketMetadataProvider {
      * Must never throw; an implementation that cannot resolve its registry returns {@code null}.
      */
     WebSocketTopologySnapshot topology();
+
+    /**
+     * Reports whether an endpoint is registered. Adapters can override this to check registrations
+     * without resolving the detail used by the WebSockets report.
+     */
+    default boolean hasEndpoints() {
+        return topology() != null;
+    }
 }

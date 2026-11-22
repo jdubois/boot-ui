@@ -11,12 +11,15 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveWebSocketMetadataProvider;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -29,6 +32,11 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.ConfigurableTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.web.reactive.DispatcherHandler;
+import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.reactive.socket.WebSocketHandler;
+import org.springframework.web.reactive.socket.WebSocketSession;
+import reactor.core.publisher.Mono;
 
 class PanelsControllerTests {
 
@@ -666,6 +674,59 @@ class PanelsControllerTests {
                             .value("REST client tracing is not configured"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.ACTIVITY) + ".available")
                             .value(true));
+        }
+    }
+
+    @Test
+    void webFluxManifestKeepsRegisteredWebSocketsVisibleWithoutReadingHandlerMetadata() {
+        AtomicBoolean metadataRead = new AtomicBoolean();
+        AtomicBoolean lazyHandlerCreated = new AtomicBoolean();
+        WebSocketHandler healthy = session -> Mono.empty();
+        WebSocketHandler another = new WebSocketHandler() {
+            @Override
+            public Mono<Void> handle(WebSocketSession session) {
+                return Mono.empty();
+            }
+
+            @Override
+            public List<String> getSubProtocols() {
+                metadataRead.set(true);
+                throw new IllegalStateException("The handler's subprotocol metadata is unavailable");
+            }
+        };
+        try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
+            context.registerBean(
+                    "lazySocketHandler",
+                    WebSocketHandler.class,
+                    () -> {
+                        lazyHandlerCreated.set(true);
+                        return session -> Mono.empty();
+                    },
+                    definition -> definition.setLazyInit(true));
+            context.registerBean("webSocketRoutes", SimpleUrlHandlerMapping.class, () -> {
+                SimpleUrlHandlerMapping mapping = new SimpleUrlHandlerMapping();
+                mapping.setLazyInitHandlers(true);
+                mapping.setUrlMap(Map.of("/healthy", healthy, "/another", another, "/lazy", "lazySocketHandler"));
+                return mapping;
+            });
+            context.registerBean("webHandler", DispatcherHandler.class, () -> new DispatcherHandler());
+            context.registerBean(
+                    WebSocketService.class,
+                    () -> new WebSocketService(new ReactiveWebSocketMetadataProvider(context), null, null, null, null));
+            context.refresh();
+            assertThat(context.getBean(DispatcherHandler.class).getHandlerMappings())
+                    .contains(context.getBean(SimpleUrlHandlerMapping.class));
+
+            PanelsReport manifest =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties()).panels();
+
+            assertThat(metadataRead).isFalse();
+            assertThat(lazyHandlerCreated).isFalse();
+            assertThat(manifest.panels())
+                    .filteredOn(panel -> BootUiPanels.WEBSOCKETS.equals(panel.id()))
+                    .singleElement()
+                    .extracting(PanelDto::available)
+                    .isEqualTo(true);
         }
     }
 

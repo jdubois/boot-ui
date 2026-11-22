@@ -36,6 +36,7 @@ import java.util.Map;
  */
 public final class WebSocketService {
 
+    private static final System.Logger LOG = System.getLogger(WebSocketService.class.getName());
     private static final String USER_DESTINATION_SUFFIX = "-user";
 
     static final String SESSION_TRACKING_UNAVAILABLE =
@@ -202,11 +203,19 @@ public final class WebSocketService {
     /**
      * Whether a supported WebSocket integration is present, without assembling a report.
      *
-     * <p>The panel manifest is fetched on every page load and route change, so it must not pay for the full
-     * report: resolving availability reads the adapter's already-registered topology and nothing else.</p>
+     * <p>The panel manifest is fetched on every page load and route change. The adapter can answer from
+     * its registrations alone, without resolving endpoint detail or reading sessions or activity.</p>
      */
     public boolean isAvailable() {
-        return topology() != null;
+        if (metadataProvider == null) {
+            return false;
+        }
+        try {
+            return metadataProvider.hasEndpoints();
+        } catch (RuntimeException ex) {
+            LOG.log(System.Logger.Level.DEBUG, "Could not determine WebSocket endpoint availability");
+            return false;
+        }
     }
 
     private WebSocketTopologySnapshot topology() {

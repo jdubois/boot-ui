@@ -6,11 +6,17 @@ import io.github.jdubois.bootui.spi.WebSocketEndpointSnapshot;
 import io.github.jdubois.bootui.spi.WebSocketTopologySnapshot;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.web.reactive.DispatcherHandler;
 import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketSession;
+import org.springframework.web.server.WebHandler;
 import reactor.core.publisher.Mono;
 
 /**
@@ -45,9 +51,112 @@ class ReactiveWebSocketMetadataProviderTests {
 
     @Test
     void reportsNoTopologyWhenNoReactiveWebSocketHandlerIsPublished() {
-        try (GenericApplicationContext context = context(Map.of())) {
-            assertThat(new ReactiveWebSocketMetadataProvider(context).topology())
-                    .isNull();
+        try (GenericApplicationContext context =
+                context(Map.of("/webjars/**", (WebHandler) exchange -> Mono.empty()))) {
+            var provider = new ReactiveWebSocketMetadataProvider(context);
+            assertThat(provider.hasEndpoints()).isFalse();
+            assertThat(provider.topology()).isNull();
+        }
+    }
+
+    @Test
+    void availabilityDoesNotInitializeLazyMappingsInAContextWithoutADispatcher() {
+        AtomicInteger created = new AtomicInteger();
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(
+                    "lazyWebSocketRoutes",
+                    SimpleUrlHandlerMapping.class,
+                    () -> {
+                        created.incrementAndGet();
+                        return new SimpleUrlHandlerMapping(Map.of("/lazy", new EchoHandler()));
+                    },
+                    definition -> definition.setLazyInit(true));
+            context.refresh();
+            var provider = new ReactiveWebSocketMetadataProvider(context);
+
+            assertThat(provider.hasEndpoints()).isFalse();
+            assertThat(provider.topology()).isNull();
+            assertThat(created).hasValue(0);
+
+            context.getBean("lazyWebSocketRoutes");
+            assertThat(provider.hasEndpoints()).isTrue();
+            assertThat(created).hasValue(1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void initializedFactoryMappingRetainsItsEndpointAndLocalPrecedence(boolean duplicatePath) {
+        AtomicInteger created = new AtomicInteger();
+        AtomicInteger typeChecks = new AtomicInteger();
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            var mapping = new SimpleUrlHandlerMapping(Map.of("/factory", new EchoHandler()));
+            context.registerBean(
+                    "factoryMapping", MappingFactory.class, () -> new MappingFactory(mapping, created, typeChecks));
+            if (duplicatePath) {
+                context.registerBean(
+                        "laterMapping",
+                        SimpleUrlHandlerMapping.class,
+                        () -> new SimpleUrlHandlerMapping(
+                                Map.of("/factory", (WebSocketHandler) session -> Mono.empty())));
+            }
+            context.registerBean("webHandler", DispatcherHandler.class, () -> new DispatcherHandler());
+            mapping.setApplicationContext(context);
+            context.refresh();
+
+            assertThat(context.getBean(DispatcherHandler.class).getHandlerMappings())
+                    .contains(mapping);
+            assertThat(created).hasValue(1);
+            int initialTypeChecks = typeChecks.get();
+            var provider = new ReactiveWebSocketMetadataProvider(context);
+            assertThat(provider.hasEndpoints()).isTrue();
+            assertThat(typeChecks).hasValue(initialTypeChecks);
+            assertThat(provider.topology().endpoints()).singleElement().satisfies(endpoint -> {
+                assertThat(endpoint.path()).isEqualTo("/factory");
+                assertThat(endpoint.subprotocols()).containsExactly("v12.stomp");
+            });
+            assertThat(created).hasValue(1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void reportsAnEndpointHeldByTheDispatcherEvenWhenItIsNotALocalSingleton(boolean parentMapping) {
+        try (var parent = new GenericApplicationContext();
+                var context = new GenericApplicationContext(parent)) {
+            var registrationContext = parentMapping ? parent : context;
+            registrationContext.registerBean(
+                    "webSocketRoutes",
+                    SimpleUrlHandlerMapping.class,
+                    () -> new SimpleUrlHandlerMapping(Map.of("/dispatched", new EchoHandler())),
+                    definition -> definition.setScope(parentMapping ? "singleton" : "prototype"));
+            context.registerBean("webHandler", DispatcherHandler.class, () -> new DispatcherHandler());
+            parent.refresh();
+            context.refresh();
+            var provider = new ReactiveWebSocketMetadataProvider(context);
+
+            assertThat(provider.hasEndpoints()).isTrue();
+            var topology = provider.topology();
+            assertThat(topology).isNotNull();
+            assertThat(topology.endpoints()).singleElement().satisfies(endpoint -> {
+                assertThat(endpoint.path()).isEqualTo("/dispatched");
+                assertThat(endpoint.subprotocols()).containsExactly("v12.stomp");
+            });
+        }
+    }
+
+    private record MappingFactory(SimpleUrlHandlerMapping mapping, AtomicInteger created, AtomicInteger typeChecks)
+            implements FactoryBean<SimpleUrlHandlerMapping> {
+        @Override
+        public SimpleUrlHandlerMapping getObject() {
+            created.incrementAndGet();
+            return mapping;
+        }
+
+        @Override
+        public Class<?> getObjectType() {
+            typeChecks.incrementAndGet();
+            return SimpleUrlHandlerMapping.class;
         }
     }
 

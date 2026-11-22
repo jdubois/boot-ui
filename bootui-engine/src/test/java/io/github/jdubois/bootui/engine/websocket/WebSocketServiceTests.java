@@ -100,6 +100,7 @@ class WebSocketServiceTests {
                 exposurePolicy(ValueExposure.MASKED));
 
         assertThat(service.report().available()).isFalse();
+        assertThat(service.isAvailable()).isFalse();
     }
 
     @Test
