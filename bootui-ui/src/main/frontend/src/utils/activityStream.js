@@ -345,6 +345,13 @@ export function appendOlderPage(head, older, newEntries) {
   return [...(older || []), ...fresh]
 }
 
+export function hasActivityArchiveScope(origin) {
+  return ['namespace', 'application', 'run'].every((field) => {
+    const value = origin?.[field]
+    return typeof value === 'string' && value.trim().length > 0
+  })
+}
+
 /** A durable global sequence disambiguates equal entry ids from different archive scopes. */
 export function activityEntryKey(entry) {
   const sequence = entry?.archiveOrigin?.globalSequence

@@ -383,6 +383,33 @@ describe('LiveActivity', () => {
     expect(breakdown.find('a').exists()).toBe(false)
   })
 
+  it.each([
+    ['missing', []],
+    ['mismatched', [{entryId: 'another-request', namespace: 'team-a', application: 'orders', run: 'run-7'}]],
+    ['incomplete', [{entryId: 'req-archived', namespace: 'team-a', application: 'orders'}]]
+  ])('does not open a current profile for a persisted request when its recording scope is %s', async (_, origins) => {
+    const fetchMock = stubFetch(
+      activityReport({
+        sources: ['Runtime journal'],
+        pageInfo: {persistent: true, hasMore: false, nextCursor: null},
+        entries: [requestEntry({id: 'req-archived'})],
+        origins
+      }),
+      requestProfile()
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('api/activity/request/'))).toBe(false)
+    const drawer = wrapper.get('.activity-drawer')
+    expect(drawer.text()).toContain('This persisted request does not identify a recording')
+    expect(drawer.find('.route-why-slow').exists()).toBe(false)
+  })
+
   it("uses each persisted row's own archive origin while stepping through profiles", async () => {
     const fetchMock = stubFetch(
       activityReport({

@@ -49,6 +49,7 @@ import {
   deepLink,
   filterEntries,
   groupEntries,
+  hasActivityArchiveScope,
   mergeActivityPages,
   nestEntries
 } from '../utils/activityStream.js'
@@ -271,7 +272,7 @@ async function loadActivity({propagateError = true} = {}) {
     if (backingFeed(loaded) !== backingFeed(report.value)) resetOlderPages()
     report.value = {
       ...loaded,
-      entries: entriesWithOrigins(loaded.entries, loaded.origins)
+      entries: entriesWithOrigins(loaded.entries, loaded.origins, loaded.pageInfo?.persistent === true)
     }
     headGeneration.value = activityGeneration.value
     error.value = null
@@ -322,7 +323,7 @@ async function loadOlder() {
     olderEntries.value = appendOlderPage(
       report.value?.entries,
       olderEntries.value,
-      entriesWithOrigins(page.entries, page.origins)
+      entriesWithOrigins(page.entries, page.origins, true)
     )
     olderPageInfo.value = page.pageInfo ?? null
     error.value = null
@@ -400,10 +401,10 @@ const combinedEntries = computed(() => mergeActivityPages(report.value?.entries,
 const available = computed(() => report.value?.available ?? false)
 const kpis = computed(() => report.value?.kpis ?? null)
 
-function entriesWithOrigins(entries, origins) {
-  if (!Array.isArray(entries) || !Array.isArray(origins) || origins.length === 0) return entries ?? []
+function entriesWithOrigins(entries, origins, persisted) {
+  if (!Array.isArray(entries)) return entries ?? []
   const byEntryId = new Map()
-  for (const origin of origins) {
+  for (const origin of Array.isArray(origins) ? origins : []) {
     if (!origin?.entryId) continue
     const queue = byEntryId.get(origin.entryId) ?? []
     queue.push(origin)
@@ -413,7 +414,7 @@ function entriesWithOrigins(entries, origins) {
   return entries.map((entry) => {
     const index = used.get(entry.id) ?? 0
     const origin = byEntryId.get(entry.id)?.[index]
-    if (!origin) return entry
+    if (!origin) return persisted ? {...entry, archiveOriginMissing: true} : entry
     used.set(entry.id, index + 1)
     return {...entry, archiveOrigin: origin}
   })
@@ -828,6 +829,10 @@ async function loadProfile(id, opener, execution = false, entry = null, origin =
   journalProfile.value = null
   aiExport.value = null
   try {
+    if ((entry?.archiveOriginMissing || origin !== null) && !hasActivityArchiveScope(origin)) {
+      profileError.value = 'This persisted request does not identify a recording. Its profile is unavailable.'
+      return
+    }
     // A durable row belongs to its archive scope. The process-local buffer cannot read that scope and may contain a
     // different current-run request with the same id, so archived profiles begin with the journal lookup.
     if (!execution && !origin) {

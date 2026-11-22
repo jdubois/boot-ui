@@ -1,6 +1,7 @@
 <script setup>
 import {computed, inject, ref} from 'vue'
 import {getJson} from '../../api.js'
+import {hasActivityArchiveScope} from '../../utils/activityStream.js'
 import {insightsUsable} from '../../utils/insightsPanel.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import InsightText from './InsightText.vue'
@@ -28,13 +29,12 @@ async function load() {
   try {
     const params = new URLSearchParams()
     if (props.origin) {
+      if (!hasActivityArchiveScope(props.origin)) {
+        error.value = 'This persisted request does not identify a recording for Runtime Insights.'
+        return
+      }
       for (const field of ['namespace', 'application', 'run']) {
-        const value = props.origin[field]
-        if (typeof value !== 'string' || !value.trim()) {
-          error.value = 'This persisted request does not identify a recording for Runtime Insights.'
-          return
-        }
-        params.set(field, value)
+        params.set(field, props.origin[field])
       }
     }
     const scope = params.toString()
