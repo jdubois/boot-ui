@@ -1895,8 +1895,12 @@ Features:
   qualification, or unavailable agent evidence as partial. Historical reads never consult the current BootUI agent.
 - **Clear recording** removes the current run's hot evidence immediately and schedules deletion of its durable
   events/details through the clear sequence; prior runs are untouched. A storage failure leaves durable history
-  unchanged and is logged. Retention is evaluated within namespace/application: old events/details are deleted and an
-  old run row is deleted after its events are gone. Disabling persistence does not erase existing rows.
+  unchanged and is logged. Historical omission counts exclude the cleared prefix only after the committed deletion
+  has been recorded in run metadata; a Clear attempt alone does not excuse a gap or read truncation. If a request or
+  execution may have spanned the cleared boundary, the archive can still report incomplete evidence with zero omitted
+  events. Readers predating confirmed-Clear metadata cannot decode those run snapshots. Retention is evaluated within
+  namespace/application: old events/details are deleted and an old run row is deleted after its events are gone.
+  Disabling persistence does not erase existing rows.
 - `GET /bootui/api/activity` defaults to the caller's namespace and application. Selecting another namespace requires
   `bootui.activity.persistence.reader-archive-cross-namespace=true`. Direct `bootui archive` reads require the explicit
   `--allow-cross-namespace` opt-in instead. The old `bootui_activity` table remains outside this authorization and

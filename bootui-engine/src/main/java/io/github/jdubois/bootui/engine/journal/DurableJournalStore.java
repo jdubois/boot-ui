@@ -23,6 +23,11 @@ public interface DurableJournalStore extends DurableJournalWriter {
 
     DurableJournalRunMetadata findRunMetadata(DurableJournalScope scope);
 
+    /** Reads metadata and any confirmed Clear boundary together, or {@code null} if unsupported or absent. */
+    default DurableJournalRunMetadataCodec.ArchivedMetadata findArchivedMetadata(DurableJournalScope scope) {
+        return null;
+    }
+
     List<DurableJournalRun> listRuns(String namespace, String application);
 
     List<DurableJournalRun> listRuns(String namespace, String application, int limit);

@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -159,10 +160,17 @@ public final class DurableJournalArchiveService {
                         + " unavailable."));
         service.setExposure(exposure);
         service.setAgent(() -> HISTORICAL_AGENT_UNAVAILABLE, Duration.ZERO);
-        RuntimeInsightsReportDto report = withHistoricalCapabilities(
-                withLimitations(service.reportFrom(loaded.snapshot()), limitations), loaded.metadata());
+        var projected = service.evidenceReportFrom(loaded.snapshot());
+        if (projected.excludedWorkLimitation() != null) {
+            limitations.add(projected.excludedWorkLimitation());
+        }
+        RuntimeInsightsReportDto report =
+                withHistoricalCapabilities(withLimitations(projected.report(), limitations), loaded.metadata());
         DurableJournalArchiveReport.Completeness completeness = new DurableJournalArchiveReport.Completeness(
-                loaded.complete(), loaded.metadata().phase(), loaded.snapshot().omittedEvents(), limitations);
+                loaded.complete() && projected.excludedWorkLimitation() == null,
+                loaded.metadata().phase(),
+                loaded.snapshot().omittedEvents(),
+                limitations);
         return new ProjectedRun(
                 new DurableJournalArchiveReport.Run(
                         new DurableJournalOrigin(scope, loaded.metadata().instanceId()), completeness, report),
@@ -523,6 +531,7 @@ public final class DurableJournalArchiveService {
                 result.add("This request comes from a run whose durable metadata is not an end snapshot; newer work may"
                         + " not have been persisted.");
             }
+            qualifyAdmissionLoss(result);
             if (snapshot.partial()) {
                 result.add("The durable reader omitted " + snapshot.omittedEvents()
                         + " older events, so this profile may be partial.");
@@ -549,6 +558,7 @@ public final class DurableJournalArchiveService {
                 result.add("The source run was interrupted or remains active: this report is based on its latest"
                         + " durable metadata checkpoint, not a completed-run snapshot.");
             }
+            qualifyAdmissionLoss(result);
             if (snapshot.partial()) {
                 result.add("The bounded durable reader omitted " + snapshot.omittedEvents()
                         + " older entries, so this report is partial.");
@@ -592,8 +602,17 @@ public final class DurableJournalArchiveService {
             return new ArrayList<>(result);
         }
 
+        private void qualifyAdmissionLoss(Collection<String> limitations) {
+            long lost = snapshot.status().droppedTotal();
+            if (lost > 0) {
+                limitations.add("The runtime journal admission queue dropped " + lost
+                        + " events before assigning sequence numbers; they are not part of the omission count.");
+            }
+        }
+
         boolean complete() {
             return metadata.phase() == DurableJournalRunMetadata.Phase.END
+                    && snapshot.status().droppedTotal() == 0
                     && snapshot.complete()
                     && !missingDetails
                     && metadata.runSummary() != null

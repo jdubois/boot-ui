@@ -30,8 +30,72 @@ public final class DurableJournalRunMetadataCodec {
     public static final int MAX_SUMMARY_BYTES = RunHistory.MAX_SUMMARY_BYTES;
 
     private static final int MAGIC = 0x42554a4d;
+    // V4 is reserved for this frame, not a snapshot version. Its inner snapshot can still use V1–V3.
+    private static final int WITH_CLEAR_PROOF = 4;
+    private static final int FRAME_BYTES = 3 * Integer.BYTES + Long.BYTES;
+    static final int MAX_FRAMED_BYTES = MAX_ENCODED_BYTES + FRAME_BYTES;
 
     private DurableJournalRunMetadataCodec() {}
+
+    static byte[] encodeArchive(DurableJournalRunMetadata metadata, long confirmedClearThrough) {
+        validateClearProof(metadata, confirmedClearThrough);
+        byte[] snapshot = metadata == null ? null : encode(metadata);
+        if (confirmedClearThrough == 0) {
+            return snapshot;
+        }
+        int length = snapshot == null ? 0 : snapshot.length;
+        ByteBuffer frame = ByteBuffer.allocate(FRAME_BYTES + length)
+                .putInt(MAGIC)
+                .putInt(WITH_CLEAR_PROOF)
+                .putLong(confirmedClearThrough)
+                .putInt(length);
+        if (snapshot != null) {
+            frame.put(snapshot);
+        }
+        return frame.array();
+    }
+
+    static ArchivedMetadata decodeArchive(byte[] bytes) {
+        if (bytes != null && bytes.length >= 2 * Integer.BYTES) {
+            ByteBuffer frame = ByteBuffer.wrap(bytes);
+            if (frame.getInt() == MAGIC && frame.getInt() == WITH_CLEAR_PROOF) {
+                if (bytes.length < FRAME_BYTES || bytes.length > MAX_FRAMED_BYTES) {
+                    throw new IllegalArgumentException("Invalid durable journal Clear frame size");
+                }
+                long confirmedClearThrough = frame.getLong();
+                if (confirmedClearThrough <= 0) {
+                    throw new IllegalArgumentException("Invalid confirmed durable journal Clear boundary");
+                }
+                int length = frame.getInt();
+                if (length != frame.remaining()) {
+                    throw new IllegalArgumentException("Invalid durable journal Clear snapshot size");
+                }
+                byte[] snapshot = new byte[length];
+                frame.get(snapshot);
+                return new ArchivedMetadata(
+                        snapshot.length == 0 ? null : decodeSnapshot(snapshot), confirmedClearThrough);
+            }
+        }
+        return new ArchivedMetadata(decodeSnapshot(bytes), 0);
+    }
+
+    /** The snapshot and confirmed deletion boundary read from the same stored run row. */
+    public record ArchivedMetadata(DurableJournalRunMetadata metadata, long confirmedClearThrough) {
+        public ArchivedMetadata {
+            validateClearProof(metadata, confirmedClearThrough);
+        }
+    }
+
+    private static void validateClearProof(DurableJournalRunMetadata metadata, long confirmedClearThrough) {
+        if (confirmedClearThrough < 0
+                || (confirmedClearThrough > 0
+                        && metadata != null
+                        && (confirmedClearThrough > metadata.durableClearedThrough()
+                                || confirmedClearThrough
+                                        > metadata.journalStatus().lastSequence()))) {
+            throw new IllegalArgumentException("Invalid confirmed durable journal Clear boundary");
+        }
+    }
 
     /** Encodes one current metadata snapshot, including its optional bounded summary. */
     public static byte[] encode(DurableJournalRunMetadata metadata) {
@@ -100,6 +164,10 @@ public final class DurableJournalRunMetadataCodec {
 
     /** Strictly decodes one current metadata snapshot. */
     public static DurableJournalRunMetadata decode(byte[] bytes) {
+        return decodeArchive(bytes).metadata();
+    }
+
+    private static DurableJournalRunMetadata decodeSnapshot(byte[] bytes) {
         if (bytes == null) {
             throw new IllegalArgumentException("Durable journal run metadata bytes must not be null");
         }

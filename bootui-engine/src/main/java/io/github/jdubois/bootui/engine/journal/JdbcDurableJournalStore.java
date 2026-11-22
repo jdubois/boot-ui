@@ -138,6 +138,12 @@ public final class JdbcDurableJournalStore implements DurableJournalStore {
     /** Decodes the optional binary metadata for {@code scope}, rejecting malformed stored bytes. */
     @Override
     public DurableJournalRunMetadata findRunMetadata(DurableJournalScope scope) {
+        var archived = findArchivedMetadata(scope);
+        return archived == null ? null : archived.metadata();
+    }
+
+    @Override
+    public DurableJournalRunMetadataCodec.ArchivedMetadata findArchivedMetadata(DurableJournalScope scope) {
         DurableJournalScope key = Objects.requireNonNull(scope, "scope must not be null");
         return guarded("read durable journal run metadata " + key, () -> {
             ensureSchema();
@@ -145,10 +151,10 @@ public final class JdbcDurableJournalStore implements DurableJournalStore {
                 DurableJournalRun run = selectRun(connection, key);
                 byte[] payload = run == null ? null : run.metadataPayload();
                 if (payload == null) {
-                    return null;
+                    return new DurableJournalRunMetadataCodec.ArchivedMetadata(null, 0);
                 }
                 try {
-                    return DurableJournalRunMetadataCodec.decode(payload);
+                    return DurableJournalRunMetadataCodec.decodeArchive(payload);
                 } catch (IllegalArgumentException ex) {
                     throw new DurableJournalStoreException(
                             "Stored durable journal run metadata is malformed for " + key, ex);

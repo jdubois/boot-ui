@@ -74,6 +74,8 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
     private int hotMaxEntries = Integer.MAX_VALUE;
     private Function<DurableJournalRunMetadata.Phase, DurableJournalRunMetadata> metadataSupplier;
 
+    // Owned by the capture worker after startup; the listener's Clear fence is not a delete acknowledgement.
+    private long confirmedClearThrough;
     private int pending;
     private long pendingBytes;
     private List<PendingEntry> inFlight = List.of();
@@ -705,6 +707,7 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
         RuntimeException failure = null;
         try {
             store.clearRunThrough(scope, sequence);
+            confirmedClearThrough = Math.max(confirmedClearThrough, sequence);
         } catch (RuntimeException ex) {
             failure = ex;
         }
@@ -759,25 +762,15 @@ public final class DurableJournalCapture implements JournalListener, AutoCloseab
                     log.log(Level.WARNING, message, ex);
                 }
             }
-            store.upsertRun(
-                    runMetadata == null
-                            ? new DurableJournalRun(
-                                    scope,
-                                    journal.run().startedAtEpochMillis(),
-                                    System.currentTimeMillis(),
-                                    status,
-                                    null,
-                                    watermark,
-                                    instanceId)
-                            : new DurableJournalRun(
-                                    scope,
-                                    journal.run().startedAtEpochMillis(),
-                                    System.currentTimeMillis(),
-                                    status,
-                                    null,
-                                    watermark,
-                                    instanceId,
-                                    runMetadata));
+            store.upsertRun(new DurableJournalRun(
+                    scope,
+                    journal.run().startedAtEpochMillis(),
+                    System.currentTimeMillis(),
+                    status,
+                    null,
+                    DurableJournalRunMetadataCodec.encodeArchive(runMetadata, confirmedClearThrough),
+                    watermark,
+                    instanceId));
             runReady = true;
             heartbeatFailureLogged.set(false);
             return true;

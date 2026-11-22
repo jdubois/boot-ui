@@ -117,7 +117,7 @@ class DurableJournalRunMetadataCodecTests {
         byte[] encoded = DurableJournalRunMetadataCodec.encode(metadata(DurableJournalRunMetadata.Phase.START, null));
 
         byte[] unknownVersion = Arrays.copyOf(encoded, encoded.length);
-        ByteBuffer.wrap(unknownVersion).putInt(4, DurableJournalRunMetadataCodec.VERSION + 1);
+        ByteBuffer.wrap(unknownVersion).putInt(4, 1_000);
         assertThatThrownBy(() -> DurableJournalRunMetadataCodec.decode(unknownVersion))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("version");
@@ -139,6 +139,53 @@ class DurableJournalRunMetadataCodecTests {
         assertThatThrownBy(() -> DurableJournalRunMetadataCodec.decode(badStringLength))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("byte length");
+    }
+
+    @Test
+    void clearProofFramesAnUnchangedSnapshotOnlyWhenPresent() {
+        var metadata = metadata(DurableJournalRunMetadata.Phase.END, null).withCaptureLoss(1, 2, 20);
+        byte[] snapshot = DurableJournalRunMetadataCodec.encode(metadata);
+        assertThat(DurableJournalRunMetadataCodec.encodeArchive(metadata, 0)).isEqualTo(snapshot);
+        assertThat(DurableJournalRunMetadataCodec.decodeArchive(snapshot).confirmedClearThrough())
+                .isZero();
+
+        byte[] framed = DurableJournalRunMetadataCodec.encodeArchive(metadata, 10);
+        int overhead = 20;
+        assertThat(framed).hasSize(snapshot.length + overhead);
+        assertThat(Arrays.copyOfRange(framed, overhead, framed.length)).isEqualTo(snapshot);
+        var decoded = DurableJournalRunMetadataCodec.decodeArchive(framed);
+        assertThat(decoded.metadata()).isEqualTo(metadata);
+        assertThat(decoded.confirmedClearThrough()).isEqualTo(10);
+        assertThat(DurableJournalRunMetadataCodec.decode(framed)).isEqualTo(metadata);
+
+        var withoutSnapshot =
+                DurableJournalRunMetadataCodec.decodeArchive(DurableJournalRunMetadataCodec.encodeArchive(null, 10));
+        assertThat(withoutSnapshot.metadata()).isNull();
+        assertThat(withoutSnapshot.confirmedClearThrough()).isEqualTo(10);
+    }
+
+    @Test
+    void rejectsInvalidClearProofsAndMalformedFramesBeforeTheyCanQualifyAGap() {
+        var metadata = metadata(DurableJournalRunMetadata.Phase.END, null).withCaptureLoss(0, 0, 20);
+        assertThatThrownBy(() -> DurableJournalRunMetadataCodec.encodeArchive(metadata, 21))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        byte[] framed = DurableJournalRunMetadataCodec.encodeArchive(metadata, 10);
+        byte[] oversized = Arrays.copyOf(framed, DurableJournalRun.MAX_METADATA_PAYLOAD_LENGTH + 1);
+        byte[] inconsistentProof = framed.clone();
+        ByteBuffer.wrap(inconsistentProof).putLong(8, 21);
+        byte[] nestedFrame = framed.clone();
+        ByteBuffer.wrap(nestedFrame).putInt(24, 4);
+        for (byte[] malformed : List.of(
+                Arrays.copyOf(framed, 20),
+                Arrays.copyOf(framed, framed.length - 1),
+                Arrays.copyOf(framed, framed.length + 1),
+                oversized,
+                inconsistentProof,
+                nestedFrame)) {
+            assertThatThrownBy(() -> DurableJournalRunMetadataCodec.decodeArchive(malformed))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Test

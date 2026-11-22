@@ -500,6 +500,14 @@ public final class RuntimeInsightsService {
         return projectionFrom(evidence).report();
     }
 
+    /** The report and the existing loss limitation, if the projection excluded affected work. */
+    public synchronized EvidenceReport evidenceReportFrom(JournalEvidenceSnapshot evidence) {
+        Cached projected = projectionFrom(evidence);
+        return new EvidenceReport(projected.report(), projected.excludedWorkLimitation());
+    }
+
+    public record EvidenceReport(RuntimeInsightsReportDto report, String excludedWorkLimitation) {}
+
     /** Projects one observation from an already-loaded bounded hot or durable evidence snapshot. */
     public synchronized RuntimeObservationDetailDto insightFrom(JournalEvidenceSnapshot evidence, String id) {
         return insight(projectionFrom(evidence), id);
@@ -694,6 +702,7 @@ public final class RuntimeInsightsService {
                     null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
+                    null,
                     Map.of(),
                     0,
                     Map.of(),
@@ -780,6 +789,7 @@ public final class RuntimeInsightsService {
                 null,
                 new RuntimeInsightsReportDto(
                         false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
+                null,
                 Map.of(),
                 0,
                 Map.of(),
@@ -1353,6 +1363,7 @@ public final class RuntimeInsightsService {
                 caches,
                 text,
                 report,
+                leftOut,
                 details,
                 status.clears(),
                 status.dropped(),
@@ -1819,6 +1830,7 @@ public final class RuntimeInsightsService {
             CacheCapture cacheCapture,
             JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
+            String excludedWorkLimitation,
             Map<String, Detail> details,
             long clears,
             Map<JournalSource, Long> dropped,
@@ -1837,6 +1849,7 @@ public final class RuntimeInsightsService {
                     cacheCapture,
                     exposure,
                     report,
+                    excludedWorkLimitation,
                     details,
                     clears,
                     dropped,
