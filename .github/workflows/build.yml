@@ -119,6 +119,9 @@ jobs:
       - name: Test the agent legs' path list
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_agent_changes.py'
 
+      - name: Test collection of agent overhead reports
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_agent_overhead_reports.py'
+
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v6
         with:
@@ -996,14 +999,33 @@ jobs:
           ${{ matrix.leg.args }}
           -Dit.test=${{ matrix.leg.it }} -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      # Put the leg name inside the archive, even when only reports or only Failsafe diagnostics exist.
+      - name: Stage the leg's report
+        if: ${{ !cancelled() }}
+        env:
+          LEG_ARTIFACT: agent-overhead-leg-${{ matrix.leg.reports }}--${{ matrix.leg.id }}
+          LEG_REPORTS: ${{ matrix.leg.reports }}
+          LEG_TEST: ${{ matrix.leg.it }}
+        run: |
+          shopt -s nullglob
+          target=bootui-spring-sample-app/target
+          artifact="$target/agent-overhead-upload/$LEG_ARTIFACT"
+          if [ -d "$target/$LEG_REPORTS" ]; then
+            mkdir -p "$artifact"
+            cp -R "$target/$LEG_REPORTS" "$artifact/"
+          fi
+          diagnostics=("$target"/failsafe-reports/*"$LEG_TEST"*)
+          if [ "${#diagnostics[@]}" -gt 0 ]; then
+            mkdir -p "$artifact/failsafe-reports"
+            cp -R "${diagnostics[@]}" "$artifact/failsafe-reports/"
+          fi
+
       - name: Upload the leg's report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: agent-overhead-leg-${{ matrix.leg.reports }}--${{ matrix.leg.id }}
-          path: |
-            bootui-spring-sample-app/target/${{ matrix.leg.reports }}/
-            bootui-spring-sample-app/target/failsafe-reports/*${{ matrix.leg.it }}*
+          path: bootui-spring-sample-app/target/agent-overhead-upload/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -1284,9 +1306,11 @@ jobs:
         with:
           pattern: agent-overhead-leg-*
           path: bootui-spring-sample-app/target/agent-overhead-legs
+          # Each archive already contains its own leg directory. Extract to the same root for any number of matches.
+          merge-multiple: true
 
       # Every leg writes its own <report>.md and <report>.properties (summary.properties for the default report) in its
-      # reports directory, which its artifact's name carries (agent-overhead-leg-<directory>--<leg>), so two legs writing
+      # reports directory, which its leg directory names (agent-overhead-leg-<directory>--<leg>), so two legs writing
       # the same file means two legs measured under one name: fail rather than keep either.
       - name: Gather the legs' reports
         if: ${{ !cancelled() }}
@@ -1319,15 +1343,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           directory=bootui-spring-sample-app/target/agent-overhead
-          if [ ! -f "$directory/spring-mvc-agent.md" ]; then
-            echo "::warning::The agent overhead benchmark wrote no report."
-            exit 0
-          fi
-          cat "$directory/spring-mvc-agent.md" >> "$GITHUB_STEP_SUMMARY"
-          overhead=$(sed -n 's/^overheadPercent=//p' "$directory/summary.properties")
-          budget=$(sed -n 's/^budgetPercent=//p' "$directory/summary.properties")
-          if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
-            echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
+          budget=""
+          if [ -f "$directory/spring-mvc-agent.md" ]; then
+            cat "$directory/spring-mvc-agent.md" >> "$GITHUB_STEP_SUMMARY"
+            overhead=$(sed -n 's/^overheadPercent=//p' "$directory/summary.properties")
+            budget=$(sed -n 's/^budgetPercent=//p' "$directory/summary.properties")
+            if awk -v overhead="$overhead" -v budget="$budget" 'BEGIN { exit !(overhead > budget) }'; then
+              echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
+            fi
+          else
+            echo "::warning::The agent overhead benchmark wrote no default report."
           fi
           for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab \
             spring-mvc-agent-io-files spring-mvc-environment-ab spring-mvc-caught-ab \
@@ -1340,9 +1365,10 @@ jobs:
               verdict=$(sed -n 's/^verdict=//p' "$directory/$report.properties")
               low=$(sed -n 's/^lowOverheadPercent=//p' "$directory/$report.properties")
               high=$(sed -n 's/^highOverheadPercent=//p' "$directory/$report.properties")
-              echo "${verdict:-?}: ${report} median overhead ${overhead} % (95 % interval ${low:-?} to ${high:-?} %) against its ${own:-$budget} % budget."
-              if awk -v overhead="$overhead" -v limit="${own:-$budget}" 'BEGIN { exit !(overhead > limit) }'; then
-                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${own:-$budget} % limit."
+              limit=${own:-$budget}
+              echo "${verdict:-?}: ${report} median overhead ${overhead} % (95 % interval ${low:-?} to ${high:-?} %) against its ${limit:-?} % budget."
+              if [ -n "$limit" ] && awk -v overhead="$overhead" -v limit="$limit" 'BEGIN { exit !(overhead > limit) }'; then
+                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${limit} % limit."
               fi
             fi
           done
