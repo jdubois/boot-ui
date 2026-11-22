@@ -54,7 +54,14 @@ describe('RouteWhySlow', () => {
   })
 
   it('keeps the link for a persisted request from the current run without dropping its scope', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ok: true, status: 200, json: () => Promise.resolve(report)})
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ok: true, status: 200, json: () => Promise.resolve(report)})
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({run: {runId: 'current-run'}})
+      })
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountWhySlow(
       'GET /api/orders/{id}',
@@ -69,7 +76,46 @@ describe('RouteWhySlow', () => {
       'api/runtime-insights?namespace=team-a&application=orders&run=current-run',
       expect.anything()
     )
+    expect(fetchMock).toHaveBeenCalledWith('api/overview', expect.objectContaining({cache: 'no-store'}))
     expect(wrapper.get('a').text()).toBe('Open in Runtime Insights')
+  })
+
+  it('does not use a cached overview to link an old recording to the current run after restart', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ok: true, status: 200, json: () => Promise.resolve(report)})
+        .mockResolvedValueOnce({ok: true, status: 200, json: () => Promise.resolve({run: {runId: 'new-run'}})})
+    )
+    wrapper = mountWhySlow(
+      'GET /api/orders/{id}',
+      null,
+      {namespace: 'team-a', application: 'orders', run: 'old-run'},
+      {run: {runId: 'old-run'}}
+    )
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('warm median 40 ms')
+    expect(wrapper.find('a').exists()).toBe(false)
+  })
+
+  it('keeps the scoped breakdown when current-run verification fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ok: true, status: 200, json: () => Promise.resolve(report)})
+        .mockRejectedValueOnce(new Error('Overview unavailable'))
+    )
+    wrapper = mountWhySlow('GET /api/orders/{id}', null, {namespace: 'team-a', application: 'orders', run: 'old-run'})
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('warm median 40 ms')
+    expect(wrapper.text()).toContain('Unable to verify the current run')
+    expect(wrapper.find('a').exists()).toBe(false)
   })
 
   it('says so when the route has no breakdown yet', async () => {

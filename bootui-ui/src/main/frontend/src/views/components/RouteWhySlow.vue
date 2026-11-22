@@ -13,12 +13,10 @@ const props = defineProps({
 })
 
 const panels = inject('panels', ref(null))
-const overview = inject('overview', ref(null))
 const usable = computed(() => insightsUsable(panels.value))
-const linksToCurrentRun = computed(() => {
-  const currentRun = overview.value?.run?.runId
-  return !props.origin || (Boolean(currentRun) && props.origin.run === currentRun)
-})
+const currentRun = ref(null)
+const linksToCurrentRun = computed(() => !props.origin || currentRun.value === props.origin.run)
+const linkError = ref(null)
 const loading = ref(false)
 const error = ref(null)
 const loaded = ref(false)
@@ -50,6 +48,16 @@ async function load() {
         (observation) => observation.kind === 'route-time-breakdown' && observation.subject === props.route
       ) ?? null
     loaded.value = true
+    if (scope && breakdown.value) {
+      // The shell's overview can outlive a restart. Do not let it turn an archived result into a live link.
+      try {
+        const overview = await getJson('api/overview', {cache: 'no-store'})
+        currentRun.value = overview?.run?.runId ?? null
+        if (!currentRun.value) linkError.value = 'The current run could not be verified.'
+      } catch (e) {
+        linkError.value = formatLoadError(e, 'Unable to verify the current run')
+      }
+    }
   } catch (e) {
     error.value = formatLoadError(e, 'Unable to load Runtime Insights')
   } finally {
@@ -84,6 +92,7 @@ async function load() {
         >
           Open in Runtime Insights
         </router-link>
+        <p v-if="linkError" class="mb-0 text-muted">{{ linkError }}</p>
       </template>
       <p v-else class="mb-0 text-muted">
         Runtime Insights has no time breakdown for this route
