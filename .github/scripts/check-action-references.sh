@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly WORKFLOW_DIRECTORY=".github/workflows"
 readonly ACTION_DIRECTORY=".github/actions"
+readonly WINDOWS_INSTALLER_WORKFLOW="$WORKFLOW_DIRECTORY/windows-installer.yml"
 
 is_trusted_action() {
   case "$1" in
@@ -92,6 +93,22 @@ report_error() {
 }
 
 for file in "${files[@]}"; do
+  case "$file" in
+    "$WINDOWS_INSTALLER_WORKFLOW" | */"$WINDOWS_INSTALLER_WORKFLOW")
+      # The installer tests execute scripts from the PR checkout.
+      if ! grep -Fxq '  pull_request:' "$file" || grep -Eq '^[[:space:]]*pull_request_target:' "$file"; then
+        report_error "$file" 1 "Windows installer tests must use pull_request, not pull_request_target."
+      fi
+      if [[ "$(grep -Ec '^[[:space:]]*permissions:' "$file")" != 1 ]] ||
+        ! grep -A 1 -x 'permissions:' "$file" | grep -Fxq '  contents: read' ||
+        grep -Eq '^[[:space:]]+[a-z-]+:[[:space:]]+write([[:space:]]|$)' "$file"; then
+        report_error "$file" 1 "Windows installer tests must use read-only permissions without overrides."
+      fi
+      if ! grep -Fxq '          persist-credentials: false' "$file"; then
+        report_error "$file" 1 "Windows installer tests must not persist checkout credentials."
+      fi
+      ;;
+  esac
   line_number=0
   # Shared matrix steps (such as agent-overhead-leg-steps in build.yml) are checked at their anchor definition.
   while IFS= read -r line || [[ -n "$line" ]]; do

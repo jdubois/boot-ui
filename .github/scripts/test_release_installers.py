@@ -190,7 +190,10 @@ printf '[GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}\\n'
 
 class PowerShellInstallerTests(unittest.TestCase):
     def setUp(self):
-        self.runtime = shutil.which("powershell") or shutil.which("pwsh")
+        self.runtime = (
+            Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+            if os.name == "nt" else shutil.which("pwsh")
+        )
         if self.runtime is None:
             self.skipTest("PowerShell unavailable for installer execution")
         temporary = tempfile.TemporaryDirectory()
@@ -262,12 +265,15 @@ try {{
 }} finally {{
   if ($lock) {{ $lock.Dispose() }}
 }}
-""")
+""", encoding="utf-8-sig" if os.name == "nt" else "utf-8")
+        command = [self.runtime, "-NoLogo", "-NoProfile", "-NonInteractive"]
+        if os.name == "nt":
+            command += ["-ExecutionPolicy", "RemoteSigned"]
         if locked is not None and sys.platform == "darwin":
             subprocess.run(["chflags", "uchg", str(locked)], check=True)
         try:
             return subprocess.run(
-                [self.runtime, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(bootstrap)],
+                [*command, "-File", str(bootstrap)],
                 env=self.environment, capture_output=True, text=True, timeout=30, check=False,
             )
         finally:
@@ -329,6 +335,49 @@ try {{
         self.assertIn("Fixture launcher write failed", result.stderr)
         self.assert_previous_install(result, previous)
         self.assert_only_previous_files()
+
+    @unittest.skipUnless(os.name == "nt", "requires native cmd.exe")
+    def test_powershell_launcher_forwards_arguments_and_status_after_failed_upgrade(self):
+        initial = self.install("previous", self.launcher_probe_jar())
+        self.assertEqual(initial.returncode, 0, initial.stdout + initial.stderr)
+        failure = self.install("next", b"replacement artifact", locked=self.launcher)
+        self.assertNotEqual(failure.returncode, 0, failure.stdout + failure.stderr)
+        self.assert_only_previous_files()
+
+        for use_java_home in (True, False):
+            environment = dict(self.environment)
+            if use_java_home:
+                environment["PATH"] = str(self.root / "tools")
+            else:
+                environment.pop("JAVA_HOME", None)
+            for status in (0, 1, 2):
+                with self.subTest(use_java_home=use_java_home, status=status):
+                    arguments = [str(status), "--name", "two words"]
+                    result = subprocess.run(
+                        [os.environ["ComSpec"], "/d", "/c", r".\bootui.cmd", *arguments],
+                        cwd=self.bin_dir, env=environment, capture_output=True, text=True, timeout=30, check=False,
+                    )
+                    self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), arguments)
+
+    def launcher_probe_jar(self):
+        (self.root / "LauncherProbe.java").write_text("""public class LauncherProbe {
+    public static void main(String[] args) {
+        for (String arg : args) {
+            System.out.println(arg);
+        }
+        System.exit(Integer.parseInt(args[0]));
+    }
+}
+""", encoding="ascii")
+        subprocess.run(
+            ["javac", "--release", "17", "LauncherProbe.java"], cwd=self.root, timeout=30, check=True,
+        )
+        subprocess.run(
+            ["jar", "--create", "--file", "launcher-probe.jar", "--main-class", "LauncherProbe", "LauncherProbe.class"],
+            cwd=self.root, timeout=30, check=True,
+        )
+        return (self.root / "launcher-probe.jar").read_bytes()
 
     def assert_previous_install(self, result, previous):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)

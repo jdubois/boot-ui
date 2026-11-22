@@ -1,0 +1,39 @@
+name: Windows CLI installer
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-installer.yml
+      - .github/scripts/test_release_installers.py
+      - docs/.vuepress/public/install.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Test installation, rollback and launcher
+        shell: powershell
+        run: |
+          if (-not $env:JAVA_HOME_17_X64) { throw 'The runner must have JDK 17.' }
+          $env:JAVA_HOME = $env:JAVA_HOME_17_X64
+          $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+
+          # The workspace drive can use ReFS; exercise file replacement on NTFS.
+          $temp = Join-Path $env:LOCALAPPDATA 'Temp'
+          if (-not (Test-Path -LiteralPath $temp -PathType Container) -or
+              ([IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp))).DriveFormat -ne 'NTFS') {
+            throw "The installer test directory must be on NTFS: $temp"
+          }
+          $env:TMPDIR = $temp
+          $env:TEMP = $temp
+          $env:TMP = $temp
+          python -B -m unittest discover -s .github/scripts -p test_release_installers.py -k PowerShellInstallerTests -v

@@ -705,6 +705,16 @@ bash .github/scripts/check-action-references.sh
 python3 -B -m unittest discover -s .github/scripts -p 'test_action_references.py'
 ```
 
+PRs that touch the Windows CLI installer or its tests run a focused Windows job, separate from the scheduled
+cross-platform build. To reproduce it on NTFS with Python 3 and JDK 17 on `PATH` and `JAVA_HOME` set, run:
+
+```powershell
+python -B -m unittest discover -s .github/scripts -p test_release_installers.py -k PowerShellInstallerTests -v
+```
+
+The fixture uses Windows PowerShell 5.1 and exercises rollback with sharing locks, then invokes the generated
+launcher through `cmd.exe` with a JAR built locally for the test. It does not download a CLI release or run Maven.
+
 ## Run the sample app
 
 Build the selected adapter first (see the adapter-focused commands above), then
