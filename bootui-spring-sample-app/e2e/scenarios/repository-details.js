@@ -33,11 +33,14 @@ export function registerRepositoryDetailTests(test, expect) {
       route.fulfill({json: {...repository, methods: []}})
     )
 
-    const first = Promise.withResolvers()
+    let finishFirst
+    const pendingFirst = new Promise((resolve) => {
+      finishFirst = resolve
+    })
     let attempts = 0
     await page.route(`**/api/data/repositories/${archive.beanName}`, async (route) => {
       if (++attempts === 1) {
-        await first.promise
+        await pendingFirst
         await route.fulfill({status: 503})
       } else {
         await route.fulfill({json: {...archive, methods: [{origin: 'DERIVED', signature: 'findByNumber(String)'}]}})
@@ -68,7 +71,7 @@ export function registerRepositoryDetailTests(test, expect) {
       await expect(loading).toBeVisible()
       await expect(main.getByText('Select a repository to see its methods.')).toHaveCount(0)
 
-      first.resolve(undefined)
+      finishFirst()
       const error = main.getByRole('alert')
       await expect(error).toHaveCount(1)
       await expect(error).toContainText('Unable to load repository details: HTTP 503')
@@ -84,7 +87,7 @@ export function registerRepositoryDetailTests(test, expect) {
       await expect(button).toHaveAttribute('aria-current', 'true')
       await expect(button).toBeFocused()
     } finally {
-      first.resolve(undefined)
+      finishFirst()
     }
   })
 }
