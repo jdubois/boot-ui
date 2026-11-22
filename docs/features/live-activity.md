@@ -340,8 +340,7 @@ namespace/application. A global sequence orders concurrent writers. Poll the hea
 journal sequence, and global-sequence origin so equal local IDs are not merged.
 
 On the durable REST feed, omitting `cursor` or leaving it blank reads the first page. An invalid nonblank `cursor`
-or a filter that exceeds its length limit returns HTTP `400`. This does not change the in-memory feed or
-[`bootui archive activity`](../CLI.md#read-durable-journal-history-offline).
+or a filter that exceeds its length limit returns HTTP `400`. This does not change the in-memory feed.
 
 ::: details Identity and masking
 

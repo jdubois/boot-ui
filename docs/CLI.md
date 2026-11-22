@@ -604,8 +604,7 @@ Common options:
 
 `archive runs` lists newest runs. `archive activity` accepts `--instance`, `--source`, `--type`, `--severity`,
 `--query`, `--route`, `--request-id`, `--since`, `--until`, `--no-request`, and a global `--cursor`; continue with the
-returned `nextCursor` until `hasMore` is false. Unlike the durable REST feed, the offline command treats an
-unrecognized `--cursor` as a first-page request. With `--allow-cross-namespace` and no namespace, the head is store-wide
+returned `nextCursor` until `hasMore` is false. With `--allow-cross-namespace` and no namespace, the head is store-wide
 and remains ordered by `globalSequence`, which is also suitable for cursor-based polling/deduplication.
 `archive profile <requestId>` requires one exact namespace/application/run. `archive insights` reads the selected run;
 without `--run`, it projects the newest bounded runs for one application. Repeat `--scope
