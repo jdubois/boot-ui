@@ -217,7 +217,7 @@ restoreFilters()
 // default live in-memory re-merge. Only known once the first response arrives.
 const persistent = computed(() => report.value?.pageInfo?.persistent === true)
 // Learn the query capability before publishing the first durable page, including while its filtered replacement loads.
-let lastKnownPersistent = false
+const lastKnownPersistent = ref(false)
 const durableFilters = computed(() =>
   buildActivityQueryParams({
     type: typeFilter.value,
@@ -271,16 +271,16 @@ async function loadActivity({propagateError = true} = {}) {
   const token = ++headLoadToken
   const isCurrent = () => !disposed && generation === activityGeneration.value && token === headLoadToken
   try {
-    const requestedPersistent = lastKnownPersistent
+    const requestedPersistent = lastKnownPersistent.value
     let loaded = await fetchActivityPage(activityUrl({queryPersistent: requestedPersistent}))
     if (!isCurrent()) return
     if (!requestedPersistent && loaded?.pageInfo?.persistent === true && Object.keys(durableFilters.value).length) {
       // The discovery page omitted the durable filters. Neither its rows nor its cursor answer this query.
-      lastKnownPersistent = true
+      lastKnownPersistent.value = true
       loaded = await fetchActivityPage(activityUrl({queryPersistent: true}))
       if (!isCurrent()) return
     }
-    lastKnownPersistent = loaded?.pageInfo?.persistent === true
+    lastKnownPersistent.value = loaded?.pageInfo?.persistent === true
     if (backingFeed(loaded) !== backingFeed(report.value)) resetOlderPages()
     report.value = {
       ...loaded,
@@ -293,7 +293,8 @@ async function loadActivity({propagateError = true} = {}) {
   } catch (err) {
     if (!isCurrent()) return
     error.value = err.message || 'Could not load activity'
-    if (propagateError) throw err
+    // The first filtered-read failure is handled by the panel alert and the explicit clearing action.
+    if (propagateError && !canClearFailedSavedFilters.value) throw err
   }
 }
 
@@ -517,6 +518,9 @@ const warnings = computed(() => report.value?.warnings ?? [])
 
 const hasActiveFilters = computed(
   () => !!typeFilter.value || !!severityFilter.value || !!textFilter.value.trim() || errorsOnly.value
+)
+const canClearFailedSavedFilters = computed(
+  () => !report.value && !!error.value && lastKnownPersistent.value && hasActiveFilters.value
 )
 
 // Collapsed parent ids in the nested view. Requests are expanded by default, so we only track the
@@ -1042,7 +1046,7 @@ let filterReloadTimer = null
 
 watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   persistFilters()
-  if (!lastKnownPersistent) return
+  if (!lastKnownPersistent.value) return
   resetOlderPages()
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
   filterReloadTimer = setTimeout(refreshNow, 300)
@@ -1250,6 +1254,11 @@ function toggleFlow() {
     <UnavailableState v-if="!manifestAvailable" icon="bi-broadcast" :message="manifestUnavailableReason" />
 
     <PanelSkeleton v-else-if="initialLoading && !report" :rows="8" />
+
+    <div v-else-if="canClearFailedSavedFilters" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <span class="small text-muted">The saved filters could not be applied. Clear them to load the feed.</span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearFilters">Clear filters</button>
+    </div>
 
     <template v-else-if="report">
       <UnavailableState

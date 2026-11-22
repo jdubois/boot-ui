@@ -1093,6 +1093,54 @@ describe('LiveActivity', () => {
     expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', 'api/activity?q=archive-only-needle'])
   })
 
+  it('lets the user clear a rejected saved search without showing the discovery page or its cursor', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    vi.stubGlobal('EventSource', undefined)
+    const text = 'x'.repeat(2001)
+    safeLocalStorage.setJson('bootui.activity.filters', {text})
+    const mock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          activityReport({
+            entries: [requestEntry({summary: 'Unfiltered discovery row'})],
+            pageInfo: {persistent: true, hasMore: true, nextCursor: 'unfiltered-cursor'}
+          })
+        )
+      )
+      .mockResolvedValueOnce(jsonResponse({error: 'text exceeds 2000 characters'}, false, 400))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          activityReport({
+            entries: [requestEntry({summary: 'Recovered activity row'})],
+            pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+          })
+        )
+      )
+    stubActivityFeed(mock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Request failed with status 400')
+    expect(wrapper.text()).not.toContain('No activity matches the current filters.')
+    expect(wrapper.text()).not.toContain('Unfiltered discovery row')
+    expect(wrapper.text()).not.toContain('Load older activity')
+    expect(safeLocalStorage.getJson('bootui.activity.filters').text).toBe(text)
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', `api/activity?q=${text}`])
+    const clear = wrapper.findAll('button').find((button) => button.text() === 'Clear filters')
+    expect(clear).toBeDefined()
+    await clear.trigger('click')
+    await vi.advanceTimersByTimeAsync(301)
+    await flushPromises()
+
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', `api/activity?q=${text}`, 'api/activity'])
+    expect(wrapper.text()).not.toContain('Request failed with status 400')
+    expect(wrapper.get('table tbody').text()).toContain('Recovered activity row')
+    expect(wrapper.get('#activity-text-filter').element.value).toBe('')
+    expect(safeLocalStorage.getJson('bootui.activity.filters').text).toBe('')
+  })
+
   it('keeps memory filtering local and ignores a superseded search when the feed becomes durable', async () => {
     vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
     vi.stubGlobal('EventSource', undefined)
