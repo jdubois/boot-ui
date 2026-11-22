@@ -7,12 +7,15 @@ import io.github.jdubois.bootui.core.dto.RepositoryMethodDto;
 import jakarta.annotation.Nullable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.aop.framework.AopProxyUtils;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.repository.core.RepositoryInformation;
@@ -32,14 +35,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @ConditionalOnClass(RepositoryFactoryInformation.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/data")
-public class DataController {
+public class DataController implements BeanFactoryAware {
 
     private static final Logger log = LoggerFactory.getLogger(DataController.class);
 
-    private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
+    private BeanFactory beanFactory;
 
-    public DataController(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
-        this.beanFactoryProvider = beanFactoryProvider;
+    @Override
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
     }
 
     @GetMapping("/repositories")
@@ -64,20 +68,27 @@ public class DataController {
     }
 
     private List<RepositoryEntry> discover() {
-        if (!(beanFactoryProvider.getIfAvailable() instanceof SingletonBeanRegistry registry)) {
+        if (!(beanFactory instanceof SingletonBeanRegistry registry)) {
             return List.of();
         }
         List<RepositoryEntry> entries = new ArrayList<>();
         // Type lookup can call unrelated FactoryBeans even with allowEagerInit=false.
         for (String beanName : registry.getSingletonNames()) {
             // Names can include early references. Only read fully registered singletons.
-            if (!registry.containsSingleton(beanName)
-                    || !(registry.getSingleton(beanName) instanceof RepositoryFactoryInformation<?, ?> info)) {
+            if (!registry.containsSingleton(beanName)) {
+                continue;
+            }
+            RepositoryFactoryInformation<?, ?> info = heldRepositoryFactory(registry.getSingleton(beanName));
+            if (info == null) {
                 continue;
             }
             try {
                 RepositoryInformation repositoryInformation = info.getRepositoryInformation();
-                entries.add(new RepositoryEntry(beanName, repositoryInformation));
+                if (repositoryInformation != null) {
+                    entries.add(new RepositoryEntry(beanName, repositoryInformation));
+                } else {
+                    log.debug("No metadata returned for Spring Data repository {}", beanName);
+                }
             } catch (RuntimeException ex) {
                 log.debug(
                         "Unable to read metadata for Spring Data repository {} ({})",
@@ -86,6 +97,22 @@ public class DataController {
             }
         }
         return entries;
+    }
+
+    @Nullable
+    private RepositoryFactoryInformation<?, ?> heldRepositoryFactory(@Nullable Object candidate) {
+        if (!(candidate instanceof RepositoryFactoryInformation<?, ?>)) {
+            return null;
+        }
+        // A registered proxy can still have a lazy or scoped target. Read only a target Spring already holds.
+        if (AopUtils.isAopProxy(candidate)) {
+            candidate = AopProxyUtils.getSingletonTarget(candidate);
+        }
+        return candidate instanceof RepositoryFactoryInformation<?, ?> info
+                        && !AopUtils.isAopProxy(info)
+                        && !Proxy.isProxyClass(info.getClass())
+                ? info
+                : null;
     }
 
     private boolean matches(RepositoryEntry entry, String name) {
