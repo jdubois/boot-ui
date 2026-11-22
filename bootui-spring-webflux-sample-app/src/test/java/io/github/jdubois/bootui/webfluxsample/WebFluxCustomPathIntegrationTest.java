@@ -10,7 +10,6 @@ import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -130,11 +129,15 @@ class WebFluxCustomPathIntegrationTest extends AbstractBootUiApiConformanceTest 
         return Path.of("target/custom-path-conformance/boot-ui.yml");
     }
 
-    @Override
-    protected Set<String> unsupportedReadContracts() {
-        // PR #726 moves these rebuilt reactive handlers behind the configured API path. Keep C1
-        // stacked only on #732 and consume that sibling fix when it lands instead of duplicating it.
-        return Set.of("rest-client-trace", "security", "spring-security");
+    @Test
+    void customMountAdvertisesPanelsThatMustExerciseTheirDtoContracts() {
+        Response manifest = probe().get(API_PATH + "/panels");
+        assertThat(manifest.status()).isEqualTo(200);
+        assertThat(manifest.json().path("panels"))
+                .filteredOn(panel -> panel.path("available").asBoolean(false)
+                        && panel.path("enabled").asBoolean(false))
+                .extracting(panel -> panel.path("id").asText())
+                .contains("rest-client-trace", "security", "spring-security");
     }
 
     @Test

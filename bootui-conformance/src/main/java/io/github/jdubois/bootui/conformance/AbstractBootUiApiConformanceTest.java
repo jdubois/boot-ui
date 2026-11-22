@@ -130,20 +130,12 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
-     * Available panels whose configured-path transport is supplied by a pending sibling adapter change.
-     * Concrete custom-mount consumers may exclude only those known transport gaps.
-     */
-    /**
      * Components the running application declares exception handlers on, by simple name. A stack that
      * returns a well-shaped but empty catalogue would otherwise satisfy every assertion in
      * {@code errorContractEndpointReturnsAStableDeclarationOnlyCatalogue}, so each sample application
      * names its own fixtures here and the test proves discovery actually works on that stack.
      */
     protected Set<String> expectedErrorContractComponents() {
-        return Set.of();
-    }
-
-    protected Set<String> unsupportedReadContracts() {
         return Set.of();
     }
 
@@ -301,7 +293,6 @@ public abstract class AbstractBootUiApiConformanceTest {
             String id = panel.path("id").asText(null);
             ReadContract contract = contracts.get(id);
             if (contract == null
-                    || unsupportedReadContracts().contains(id)
                     || !panel.path("available").asBoolean(false)
                     || !panel.path("enabled").asBoolean(true)) {
                 continue;
