@@ -65,7 +65,7 @@ describe('Data', () => {
     expect(alert.find('code').text()).toBe('spring-boot-starter-data-jpa')
   })
 
-  it('reports when Spring Data is present but no repositories are detected', async () => {
+  it('distinguishes unavailable repository metadata from an absence of repositories', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({total: 0, repositories: []})))
 
     wrapper = mount(Data)
@@ -73,7 +73,8 @@ describe('Data', () => {
 
     const alert = wrapper.get('[role="alert"]')
     expect(alert.classes()).toContain('alert-secondary')
-    expect(alert.text()).toContain('no repository beans were detected')
+    expect(alert.text()).toContain('No initialized repository metadata is available.')
+    expect(alert.text()).toContain('BootUI does not initialize lazy repositories.')
   })
 
   it('renders repositories when repository beans are present', async () => {
@@ -82,6 +83,7 @@ describe('Data', () => {
     wrapper = mount(Data)
     await flushPromises()
 
+    expect(wrapper.text()).toContain('Only initialized repositories with available metadata are listed.')
     expect(fetch).toHaveBeenCalledWith('api/data/repositories', expect.anything())
     expect(wrapper.text()).not.toContain('not on the classpath')
     expect(wrapper.text()).toContain('UserRepository')

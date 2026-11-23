@@ -502,6 +502,10 @@ not apply, because these are process-global counters.
 
 ## Spring Data
 
+The inventory only shows metadata available directly from initialized repository factories. Opening the panel
+does not initialize lazy factories or inspect metadata through factory proxies. An empty inventory does not
+rule out repository declarations.
+
 ![BootUI Spring Data panel](../images/bootui-data.webp)
 
 The Spring Data panel lists the application's Spring Data repositories with their interfaces, domain types, ID types,

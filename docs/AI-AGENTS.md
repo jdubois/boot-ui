@@ -410,7 +410,8 @@ user; BootUI's own panel and read-only gates still apply.
   `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
   `get_hibernate_statistics` (Hibernate ORM counters; it never enables statistics, and reports `available: false` with
   the reason while they are off), and `get_websockets` (endpoints, sessions, subscriptions, and frame metadata, never a
-  payload). Stack-specific or unavailable capabilities are omitted.
+  payload). `get_spring_data_repositories` lists only available metadata from initialized Spring Data factories;
+  an empty result does not rule out lazy repositories. Stack-specific or unavailable capabilities are omitted.
 - **Code Inventory read:** `get_code_inventory`, whether the code changed since the previous run executed in this run;
   see [Did my change run?](#did-my-change-run).
 - **Code Paths read:** `get_code_paths`, which application methods each route spends its time in; see

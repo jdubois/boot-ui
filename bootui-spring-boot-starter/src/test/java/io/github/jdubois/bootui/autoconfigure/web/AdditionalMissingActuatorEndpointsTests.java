@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -40,7 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <h2>Added here</h2>
  * <ul>
- *   <li>DataController — when {@code ListableBeanFactory} is absent, must return a stable
+ *   <li>DataController — when no owning bean factory is set, must return a stable
  *       empty {@code RepositoriesReport} rather than throwing</li>
  * </ul>
  */
@@ -74,7 +73,7 @@ class AdditionalMissingActuatorEndpointsTests {
     }
 
     /**
-     * When no {@link ListableBeanFactory} is available (e.g., DataController
+     * When no bean factory is set (e.g., DataController
      * is created outside a full application context), {@code GET /bootui/api/data/repositories}
      * must return a stable empty report rather than throwing.
      *
@@ -83,7 +82,7 @@ class AdditionalMissingActuatorEndpointsTests {
      */
     @Test
     void dataControllerReturnsEmptyRepositoriesWhenBeanFactoryMissing() throws Exception {
-        MockMvc mvc = standaloneSetup(new DataController(emptyProvider())).build();
+        MockMvc mvc = standaloneSetup(new DataController()).build();
 
         mvc.perform(get("/bootui/api/data/repositories"))
                 .andExpect(status().isOk())
@@ -99,7 +98,7 @@ class AdditionalMissingActuatorEndpointsTests {
      */
     @Test
     void dataControllerReturnsNotFoundForSpecificRepositoryWhenBeanFactoryMissing() throws Exception {
-        MockMvc mvc = standaloneSetup(new DataController(emptyProvider())).build();
+        MockMvc mvc = standaloneSetup(new DataController()).build();
 
         mvc.perform(get("/bootui/api/data/repositories/MyRepository")).andExpect(status().isNotFound());
     }

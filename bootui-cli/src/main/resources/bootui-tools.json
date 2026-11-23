@@ -1098,8 +1098,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return Spring Data repository metadata already computed by the application context.",
-      "description": "Return Spring Data repository metadata already computed by the application context. This read never invokes a repository method or executes a database query.",
+      "summary": "Return available Spring Data metadata from already initialized repository factories.",
+      "description": "Return available Spring Data metadata from already initialized repository factories. An empty list does not rule out lazy repositories. This read does not initialize factories, invoke repository methods, or execute database queries.",
       "example": "bootui repositories"
     },
     {

@@ -7,10 +7,15 @@ import io.github.jdubois.bootui.core.dto.RepositoryMethodDto;
 import jakarta.annotation.Nullable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.*;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.beans.factory.ObjectProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryAware;
+import org.springframework.beans.factory.config.SingletonBeanRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.repository.core.RepositoryInformation;
 import org.springframework.data.repository.core.support.RepositoryFactoryInformation;
@@ -21,21 +26,23 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Exposes Spring Data repositories declared in the current application context.
+ * Exposes available metadata from initialized Spring Data repository factories.
  *
- * <p>This controller is read-only: it never invokes repository methods. It only
- * surfaces metadata that Spring Data has already computed about the repositories
- * it manages.</p>
+ * <p>Discovery does not initialize lazy factories or create repository products.
+ * This controller never invokes repository methods.</p>
  */
 @RestController
 @ConditionalOnClass(RepositoryFactoryInformation.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/data")
-public class DataController {
+public class DataController implements BeanFactoryAware {
 
-    private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
+    private static final Logger log = LoggerFactory.getLogger(DataController.class);
 
-    public DataController(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
-        this.beanFactoryProvider = beanFactoryProvider;
+    private BeanFactory beanFactory;
+
+    @Override
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
     }
 
     @GetMapping("/repositories")
@@ -60,26 +67,35 @@ public class DataController {
     }
 
     private List<RepositoryEntry> discover() {
-        ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
-        if (factory == null) {
+        if (!(beanFactory instanceof SingletonBeanRegistry registry)) {
             return List.of();
         }
-        String[] beanNames = factory.getBeanNamesForType(RepositoryFactoryInformation.class);
-        List<RepositoryEntry> entries = new ArrayList<>(beanNames.length);
-        for (String beanName : beanNames) {
-            RepositoryFactoryInformation<?, ?> info;
-            try {
-                info = factory.getBean(beanName, RepositoryFactoryInformation.class);
-            } catch (Exception ex) {
+        List<RepositoryEntry> entries = new ArrayList<>();
+        // Type lookup can call unrelated FactoryBeans even with allowEagerInit=false.
+        for (String beanName : registry.getSingletonNames()) {
+            // Names can include early references. Only read fully registered singletons.
+            if (!registry.containsSingleton(beanName)) {
                 continue;
             }
-            RepositoryInformation repositoryInformation;
-            try {
-                repositoryInformation = info.getRepositoryInformation();
-            } catch (Exception ex) {
+            // Even probing an opaque proxy for its target source can initialize the target.
+            if (!(registry.getSingleton(beanName) instanceof RepositoryFactoryInformation<?, ?> info)
+                    || Proxy.isProxyClass(info.getClass())
+                    || AopUtils.isAopProxy(info)) {
                 continue;
             }
-            entries.add(new RepositoryEntry(strip(beanName), info, repositoryInformation));
+            try {
+                RepositoryInformation repositoryInformation = info.getRepositoryInformation();
+                if (repositoryInformation != null) {
+                    entries.add(new RepositoryEntry(beanName, repositoryInformation));
+                } else {
+                    log.debug("No metadata returned for Spring Data repository {}", beanName);
+                }
+            } catch (RuntimeException ex) {
+                log.debug(
+                        "Unable to read metadata for Spring Data repository {} ({})",
+                        beanName,
+                        ex.getClass().getName());
+            }
         }
         return entries;
     }
@@ -314,14 +330,7 @@ public class DataController {
         }
     }
 
-    private String strip(String beanName) {
-        return beanName.startsWith("&") ? beanName.substring(1) : beanName;
-    }
-
-    private record RepositoryEntry(
-            String beanName,
-            RepositoryFactoryInformation<?, ?> factoryInformation,
-            RepositoryInformation information) {}
+    private record RepositoryEntry(String beanName, RepositoryInformation information) {}
 
     private record QueryAnnotation(
             @Nullable String value, @Nullable String name, boolean nativeQuery, boolean hasValue) {}
