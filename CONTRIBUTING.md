@@ -448,7 +448,9 @@ and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
 
 CI runs each measurement as its own leg of `build.yml`'s `agent-overhead-legs` matrix (or `agent-overhead-extra-legs`
 for the measurements below that run only with the `agent` label), all at the same time on separate runners (each A/B
-alternates its arms on one runner), then gathers their reports and runs the checks in the `agent-overhead` job. It
+alternates its arms on one runner), then gathers their reports and runs the checks in the `agent-overhead` job. Each
+archive carries its own leg directory so reports and Failsafe diagnostics keep their source even if only one leg
+uploads. The summary still shows available reports, and a failed required leg still fails the job. CI
 runs fifteen pairs on a four-processor runner, then on the I/O route with nine pairs: every default sensor against no
 agent (`spring-mvc-agent-io`) on every overhead run, and, on overhead-related pushes, manual runs, and pull requests
 labelled `agent` only, each default side-effect sensor's own share against the same agent without it: `network`
