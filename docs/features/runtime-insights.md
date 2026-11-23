@@ -222,8 +222,8 @@ stays open if it still matches, including across refreshes.
 
 Opening a group selects its first matching observation and loads only that observation's evidence, with no second
 disclosure to open. Larger groups have an **Observation** selector, a position count, and **Previous / Next** controls.
-Single-observation groups show their subject directly, without extra controls. Only one group's detail is open at a
-time; closing it returns keyboard focus to the group heading.
+Single-observation groups show the subject in **Check** mode or the check title in **Subject** mode, without observation
+navigation controls. Only one group's detail is open at a time; closing it returns keyboard focus to the group heading.
 The opened group has its own outline and a visible gap from neighboring groups, including below its evidence limits.
 Closed groups stay compact, making the end of the inline detail clear without adding another control.
 

@@ -2118,12 +2118,13 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   `framework-warnings-by-route` leaves out a `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts
   in one row the framework `ERROR` events that carried no request id.
   The browser's **Observations** tab keeps every retained observation available regardless of `listed`; this metadata
-  does not hide or prioritize browser rows. Compact groups name the check, summarize it, and count its observations,
+  does not hide or prioritize browser rows. Compact groups name and summarize the check or subject and count its observations,
   initially collapsed in suggested review order: specific review candidates before broad timing and usage summaries,
   not a severity score. Only search and the **Topic** selector narrow the report, independently of each other,
   without opening details or loading evidence. Opening a group selects its first matching observation and loads only
   its evidence. Multi-observation groups have a labeled **Observation** selector, position count, and **Previous / Next**
-  controls; single-observation groups show their subject without navigation. One group's detail is open at a time.
+  controls; single-observation groups show the subject in Check mode or the check title in Subject mode, without
+  navigation. One group's detail is open at a time.
   Selected observations stay open across refreshes while retained and matching; closing the group restores trigger focus.
   Deep links open the named observation and its group. The run-level observation total and tab count do not change
   with filtering or collapse; a separate result count reports matching observations and groups.
