@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 /**
@@ -662,14 +663,21 @@ public final class RuntimeJournal
      * @throws IllegalStateException if the journal has already closed
      */
     public List<JournalEntry> snapshotAndSubscribe(JournalListener listener) {
+        return Collections.unmodifiableList(snapshotAndSubscribe(listener, retained -> {}));
+    }
+
+    /** Installs the owned snapshot before the listener can receive a batch, clear, or close. The install does no I/O. */
+    List<JournalEntry> snapshotAndSubscribe(JournalListener listener, Consumer<List<JournalEntry>> install) {
         Objects.requireNonNull(listener, "listener must not be null");
         synchronized (processing) {
             synchronized (lifecycle) {
                 if (closed.get()) {
                     throw new IllegalStateException("The runtime journal is closed.");
                 }
+                List<JournalEntry> retained = ring.oldestFirst();
+                install.accept(retained);
                 listeners.add(listener);
-                return ring.oldestFirst();
+                return retained;
             }
         }
     }

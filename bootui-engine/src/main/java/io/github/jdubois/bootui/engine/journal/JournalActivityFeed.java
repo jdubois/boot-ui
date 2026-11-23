@@ -1126,13 +1126,26 @@ public final class JournalActivityFeed {
             Map<String, Map<String, Integer>> pendingSelects,
             Map<String, Long> pendingWorkEnds,
             LongConsumer overflow) {
-        // Learns no request, so it infers no parent from a trace.
-        AiCallOwners aiCallOwners = new AiCallOwners();
+        CaptureProjection projection =
+                prepareCaptureProjection(batch, eventId, pendingSelects, pendingWorkEnds, overflow);
+        List<DurableJournalEvent> durable = new ArrayList<>(batch.size());
+        for (JournalEntry entry : batch) {
+            durable.add(projection.renderEntry(entry));
+            forgetCaptureOwner(entry, pendingSelects, pendingWorkEnds);
+        }
+        return List.copyOf(durable);
+    }
+
+    CaptureProjection prepareCaptureProjection(
+            List<JournalEntry> batch,
+            Function<JournalEntry, String> eventId,
+            Map<String, Map<String, Integer>> pendingSelects,
+            Map<String, Long> pendingWorkEnds,
+            LongConsumer overflow) {
         RouteTemplateResolver routes = resolver();
-        Map<String, Long> lastWorkEnds = pendingWorkEnds;
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();
-            recordWorkEnd(lastWorkEnds, event);
+            recordWorkEnd(pendingWorkEnds, event);
             if (event.payload() instanceof SqlPayload sql
                     && sql.executed()
                     && event.requestId() != null
@@ -1142,28 +1155,36 @@ public final class JournalActivityFeed {
                 }
             }
         }
-        List<DurableJournalEvent> durable = new ArrayList<>(batch.size());
-        for (JournalEntry entry : batch) {
-            ActivityEntryDto rendered = render(
-                    JournalEntryDiskView.of(entry),
-                    eventId,
-                    Map.of(),
-                    Map.of(),
-                    aiCallOwners,
-                    pendingSelects,
-                    lastWorkEnds,
-                    routes,
-                    true,
-                    JournalTextExposure.masked());
-            durable.add(new DurableJournalEvent(entry, rendered));
-            if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
-                pendingSelects.remove(entry.event().requestId());
-            }
-            if (entry.event().payload() instanceof AsyncHandoffPayload handoff && handoff.executionId() != null) {
-                lastWorkEnds.remove(handoff.executionId());
-            }
+        // Learns no request, so it infers no parent from a trace.
+        AiCallOwners aiCallOwners = new AiCallOwners();
+        return entry -> new DurableJournalEvent(
+                entry,
+                render(
+                        JournalEntryDiskView.of(entry),
+                        eventId,
+                        Map.of(),
+                        Map.of(),
+                        aiCallOwners,
+                        pendingSelects,
+                        pendingWorkEnds,
+                        routes,
+                        true,
+                        JournalTextExposure.masked()));
+    }
+
+    static void forgetCaptureOwner(
+            JournalEntry entry, Map<String, Map<String, Integer>> pendingSelects, Map<String, Long> pendingWorkEnds) {
+        if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
+            pendingSelects.remove(entry.event().requestId());
         }
-        return List.copyOf(durable);
+        if (entry.event().payload() instanceof AsyncHandoffPayload handoff && handoff.executionId() != null) {
+            pendingWorkEnds.remove(handoff.executionId());
+        }
+    }
+
+    @FunctionalInterface
+    interface CaptureProjection {
+        DurableJournalEvent renderEntry(JournalEntry entry);
     }
 
     /** Whether {@code event} is the entry of an execution: a scheduled run or a consumed message. */

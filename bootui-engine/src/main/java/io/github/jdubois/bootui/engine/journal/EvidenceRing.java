@@ -520,6 +520,10 @@ final class EvidenceRing {
 
     /** The retained events, newest first, merged across both rings by sequence. */
     synchronized List<JournalEntry> newestFirst() {
+        return Collections.unmodifiableList(mergeNewestFirst());
+    }
+
+    private List<JournalEntry> mergeNewestFirst() {
         List<JournalEntry> merged = new ArrayList<>(size());
         Iterator<JournalEntry> routineIterator = routine.descendingIterator();
         Iterator<JournalEntry> reservedIterator = reserved.descendingIterator();
@@ -534,14 +538,14 @@ final class EvidenceRing {
                 nextReserved = reservedIterator.hasNext() ? reservedIterator.next() : null;
             }
         }
-        return Collections.unmodifiableList(merged);
+        return merged;
     }
 
-    /** The retained events, oldest first, merged across both rings by sequence. */
+    /** An owned copy of the retained entries, oldest first. */
     synchronized List<JournalEntry> oldestFirst() {
-        List<JournalEntry> merged = new ArrayList<>(newestFirst());
+        List<JournalEntry> merged = mergeNewestFirst();
         Collections.reverse(merged);
-        return List.copyOf(merged);
+        return merged;
     }
 
     /**
