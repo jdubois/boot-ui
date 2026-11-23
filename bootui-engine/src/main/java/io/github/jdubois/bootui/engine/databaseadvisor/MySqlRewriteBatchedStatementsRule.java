@@ -9,6 +9,10 @@ import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching
  */
 final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
 
+    private static final ScopedSetting REWRITE = new ScopedSetting(
+            DriverSettingCatalog.REWRITE_BATCHED_STATEMENTS,
+            schema -> MySqlConnectorJ.applicability(schema, schema.driver()));
+
     MySqlRewriteBatchedStatementsRule() {
         super(
                 new DatabaseAdvisorRuleDefinition(
@@ -35,9 +39,13 @@ final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
     }
 
     @Override
+    ScopedSetting scopedSetting() {
+        return REWRITE;
+    }
+
+    @Override
     Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
-        DriverEvidence driver = schema.driver();
-        Outcome applicability = MySqlConnectorJ.applicability(schema, driver);
+        Outcome applicability = REWRITE.driverApplicability().apply(schema);
         if (applicability != null) {
             return applicability;
         }
@@ -45,8 +53,8 @@ final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
         if (gate != null) {
             return gate;
         }
-        String name = DriverSettingCatalog.REWRITE_BATCHED_STATEMENTS;
-        BooleanSetting setting = BooleanSetting.of(driver, name);
+        String name = REWRITE.name();
+        BooleanSetting setting = BooleanSetting.of(schema.driver(), name);
         if (setting.unresolved() != null) {
             return setting.unresolved();
         }
@@ -62,7 +70,7 @@ final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
                 "Datasource `" + schema.dataSourceName() + "`: `" + name + "` " + state
                         + " while Hibernate batches writes (batch size " + batching.batchSize()
                         + "). Evidence: configured.",
-                settingIdentity(schema.dataSourceName(), name));
+                REWRITE.identity(schema.dataSourceName()));
         return Outcome.assessed();
     }
 }

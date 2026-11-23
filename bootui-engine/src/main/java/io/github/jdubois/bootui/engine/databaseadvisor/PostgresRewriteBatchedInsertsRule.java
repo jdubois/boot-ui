@@ -9,6 +9,9 @@ import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching
  */
 final class PostgresRewriteBatchedInsertsRule extends AbstractDriverRule {
 
+    private static final ScopedSetting REWRITE = new ScopedSetting(
+            DriverSettingCatalog.RE_WRITE_BATCHED_INSERTS, PostgresRewriteBatchedInsertsRule::driverApplicability);
+
     PostgresRewriteBatchedInsertsRule() {
         super(
                 new DatabaseAdvisorRuleDefinition(
@@ -33,7 +36,11 @@ final class PostgresRewriteBatchedInsertsRule extends AbstractDriverRule {
     }
 
     @Override
-    Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
+    ScopedSetting scopedSetting() {
+        return REWRITE;
+    }
+
+    private static Outcome driverApplicability(SchemaSnapshot schema) {
         if (schema.dialect() != Dialect.POSTGRESQL) {
             return Outcome.notApplicable();
         }
@@ -46,12 +53,21 @@ final class PostgresRewriteBatchedInsertsRule extends AbstractDriverRule {
             return Outcome.skip("uses the driver `" + DatabaseAdvisorRuleSupport.detail(driver.driverName())
                     + "`, not the PostgreSQL JDBC driver (pgjdbc); not evaluated.");
         }
+        return null;
+    }
+
+    @Override
+    Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
+        Outcome applicability = driverApplicability(schema);
+        if (applicability != null) {
+            return applicability;
+        }
         Outcome gate = batchingGate(context, schema);
         if (gate != null) {
             return gate;
         }
-        String name = DriverSettingCatalog.RE_WRITE_BATCHED_INSERTS;
-        BooleanSetting setting = BooleanSetting.of(driver, name);
+        String name = REWRITE.name();
+        BooleanSetting setting = BooleanSetting.of(schema.driver(), name);
         if (setting.unresolved() != null) {
             return setting.unresolved();
         }
@@ -67,7 +83,7 @@ final class PostgresRewriteBatchedInsertsRule extends AbstractDriverRule {
                 "Datasource `" + schema.dataSourceName() + "`: `" + name + "` " + state
                         + " while Hibernate batches writes (batch size " + batching.batchSize()
                         + "). Evidence: configured.",
-                settingIdentity(schema.dataSourceName(), name));
+                REWRITE.identity(schema.dataSourceName()));
         return Outcome.assessed();
     }
 }
