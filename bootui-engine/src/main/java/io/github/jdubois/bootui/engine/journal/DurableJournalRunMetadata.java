@@ -39,7 +39,9 @@ public record DurableJournalRunMetadata(
         RunSummary runSummary,
         long durableDroppedEvents,
         long durableQuarantinedEvents,
-        long durableClearedThrough) {
+        long durableClearedThrough,
+        OffloadTraceLoss offloadTraceLoss,
+        Long deferredSqlLossHorizonMillis) {
 
     public static DurableJournalRunMetadata snapshot(
             Phase phase,
@@ -58,14 +60,16 @@ public record DurableJournalRunMetadata(
                 lostBySource.put(source, lost);
             }
         }
+        RuntimeJournal.DurableTraceSnapshot traceSnapshot = journal.durableTraceSnapshot(identity.scope());
         return new DurableJournalRunMetadata(
                 phase,
                 System.currentTimeMillis(),
                 identity.instanceId(),
                 identity.processId(),
                 stack,
+                stack.name(),
                 journal.settings(),
-                journal.status(),
+                traceSnapshot.status(),
                 journal.lossHorizonMillis(),
                 journal.lostRequestEndMillis(),
                 boundedRecentValid(journal.lostRequestTraces(), MAX_LOST_REQUEST_TRACES),
@@ -74,7 +78,12 @@ public record DurableJournalRunMetadata(
                 SqlCaptureQualification.of(journal.sqlCaptureScope()),
                 poolSizes,
                 declaredRoutes,
-                runSummary);
+                runSummary,
+                0,
+                0,
+                0,
+                traceSnapshot.offloadTraceLoss(),
+                traceSnapshot.deferredSqlLossHorizonMillis());
     }
 
     private static List<String> boundedRecentValid(List<String> values, int limit) {
@@ -127,6 +136,10 @@ public record DurableJournalRunMetadata(
         if (durableDroppedEvents < 0 || durableQuarantinedEvents < 0 || durableClearedThrough < 0) {
             throw new IllegalArgumentException("durable capture loss counters must not be negative");
         }
+        Objects.requireNonNull(offloadTraceLoss, "offloadTraceLoss must not be null");
+        if (deferredSqlLossHorizonMillis != null && deferredSqlLossHorizonMillis < 0) {
+            throw new IllegalArgumentException("deferredSqlLossHorizonMillis must not be negative");
+        }
     }
 
     /** A snapshot using the enum name as its durable stack name. */
@@ -167,7 +180,9 @@ public record DurableJournalRunMetadata(
                 runSummary,
                 0,
                 0,
-                0);
+                0,
+                OffloadTraceLoss.NONE,
+                null);
     }
 
     /** Compatibility constructor before durable-capture loss counters were persisted. */
@@ -209,7 +224,9 @@ public record DurableJournalRunMetadata(
                 runSummary,
                 0,
                 0,
-                0);
+                0,
+                OffloadTraceLoss.NONE,
+                null);
     }
 
     /** This metadata with the capture queue's acknowledged loss and poison-row counts. */
@@ -234,7 +251,44 @@ public record DurableJournalRunMetadata(
                 runSummary,
                 dropped,
                 quarantined,
-                clearedThrough);
+                clearedThrough,
+                offloadTraceLoss,
+                deferredSqlLossHorizonMillis);
+    }
+
+    /** Run-scoped fingerprints; untraced loss affects completeness but never vetoes an unrelated trace. */
+    public record OffloadTraceLoss(java.util.Set<String> fingerprints, boolean overflowed, boolean onlyUntraced) {
+        static final int MAX_FINGERPRINTS = 256;
+        static final int FINGERPRINT_BYTES = 32;
+        static final OffloadTraceLoss NONE = new OffloadTraceLoss(java.util.Set.of(), false);
+        static final OffloadTraceLoss OVERFLOW = new OffloadTraceLoss(java.util.Set.of(), true);
+        static final OffloadTraceLoss UNTRACED = new OffloadTraceLoss(java.util.Set.of(), false, true);
+
+        OffloadTraceLoss(java.util.Set<String> fingerprints, boolean overflowed) {
+            this(fingerprints, overflowed, false);
+        }
+
+        public OffloadTraceLoss {
+            fingerprints = java.util.Set.copyOf(Objects.requireNonNull(fingerprints));
+            if (fingerprints.size() > MAX_FINGERPRINTS
+                    || overflowed && !fingerprints.isEmpty()
+                    || onlyUntraced && (overflowed || !fingerprints.isEmpty())
+                    || fingerprints.stream().anyMatch(value -> !value.matches("[0-9a-f]{64}"))) {
+                throw new IllegalArgumentException("Invalid offload trace loss fingerprints");
+            }
+        }
+
+        boolean matches(DurableJournalScope scope, String traceId) {
+            return traceId != null
+                    && (overflowed
+                            || !fingerprints.isEmpty()
+                                    && fingerprints.contains(
+                                            DurableJournalIds.offloadTraceFingerprint(scope, traceId)));
+        }
+
+        boolean isEmpty() {
+            return !overflowed && !onlyUntraced && fingerprints.isEmpty();
+        }
     }
 
     /** When this metadata was written in the life of a run. A crash leaves the latest non-end snapshot readable. */

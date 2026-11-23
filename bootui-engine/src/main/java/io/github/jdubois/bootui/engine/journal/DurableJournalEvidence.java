@@ -55,11 +55,17 @@ public final class DurableJournalEvidence {
 
     /** Reads the requested run and merges its matching hot tail. */
     public JournalEvidenceSnapshot read(DurableJournalScope scope, RuntimeJournal journal) {
+        return read(scope, journal, null);
+    }
+
+    JournalEvidenceSnapshot read(
+            DurableJournalScope scope, RuntimeJournal journal, DurableJournalCapture.ReadWindow liveWindow) {
         Objects.requireNonNull(scope, "scope must not be null");
         boolean sameRun = journal != null && scope.run().equals(journal.run().id());
         JournalEvidenceSnapshot hot = sameRun ? JournalEvidenceSnapshot.hot(journal) : null;
         JournalStatus hotStatus = hot == null ? null : hot.status();
         if (sameRun
+                && liveWindow == null
                 && hotStatus.offloadedEvents() == 0
                 && hotStatus.evictedByCount() + hotStatus.evictedByBytes() == 0
                 && hotStatus.clears() == 0) {
@@ -87,11 +93,17 @@ public final class DurableJournalEvidence {
         long overlap = 0;
         BoundedEntries bounded = new BoundedEntries(eventBound, byteBound);
         long clearedThrough = metadata == null ? 0 : metadata.durableClearedThrough();
+        if (liveWindow != null) {
+            clearedThrough = Math.max(clearedThrough, liveWindow.clearedThrough());
+        }
         long firstSequence = clearedThrough;
         if (!sameRun && metadata != null) {
             firstSequence = Math.max(0, metadata.journalStatus().lastSequence() - (long) eventBound);
         } else if (sameRun) {
             firstSequence = Math.max(0, durableThrough - (long) eventBound);
+        }
+        if (liveWindow != null) {
+            firstSequence = Math.max(firstSequence, clearedThrough);
         }
         durableOmitted = Math.max(0, firstSequence - clearedThrough);
         DurableJournalCursor cursor = firstSequence == 0 ? null : new DurableJournalCursor(firstSequence);
@@ -135,18 +147,38 @@ public final class DurableJournalEvidence {
         }
         long unique = durableCount + hotEntries.size() - overlap;
         long omitted = Math.max(0, durableOmitted + unique - entries.size()) + missingSequences;
-        boolean durableComplete = metadata != null
+        boolean currentArchive = sameRun && liveWindow != null;
+        long liveWriterLoss = currentArchive ? journal.currentWriterLosses() : 0;
+        // Memory offload also discards undispatched events, which have no sequence to check against disk.
+        boolean durableComplete = (!currentArchive || !journal.hasUnsequencedLoss())
+                && liveWriterLoss == 0
+                && metadata != null
                 && omitted == 0
                 && base.droppedTotal() == 0
                 && metadata.durableDroppedEvents() == 0
                 && metadata.durableQuarantinedEvents() == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
-        JournalEvidenceSnapshot.Completeness completeness =
-                completeness(journal, sameRun, metadata, settings, durableComplete);
+        boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
+        Long clearHorizon = currentArchive ? journal.explicitClearLossHorizon() : null;
+        Long liveClearLoss = clearHorizon != null
+                        && entries.stream().anyMatch(entry -> entry.event().epochMillis() <= clearHorizon)
+                ? clearHorizon
+                : null;
+        JournalEvidenceSnapshot.Completeness completeness = completeness(
+                scope,
+                journal,
+                sameRun,
+                metadata,
+                settings,
+                durableComplete,
+                currentArchive,
+                recoveredOffload,
+                liveClearLoss);
         long captureLoss = metadata == null
                 ? 0
                 : Math.addExact(metadata.durableDroppedEvents(), metadata.durableQuarantinedEvents());
-        return new JournalEvidenceSnapshot(entries, status, omitted, captureLoss, completeness);
+        return new JournalEvidenceSnapshot(
+                entries, status, omitted, Math.max(captureLoss, liveWriterLoss), completeness);
     }
 
     private List<JournalEntry> enrich(DurableJournalScope scope, List<JournalEntry> entries) {
@@ -237,13 +269,22 @@ public final class DurableJournalEvidence {
     }
 
     private static JournalEvidenceSnapshot.Completeness completeness(
+            DurableJournalScope scope,
             RuntimeJournal journal,
             boolean sameRun,
             DurableJournalRunMetadata metadata,
             RuntimeJournalSettings settings,
-            boolean durableComplete) {
+            boolean durableComplete,
+            boolean currentArchive,
+            boolean recoveredOffload,
+            Long liveClearLoss) {
         Set<String> lostTraces = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestTraces());
         Set<String> lostThreads = metadata == null ? Set.of() : Set.copyOf(metadata.lostRequestThreads());
+        Long archivedSqlLoss = !sameRun
+                        && metadata != null
+                        && scope.run().equals(metadata.journalStatus().runId())
+                ? metadata.deferredSqlLossHorizonMillis()
+                : null;
         return new JournalEvidenceSnapshot.Completeness() {
             @Override
             public boolean records(JournalSource source) {
@@ -256,17 +297,25 @@ public final class DurableJournalEvidence {
             @Override
             public Long lossHorizonMillis() {
                 if (durableComplete) {
-                    return null;
+                    return maximum(archivedSqlLoss, liveClearLoss);
                 }
-                return maximum(
-                        sameRun ? journal.lossHorizonMillis() : null,
-                        metadata == null ? null : metadata.lossHorizonMillis());
+                if (recoveredOffload) {
+                    // Both the hot and saved horizon include memory-only discards; the complete sequence merge
+                    // recovered those rows. Keep actual loss, including admissions without a sequence.
+                    return maximum(journal.lossHorizonMillis(true), liveClearLoss);
+                }
+                Long liveLoss = sameRun ? journal.lossHorizonMillis() : null;
+                Long archivedLoss = metadata == null ? null : metadata.lossHorizonMillis();
+                return maximum(maximum(liveLoss, liveClearLoss), maximum(archivedLoss, archivedSqlLoss));
             }
 
             @Override
             public Long lostRequestEndMillis() {
                 if (durableComplete) {
                     return null;
+                }
+                if (recoveredOffload) {
+                    return journal.lostRequestEndMillis(true);
                 }
                 return maximum(
                         sameRun ? journal.lostRequestEndMillis() : null,
@@ -275,22 +324,39 @@ public final class DurableJournalEvidence {
 
             @Override
             public boolean lostARequestOn(String thread) {
+                if (recoveredOffload) {
+                    return !durableComplete && journal.lostARequestOn(thread, true);
+                }
                 return !durableComplete && (lostThreads.contains(thread) || sameRun && journal.lostARequestOn(thread));
             }
 
             @Override
             public boolean evictedARequestOf(String traceId) {
-                return !durableComplete
-                        && (lostTraces.contains(traceId) || sameRun && journal.evictedARequestOf(traceId));
+                if (currentArchive && journal.lostArchiveTrace(traceId)) {
+                    return true;
+                }
+                // A live window uses the ring's Clear generation, not a potentially stale checkpoint.
+                // Historical reads cannot infer pre-sequence losses or writer conflicts from sequence coverage.
+                return !currentArchive
+                                && metadata != null
+                                && scope.run().equals(metadata.journalStatus().runId())
+                                && metadata.offloadTraceLoss().matches(scope, traceId)
+                        || !durableComplete
+                                && (lostTraces.contains(traceId)
+                                        || sameRun && journal.evictedARequestOf(traceId, currentArchive));
             }
 
             @Override
             public Long lostMillis(JournalSource source) {
+                Long sqlLoss = source == JournalSource.SQL ? archivedSqlLoss : null;
                 if (durableComplete) {
-                    return null;
+                    return sqlLoss;
+                }
+                if (recoveredOffload) {
+                    return journal.lostMillis(source, true);
                 }
                 Long durable = metadata == null ? null : metadata.lostBySource().get(source);
-                return maximum(sameRun ? journal.lostMillis(source) : null, durable);
+                return maximum(sameRun ? journal.lostMillis(source) : null, maximum(sqlLoss, durable));
             }
 
             @Override

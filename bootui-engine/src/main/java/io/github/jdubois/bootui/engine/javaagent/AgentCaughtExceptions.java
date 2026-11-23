@@ -555,7 +555,7 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
         }
 
         @Override
-        public void onClear() {
+        public void onMemoryOffload() {
             clearedAt = clock.getAsLong();
         }
     }

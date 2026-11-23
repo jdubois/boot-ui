@@ -18,7 +18,6 @@ import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.DurableJournalArchiveService;
-import io.github.jdubois.bootui.engine.journal.DurableJournalEvidence;
 import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
 import io.github.jdubois.bootui.engine.journal.DurableJournalScope;
 import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
@@ -224,7 +223,7 @@ public class RuntimeInsightsResource {
             if (historical != null) {
                 return archive().insights(historical);
             }
-            JournalEvidenceSnapshot evidence = durableEvidence(namespace, application, run);
+            JournalEvidenceSnapshot evidence = currentDurableEvidence();
             return evidence == null ? insights.report() : insights.reportFrom(evidence);
         } catch (DurableJournalUnavailableException ex) {
             return new RuntimeInsightsReportDto(
@@ -251,7 +250,7 @@ public class RuntimeInsightsResource {
             if (historical != null) {
                 return archive().insight(historical, id);
             }
-            JournalEvidenceSnapshot evidence = durableEvidence(namespace, application, run);
+            JournalEvidenceSnapshot evidence = currentDurableEvidence();
             return evidence == null ? insights.insight(id) : insights.insightFrom(evidence, id);
         } catch (DurableJournalUnavailableException ex) {
             return new RuntimeObservationDetailDto(false, ex.getMessage(), null, List.of(), List.of(), 0);
@@ -272,26 +271,10 @@ public class RuntimeInsightsResource {
                 cause);
     }
 
-    private JournalEvidenceSnapshot durableEvidence(String namespace, String application, String run) {
-        boolean requested = hasText(namespace) || hasText(application) || hasText(run);
-        if (durableSettings == null) {
-            if (requested) {
-                throw new DurableJournalUnavailableException("Durable journal archive settings are unavailable");
-            }
-            return null;
-        }
-        DurableJournalScope selected = selectedScope(namespace, application, run);
-        boolean historical = !selected.equals(durableSettings.scope());
-        boolean needsArchive =
-                historical || durableJournal != null && durableJournal.status().offloadedEvents() > 0;
-        if (!needsArchive) {
-            return null;
-        }
-        if (durableRuntime == null || !durableRuntime.active()) {
-            throw new DurableJournalUnavailableException("Durable journal evidence is unavailable for " + selected);
-        }
-        DurableJournalEvidence evidence = new DurableJournalEvidence(durableRuntime.store());
-        return historical ? evidence.read(selected) : evidence.read(durableJournal, selected);
+    private JournalEvidenceSnapshot currentDurableEvidence() {
+        return durableSettings == null || durableRuntime == null
+                ? null
+                : durableRuntime.readCurrentEvidence(durableJournal, durableSettings.scope());
     }
 
     private DurableJournalScope historicalScope(String namespace, String application, String run) {

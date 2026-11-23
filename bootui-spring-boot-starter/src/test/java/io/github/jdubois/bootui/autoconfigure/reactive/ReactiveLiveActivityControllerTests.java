@@ -2,8 +2,11 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -12,6 +15,7 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
+import io.github.jdubois.bootui.autoconfigure.web.LiveMemoryController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
@@ -25,6 +29,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
@@ -41,16 +46,21 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.DurableJournalCapture;
 import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
 import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
 import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -63,6 +73,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
@@ -536,6 +548,61 @@ class ReactiveLiveActivityControllerTests {
             controller.shutdown();
             journal.close();
             legacyStore.close();
+        }
+    }
+
+    @Test
+    void aCurrentDurableRequestProfileSurvivesMemoryOffloadButNotClearRecording() throws Exception {
+        RunIdentity run = RunIdentity.start();
+        DurableJournalSettings settings = durableSettings(run, "namespace-reactive");
+        JdbcDurableJournalStore store = spy(new JdbcDurableJournalStore(newDataSource(), "bootui_activity"));
+        store.verifySchema();
+        CountDownLatch checkpointed = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    Object result = invocation.callRealMethod();
+                    checkpointed.countDown();
+                    return result;
+                })
+                .when(store)
+                .checkpoint(any(), anyLong());
+        var activity = controller(new BootUiProperties());
+        var runtime = new DurableJournalRuntime();
+        try (var journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), run);
+                var capture =
+                        DurableJournalCapture.start(journal, settings, store, new JournalActivityFeed(0, 2, null))) {
+            assertThat(runtime.activate(store, capture)).isTrue();
+            ReflectionTestUtils.setField(activity, "durableJournalSettings", settings);
+            ReflectionTestUtils.setField(activity, "durableJournalRuntime", runtime);
+            activity.setRuntimeJournal(journal, new JournalAggregates());
+            var memory = new LiveMemoryController(null, new MemoryOffloadService(() -> List.of(journal)), null);
+
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            1_000,
+                            2_000_000,
+                            CorrelationContext.forRequest("durable-request"),
+                            "worker",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/durable", "/durable", null, 200))))
+                    .isTrue();
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            capture.flushNow();
+            assertThat(checkpointed.await(5, TimeUnit.SECONDS)).isTrue();
+
+            memory.offload();
+            assertThat(journal.entries()).isEmpty();
+            assertThat(journal.status().offloadedEvents()).isZero();
+            assertThat(store.query(settings.scope()).entries()).hasSize(1);
+            assertThat(activity.requestJournal("durable-request").available()).isTrue();
+
+            assertThat(activity.clearJournal(new RuntimeJournalClearRequest(true))
+                            .getStatusCode()
+                            .value())
+                    .isEqualTo(200);
+            assertThat(activity.requestJournal("durable-request").available()).isFalse();
+        } finally {
+            activity.shutdown();
         }
     }
 

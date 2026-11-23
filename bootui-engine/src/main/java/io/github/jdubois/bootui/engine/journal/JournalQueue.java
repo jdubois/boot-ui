@@ -37,12 +37,14 @@ final class JournalQueue {
     private final Runnable beforeOffer;
     private final IntConsumer onAccepted;
     private final boolean refusing;
+    private final Object recording;
 
     private RuntimeEvent[] items;
     private int takeIndex;
     private int putIndex;
     private int count;
     private boolean detached;
+    private RuntimeEvent polled;
 
     /**
      * @param capacity the most events queued at once
@@ -51,16 +53,26 @@ final class JournalQueue {
      * @param onAccepted told the source ordinal of each event taken, with the lock held, or {@code null}
      */
     JournalQueue(int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted) {
-        this(capacity, routineLimit, beforeOffer, onAccepted, false);
+        this(capacity, routineLimit, beforeOffer, onAccepted, new Object());
+    }
+
+    JournalQueue(int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted, Object recording) {
+        this(capacity, routineLimit, beforeOffer, onAccepted, recording, false);
     }
 
     private JournalQueue(
-            int capacity, int routineLimit, Runnable beforeOffer, IntConsumer onAccepted, boolean refusing) {
+            int capacity,
+            int routineLimit,
+            Runnable beforeOffer,
+            IntConsumer onAccepted,
+            Object recording,
+            boolean refusing) {
         this.items = new RuntimeEvent[Math.max(1, capacity)];
         this.routineLimit = routineLimit;
         this.wakeAt = Math.max(1, routineLimit / 2);
         this.beforeOffer = beforeOffer;
         this.onAccepted = onAccepted;
+        this.recording = recording;
         this.refusing = refusing;
     }
 
@@ -69,12 +81,16 @@ final class JournalQueue {
      * counted as dropped rather than accepted and never processed, and it is never detached.
      */
     static JournalQueue closed() {
-        return new JournalQueue(1, 0, null, null, true);
+        return new JournalQueue(1, 0, null, null, new Object(), true);
     }
 
     /** Whether this is a closed journal's queue, which a clear leaves in place. */
     boolean refusing() {
         return refusing;
+    }
+
+    Object recording() {
+        return recording;
     }
 
     /**
@@ -113,21 +129,25 @@ final class JournalQueue {
     }
 
     /**
-     * The oldest event, waiting up to {@code timeout} for one; {@code null} when none came, or at once when the queue is
-     * or becomes detached, so a dispatcher waiting on it moves to the replacement.
+     * Reserves the oldest event for the dispatcher, waiting up to {@code timeout}. The reservation is outside queue
+     * depth and remains visible to {@link #detach()} until the dispatcher claims its batch under the processing lock.
      */
-    RuntimeEvent poll(long timeout, TimeUnit unit) throws InterruptedException {
+    boolean poll(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
         ReentrantLock lock = this.lock;
         lock.lockInterruptibly();
         try {
+            if (polled != null) {
+                throw new IllegalStateException("The dispatcher has not claimed its previous reservation");
+            }
             while (count == 0) {
                 if (detached || nanos <= 0L) {
-                    return null;
+                    return false;
                 }
                 nanos = notEmpty.awaitNanos(nanos);
             }
-            return take();
+            polled = take();
+            return true;
         } finally {
             lock.unlock();
         }
@@ -153,22 +173,39 @@ final class JournalQueue {
 
     /** Moves up to {@code max} of the oldest events to {@code batch}, in order; returns how many. */
     int drainTo(List<RuntimeEvent> batch, int max) {
+        return drainTo(batch, max, false);
+    }
+
+    /** Claims the dispatcher's reservation and drains the rest of its batch, under the same queue lock. */
+    int drainPolledTo(List<RuntimeEvent> batch, int max) {
+        return drainTo(batch, max, true);
+    }
+
+    private int drainTo(List<RuntimeEvent> batch, int max, boolean claimPolled) {
         ReentrantLock lock = this.lock;
         lock.lock();
         try {
-            int moved = Math.min(max, count);
+            int first = 0;
+            if (claimPolled) {
+                if (polled == null || max < 1) {
+                    return 0;
+                }
+                batch.add(polled);
+                polled = null;
+                first = 1;
+            }
+            int moved = Math.min(max - first, count);
             for (int i = 0; i < moved; i++) {
                 batch.add(take());
             }
-            return moved;
+            return first + moved;
         } finally {
             lock.unlock();
         }
     }
 
     /**
-     * Detaches this queue for a clear, in constant time: it takes no more events, drops those it holds, and wakes a
-     * dispatcher waiting on it. Returns what it dropped, to be visited after the lock is released.
+     * Detaches this queue in constant time and returns what it dropped, including any unclaimed reservation.
      */
     Detached detach() {
         ReentrantLock lock = this.lock;
@@ -178,7 +215,8 @@ final class JournalQueue {
                 return Detached.NONE;
             }
             detached = true;
-            Detached dropped = new Detached(items, takeIndex, count);
+            Detached dropped = new Detached(items, takeIndex, count, polled);
+            polled = null;
             items = new RuntimeEvent[0];
             takeIndex = 0;
             putIndex = 0;
@@ -211,12 +249,19 @@ final class JournalQueue {
      * The events a detach dropped: the detached ring buffer, which no offer or take touches any more, where its oldest
      * event was, and how many it held.
      */
-    record Detached(RuntimeEvent[] items, int takeIndex, int count) {
+    record Detached(RuntimeEvent[] items, int takeIndex, int count, RuntimeEvent polled) {
 
-        static final Detached NONE = new Detached(new RuntimeEvent[0], 0, 0);
+        static final Detached NONE = new Detached(new RuntimeEvent[0], 0, 0, null);
+
+        int discardedCount() {
+            return count + (polled == null ? 0 : 1);
+        }
 
         /** Visits each dropped event, oldest first. */
         void forEach(Consumer<RuntimeEvent> action) {
+            if (polled != null) {
+                action.accept(polled);
+            }
             for (int i = 0; i < count; i++) {
                 RuntimeEvent event = items[(takeIndex + i) % items.length];
                 if (event != null) {

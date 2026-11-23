@@ -77,10 +77,17 @@ explains what is cleared and what is kept.
 The one-shot `POST /bootui/api/live-memory/offload` empties every existing BootUI capture buffer, requests a garbage
 collection, and shows heap used before and after, the reclaimed estimate, and the number of buffered entries cleared.
 It does not hold recording; use low-footprint mode below for that. Settings, configuration overrides,
-dismissed rules, cached scan reports, and persisted Live Activity history are kept.
+dismissed rules, cached scan reports, and persisted Live Activity history are kept. Events already queued for the
+durable writer continue to flush asynchronously; events still waiting for the journal dispatcher are discarded.
+Request profiles and Runtime Insights can still use the persisted evidence from the current run. Events recovered
+from storage are not treated as lost just because they left memory. Recovery does not fill gaps from events that were
+never dispatched or whose durable write is still pending.
+The live archive treats deferred SQL lost in the same recording as incomplete evidence. A statement that started
+before an explicit **Clear recording** does not affect the next recording. A trace-only AI call is not attributed
+to another request if one sharing its trace was lost, even before sequencing or while durable metadata catches up.
 
 ::: warning Cleared data is gone
-The discarded journal, traces, and captures cannot be recovered, and exception triage statuses are dropped with their
+Evidence kept only in the discarded buffers cannot be recovered, and exception triage statuses are dropped with their
 groups. The garbage collection request is only a hint: the JVM may defer it, and ignores it under
 `-XX:+DisableExplicitGC`. The action is refused when `bootui.read-only=true` or
 `bootui.panels.live-memory.read-only=true`, and hidden when the Live Memory panel is disabled.
@@ -92,7 +99,7 @@ Low-footprint mode turns freeing memory into a switch: `POST /bootui/api/live-me
 `{"enabled": true}` pauses BootUI's recording, empties its buffers, and requests a garbage collection, and
 `{"enabled": false}` resumes recording. `GET /bootui/api/live-memory/footprint` reports the state without changing
 anything. The mode lives in memory only: it is off after a restart and never expires by itself. It follows the same
-read-only rules as freeing memory.
+read-only and durable history rules as freeing memory.
 
 Exceptions, Log Tail, Live Activity, Runtime Insights, the Scorecard, HTTP Exchanges, Traces, SQL Trace, REST Client,
 Transactions, Kafka, RabbitMQ, JMS, WebSockets, Security Logs, Email, Fault Tolerance events, and AI Framework show a

@@ -25,8 +25,14 @@ import java.util.Objects;
  */
 public final class DurableJournalRunMetadataCodec {
 
-    public static final int VERSION = 2;
-    public static final int MAX_ENCODED_BYTES = 320 * 1024;
+    public static final int VERSION = 3;
+    private static final int MAX_BASE_BYTES = 320 * 1024;
+    private static final int V3_WITH_DEFERRED_SQL_LOSS = -3;
+    public static final int MAX_ENCODED_BYTES = MAX_BASE_BYTES
+            + 2 * Integer.BYTES
+            + Long.BYTES
+            + DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS
+                    * DurableJournalRunMetadata.OffloadTraceLoss.FINGERPRINT_BYTES;
     public static final int MAX_SUMMARY_BYTES = RunHistory.MAX_SUMMARY_BYTES;
 
     private static final int MAGIC = 0x42554a4d;
@@ -42,7 +48,9 @@ public final class DurableJournalRunMetadataCodec {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(bytes);
             out.writeInt(MAGIC);
-            out.writeInt(VERSION);
+            var traceLoss = metadata.offloadTraceLoss();
+            Long sqlLoss = metadata.deferredSqlLossHorizonMillis();
+            out.writeInt(traceLoss.isEmpty() && sqlLoss == null ? 2 : VERSION);
             out.writeByte(metadata.phase().ordinal());
             out.writeLong(metadata.capturedAtEpochMillis());
             writeString(out, metadata.instanceId());
@@ -86,13 +94,24 @@ public final class DurableJournalRunMetadataCodec {
             out.writeLong(metadata.durableDroppedEvents());
             out.writeLong(metadata.durableQuarantinedEvents());
             out.writeLong(metadata.durableClearedThrough());
-            out.flush();
-            byte[] encoded = bytes.toByteArray();
-            if (encoded.length > MAX_ENCODED_BYTES) {
+            if (bytes.size() > MAX_BASE_BYTES) {
                 throw new IllegalArgumentException(
-                        "Durable journal run metadata exceeds " + MAX_ENCODED_BYTES + " bytes");
+                        "Durable journal run metadata exceeds " + MAX_BASE_BYTES + " base bytes");
             }
-            return encoded;
+            if (sqlLoss != null) {
+                out.writeInt(V3_WITH_DEFERRED_SQL_LOSS);
+                out.writeLong(sqlLoss);
+            }
+            if (!traceLoss.isEmpty() || sqlLoss != null) {
+                int count = traceLoss.fingerprints().size();
+                out.writeInt(traceLoss.overflowed() ? -1 : traceLoss.onlyUntraced() ? -2 : count);
+                for (String fingerprint :
+                        traceLoss.fingerprints().stream().sorted().toList()) {
+                    out.write(java.util.HexFormat.of().parseHex(fingerprint));
+                }
+            }
+            out.flush();
+            return bytes.toByteArray();
         } catch (IOException ex) {
             throw new IllegalArgumentException("Cannot encode durable journal run metadata", ex);
         }
@@ -147,6 +166,22 @@ public final class DurableJournalRunMetadataCodec {
             long durableDroppedEvents = in.data.readLong();
             long durableQuarantinedEvents = in.data.readLong();
             long durableClearedThrough = in.data.readLong();
+            if (bytes.length - in.data.available() > MAX_BASE_BYTES) {
+                throw new IllegalArgumentException(
+                        "Durable journal run metadata exceeds " + MAX_BASE_BYTES + " base bytes");
+            }
+            Long deferredSqlLoss = null;
+            var traceLoss = DurableJournalRunMetadata.OffloadTraceLoss.NONE;
+            if (version >= 3) {
+                int traceCount = in.data.readInt();
+                if (traceCount == V3_WITH_DEFERRED_SQL_LOSS) {
+                    deferredSqlLoss = in.data.readLong();
+                    traceCount = in.data.readInt();
+                }
+                if (traceCount != 0 || deferredSqlLoss == null) {
+                    traceLoss = in.offloadTraceLoss(traceCount);
+                }
+            }
             in.finish();
             return new DurableJournalRunMetadata(
                     phase,
@@ -168,7 +203,9 @@ public final class DurableJournalRunMetadataCodec {
                     summary,
                     durableDroppedEvents,
                     durableQuarantinedEvents,
-                    durableClearedThrough);
+                    durableClearedThrough,
+                    traceLoss,
+                    deferredSqlLoss);
         } catch (IOException ex) {
             throw new IllegalArgumentException("Malformed durable journal run metadata", ex);
         }
@@ -287,6 +324,27 @@ public final class DurableJournalRunMetadataCodec {
 
         In(byte[] bytes) {
             data = new DataInputStream(new java.io.ByteArrayInputStream(bytes));
+        }
+
+        DurableJournalRunMetadata.OffloadTraceLoss offloadTraceLoss(int count) throws IOException {
+            if (count == -1) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;
+            }
+            if (count == -2) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.UNTRACED;
+            }
+            if (count < 1 || count > DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS) {
+                throw new IllegalArgumentException("Invalid offload trace fingerprint count");
+            }
+            byte[] digest = new byte[DurableJournalRunMetadata.OffloadTraceLoss.FINGERPRINT_BYTES];
+            var fingerprints = new java.util.HashSet<String>();
+            for (int i = 0; i < count; i++) {
+                data.readFully(digest);
+                if (!fingerprints.add(java.util.HexFormat.of().formatHex(digest))) {
+                    throw new IllegalArgumentException("Duplicate offload trace fingerprint");
+                }
+            }
+            return new DurableJournalRunMetadata.OffloadTraceLoss(fingerprints, false);
         }
 
         RuntimeJournalSettings settings() throws IOException {

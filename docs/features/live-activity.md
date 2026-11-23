@@ -369,7 +369,19 @@ journal's own `droppedEvents`. A capture drop is recorded in run metadata and ev
 ring can compact through it, so historical profiles and Runtime Insights mark the result partial instead of treating an
 absent durable row as proof of absence.
 
-Start, checkpoint, and end metadata is refreshed independently. Historical readers can label an interrupted run and
+Start, checkpoint, and end metadata is refreshed independently. If memory offload discards an HTTP request before
+sequencing, or the durable writer confirms an HTTP request was lost, later metadata stores a bounded, run-scoped
+fingerprint of its trace, not the lost request's trace ID. Ordinary in-memory eviction does not add fingerprints.
+Historical profiles do not assign calls linked only by an affected trace to another request. If the
+bound is exceeded, trace-only attribution is withheld for that recording until **Clear recording**. Historical
+profiles and Runtime Insights report this loss as incomplete evidence, without counting it as missing database rows.
+An HTTP request lost without a trace also makes the archive incomplete but does not affect unrelated trace attribution.
+If a deferred SQL capture is lost in the same recording, archived Runtime Insights treats requests that may have
+lost that SQL as incomplete even when every sequenced event was recovered. Later unaffected requests remain eligible.
+When the archive also has gaps in its sequenced events, Runtime Insights may leave out otherwise retained requests
+rather than treat missing work as evidence that it never happened.
+
+Historical readers can label an interrupted run and
 project its last checkpoint without inventing a graceful shutdown. After acknowledgement, BootUI compacts the
 acknowledged in-memory prefix, preserves the configured hot tail and all open request/execution work, and does not count
 that compaction as eviction or loss.
@@ -382,6 +394,9 @@ that compaction as eviction or loss.
 events/details through the clear boundary. Lifetime counters remain, and previous runs are unaffected. If the durable
 delete fails, durable history stays as it was and the failure is logged; volatile rows are not restored. Disabling
 persistence does not delete existing rows.
+
+Current-run profiles and Runtime Insights still treat requests that may have lost work to **Clear recording** as
+incomplete, even when all events recorded after the clear are recoverable from durable history.
 
 Retention applies to event recording time within the selected namespace/application, not to one process. Pruning
 removes old `_events`, their `_details`, and old run rows only after that run has no retained events. Heartbeats keep an

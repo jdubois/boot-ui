@@ -52,36 +52,22 @@ final class EvidenceRing {
      */
     private final LinkedHashSet<String> evictedRequestTraces = new LinkedHashSet<>();
 
-    /**
-     * The latest start, by the wall clock, of an event of a request, an execution, or a trace that the ring lost to
-     * eviction, to the byte bound, or to a clear; {@link Long#MIN_VALUE} while it lost none. A unit of work that started
-     * after it cannot have lost an event, since its events start no earlier than it does ({@link #lossHorizonMillis}).
-     */
-    private long lossHorizonMillis = Long.MIN_VALUE;
-
-    /**
-     * When the latest request whose HTTP event the ring lost ended, by the wall clock; {@link Long#MIN_VALUE} while it
-     * lost none. A container logs a request's failure once its id is gone, so an error without an id written shortly
-     * after may have been that lost request's.
-     */
-    private long lostRequestEndMillis = Long.MIN_VALUE;
-
-    /**
-     * Per source, the latest start of any event the ring lost, by the wall clock; {@link Long#MIN_VALUE} while it lost
-     * none of that source. Unlike the loss horizon, it counts events of no unit of work too, such as a log written
-     * outside any request.
-     */
-    private final long[] lostBySource = lostBySource();
+    private LinkedHashSet<String> currentArchiveEvictedTraces;
+    private LinkedHashSet<String> archiveLostTraces;
+    private boolean archiveLostTraceOverflow;
+    private boolean archiveLostUntracedRequest;
+    private Object recording = new Object();
+    private long clearedThrough;
+    private long deferredSqlLossHorizon = Long.MIN_VALUE;
+    private long writerLosses;
+    private long recordingWorkHorizon = Long.MIN_VALUE;
+    private long explicitClearLossHorizon = Long.MIN_VALUE;
 
     /** The most thread names of requests that lost events remembered. */
     static final int MAX_LOST_REQUEST_THREADS = 1_024;
 
-    /**
-     * The threads that ran the most recent requests the ring lost events of, so only an error without a request id
-     * written on one of them is taken as possibly that request's, never a startup or pool thread's own error. Kept
-     * across a clear, which loses events too.
-     */
-    private final LinkedHashSet<String> lostRequestThreads = new LinkedHashSet<>();
+    private final LossMarkers lossWithoutMemoryOffload = new LossMarkers();
+    private LossMarkers hotLoss = lossWithoutMemoryOffload;
 
     EvidenceRing(int maxEvents, long maxBytes, int reservedSharePercent, LongSupplier externalBytes) {
         this.maxEvents = Math.max(1, maxEvents);
@@ -91,6 +77,7 @@ final class EvidenceRing {
     }
 
     synchronized void add(JournalEntry entry) {
+        observeWork(entry.event());
         if (entry.estimatedBytes() + externalBytes.getAsLong() > maxBytes) {
             rememberEvictedRequest(entry.event());
             lost(entry.event());
@@ -147,83 +134,232 @@ final class EvidenceRing {
         if (event.source() != JournalSource.HTTP || event.traceId() == null) {
             return;
         }
-        evictedRequestTraces.remove(event.traceId());
-        evictedRequestTraces.add(event.traceId());
-        if (evictedRequestTraces.size() > MAX_EVICTED_REQUEST_TRACES) {
-            evictedRequestTraces.remove(evictedRequestTraces.iterator().next());
+        rememberTrace(evictedRequestTraces, event.traceId());
+        if (currentArchiveEvictedTraces != null) {
+            rememberTrace(currentArchiveEvictedTraces, event.traceId());
+        }
+    }
+
+    private static void rememberTrace(LinkedHashSet<String> traces, String traceId) {
+        traces.remove(traceId);
+        traces.add(traceId);
+        if (traces.size() > MAX_EVICTED_REQUEST_TRACES) {
+            traces.remove(traces.iterator().next());
         }
     }
 
     /** Moves the loss horizon past {@code event} when it belonged to a request, an execution, or a trace. */
     synchronized void lost(RuntimeEvent event) {
+        lost(event, false);
+    }
+
+    synchronized void lostBeforeOffload(RuntimeEvent event) {
+        lost(event, false);
+        rememberArchiveLoss(event);
+    }
+
+    synchronized void lostBeforeClear(RuntimeEvent event) {
+        lost(event, false);
+        observeWork(event);
+    }
+
+    private void observeWork(RuntimeEvent event) {
+        if (event.requestId() != null || event.executionId() != null || event.traceId() != null) {
+            recordingWorkHorizon = Math.max(recordingWorkHorizon, event.epochMillis());
+        }
+    }
+
+    synchronized Long explicitClearLossHorizon() {
+        return lossOrNull(explicitClearLossHorizon);
+    }
+
+    private void rememberArchiveLoss(RuntimeEvent event) {
+        if (event.source() != JournalSource.HTTP || archiveLostTraceOverflow) {
+            return;
+        }
+        if (event.traceId() == null || event.traceId().isBlank()) {
+            archiveLostUntracedRequest = true;
+            return;
+        }
+        if (archiveLostTraces == null) {
+            archiveLostTraces = new LinkedHashSet<>();
+        }
+        if (event.traceId().length() > DurableJournalRunMetadata.MAX_IDENTIFIER_LENGTH
+                || archiveLostTraces.add(event.traceId())
+                        && archiveLostTraces.size() > DurableJournalRunMetadata.OffloadTraceLoss.MAX_FINGERPRINTS) {
+            archiveLostTraceOverflow = true;
+            archiveLostTraces = null;
+        }
+    }
+
+    synchronized Object recording() {
+        return recording;
+    }
+
+    synchronized Object beginRecording(long sequence) {
+        recording = new Object();
+        clearedThrough = sequence;
+        deferredSqlLossHorizon = Long.MIN_VALUE;
+        writerLosses = 0;
+        archiveLostTraces = null;
+        archiveLostTraceOverflow = false;
+        archiveLostUntracedRequest = false;
+        return recording;
+    }
+
+    synchronized void lostDeferred(RuntimeEvent event, Object expectedRecording) {
+        if (recording == expectedRecording && event != null) {
+            lost(event, false);
+            if (event.source() == JournalSource.SQL) {
+                long started = Math.max(0, Math.min(event.epochMillis(), System.currentTimeMillis()));
+                deferredSqlLossHorizon = Math.max(deferredSqlLossHorizon, started);
+            }
+        }
+    }
+
+    synchronized boolean hasDeferredSqlLoss() {
+        return deferredSqlLossHorizon != Long.MIN_VALUE;
+    }
+
+    synchronized long writerLosses() {
+        return writerLosses;
+    }
+
+    synchronized OffloadTraceSnapshot offloadTraceSnapshot() {
+        return new OffloadTraceSnapshot(
+                archiveLostTraces == null ? List.of() : List.copyOf(archiveLostTraces),
+                archiveLostTraceOverflow,
+                archiveLostUntracedRequest,
+                hasDeferredSqlLoss() ? deferredSqlLossHorizon : null);
+    }
+
+    record OffloadTraceSnapshot(
+            List<String> traceIds, boolean overflowed, boolean untracedRequest, Long deferredSqlLossHorizonMillis) {
+        DurableJournalRunMetadata.OffloadTraceLoss fingerprint(DurableJournalScope scope) {
+            if (overflowed) {
+                return DurableJournalRunMetadata.OffloadTraceLoss.OVERFLOW;
+            }
+            if (traceIds.isEmpty()) {
+                return untracedRequest
+                        ? DurableJournalRunMetadata.OffloadTraceLoss.UNTRACED
+                        : DurableJournalRunMetadata.OffloadTraceLoss.NONE;
+            }
+            return new DurableJournalRunMetadata.OffloadTraceLoss(
+                    traceIds.stream()
+                            .map(traceId -> DurableJournalIds.offloadTraceFingerprint(scope, traceId))
+                            .collect(java.util.stream.Collectors.toSet()),
+                    false);
+        }
+    }
+
+    private LinkedHashSet<String> currentArchiveTraces() {
+        if (currentArchiveEvictedTraces == null) {
+            currentArchiveEvictedTraces = new LinkedHashSet<>(evictedRequestTraces);
+        }
+        return currentArchiveEvictedTraces;
+    }
+
+    private void lost(RuntimeEvent event, boolean memoryOffload) {
         if (event == null) {
             return;
         }
-        long anyStarted = Math.min(event.epochMillis(), System.currentTimeMillis());
-        int source = event.source().ordinal();
-        if (anyStarted > lostBySource[source]) {
-            lostBySource[source] = anyStarted;
-        }
-        if (event.requestId() == null && event.executionId() == null && event.traceId() == null) {
-            return;
-        }
-        // Never past now: a span from a skewed clock, or a wall clock stepped back, would otherwise hide every request
-        // until the restart.
-        long started = Math.min(event.epochMillis(), System.currentTimeMillis());
-        if (started > lossHorizonMillis) {
-            lossHorizonMillis = started;
-        }
-        if (event.requestId() != null
-                && event.thread() != null
-                && !event.thread().isBlank()) {
-            lostRequestThreads.remove(event.thread());
-            lostRequestThreads.add(event.thread());
-            if (lostRequestThreads.size() > MAX_LOST_REQUEST_THREADS) {
-                lostRequestThreads.remove(lostRequestThreads.iterator().next());
-            }
-        }
-        if (event.source() == JournalSource.HTTP && event.requestId() != null) {
-            long ended = Math.min(
-                    event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000, System.currentTimeMillis());
-            if (ended > lostRequestEndMillis) {
-                lostRequestEndMillis = ended;
-            }
+        long now = System.currentTimeMillis();
+        hotLoss.record(event, now);
+        if (!memoryOffload && hotLoss != lossWithoutMemoryOffload) {
+            lossWithoutMemoryOffload.record(event, now);
         }
     }
 
     /** Whether a request the ring lost events of ran on {@code thread}, as far as the ring remembers. */
-    synchronized boolean lostARequestOn(String thread) {
-        return thread != null && lostRequestThreads.contains(thread);
+    synchronized boolean lostARequestOn(String thread, boolean recoveredOffload) {
+        return thread != null && lossMarkers(recoveredOffload).requestThreads.contains(thread);
     }
 
     /** When the latest request whose HTTP event the ring lost ended, or {@code null} while it lost none. */
-    synchronized Long lostRequestEndMillis() {
-        return lostRequestEndMillis == Long.MIN_VALUE ? null : lostRequestEndMillis;
+    synchronized Long lostRequestEndMillis(boolean recoveredOffload) {
+        return lossOrNull(lossMarkers(recoveredOffload).requestEnd);
     }
 
     /**
      * The latest start of an event of a unit of work the ring lost, or {@code null} while it lost none: a request or an
      * execution that started then or before may have lost some of its events, so it is incomplete evidence.
      */
-    synchronized Long lossHorizonMillis() {
-        return lossHorizonMillis == Long.MIN_VALUE ? null : lossHorizonMillis;
+    synchronized Long lossHorizonMillis(boolean recoveredOffload) {
+        return lossOrNull(lossMarkers(recoveredOffload).horizon);
     }
 
     /** The latest start of an event of {@code source} the ring lost, or {@code null} while it lost none. */
-    synchronized Long lostMillis(JournalSource source) {
-        long lost = lostBySource[source.ordinal()];
+    synchronized Long lostMillis(JournalSource source, boolean recoveredOffload) {
+        return lossOrNull(lossMarkers(recoveredOffload).bySource[source.ordinal()]);
+    }
+
+    private LossMarkers lossMarkers(boolean recoveredOffload) {
+        return recoveredOffload ? lossWithoutMemoryOffload : hotLoss;
+    }
+
+    private static Long lossOrNull(long lost) {
         return lost == Long.MIN_VALUE ? null : lost;
     }
 
-    private static long[] lostBySource() {
-        long[] lost = new long[JournalSource.values().length];
-        java.util.Arrays.fill(lost, Long.MIN_VALUE);
-        return lost;
+    private static final class LossMarkers {
+
+        private long horizon = Long.MIN_VALUE;
+        private long requestEnd = Long.MIN_VALUE;
+        private final long[] bySource;
+        private final LinkedHashSet<String> requestThreads;
+
+        private LossMarkers() {
+            bySource = new long[JournalSource.values().length];
+            java.util.Arrays.fill(bySource, Long.MIN_VALUE);
+            requestThreads = new LinkedHashSet<>();
+        }
+
+        private LossMarkers(LossMarkers original) {
+            horizon = original.horizon;
+            requestEnd = original.requestEnd;
+            bySource = original.bySource.clone();
+            requestThreads = new LinkedHashSet<>(original.requestThreads);
+        }
+
+        private void record(RuntimeEvent event, long now) {
+            // Never advance past now: skewed clocks could otherwise hide subsequent requests.
+            long started = Math.min(event.epochMillis(), now);
+            int source = event.source().ordinal();
+            bySource[source] = Math.max(bySource[source], started);
+            if (event.requestId() == null && event.executionId() == null && event.traceId() == null) {
+                return;
+            }
+            horizon = Math.max(horizon, started);
+            if (event.requestId() != null
+                    && event.thread() != null
+                    && !event.thread().isBlank()) {
+                requestThreads.remove(event.thread());
+                requestThreads.add(event.thread());
+                if (requestThreads.size() > MAX_LOST_REQUEST_THREADS) {
+                    requestThreads.remove(requestThreads.iterator().next());
+                }
+            }
+            if (event.source() == JournalSource.HTTP && event.requestId() != null) {
+                long ended = Math.min(event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000, now);
+                requestEnd = Math.max(requestEnd, ended);
+            }
+        }
     }
 
     /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */
-    synchronized boolean evictedARequestOf(String traceId) {
-        return traceId != null && evictedRequestTraces.contains(traceId);
+    synchronized boolean evictedARequestOf(String traceId, boolean currentArchive) {
+        if (traceId == null) {
+            return false;
+        }
+        var traces = currentArchive && currentArchiveEvictedTraces != null
+                ? currentArchiveEvictedTraces
+                : evictedRequestTraces;
+        return traces.contains(traceId) || (currentArchive && lostArchiveTrace(traceId));
+    }
+
+    synchronized boolean lostArchiveTrace(String traceId) {
+        return traceId != null
+                && (archiveLostTraceOverflow || archiveLostTraces != null && archiveLostTraces.contains(traceId));
     }
 
     synchronized List<String> lostRequestTraces() {
@@ -231,15 +367,18 @@ final class EvidenceRing {
     }
 
     synchronized List<String> lostRequestThreads() {
-        return List.copyOf(lostRequestThreads);
+        return List.copyOf(hotLoss.requestThreads);
     }
 
-    synchronized void durableCaptureLost(JournalEntry entry) {
-        if (entry == null || entry.event() == null) {
-            return;
+    synchronized boolean durableCaptureLost(JournalEntry entry) {
+        if (entry == null || entry.event() == null || entry.sequence() <= clearedThrough) {
+            return false;
         }
         rememberEvictedRequest(entry.event());
+        rememberArchiveLoss(entry.event());
         lost(entry.event());
+        writerLosses++;
+        return true;
     }
 
     private int size() {
@@ -250,11 +389,25 @@ final class EvidenceRing {
      * Drops every retained event. Eviction counts are kept: they report events lost to the bounds since startup. The
      * loss horizon moves past them, since a request still running loses the events it recorded before the clear.
      */
-    synchronized void clear() {
-        routine.forEach(entry -> lost(entry.event()));
-        reserved.forEach(entry -> lost(entry.event()));
+    synchronized void clear(boolean memoryOffload) {
+        // Until the first memory-only discard, the two readers see identical loss.
+        if (memoryOffload && size() != 0 && hotLoss == lossWithoutMemoryOffload) {
+            hotLoss = new LossMarkers(lossWithoutMemoryOffload);
+        }
+        routine.forEach(entry -> lost(entry.event(), memoryOffload));
+        reserved.forEach(entry -> lost(entry.event(), memoryOffload));
         routine.clear();
         reserved.clear();
+        if (!memoryOffload) {
+            // Clear invalidates sequenced work even if its rows had already left the hot ring.
+            explicitClearLossHorizon =
+                    Math.max(explicitClearLossHorizon, Math.min(recordingWorkHorizon, System.currentTimeMillis()));
+            recordingWorkHorizon = Long.MIN_VALUE;
+            currentArchiveEvictedTraces = null;
+        } else if (currentArchiveEvictedTraces == null && !evictedRequestTraces.isEmpty()) {
+            // The active archive can still contain other requests with these traces after the hot reset.
+            currentArchiveTraces();
+        }
         evictedRequestTraces.clear();
         retainedBytes = 0;
     }

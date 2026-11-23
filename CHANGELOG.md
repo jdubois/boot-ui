@@ -198,6 +198,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **External explicit-GC findings clear on rescans without new pauses**, with severity based only on the current
   observation interval and incomplete notification coverage kept explicit
   ([Memory checks](docs/MEMORY-CHECKS.md#time-and-collector-boundaries)).
+- **Free BootUI memory and Low-footprint mode** keep persisted Live Activity history readable in request profiles
+  and Runtime Insights, without canceling pending durable writes ([Live Memory](docs/features/runtime.md#free-bootui-memory)).
+- **Current-run journal reads** keep requests that lost work to **Clear recording** out of baseline comparisons
+  and Runtime Insights even when the later evidence is durable ([Live Activity](docs/features/live-activity.md)).
 - **Hibernate CI coverage** no longer treats verified fetch-free SELECT entity joins as unknown collection-fetch
   evidence, or inherited `JpaRepository.saveAll` compiler bridges as custom entity-newness strategies.
 - **CI failure explanations** include bounded diagnostic-level counts and syntax-checked Hibernate rule identifiers

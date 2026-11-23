@@ -106,6 +106,15 @@ public final class DurableJournalIds {
         return normalized.substring(0, Math.min(normalized.length(), MAX_HASH_INPUT_LENGTH));
     }
 
+    static String offloadTraceFingerprint(DurableJournalScope scope, String traceId) {
+        return HexFormat.of()
+                .formatHex(sha256("bootui/offload-trace:"
+                        + scope.namespace().length() + ":" + scope.namespace()
+                        + scope.application().length() + ":" + scope.application()
+                        + scope.run().length() + ":" + scope.run()
+                        + traceId));
+    }
+
     private static byte[] sha256(String value) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));

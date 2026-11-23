@@ -1143,6 +1143,51 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void aPlainCloseProcessesTheDispatcherReservationBeforeEndingTheRun() throws Exception {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), true);
+        var processing = RuntimeJournal.class.getDeclaredField("processing");
+        processing.setAccessible(true);
+        CompletableFuture<Void> closing;
+        synchronized (processing.get(journal)) {
+            assertThat(journal.offer(sql(1, false))).isTrue();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (journal.status().queueDepth() != 0 && System.nanoTime() < deadline) {
+                TimeUnit.MILLISECONDS.sleep(1);
+            }
+            assertThat(journal.status().queueDepth()).isZero();
+            assertThat(journal.lastSequence()).isZero();
+            closing = CompletableFuture.runAsync(journal::close);
+            deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (journal.isOpen() && System.nanoTime() < deadline) {
+                TimeUnit.MILLISECONDS.sleep(1);
+            }
+            assertThat(journal.isOpen()).isFalse();
+        }
+        closing.get(5, TimeUnit.SECONDS);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(1))).isTrue();
+        assertThat(journal.entries()).extracting(JournalEntry::sequence).containsExactly(1L);
+        assertThat(journal.hasUnsequencedLoss()).isFalse();
+    }
+
+    @Test
+    void aSequencingFailureAfterClearMarksTheNewRecordingIncomplete() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        assertThat(journal.offer(sql(1, false))).isTrue();
+        assertThat(journal.offloadRetainedData()).isOne();
+        assertThat(journal.hasUnsequencedLoss()).isTrue();
+
+        journal.clear();
+        assertThat(journal.hasUnsequencedLoss()).isFalse();
+        RuntimeEventPayload broken = () -> {
+            throw new IllegalStateException("cannot estimate synthetic event");
+        };
+        assertThat(journal.offer(sql(2, false).withPayload(broken))).isTrue();
+        assertThatThrownBy(journal::dispatchPending).isInstanceOf(IllegalStateException.class);
+        assertThat(journal.lastSequence()).isZero();
+        assertThat(journal.hasUnsequencedLoss()).isTrue();
+    }
+
+    @Test
     void anEventTheDispatcherTookAsTheRecordingWasClearedIsNotRecorded() throws Exception {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), true);
         CountDownLatch blocked = new CountDownLatch(1);
