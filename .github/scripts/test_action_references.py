@@ -129,6 +129,24 @@ class ActionReferenceTests(unittest.TestCase):
                     else:
                         self.assertIn("1 reference(s) across 1 file(s)", result.stdout)
 
+    def test_windows_installer_workflow_runs_pr_code_without_write_credentials(self):
+        original = (ROOT / ".github/workflows/windows-installer.yml").read_text(encoding="utf-8")
+        for safe, unsafe, error in (
+            ("pull_request:", "pull_request_target:", "must use pull_request"),
+            ("contents: read", "contents: read\n  actions: write", "must use read-only permissions"),
+            ("persist-credentials: false", "persist-credentials: true", "must not persist checkout credentials"),
+        ):
+            with self.subTest(unsafe=unsafe), tempfile.TemporaryDirectory() as directory:
+                workflow = Path(directory) / ".github/workflows/windows-installer.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.write_text(original.replace(safe, unsafe), encoding="utf-8")
+                result = subprocess.run(
+                    ["bash", str(SCRIPT), str(workflow)],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(error, result.stderr)
+
     def test_shared_matrix_steps_are_checked_at_the_anchor(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = Path(directory) / "workflow.yml"

@@ -255,28 +255,81 @@ printf '[GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}\\n'
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(Path(record.read_text()).exists())
 
-    def test_powershell_accepts_successful_native_diagnostics(self):
-        runtime = shutil.which("powershell") or shutil.which("pwsh")
-        if runtime is None:
-            self.skipTest("PowerShell unavailable for native diagnostic execution")
-        self.checksum()
-        self.jar.with_name(self.jar.name + ".asc").write_text("fixture signature")
+    def test_powershell_contract_has_the_same_fail_closed_and_pinned_signer_checks(self):
+        script = (PUBLIC / "install.ps1").read_text()
+        self.assertIn("[switch] $AllowUnverified", script)
+        self.assertIn("if (-not $AllowUnverified)", script)
+        self.assertIn("malformed published $algorithm checksum", script)
+        self.assertIn("$keyImport.ExitCode -ne 0", script)
+        self.assertIn("$verification.ExitCode -ne 0", script)
+        self.assertIn("signer not authenticated", script)
+        self.assertIn(FINGERPRINT, script)
+
+
+class PowerShellInstallerTests(unittest.TestCase):
+    def setUp(self):
+        self.runtime = (
+            Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+            if os.name == "nt" else shutil.which("pwsh")
+        )
+        if self.runtime is None:
+            self.skipTest("PowerShell unavailable for installer execution")
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.repository = self.root / "repository"
+        self.repository.mkdir()
+        self.install_dir = self.root / "install dir"
+        self.bin_dir = self.root / "bin dir"
+        self.launcher = self.bin_dir / "bootui.cmd"
+        self.record = self.install_dir / "installation-v1"
+        tools = self.root / "tools"
+        tools.mkdir()
         if os.name == "nt":
-            self.tool("gpg.cmd", f"""@echo off
+            (tools / "gpg.cmd").write_text(f"""@echo off
 echo successful GnuPG diagnostic 1>&2
 echo [GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}
 exit /b 0
 """)
         else:
-            self.tool("gpg", f"""#!/bin/sh
+            gpg = tools / "gpg"
+            gpg.write_text(f"""#!/bin/sh
 echo 'successful GnuPG diagnostic' >&2
 printf '[GNUPG:] VALIDSIG SIGNING-SUBKEY 0 {FINGERPRINT}\\n'
 """)
+            gpg.chmod(0o755)
+        self.environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ.get("PATH", ""))
+
+    def jar(self, version):
+        return self.install_dir / f"bootui-cli-{version}-all.jar"
+
+    def install(
+        self, version, payload, *, repo="https://fixture.invalid", locked=None,
+        fail_launcher_write=False, fail_old_jar_lookup=False,
+    ):
+        fixture = self.repository / self.jar(version).name
+        fixture.write_bytes(payload)
+        fixture.with_suffix(".jar.sha256").write_text(hashlib.sha256(payload).hexdigest())
+        fixture.with_suffix(".jar.asc").write_text("fixture signature")
 
         def quote(value):
             return "'" + str(value).replace("'", "''") + "'"
 
         bootstrap = self.root / "install-fixture.ps1"
+        lock_path = quote(locked) if locked is not None and os.name == "nt" else "$null"
+        launcher_write_fault = r"""
+function Set-Content {
+  param([string] $LiteralPath, [string] $Encoding)
+  begin {
+    [IO.File]::WriteAllText($LiteralPath, 'partial launcher')
+    throw 'Fixture launcher write failed'
+  }
+}
+""" if fail_launcher_write else ""
+        old_jar_lookup_fault = """
+$WarningPreference = 'Stop'
+function Get-ChildItem { throw 'Fixture could not enumerate old JARs' }
+""" if fail_old_jar_lookup else ""
         bootstrap.write_text(f"""
 $ErrorActionPreference = 'Stop'
 function Invoke-WebRequest {{
@@ -287,28 +340,177 @@ function Invoke-WebRequest {{
   if ($OutFile) {{ Copy-Item -LiteralPath $source -Destination $OutFile; return }}
   [pscustomobject] @{{ Content = [IO.File]::ReadAllText($source) }}
 }}
-& {quote(PUBLIC / 'install.ps1')} -Version test -MavenRepo https://fixture.invalid `
-  -InstallDir {quote(self.root / 'install')} -BinDir {quote(self.root / 'bin')} -NoPathUpdate
-exit $LASTEXITCODE
-""")
-        environment = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ.get("PATH", ""))
-        result = subprocess.run(
-            [runtime, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(bootstrap)],
-            env=environment, capture_output=True, text=True, timeout=30, check=False,
-        )
+{launcher_write_fault}
+{old_jar_lookup_fault}
+$path = {lock_path}
+$lock = if ($path) {{ [IO.File]::Open($path, 'Open', 'Read', 'Read') }}
+try {{
+  & {quote(PUBLIC / 'install.ps1')} -Version {quote(version)} -MavenRepo {quote(repo)} `
+    -InstallDir {quote(self.install_dir)} -BinDir {quote(self.bin_dir)} -NoPathUpdate
+  exit $LASTEXITCODE
+}} finally {{
+  if ($lock) {{ $lock.Dispose() }}
+}}
+""", encoding="utf-8-sig" if os.name == "nt" else "utf-8")
+        command = [self.runtime, "-NoLogo", "-NoProfile", "-NonInteractive"]
+        if os.name == "nt":
+            command += ["-ExecutionPolicy", "RemoteSigned"]
+        if locked is not None and sys.platform == "darwin":
+            subprocess.run(["chflags", "uchg", str(locked)], check=True)
+        try:
+            return subprocess.run(
+                [*command, "-File", str(bootstrap)],
+                env=self.environment, capture_output=True, text=True, timeout=30, check=False,
+            )
+        finally:
+            if locked is not None and sys.platform == "darwin":
+                subprocess.run(["chflags", "nouchg", str(locked)], check=True)
+
+    def test_powershell_accepts_successful_native_diagnostics(self):
+        result = self.install("test", b"test artifact")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("signature matched pinned BootUI key", result.stdout)
-        self.assertEqual((self.root / "install" / self.jar.name).read_bytes(), self.jar.read_bytes())
+        self.assertEqual(self.jar("test").read_bytes(), b"test artifact")
 
-    def test_powershell_contract_has_the_same_fail_closed_and_pinned_signer_checks(self):
-        script = (PUBLIC / "install.ps1").read_text()
-        self.assertIn("[switch] $AllowUnverified", script)
-        self.assertIn("if (-not $AllowUnverified)", script)
-        self.assertIn("malformed published $algorithm checksum", script)
-        self.assertIn("$keyImport.ExitCode -ne 0", script)
-        self.assertIn("$verification.ExitCode -ne 0", script)
-        self.assertIn("signer not authenticated", script)
-        self.assertIn(FINGERPRINT, script)
+    def test_powershell_successful_upgrade_switches_launcher_record_and_jar(self):
+        installed = self.install("previous", b"previous artifact")
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        repo = "https://fixture.invalid/upgraded"
+        result = self.install("next", b"next artifact", repo=repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'set "BOOTUI_JAR={self.jar("next")}"', self.launcher.read_text())
+        self.assertEqual(
+            self.record.read_bytes().decode("utf-8"),
+            f"bootui-install-v1\n{self.jar('next')}\n{self.launcher}\n{repo}\n",
+        )
+        self.assertEqual(self.jar("next").read_bytes(), b"next artifact")
+        self.assertFalse(self.jar("previous").exists())
+        self.assertCountEqual(self.install_dir.iterdir(), [self.record, self.jar("next")])
+        self.assertCountEqual(self.bin_dir.iterdir(), [self.launcher])
+
+    def test_powershell_cleanup_lookup_failure_leaves_new_install_runnable(self):
+        if os.name != "nt" and not all(shutil.which(tool) for tool in ("java", "javac", "jar")):
+            self.skipTest("a local JDK is needed for the runnable JAR fixture")
+        previous = self.install("previous", b"previous artifact")
+        self.assertEqual(previous.returncode, 0, previous.stdout + previous.stderr)
+        payload = self.launcher_probe_jar()
+        result = self.install("next", payload, fail_old_jar_lookup=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Fixture could not enumerate old JARs", result.stdout)
+        self.assertIn("WARNING:", result.stdout)
+        self.assertIn("Installed bootui-cli-next-all.jar", result.stdout)
+        self.assertEqual(self.jar("previous").read_bytes(), b"previous artifact")
+        self.assertEqual(self.jar("next").read_bytes(), payload)
+        self.assertEqual(self.record.read_text(encoding="utf-8").splitlines()[1], str(self.jar("next")))
+        self.assertIn(f'set "BOOTUI_JAR={self.jar("next")}"', self.launcher.read_text())
+
+        # Exercise the generated launcher on Windows and its target JAR on other platforms.
+        command = [os.environ["ComSpec"], "/d", "/c", r".\bootui.cmd"] if os.name == "nt" else [
+            "java", "-jar", str(self.jar("next")),
+        ]
+        probe = subprocess.run(
+            [*command, "0", "new install"], cwd=self.bin_dir, env=self.environment,
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
+        self.assertEqual(probe.stdout.splitlines(), ["0", "new install"])
+
+    def test_powershell_failed_upgrade_keeps_previous_launch_files(self):
+        if os.name != "nt" and sys.platform != "darwin":
+            self.skipTest("failure fixture needs a Windows sharing lock or macOS immutable flag")
+        payload = b"replacement artifact"
+        repo = "https://fixture.invalid/upgraded"
+        for locked, requested in (
+            (self.launcher, "next"),
+            (self.record, "next"),
+            (self.launcher, "previous"),
+        ):
+            with self.subTest(locked=locked.name, requested=requested):
+                installed = self.install("previous", b"previous artifact")
+                self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+                previous = {path: path.read_bytes() for path in (self.launcher, self.record, self.jar("previous"))}
+                result = self.install(requested, payload, repo=repo, locked=locked)
+                self.assert_replacement_failure(result)
+                self.assert_previous_install(result, previous)
+                if sys.platform == "darwin":
+                    # .NET on macOS can create a hard-linked backup before the failed rename.
+                    # Neither link can be removed until the fixture clears their shared flag.
+                    for backup in locked.parent.glob(".bootui-*.bak"):
+                        self.assertIn(f"Could not remove installer scratch file {backup}", result.stdout)
+                        self.assertEqual(backup.read_bytes(), previous[locked])
+                        backup.unlink()
+                self.assert_only_previous_files()
+                retry = self.install(requested, payload, repo=repo)
+                self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+                self.assertEqual(self.jar(requested).read_bytes(), payload)
+
+    def test_powershell_failed_launcher_write_keeps_previous_launch_files(self):
+        installed = self.install("previous", b"previous artifact")
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        previous = {path: path.read_bytes() for path in (self.launcher, self.record, self.jar("previous"))}
+        result = self.install("next", b"replacement artifact", fail_launcher_write=True)
+        self.assertIn("Fixture launcher write failed", result.stderr)
+        self.assert_previous_install(result, previous)
+        self.assert_only_previous_files()
+
+    @unittest.skipUnless(os.name == "nt", "requires native cmd.exe")
+    def test_powershell_launcher_forwards_arguments_and_status_after_failed_upgrade(self):
+        initial = self.install("previous", self.launcher_probe_jar())
+        self.assertEqual(initial.returncode, 0, initial.stdout + initial.stderr)
+        failure = self.install("next", b"replacement artifact", locked=self.launcher)
+        self.assert_replacement_failure(failure)
+        self.assert_only_previous_files()
+
+        for use_java_home in (True, False):
+            environment = dict(self.environment)
+            if use_java_home:
+                environment["PATH"] = str(self.root / "tools")
+            else:
+                environment.pop("JAVA_HOME", None)
+            for status in (0, 1, 2):
+                with self.subTest(use_java_home=use_java_home, status=status):
+                    arguments = [str(status), "--name", "two words"]
+                    result = subprocess.run(
+                        [os.environ["ComSpec"], "/d", "/c", r".\bootui.cmd", *arguments],
+                        cwd=self.bin_dir, env=environment, capture_output=True, text=True, timeout=30, check=False,
+                    )
+                    self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), arguments)
+
+    def launcher_probe_jar(self):
+        (self.root / "LauncherProbe.java").write_text("""public class LauncherProbe {
+    public static void main(String[] args) {
+        for (String arg : args) {
+            System.out.println(arg);
+        }
+        System.exit(Integer.parseInt(args[0]));
+    }
+}
+""", encoding="ascii")
+        subprocess.run(
+            ["javac", "--release", "17", "LauncherProbe.java"], cwd=self.root, timeout=30, check=True,
+        )
+        subprocess.run(
+            ["jar", "--create", "--file", "launcher-probe.jar", "--main-class", "LauncherProbe", "LauncherProbe.class"],
+            cwd=self.root, timeout=30, check=True,
+        )
+        return (self.root / "launcher-probe.jar").read_bytes()
+
+    def assert_replacement_failure(self, result):
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertIn("bootui install: could not complete installation:", result.stderr, output)
+
+    def assert_previous_install(self, result, previous):
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Installed bootui-cli-", result.stdout)
+        for path, contents in previous.items():
+            self.assertTrue(path.is_file(), f"Missing previous file: {path.name}")
+            self.assertEqual(path.read_bytes(), contents, path.name)
+
+    def assert_only_previous_files(self):
+        self.assertCountEqual(self.install_dir.iterdir(), [self.record, self.jar("previous")])
+        self.assertCountEqual(self.bin_dir.iterdir(), [self.launcher])
 
 
 if __name__ == "__main__":

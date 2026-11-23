@@ -157,6 +157,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **JVM Metaspace recommendations** reserve at least observed committed metadata plus a documented 25% starting
   allowance, retain larger class estimates, and reject insufficient budgets without emitting options or YAML
   ([model](docs/JVM-TUNING-CHECKS.md#memory-model)).
+- **Windows CLI upgrades** keep the previous installation if the switch fails and only warn about follow-up problems
+  ([CLI installation](docs/CLI.md#install)).
 - **Opt-in Burstable memory requests** cover the modeled heap plus observed non-heap commitment while
   retaining the snapshot margin. Infeasible floors produce no Kubernetes options or YAML, without inflating the limit
   or changing default emitted request/limit, QoS, or YAML. The informational Burstable alternative is also floored when
