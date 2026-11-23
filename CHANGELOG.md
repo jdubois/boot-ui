@@ -62,6 +62,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   messages or JDBC values. Separate finding identities preserve existing bind-only dismissals; whole-rule dismissals
   still cover both channels, and unknown observations remain incomplete
   ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
+- **WebFlux WebSockets** stays visible when endpoints are registered even if a handler's subprotocol lookup fails.
 - **Servlet firewall evidence** leaves unsupported or unreadable native policy unassessed instead of certifying it
   safe. Known findings remain visible; incomplete assessments follow the existing strict CI policy
   ([Security checks](docs/SECURITY-CHECKS.md)).
