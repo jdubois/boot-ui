@@ -1903,9 +1903,8 @@ Features:
   namespace/application: old events/details are deleted and an old run row is deleted after its events are gone.
   Disabling persistence does not erase existing rows.
 - `GET /bootui/api/activity` defaults to the caller's namespace and application. Selecting another namespace requires
-  `bootui.activity.persistence.reader-archive-cross-namespace=true`. Direct `bootui archive` reads require the explicit
-  `--allow-cross-namespace` opt-in instead. The old `bootui_activity` table remains outside this authorization and
-  retention path.
+  `bootui.activity.persistence.reader-archive-cross-namespace=true`. The old `bootui_activity` table remains outside
+  this authorization and retention path.
 - The **Use the existing datasource** action verifies/creates the three tables, atomically snapshots and subscribes the
   open journal, starts capture, and publishes the durable store only after capture is live. It returns `409` before a
   schema mutation if the journal is disabled/unavailable/closed, is a no-op when already active, and leaves the
@@ -3903,8 +3902,8 @@ Design rules:
     `get_rest_client_traces`.
     `get_live_activity`'s query accepts `namespace:`, `application:`, `run:`, `instance:`, and `route:` qualifiers
     alongside type/severity/text; durable rows retain their origins and the compact result warns when applications or
-    runs are mixed. MCP remains current-scope for `get_request_profile`; offline historical reconstruction is a
-    `bootui archive` client operation.
+    runs are mixed. MCP remains current-scope for `get_request_profile`; historical profiles use origin-scoped
+    browser or REST reads through a running application.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
@@ -4141,11 +4140,6 @@ Design rules:
   cannot replace itself. Replacement/lock failures are explicit and preserve the prior jar. Agents need approval before
   replacing an executable. Neither command changes the generated diagnostic manifest or server policy. Docs,
   updates, and help/version requests do not start a passive update check. See [the CLI contract](CLI.md).
-- **Durable archive reads are a client-side exception.** `bootui archive runs|activity|profile|insights` opens the
-  configured JDBC store directly, with a caller-supplied driver, and requires no application or MCP server. It verifies
-  the existing three-table schema without DDL or writes, applies the same masked typed-payload boundary, and uses explicit
-  scope/cross-namespace selection. The archive contract is documented separately because it is intentionally not an
-  MCP tool or a command-line endpoint capability.
 
 ## 7. UX specification
 

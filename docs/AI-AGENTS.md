@@ -395,7 +395,7 @@ user; BootUI's own panel and read-only gates still apply.
   `run:<value>`, `instance:<value>`, and `route:<value>` with a type, severity, or free text. Returned origins
   disambiguate equal local IDs; unscoped output warns when it spans applications or runs. Cross-namespace selection is
   refused unless the application opts in. `get_request_profile` does not accept historical scope qualifiers; use an
-  origin-scoped browser profile or `bootui archive profile` for a previous run.
+  origin-scoped browser profile for a previous run.
 - **Runtime Insights reads:** `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
   `get_runtime_run_comparison`, compact facts an agent can refuse to act on; see
   [Runtime Insights for agents](#runtime-insights-for-agents).
@@ -500,8 +500,8 @@ previewed with what it omits before anything reaches the clipboard. It sends not
 [Runtime Insights](features/runtime-insights.md) answers what this run did that no single panel shows. Its four
 read tools return short, stable facts rather than a dashboard:
 
-These MCP tools read the current application run. Historical Runtime Insights require the scoped REST endpoint or
-`bootui archive insights`; archived reports are bounded and explicitly partial when events/details/metadata are absent,
+These MCP tools read the current application run. Historical Runtime Insights require the scoped REST endpoint;
+archived reports are bounded and explicitly partial when events/details/metadata are absent,
 and cannot consult the current Java agent.
 
 | Tool | CLI | Returns |

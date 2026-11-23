@@ -50,7 +50,7 @@ final class CommandTree {
                                 + "(default http://localhost:8080) and it answers over its local-only HTTP endpoint.",
                         "Output is JSON when piped or with --json, and readable otherwise.",
                         "",
-                        "The 'docs', 'update', 'ci', 'init', 'instances', and 'archive' commands are client-side"
+                        "The 'docs', 'update', 'ci', 'init', and 'instances' commands are client-side"
                                 + " exceptions, not MCP tools.")
                 .footer(
                         "",
@@ -90,7 +90,6 @@ final class CommandTree {
         root.addSubcommand("instances", new CommandLine(instancesCommand(context)));
         InitCommand.add(context, root);
         CiCommands.add(context, root);
-        ArchiveCommands.add(context, root);
         DocsCommand.add(context, root);
         UpdateCommand.add(context, root);
         listCommands(root, context.manifest().tools(), true);

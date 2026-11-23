@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **CLI archive commands** and their bundled engine dependency. Durable history remains available through the running
+  application's browser and REST endpoints ([CLI guide](docs/CLI.md)).
+
 ### Fixed
 
 - **Live Activity keyboard navigation** keeps Tab and Shift+Tab inside the request profile after resizing without
@@ -92,8 +97,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Request validation relevance** reports missing validation at MEDIUM only for positively observed reachable
   payload constraints, retaining unknown metadata as unassessed. Existing MEDIUM-or-higher CI gates can newly apply;
   validation triggers and groups are not execution proof ([REST API checks](docs/REST-API-CHECKS.md)).
-- **Offline archive pagination** reports malformed `bootui archive activity` cursors as errors instead of
-  silently returning the first page ([CLI guide](docs/CLI.md#read-durable-journal-history-offline)).
 - **JVM percentage context** shows the modeled heap and assumed memory limit beside the emitted percentages, with
   recalculation and image-launcher guidance rather than an effective-heap guarantee
   ([JVM tuning](docs/JVM-TUNING-CHECKS.md#memory-model)).

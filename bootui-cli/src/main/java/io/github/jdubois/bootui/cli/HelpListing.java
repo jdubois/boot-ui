@@ -55,14 +55,6 @@ final class HelpListing {
                     .append("bootui init [--vscode | --cursor | --claude] [--print | --dry-run]")
                     .append(System.lineSeparator());
             wrap(out, DETAIL, "Preview or idempotently write IDE/agent MCP configuration without credentials.", wrapAt);
-            out.append(INDENT)
-                    .append("bootui archive runs|activity|profile <requestId>|insights")
-                    .append(System.lineSeparator());
-            wrap(
-                    out,
-                    DETAIL,
-                    "Read durable journal JDBC tables offline. Use a user-supplied driver and --json; see 'bootui docs cli'.",
-                    wrapAt);
             out.append(INDENT).append("bootui tools").append(System.lineSeparator());
             wrap(
                     out,

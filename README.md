@@ -95,8 +95,6 @@ curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
 ```bash
 bootui beans --query dataSource
 bootui hibernate scan --json | jq '.topFindings[]'
-bootui archive runs --jdbc-url "$BOOTUI_ARCHIVE_JDBC_URL" \
-  --namespace local --application orders --json
 ```
 
 It needs no MCP client and no agent, prints exact JSON when piped, and exits `2` when a panel's own policy
@@ -104,8 +102,6 @@ declines the call and `3` when `--fail-on <severity>` finds a finding at or abov
 `--fail-on insufficient` finds insufficient or partial evidence, so CI can branch on it. Windows has a PowerShell
 installer, and JBang works too — see the
 [command-line guide](https://www.julien-dubois.com/boot-ui/cli).
-The `archive` family is the offline exception: it reads an existing durable journal directly over JDBC and never needs
-a running application or MCP server.
 
 ## Use in CI
 
