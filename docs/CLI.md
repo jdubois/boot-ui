@@ -68,14 +68,16 @@ to your user `PATH`. It needs no administrator rights, does not edit your shell 
 the Maven repository and, when GnuPG is available, BootUI's published signing-key asset. Running it again upgrades in place, and `--uninstall` — `-Uninstall` in
 PowerShell — reverses it.
 
-The fail-closed and pinned-signature installer changes below are **unreleased source changes**; the published
-installer may still use the earlier verification behavior.
+The installer changes below are **unreleased source changes**; the published installers may still use the earlier behavior.
 
 Missing, malformed or mismatched checksums abort without installing. `--allow-unverified` (`-AllowUnverified` in
 PowerShell) explicitly permits a missing/uncomputable checksum after independent verification, never a mismatch.
 When GnuPG is available, a valid OpenPGP signature from the pinned BootUI release key is also mandatory; signature
 failures cannot be bypassed. Output distinguishes repository checksums from signer authentication and warns when only
 legacy SHA-1 is available. See [manual verification](https://github.com/jdubois/boot-ui/blob/main/SECURITY.md#cli-download-verification).
+
+On Linux and macOS, when switching versions, the installer keeps the previous `bootui` launcher and JAR if it
+cannot prepare or replace the launcher for the new version.
 
 To pin a version or install somewhere else, pass options after `sh -s --`:
 
