@@ -656,28 +656,27 @@ public class ReactiveLiveActivityController implements InitializingBean {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Durable journal namespace selection is disabled by configuration");
         }
-        DurableJournalGlobalCursor decodedCursor;
+        DurableJournalFeedQuery query;
         try {
-            decodedCursor = cursor == null || cursor.isBlank() ? null : DurableJournalGlobalCursor.decode(cursor);
+            query = new DurableJournalFeedQuery(
+                    selectedNamespace,
+                    selectedApplication,
+                    run,
+                    instance,
+                    null,
+                    type,
+                    severity,
+                    q,
+                    route,
+                    requestId,
+                    since > 0 ? since : null,
+                    until,
+                    noRequest,
+                    DurableJournalGlobalCursor.decodeStrict(cursor),
+                    pageSize);
         } catch (IllegalArgumentException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid durable journal cursor", ex);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
         }
-        DurableJournalFeedQuery query = new DurableJournalFeedQuery(
-                selectedNamespace,
-                selectedApplication,
-                run,
-                instance,
-                null,
-                type,
-                severity,
-                q,
-                route,
-                requestId,
-                since > 0 ? since : null,
-                until,
-                noRequest,
-                decodedCursor,
-                pageSize);
         try {
             DurableJournalFeedPage page = durableJournalRuntime.store().queryFeed(query);
             JournalTextExposure storedRule = JournalTextExposure.of(exposure);

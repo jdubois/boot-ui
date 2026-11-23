@@ -28,4 +28,13 @@ public record DurableJournalGlobalCursor(long globalSequence) {
             return null;
         }
     }
+
+    /** Accepts an absent cursor but rejects a supplied token that the legacy decoder cannot parse. */
+    public static DurableJournalGlobalCursor decodeStrict(String cursor) {
+        DurableJournalGlobalCursor decoded = decode(cursor);
+        if (decoded == null && cursor != null && !cursor.isBlank()) {
+            throw new IllegalArgumentException("Invalid durable journal cursor");
+        }
+        return decoded;
+    }
 }

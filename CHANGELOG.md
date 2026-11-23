@@ -27,6 +27,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Cache capture proof** brackets retained journal reads again, so a concurrent capture change cannot manufacture
   an absence finding or hide newly retained work. Current SQL capture gaps still preserve known facts
   ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Durable Live Activity queries** return HTTP `400` for overlong filters or malformed cursors instead of failing
+  or restarting pagination ([Durable history](docs/features/live-activity.md#durable-history)).
 - **Runtime capture qualification** retains observed SQL and log facts when live capture is unavailable, without
   treating preparation-only or unassessed work as healthy absence. Native logging defaults, per-unit coverage,
   request denominators and captured-fact exports remain explicit
