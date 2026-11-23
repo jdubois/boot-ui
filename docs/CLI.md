@@ -620,6 +620,9 @@ Archive output can be incomplete: each run is bounded, a crash may leave the lat
 snapshot, and missing safe details or agent-only evidence are reported in limitations. Raw payloads cannot be recovered
 by archive commands. Cross-namespace reads require the explicit opt-in on every invocation.
 
+To restart `archive activity` at the first page, omit `--cursor` or leave it blank. A malformed nonblank cursor exits
+with code `1`, prints an error to stderr, and leaves stdout empty, even with `--json`.
+
 ### Investigating a blocked thread
 
 Thread diagnostics need no Java agent and work on Spring MVC, WebFlux, and Quarkus. Start with retained evidence:
