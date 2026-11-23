@@ -315,23 +315,15 @@ public class ReactiveBootUiMcpTools {
             registry.add(tool("get_live_activity", McpToolDescriptions.spring("get_live_activity"), args -> {
                 McpAgentViews.ActivityFilter filter = McpAgentViews.ActivityFilter.of(args.query());
                 return McpAgentViews.liveActivity(
-                        liveActivityBean.activity(
+                        liveActivityBean.activityForMcp(
+                                McpAgentViews.liveActivityFetch(filter, args.limit()),
                                 McpAgentViews.adapterType(filter),
-                                null,
-                                0,
-                                McpAgentViews.liveActivityFetch(filter, args.limit()),
                                 filter.text(),
-                                null,
-                                null,
-                                McpAgentViews.liveActivityFetch(filter, args.limit()),
-                                null,
                                 filter.route(),
                                 filter.namespace(),
                                 filter.application(),
                                 filter.instance(),
-                                filter.run(),
-                                null,
-                                false),
+                                filter.run()),
                         filter,
                         args.limit());
             }));

@@ -2,8 +2,6 @@ package io.github.jdubois.bootui.quarkus.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
@@ -269,23 +267,15 @@ class QuarkusMcpToolsTest {
         QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
         when(availability.isPanelAvailable(anyString())).thenReturn(true);
         LiveActivityResource liveActivity = mock(LiveActivityResource.class);
-        when(liveActivity.activity(
+        when(liveActivity.activityForMcp(
                         JournalActivityReports.MAX_LIMIT,
                         "SQL",
-                        null,
                         "/orders",
-                        null,
-                        null,
-                        null,
-                        JournalActivityReports.MAX_LIMIT,
-                        null,
                         "/api/orders",
                         "prod",
                         "shop",
                         "host-a",
-                        "run-7",
-                        null,
-                        false))
+                        "run-7"))
                 .thenReturn(new LiveActivityReport(true, List.of(), Map.of(), null, List.of(), List.of()));
 
         invoke(
@@ -300,23 +290,15 @@ class QuarkusMcpToolsTest {
                         null));
 
         verify(liveActivity)
-                .activity(
-                        eq(JournalActivityReports.MAX_LIMIT),
-                        eq("SQL"),
-                        isNull(),
-                        eq("/orders"),
-                        isNull(),
-                        isNull(),
-                        isNull(),
-                        eq(JournalActivityReports.MAX_LIMIT),
-                        isNull(),
-                        eq("/api/orders"),
-                        eq("prod"),
-                        eq("shop"),
-                        eq("host-a"),
-                        eq("run-7"),
-                        isNull(),
-                        eq(false));
+                .activityForMcp(
+                        JournalActivityReports.MAX_LIMIT,
+                        "SQL",
+                        "/orders",
+                        "/api/orders",
+                        "prod",
+                        "shop",
+                        "host-a",
+                        "run-7");
     }
 
     private static List<McpTool> tools(QuarkusPanelAvailability availability) {

@@ -433,6 +433,12 @@ Historical request profiles carry the origin from their durable activity row and
 safe detail rows. Read them without a running application with
 [`bootui archive profile`](../CLI.md#read-durable-journal-history-offline).
 
+When the database cannot serve Live Activity, the REST endpoint can still show a partial first page from the current
+run. Text search (`q`, a literal case-insensitive match on visible row text) and the inclusive end time (`until`)
+filter only the already fetched memory window; a miss does not rule out older matches. The response warns that it
+comes from memory and has no durable origins or continuation cursor. Valid requests for another scope or a later
+page return HTTP `503` rather than showing unrelated local rows.
+
 ## Runtime journal
 
 The runtime journal records every accepted runtime event once in a bounded, in-memory structure: requests, SQL statements,

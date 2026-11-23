@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -37,6 +39,7 @@ import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
 import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
 import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -46,22 +49,29 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.datasource.AbstractDataSource;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 class LiveActivityControllerTests {
 
@@ -609,6 +619,146 @@ class LiveActivityControllerTests {
                     .as("the durable journal path must not publish a second legacy ActivityStore")
                     .isFalse();
         } finally {
+            controller.shutdown();
+            journal.close();
+            legacyStore.close();
+        }
+    }
+
+    @Test
+    void durableOutageDoesNotReturnRequestsThatFailTextAndUpperTimeFilters() throws Exception {
+        DataSource database = newDataSource();
+        AtomicBoolean outage = new AtomicBoolean();
+        DataSource source = new AbstractDataSource() {
+            @Override
+            public Connection getConnection() throws SQLException {
+                if (outage.get()) {
+                    throw new SQLException("Fixture: durable store temporarily unavailable", "08006");
+                }
+                return database.getConnection();
+            }
+
+            @Override
+            public Connection getConnection(String username, String password) throws SQLException {
+                return getConnection();
+            }
+        };
+        SwitchableActivityStore legacyStore = defaultActivityStore();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                legacyStore,
+                disabledSettings(),
+                provider(source),
+                new BootUiProperties());
+        RunIdentity run = RunIdentity.start();
+        ReflectionTestUtils.setField(controller, "durableJournalSettings", durableSettings(run, "namespace-test"));
+        ReflectionTestUtils.setField(controller, "durableJournalStores", provider((DurableJournalStore) null));
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), run);
+        try {
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            assertThat(controller
+                            .useExistingDatasource(new ActivitySwitchRequest(true))
+                            .getStatusCode())
+                    .isEqualTo(HttpStatus.OK);
+            long alphaTime = System.currentTimeMillis() - 500;
+            for (String id : List.of("alpha", "omega")) {
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.HTTP,
+                        alphaTime + (id.equals("alpha") ? 0 : 200),
+                        2_000_000,
+                        CorrelationContext.forRequest(id),
+                        "fixture",
+                        null,
+                        false,
+                        new HttpPayload("GET", "/" + id, "/" + id, null, 200)));
+            }
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            var runtime = (DurableJournalRuntime) ReflectionTestUtils.getField(controller, "durableJournalRuntime");
+            runtime.capture().flushNow();
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (runtime.capture().status().durableWatermark() < 2 && System.nanoTime() < deadline) {
+                Thread.sleep(5);
+            }
+            assertThat(runtime.capture().status().durableWatermark()).isEqualTo(2);
+            assertThat(controller
+                            .activity(null, null, 0, 0, "ALPHA", null, null, 20)
+                            .entries())
+                    .extracting(ActivityEntryDto::id)
+                    .containsExactly("alpha");
+            assertThat(controller
+                            .activity(null, null, 0, 0, null, alphaTime, null, 20)
+                            .entries())
+                    .extracting(ActivityEntryDto::id)
+                    .containsExactly("alpha");
+            String cursor = controller
+                    .activity(null, null, 0, 0, null, null, null, 1)
+                    .pageInfo()
+                    .nextCursor();
+            assertThat(cursor).isNotBlank();
+
+            outage.set(true);
+            LiveActivityReport text = controller.activity(null, null, 0, 0, "ALPHA", null, null, 20);
+            LiveActivityReport until = controller.activity(null, null, 0, 0, null, alphaTime, null, 20);
+            assertSoftly(softly -> {
+                for (LiveActivityReport fallback : List.of(text, until)) {
+                    softly.assertThat(fallback.entries())
+                            .extracting(ActivityEntryDto::id)
+                            .containsExactly("alpha");
+                    softly.assertThat(fallback.warnings())
+                            .anyMatch(warning -> warning.contains("showing the current run from memory"));
+                    softly.assertThat(fallback.pageInfo()).isNull();
+                    softly.assertThat(fallback.origins()).isEmpty();
+                    softly.assertThat(fallback.typeCounts()).containsEntry("REQUEST", 2);
+                }
+            });
+            assertThat(controller
+                            .activity(null, null, 0, 1, "ALPHA", null, null, 20)
+                            .entries())
+                    .isEmpty();
+            assertThatExceptionOfType(ResponseStatusException.class)
+                    .isThrownBy(() -> controller.activity(null, null, 0, 0, null, null, cursor, 20))
+                    .satisfies(ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+            assertThatExceptionOfType(ResponseStatusException.class)
+                    .isThrownBy(() -> controller.activity(
+                            null,
+                            null,
+                            0,
+                            0,
+                            null,
+                            null,
+                            null,
+                            20,
+                            null,
+                            null,
+                            RunIdentity.start().id(),
+                            null,
+                            false))
+                    .satisfies(ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+            var filter = McpAgentViews.ActivityFilter.of("ALPHA");
+            var compact = McpAgentViews.liveActivity(
+                    controller.activityForMcp(20, null, "ALPHA", null, null, null, null, null), filter, 20);
+            assertThat(compact.entries()).extracting(ActivityEntryDto::id).containsExactly("alpha");
+            assertThat(compact.pageInfo().hasMore()).isFalse();
+            var truncated = McpAgentViews.liveActivity(
+                    controller.activityForMcp(1, null, "ALPHA", null, null, null, null, null), filter, 20);
+            assertThat(truncated.entries()).isEmpty();
+            assertThat(truncated.pageInfo().hasMore()).isTrue();
+            assertThat(truncated.warnings()).anyMatch(warning -> warning.contains("newest 1 of 2 retained entries"));
+
+            outage.set(false);
+            LiveActivityReport recovered = controller.activity(null, null, 0, 0, "ALPHA", null, null, 20);
+            assertThat(recovered.entries()).extracting(ActivityEntryDto::id).containsExactly("alpha");
+            assertThat(recovered.origins()).hasSize(1);
+            assertThat(recovered.pageInfo().persistent()).isTrue();
+            assertThat(recovered.warnings())
+                    .noneMatch(warning -> warning.contains("showing the current run from memory"));
+            LiveActivityReport healthyMcp = controller.activityForMcp(20, null, "ALPHA", null, null, null, null, null);
+            assertThat(healthyMcp.entries()).extracting(ActivityEntryDto::id).containsExactly("alpha");
+            assertThat(healthyMcp.pageInfo().persistent()).isTrue();
+            assertThat(healthyMcp.origins()).hasSize(1);
+        } finally {
+            outage.set(false);
             controller.shutdown();
             journal.close();
             legacyStore.close();

@@ -28,6 +28,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityQuery;
 import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
+import io.github.jdubois.bootui.engine.activity.ReadableActivityPages;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.correlation.HandoffWindow;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
@@ -402,6 +403,36 @@ public class LiveActivityResource {
                 requestId, noRequest);
     }
 
+    /** MCP filters the fallback window itself so it can report how much of that window it searched. */
+    public LiveActivityReport activityForMcp(
+            int fetch,
+            String type,
+            String text,
+            String route,
+            String namespace,
+            String application,
+            String instance,
+            String run) {
+        return readActivity(
+                fetch,
+                type,
+                null,
+                text,
+                null,
+                null,
+                null,
+                fetch,
+                null,
+                route,
+                namespace,
+                application,
+                instance,
+                run,
+                null,
+                false,
+                false);
+    }
+
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public LiveActivityReport activity(
@@ -421,6 +452,44 @@ public class LiveActivityResource {
             @QueryParam("run") String run,
             @QueryParam("requestId") String requestId,
             @QueryParam("noRequest") boolean noRequest) {
+        return readActivity(
+                limit,
+                type,
+                severity,
+                q,
+                since,
+                until,
+                cursor,
+                pageSize,
+                source,
+                route,
+                namespace,
+                application,
+                instance,
+                run,
+                requestId,
+                noRequest,
+                true);
+    }
+
+    private LiveActivityReport readActivity(
+            Integer limit,
+            String type,
+            String severity,
+            String q,
+            Long since,
+            Long until,
+            String cursor,
+            Integer pageSize,
+            String source,
+            String route,
+            String namespace,
+            String application,
+            String instance,
+            String run,
+            String requestId,
+            boolean noRequest,
+            boolean filterFallbackText) {
         LiveActivityReport live = live(
                 source,
                 new JournalActivityFeed.Filter(
@@ -450,7 +519,8 @@ public class LiveActivityResource {
                     pageSize,
                     route,
                     requestId,
-                    noRequest);
+                    noRequest,
+                    filterFallbackText);
         }
         if (!activityStore.persistent() || durableJournalSettings != null) {
             return new LiveActivityReport(
@@ -477,7 +547,7 @@ public class LiveActivityResource {
                 cursor,
                 pageSize == null ? 0 : pageSize);
         JournalTextExposure storedRule = JournalTextExposure.of(exposure);
-        ActivityPage page = io.github.jdubois.bootui.engine.activity.ReadableActivityPages.query(
+        ActivityPage page = ReadableActivityPages.query(
                 activityStore,
                 query,
                 row -> JournalSourcePanels.isReadable(
@@ -513,7 +583,8 @@ public class LiveActivityResource {
             Integer pageSize,
             String route,
             String requestId,
-            boolean noRequest) {
+            boolean noRequest,
+            boolean filterFallbackText) {
         String selectedNamespace =
                 blankToNull(namespace) == null ? durableJournalSettings.namespaceId() : namespace.strip();
         String selectedApplication =
@@ -587,18 +658,9 @@ public class LiveActivityResource {
                         || selectedRun != null && !selectedRun.equals(durableJournalSettings.runId())) {
                     throw new ServiceUnavailableException("Durable Live Activity history is unavailable");
                 }
-                List<String> warnings = new ArrayList<>(live.warnings());
-                warnings.add("Durable Live Activity history is unavailable; showing the current run from memory.");
                 LOG.warn("Durable Live Activity read failed; serving the current run from the runtime journal", ex);
-                return new LiveActivityReport(
-                        live.available(),
-                        live.entries(),
-                        live.typeCounts(),
-                        live.kpis(),
-                        live.sources(),
-                        warnings,
-                        null,
-                        persistenceOption);
+                return ReadableActivityPages.durableFallback(
+                        live, persistenceOption, filterFallbackText ? query.text() : null, query.until());
             }
             throw new ServiceUnavailableException("Durable Live Activity history is unavailable");
         }

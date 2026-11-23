@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.activity;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
+import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -14,6 +16,29 @@ public final class ReadableActivityPages {
     private static final int FETCH_SIZE = 200;
 
     private ReadableActivityPages() {}
+
+    /** Qualifies only the already rendered memory window. It cannot continue through durable history. */
+    public static LiveActivityReport durableFallback(
+            LiveActivityReport live, ActivityPersistenceOptionDto persistenceOption, String text, Long until) {
+        List<ActivityEntryDto> entries = live.entries();
+        if (text != null || until != null) {
+            entries = entries.stream()
+                    .filter(entry -> until == null || entry.timestamp() <= until)
+                    .filter(entry -> text == null || InMemoryActivityStore.matchesText(entry, text))
+                    .toList();
+        }
+        List<String> warnings = new ArrayList<>(live.warnings());
+        warnings.add("Durable Live Activity history is unavailable; showing the current run from memory.");
+        return new LiveActivityReport(
+                live.available(),
+                entries,
+                live.typeCounts(),
+                live.kpis(),
+                live.sources(),
+                warnings,
+                null,
+                persistenceOption);
+    }
 
     public static ActivityPage query(ActivityStore store, ActivityQuery query, Predicate<ActivityEntryDto> readable) {
         return query(store, query, readable, UnaryOperator.identity());

@@ -1933,6 +1933,9 @@ Acceptance criteria:
 - Durable reads reconstruct masked projections, historical profiles, and bounded/qualified Runtime Insights across runs
   and instances from the selected namespace/application. The global cursor remains monotonic across concurrent
   writers and each row keeps its durable origin.
+- If a durable Live Activity REST read fails, an eligible local first page warns and returns only the already
+  bounded memory window, filtered by `q` on visible row text and by inclusive `until`. It has no durable origins or
+  continuation cursor. Valid requests for another scope or a later page get HTTP `503` rather than substituted data.
 - The "Use the existing datasource" switch takes effect immediately (no restart), returns a clear error when no
   `DataSource` is present or the request is unconfirmed, and is a no-op (not an error) when persistence is already
   active; it refuses a disabled/closed journal before store mutation and uses the same bounded JDBC timeouts as startup.
