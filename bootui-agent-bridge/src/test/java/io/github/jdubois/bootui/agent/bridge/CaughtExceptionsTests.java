@@ -430,13 +430,64 @@ class CaughtExceptionsTests {
     }
 
     @Test
-    void theChainsWalkKeepsNoReferenceOnceItReturns() {
+    void theChainWalksCausesBeforeSuppressedAndClearsItsScratch() {
+        Throwable cause = new IllegalStateException();
+        Throwable suppressed = new IllegalArgumentException();
+        Throwable nested = new UnsupportedOperationException();
+        Throwable thrown = new RuntimeException(cause);
+        thrown.addSuppressed(suppressed);
+        cause.addSuppressed(nested);
+
+        assertChain(thrown, cause, suppressed, nested);
+    }
+
+    @Test
+    void theLastSlotTakesASuppressedLinkUnlessACauseFillsIt() {
+        Throwable[] expected = new Throwable[CaughtExceptions.CHAIN];
+        Throwable first = new IllegalArgumentException();
+        Throwable lastSuppressed = new UnsupportedOperationException();
+        first.addSuppressed(lastSuppressed);
+        first.addSuppressed(new IndexOutOfBoundsException());
+        expected[0] = new RuntimeException();
+        expected[1] = first;
+        expected[2] = new RuntimeException() {
+            @Override
+            public synchronized Throwable getCause() {
+                throw new IllegalStateException("hostile");
+            }
+        };
+        for (int i = 1; i < expected.length - 1; i++) {
+            if (expected[i] == null) {
+                expected[i] = new RuntimeException();
+            }
+            expected[0].addSuppressed(expected[i]);
+        }
+
+        expected[expected.length - 1] = lastSuppressed;
+        assertChain(expected);
+
+        Throwable cause = new IllegalStateException();
+        first.initCause(cause);
+        expected[expected.length - 1] = cause;
+        assertChain(expected);
+
+        // The later getCause() still runs even though both walks already filled their frontier.
+        assertThat(CaughtExceptions.status())
+                .containsEntry("applicationErrors", 2L)
+                .containsEntry("errors", 0L);
+    }
+
+    private static void assertChain(Throwable... expected) {
         Throwable[] walk = new Throwable[CaughtExceptions.CHAIN * 2];
         int[] out = new int[CaughtExceptions.CHAIN * 2];
-        RuntimeException thrown = new RuntimeException(new IllegalStateException());
-        thrown.addSuppressed(new IllegalArgumentException());
 
-        assertThat(CaughtExceptions.chain(thrown, out, walk)).isEqualTo(3);
+        assertThat(CaughtExceptions.chain(expected[0], out, walk)).isEqualTo(expected.length);
+        for (int i = 0; i < expected.length; i++) {
+            assertThat(out[i * 2]).as("throwable at link %s", i).isEqualTo(System.identityHashCode(expected[i]));
+            assertThat(out[i * 2 + 1])
+                    .as("class at link %s", i)
+                    .isEqualTo(System.identityHashCode(expected[i].getClass()));
+        }
         assertThat(walk).containsOnlyNulls();
     }
 
