@@ -26,7 +26,8 @@ import reactor.core.publisher.Sinks;
  * <ul>
  *   <li><b>Bounded fan-out.</b> No more than {@link #MAX_CONCURRENT_STREAMS} subscriptions are kept
  *       at once; further {@link #open()} subscriptions are rejected with an error signal. This is a
- *       developer console, not a broadcast hub.
+ *       developer console, not a broadcast hub. Each subscriber keeps at most one pending refresh,
+ *       so a stalled subscriber cannot delay the others.
  *   <li><b>Coalescing off the hot path.</b> {@link #signal()} is called from host-application
  *       threads (a JDBC query thread, a logging thread, an audit event listener). It only flips a
  *       dirty flag and schedules a single delayed flush on Reactor's shared parallel scheduler, so a
@@ -35,10 +36,8 @@ import reactor.core.publisher.Sinks;
  *       a per-instance daemon {@code ScheduledExecutorService}), the coalesced flush is a single
  *       one-shot {@link Mono#delay(Duration)} on Reactor's shared {@code Schedulers.parallel()} -
  *       there is no per-instance thread to create or shut down.
- *   <li><b>Re-subscribable.</b> The underlying sink is created with {@code autoCancel=false}, so the
- *       stream keeps accepting new subscriptions across a subscriber count that drops to (and back
- *       up from) zero over the application's lifetime, matching the servlet original's ability to
- *       {@link #open()} a fresh emitter at any time.
+ *   <li><b>Re-subscribable.</b> The direct multicast sink accepts new subscriptions after everyone
+ *       disconnects, until the stream is explicitly closed.
  * </ul>
  */
 public final class ReactiveBootUiChangeStream {
@@ -49,12 +48,9 @@ public final class ReactiveBootUiChangeStream {
     /** Default coalescing window: long enough to fold bursts, short enough to feel live. */
     private static final Duration DEFAULT_COALESCE = Duration.ofMillis(750L);
 
-    /** Small bound on the sink's internal backlog; ticks are ephemeral, never business data. */
-    private static final int SINK_BUFFER_SIZE = 16;
-
     private final String label;
     private final Duration coalesceDuration;
-    private final Sinks.Many<Long> sink = Sinks.many().multicast().onBackpressureBuffer(SINK_BUFFER_SIZE, false);
+    private final Sinks.Many<Long> sink = Sinks.many().multicast().directBestEffort();
     private final AtomicInteger subscriberCount = new AtomicInteger();
     private final AtomicBoolean flushPending = new AtomicBoolean(false);
 
@@ -84,6 +80,7 @@ public final class ReactiveBootUiChangeStream {
                 return Flux.error(new IllegalStateException("Too many concurrent BootUI " + label + " streams"));
             }
             return sink.asFlux()
+                    .onBackpressureLatest()
                     .map(ts -> ServerSentEvent.<Map<String, Object>>builder()
                             .event("update")
                             .data(Map.of("ts", ts))

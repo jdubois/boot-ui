@@ -354,11 +354,15 @@ The DTO and UI are reused unchanged; only the capture/streaming source was rewri
 depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST Client, Transactions) or
 `HandlerExceptionResolver` (Exceptions).
 
+For panels that send `update` notifications, healthy clients keep receiving refreshes even when another subscriber
+falls behind. A lagging subscriber keeps only its latest pending refresh. This applies to refresh notifications,
+not log lines or agent-session snapshots.
+
 | Panel         | Reactive source                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | SQL Trace     | `ReactiveSqlTraceController` over the new shared `ReactiveBootUiChangeStream` SSE primitive (`Flux<ServerSentEvent<T>>`), feeding the same `SqlTraceRecorder`. See the fidelity note below. |
 | Transactions  | `ReactiveTransactionsController` over `ReactiveBootUiChangeStream`, feeding the same `TransactionRecorder`. See the fidelity note below. |
-| Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`.                |
+| Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, with a separate SSE stream of log lines.                |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is framework-neutral, so no reactive-specific capture code was needed). |
 | Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
 | Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveAgentSessionController`.                 |
