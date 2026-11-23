@@ -434,7 +434,8 @@ changing the journal's simple owner-and-sequence model. None is a current commit
 :::
 
 Historical request profiles carry the origin from their durable activity row and merge bounded typed events with its
-safe detail rows. Read them without a running application with
+safe detail rows. The archive service uses one bounded detail read per profile or Runtime Insights report to fill
+missing request or exception fields and to flag absent detail rows. Read profiles without a running application with
 [`bootui archive profile`](../CLI.md#read-durable-journal-history-offline).
 
 When the database cannot serve Live Activity, the REST endpoint can still show a partial first page from the current

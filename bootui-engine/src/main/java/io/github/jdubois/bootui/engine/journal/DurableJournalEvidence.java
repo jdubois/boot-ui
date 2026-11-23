@@ -4,9 +4,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /**
  * Bounded reader that merges a run's durable history with the matching hot runtime-journal tail.
@@ -20,6 +22,7 @@ public final class DurableJournalEvidence {
     private final DurableJournalStore store;
     private final int maxReadEvents;
     private final long maxReadBytes;
+    private final boolean enrichDuringRead;
 
     public DurableJournalEvidence(DurableJournalStore store) {
         this(store, Integer.MAX_VALUE, Long.MAX_VALUE);
@@ -27,6 +30,11 @@ public final class DurableJournalEvidence {
 
     /** A durable reader with stricter event and byte work bounds than the persisted runtime settings. */
     public DurableJournalEvidence(DurableJournalStore store, int maxReadEvents, long maxReadBytes) {
+        this(store, maxReadEvents, maxReadBytes, true);
+    }
+
+    private DurableJournalEvidence(
+            DurableJournalStore store, int maxReadEvents, long maxReadBytes, boolean enrichDuringRead) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         if (maxReadEvents < 1) {
             throw new IllegalArgumentException("maxReadEvents must be positive");
@@ -36,6 +44,17 @@ public final class DurableJournalEvidence {
         }
         this.maxReadEvents = maxReadEvents;
         this.maxReadBytes = maxReadBytes;
+        this.enrichDuringRead = enrichDuringRead;
+    }
+
+    static ArchiveReader archiveReader(DurableJournalStore store, int maxReadEvents, long maxReadBytes) {
+        // Archives need the result of enrichment as well as the snapshot. Read the events first, then enrich once.
+        DurableJournalEvidence evidence = new DurableJournalEvidence(store, maxReadEvents, maxReadBytes, false);
+        return scope -> {
+            JournalEvidenceSnapshot snapshot = evidence.read(scope);
+            EnrichedEntries enriched = evidence.enrichDetails(scope, snapshot.entries());
+            return new ArchiveRead(snapshot.withEntries(enriched.entries()), enriched.missingDetails());
+        };
     }
 
     /** Reads {@code scope}, with no hot in-memory contribution. */
@@ -191,45 +210,58 @@ public final class DurableJournalEvidence {
     }
 
     private List<JournalEntry> enrich(DurableJournalScope scope, List<JournalEntry> entries) {
+        return enrichDuringRead ? enrichDetails(scope, entries).entries() : entries;
+    }
+
+    private EnrichedEntries enrichDetails(DurableJournalScope scope, List<JournalEntry> entries) {
         if (entries.isEmpty()) {
-            return entries;
+            return new EnrichedEntries(entries, false);
         }
         long first = entries.stream().mapToLong(JournalEntry::sequence).min().orElseThrow();
         int detailLimit = (int) Math.min(DurableJournalStore.MAX_DETAILS_PER_QUERY, (long) entries.size() * 2);
         List<DurableJournalDetail> details = store.listDetails(scope, first, detailLimit);
-        java.util.Map<Long, DurableJournalDetail> requests = details.stream()
+        Map<Long, DurableJournalDetail> requests = details.stream()
                 .filter(detail -> detail.kind() == DurableJournalDetailKind.REQUEST)
-                .collect(java.util.stream.Collectors.toMap(DurableJournalDetail::journalSequence, detail -> detail));
-        java.util.Map<Long, DurableJournalDetail> exceptions = details.stream()
+                .collect(Collectors.toMap(DurableJournalDetail::journalSequence, detail -> detail));
+        Map<Long, DurableJournalDetail> exceptions = details.stream()
                 .filter(detail -> detail.kind() == DurableJournalDetailKind.EXCEPTION)
-                .collect(java.util.stream.Collectors.toMap(DurableJournalDetail::journalSequence, detail -> detail));
+                .collect(Collectors.toMap(DurableJournalDetail::journalSequence, detail -> detail));
         List<JournalEntry> enriched = new ArrayList<>(entries.size());
+        boolean missing = false;
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             RuntimeEventPayload replacement = event.payload();
-            if (replacement instanceof HttpPayload http && requests.containsKey(entry.sequence())) {
+            if (replacement instanceof HttpPayload http) {
                 DurableJournalDetail detail = requests.get(entry.sequence());
-                replacement = new HttpPayload(
-                        firstNonBlank(http.method(), detail.requestMethod()),
-                        http.path(),
-                        firstNonBlank(http.routeTemplate(), detail.routeTemplate()),
-                        firstNonBlank(http.operation(), detail.operation()),
-                        http.status(),
-                        http.resources(),
-                        http.timing(),
-                        http.asyncStarted());
-            } else if (replacement instanceof ExceptionPayload exception && exceptions.containsKey(entry.sequence())) {
+                if (detail == null) {
+                    missing = true;
+                } else {
+                    replacement = new HttpPayload(
+                            firstNonBlank(http.method(), detail.requestMethod()),
+                            http.path(),
+                            firstNonBlank(http.routeTemplate(), detail.routeTemplate()),
+                            firstNonBlank(http.operation(), detail.operation()),
+                            http.status(),
+                            http.resources(),
+                            http.timing(),
+                            http.asyncStarted());
+                }
+            } else if (replacement instanceof ExceptionPayload exception) {
                 DurableJournalDetail detail = exceptions.get(entry.sequence());
-                LinkedHashSet<String> types = new LinkedHashSet<>(exception.types());
-                types.addAll(detail.types());
-                types.addAll(detail.causes());
-                replacement = new ExceptionPayload(
-                        firstNonBlank(exception.groupId(), detail.exceptionGroupId()),
-                        firstNonBlank(exception.exceptionClass(), detail.exceptionClass()),
-                        firstNonBlank(exception.signature(), detail.signature()),
-                        types.stream().limit(ExceptionPayload.MAX_TYPES).toList(),
-                        exception.marks(),
-                        exception.logged());
+                if (detail == null) {
+                    missing = true;
+                } else {
+                    LinkedHashSet<String> types = new LinkedHashSet<>(exception.types());
+                    types.addAll(detail.types());
+                    types.addAll(detail.causes());
+                    replacement = new ExceptionPayload(
+                            firstNonBlank(exception.groupId(), detail.exceptionGroupId()),
+                            firstNonBlank(exception.exceptionClass(), detail.exceptionClass()),
+                            firstNonBlank(exception.signature(), detail.signature()),
+                            types.stream().limit(ExceptionPayload.MAX_TYPES).toList(),
+                            exception.marks(),
+                            exception.logged());
+                }
             }
             enriched.add(
                     replacement == event.payload()
@@ -237,7 +269,7 @@ public final class DurableJournalEvidence {
                             : new JournalEntry(
                                     entry.sequence(), event.withPayload(replacement), entry.estimatedBytes()));
         }
-        return List.copyOf(enriched);
+        return new EnrichedEntries(enriched, missing);
     }
 
     private static String firstNonBlank(String preferred, String fallback) {
@@ -390,6 +422,15 @@ public final class DurableJournalEvidence {
         }
         return Math.max(left, right);
     }
+
+    @FunctionalInterface
+    interface ArchiveReader {
+        ArchiveRead read(DurableJournalScope scope);
+    }
+
+    record ArchiveRead(JournalEvidenceSnapshot snapshot, boolean missingDetails) {}
+
+    private record EnrichedEntries(List<JournalEntry> entries, boolean missingDetails) {}
 
     private static final class BoundedEntries {
 

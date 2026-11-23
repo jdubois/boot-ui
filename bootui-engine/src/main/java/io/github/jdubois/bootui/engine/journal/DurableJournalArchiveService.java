@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -40,7 +39,7 @@ public final class DurableJournalArchiveService {
     private final ExposurePolicy exposure;
     private final String readerNamespace;
     private final ScopeAuthorizer authorizer;
-    private final DurableJournalEvidence evidence;
+    private final DurableJournalEvidence.ArchiveReader evidence;
     private volatile String acceptedNamespace;
 
     public DurableJournalArchiveService(DurableJournalStore store, ExposurePolicy exposure) {
@@ -64,7 +63,7 @@ public final class DurableJournalArchiveService {
         this.exposure = exposure;
         this.readerNamespace = optionalNamespace(readerNamespace);
         this.authorizer = Objects.requireNonNull(authorizer, "authorizer must not be null");
-        this.evidence = new DurableJournalEvidence(store, MAX_EVENTS_PER_RUN, MAX_EVENT_BYTES_PER_RUN);
+        this.evidence = DurableJournalEvidence.archiveReader(store, MAX_EVENTS_PER_RUN, MAX_EVENT_BYTES_PER_RUN);
     }
 
     /** Runs newest-first for the exact namespace/application pair. */
@@ -191,19 +190,8 @@ public final class DurableJournalArchiveService {
             throw new DurableJournalUnavailableException("Durable journal run metadata is missing for " + key);
         }
         validateRun(key, run, metadata);
-        JournalEvidenceSnapshot snapshot = evidence.read(key);
-        List<DurableJournalDetail> details = details(key, snapshot.entries());
-        DetailRead detailRead = enrich(snapshot, details);
-        return new LoadedRun(run, metadata, detailRead.snapshot(), detailRead.missingDetails());
-    }
-
-    private List<DurableJournalDetail> details(DurableJournalScope scope, List<JournalEntry> entries) {
-        if (entries.isEmpty()) {
-            return List.of();
-        }
-        long first = entries.stream().mapToLong(JournalEntry::sequence).min().orElseThrow();
-        int limit = Math.min(DurableJournalStore.MAX_DETAILS_PER_QUERY, entries.size() * 2);
-        return store.listDetails(scope, first, limit);
+        DurableJournalEvidence.ArchiveRead read = evidence.read(key);
+        return new LoadedRun(run, metadata, read.snapshot(), read.missingDetails());
     }
 
     private List<RunSummary> summaries(LoadedRun loaded, List<String> limitations) {
@@ -255,68 +243,6 @@ public final class DurableJournalArchiveService {
             throw new DurableJournalUnavailableException(
                     "Stored durable journal RunSummary names another run for " + scope);
         }
-    }
-
-    private static DetailRead enrich(JournalEvidenceSnapshot snapshot, List<DurableJournalDetail> details) {
-        Map<Long, DurableJournalDetail> requests = details.stream()
-                .filter(detail -> detail.kind() == DurableJournalDetailKind.REQUEST)
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        DurableJournalDetail::journalSequence, detail -> detail));
-        Map<Long, DurableJournalDetail> exceptions = details.stream()
-                .filter(detail -> detail.kind() == DurableJournalDetailKind.EXCEPTION)
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        DurableJournalDetail::journalSequence, detail -> detail));
-        List<JournalEntry> entries = new ArrayList<>(snapshot.entries().size());
-        boolean missing = false;
-        for (JournalEntry entry : snapshot.entries()) {
-            RuntimeEvent event = entry.event();
-            RuntimeEventPayload replacement = event.payload();
-            if (event.payload() instanceof HttpPayload http) {
-                DurableJournalDetail detail = requests.get(entry.sequence());
-                if (detail == null) {
-                    missing = true;
-                } else {
-                    replacement = new HttpPayload(
-                            firstNonBlank(http.method(), detail.requestMethod()),
-                            http.path(),
-                            firstNonBlank(http.routeTemplate(), detail.routeTemplate()),
-                            firstNonBlank(http.operation(), detail.operation()),
-                            http.status(),
-                            http.resources(),
-                            http.timing(),
-                            http.asyncStarted());
-                }
-            } else if (event.payload() instanceof ExceptionPayload exception) {
-                DurableJournalDetail detail = exceptions.get(entry.sequence());
-                if (detail == null) {
-                    missing = true;
-                } else {
-                    replacement = new ExceptionPayload(
-                            firstNonBlank(exception.groupId(), detail.exceptionGroupId()),
-                            firstNonBlank(exception.exceptionClass(), detail.exceptionClass()),
-                            firstNonBlank(exception.signature(), detail.signature()),
-                            exceptionTypes(exception.types(), detail),
-                            exception.marks(),
-                            exception.logged());
-                }
-            }
-            entries.add(
-                    replacement == event.payload()
-                            ? entry
-                            : new JournalEntry(
-                                    entry.sequence(), event.withPayload(replacement), entry.estimatedBytes()));
-        }
-        return new DetailRead(snapshot.withEntries(entries), missing);
-    }
-
-    private static List<String> exceptionTypes(List<String> payloadTypes, DurableJournalDetail detail) {
-        LinkedHashSet<String> values = new LinkedHashSet<>(payloadTypes);
-        values.addAll(detail.types());
-        values.addAll(detail.causes());
-        return values.stream()
-                .filter(Objects::nonNull)
-                .limit(ExceptionPayload.MAX_TYPES)
-                .toList();
     }
 
     private static RequestJournalProfileDto withNotes(RequestJournalProfileDto profile, List<String> notes) {
@@ -414,10 +340,6 @@ public final class DurableJournalArchiveService {
         return SqlCapture.capturing();
     }
 
-    private static String firstNonBlank(String first, String fallback) {
-        return first == null || first.isBlank() ? fallback : first;
-    }
-
     private static DurableJournalFeedQuery withNamespace(DurableJournalFeedQuery query, String namespace) {
         return new DurableJournalFeedQuery(
                 namespace,
@@ -510,8 +432,6 @@ public final class DurableJournalArchiveService {
 
         boolean permits(String readerNamespace, DurableJournalScope scope);
     }
-
-    private record DetailRead(JournalEvidenceSnapshot snapshot, boolean missingDetails) {}
 
     private record ProjectedRun(
             DurableJournalArchiveReport.Run archiveRun,

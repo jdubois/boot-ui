@@ -11,11 +11,14 @@ import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.SafeMethodDml;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.ThreadKind;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class DurableJournalArchiveServiceTests {
 
@@ -44,7 +47,7 @@ class DurableJournalArchiveServiceTests {
         List<JournalEntry> interruptedEntries = List.of(
                 http(1, "request-2", 2 * DAY, "/orders/42", "/orders/{id}", 500),
                 sql(2, "request-2", 2 * DAY + 2, "delete from orders where id = 42"),
-                exception(3, "request-2", 2 * DAY + 3));
+                exception(3, "request-2", 2 * DAY + 3, null));
         persist(fixture, previous, 1 * DAY, 1, DurableJournalRunMetadata.Phase.END, List.of());
         persist(fixture, interrupted, 2 * DAY, 2, DurableJournalRunMetadata.Phase.CHECKPOINT, interruptedEntries);
         persist(
@@ -140,7 +143,88 @@ class DurableJournalArchiveServiceTests {
     }
 
     @Test
-    void missingAndCorruptMetadataFailClearlyAndMissingDetailsArePartial() {
+    void readsDetailsOncePerHistoricalProfileAndInsightsReport() throws SQLException {
+        Fixture fixture = fixture();
+        DurableJournalScope scope = new DurableJournalScope("local", "orders", "run-details");
+        persist(
+                fixture,
+                scope,
+                3 * DAY,
+                5,
+                DurableJournalRunMetadata.Phase.END,
+                List.of(http(1, "request-3", 3 * DAY, "/orders/42", null, 200)));
+        fixture.store()
+                .upsertDetail(
+                        DurableJournalDetail.request(scope, 1, "POST", "/orders/{id}", "OtherController.get", 500));
+        DurableJournalArchiveService service =
+                DurableJournalArchiveService.forNamespace(fixture.store(), MASKED, "local");
+        try (var connection = fixture.dataSource().getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("SET QUERY_STATISTICS TRUE");
+        }
+
+        RequestJournalProfileDto profile = service.profile(scope, "request-3");
+        long profileSelects = detailSelects(fixture);
+        RuntimeInsightsReportDto report = service.insights(scope);
+        long insightSelects = detailSelects(fixture) - profileSelects;
+
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.route()).isEqualTo("GET /orders/{id} (OrderController.get)");
+        assertThat(profile.status()).isEqualTo(200);
+        assertThat(profile.notes()).noneMatch(reason -> reason.contains("detail rows are absent"));
+        assertThat(report.available()).isTrue();
+        assertThat(report.limitations()).noneMatch(reason -> reason.contains("detail rows are absent"));
+        assertThat(List.of(profileSelects, insightSelects))
+                .as("detail SELECTs for historical profile and Insights, respectively")
+                .containsExactly(1L, 1L);
+    }
+
+    @ParameterizedTest
+    @EnumSource(DurableJournalDetailKind.class)
+    void warnsWhenEitherKindOfSafeDetailIsMissing(DurableJournalDetailKind missing) {
+        Fixture fixture = fixture();
+        DurableJournalScope scope = new DurableJournalScope("local", "orders", "missing-details");
+        persist(
+                fixture,
+                scope,
+                3 * DAY,
+                5,
+                DurableJournalRunMetadata.Phase.END,
+                List.of(
+                        http(1, "request-3", 3 * DAY, "/orders", "/orders", 500),
+                        exception(2, "request-3", 3 * DAY, "java.lang.IllegalStateException")));
+        if (missing == DurableJournalDetailKind.REQUEST) {
+            fixture.store()
+                    .upsertDetail(DurableJournalDetail.exception(
+                            scope,
+                            2,
+                            "group-2",
+                            "java.lang.IllegalStateException",
+                            null,
+                            List.of(),
+                            List.of(),
+                            List.of(),
+                            1));
+        } else {
+            fixture.store().upsertDetail(DurableJournalDetail.request(scope, 1, "GET", "/orders", null, 500));
+        }
+        DurableJournalArchiveService service =
+                DurableJournalArchiveService.forNamespace(fixture.store(), MASKED, "local");
+
+        RequestJournalProfileDto profile = service.profile(scope, "request-3");
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.notes()).anyMatch(reason -> reason.contains("detail rows are absent"));
+        DurableJournalArchiveReport report = service.multiRunInsights(List.of(scope));
+        assertThat(report.runs()).singleElement().satisfies(run -> {
+            assertThat(run.completeness().complete()).isFalse();
+            assertThat(run.completeness().limitations()).anyMatch(reason -> reason.contains("detail rows are absent"));
+            assertThat(run.insights().available()).isTrue();
+            assertThat(run.insights().limitations()).anyMatch(reason -> reason.contains("detail rows are absent"));
+        });
+    }
+
+    @Test
+    void missingAndCorruptMetadataFailClearly() {
         Fixture fixture = fixture();
         DurableJournalScope missing = new DurableJournalScope("local", "orders", "missing-metadata");
         fixture.store().upsertRun(new DurableJournalRun(missing, 10, 11, "STOPPED", null, 0, "instance"));
@@ -149,21 +233,6 @@ class DurableJournalArchiveServiceTests {
         assertThatThrownBy(() -> service.insights(missing))
                 .isInstanceOf(DurableJournalUnavailableException.class)
                 .hasMessageContaining("metadata is missing");
-
-        DurableJournalScope missingDetails = new DurableJournalScope("local", "orders", "missing-details");
-        persist(
-                fixture,
-                missingDetails,
-                3 * DAY,
-                5,
-                DurableJournalRunMetadata.Phase.END,
-                List.of(http(1, "request-3", 3 * DAY, "/orders", "/orders", 200)));
-        DurableJournalArchiveReport report = service.multiRunInsights(List.of(missingDetails));
-        assertThat(report.runs().get(0).completeness().complete()).isFalse();
-        assertThat(report.runs().get(0).completeness().limitations())
-                .anyMatch(reason -> reason.contains("detail rows are absent"));
-        assertThat(service.profile(missingDetails, "request-3").notes())
-                .anyMatch(reason -> reason.contains("detail rows are absent"));
 
         DurableJournalScope corrupt = new DurableJournalScope("local", "orders", "corrupt-metadata");
         persist(fixture, corrupt, 4 * DAY, 6, DurableJournalRunMetadata.Phase.END, List.of());
@@ -335,6 +404,19 @@ class DurableJournalArchiveServiceTests {
         });
     }
 
+    private static long detailSelects(Fixture fixture) throws SQLException {
+        try (var connection = fixture.dataSource().getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT COALESCE(SUM(EXECUTION_COUNT), 0) FROM INFORMATION_SCHEMA.QUERY_STATISTICS"
+                                + " WHERE LOWER(SQL_STATEMENT) LIKE ?")) {
+            statement.setString(1, "select % from archive_details %");
+            try (var rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
+    }
+
     private static void persist(
             Fixture fixture,
             DurableJournalScope scope,
@@ -446,7 +528,7 @@ class DurableJournalArchiveServiceTests {
         return new JournalEntry(sequence, event, event.estimatedBytes());
     }
 
-    private static JournalEntry exception(long sequence, String requestId, long timestamp) {
+    private static JournalEntry exception(long sequence, String requestId, long timestamp, String exceptionClass) {
         RuntimeEvent event = new RuntimeEvent(
                 JournalSource.EXCEPTION,
                 timestamp,
@@ -457,7 +539,7 @@ class DurableJournalArchiveServiceTests {
                 "http-nio-1",
                 ThreadKind.WORKER,
                 true,
-                new ExceptionPayload("group-2", null, null, List.of()));
+                new ExceptionPayload("group-2", exceptionClass, null, List.of()));
         return new JournalEntry(sequence, event, event.estimatedBytes());
     }
 
