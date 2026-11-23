@@ -1273,6 +1273,46 @@ class CiAssessmentRunnerTests {
     }
 
     @ParameterizedTest
+    @CsvSource({", 0", "0, 0", "1, 1"})
+    void requiresUnsuppressedEvidenceForRulesWithFindings(Integer suppressedCount, int expectedExit) throws Exception {
+        finding = true;
+        architectureFindingsMedium = true;
+        responseTransforms.put(
+                "get_architecture_report",
+                body -> body.replace(
+                        ",\"suppressedCount\":0",
+                        suppressedCount == null ? "" : ",\"suppressedCount\":" + suppressedCount));
+        if (expectedExit == 1) {
+            // The detail page declares both entries active, but the rule summary reports one suppressed finding.
+            responseTransforms.put("get_architecture_rule_violations", body -> """
+                    {"scanId":"scan-12345678","ruleId":"ARCH-001","violationCount":2,"retainedCount":2,
+                     "truncated":false,"violations":["first finding","second finding"],
+                     "page":{"total":2,"matched":2,"offset":0,"limit":200,"returned":2,"hasMore":false},
+                     "identities":[],"suppressed":[],"suppressedCount":0}
+                    """);
+        }
+        startServer();
+        Path policy = writePolicy();
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        int actualExit = runner.assess();
+        Path bundlePath = output.resolve("bundle.json");
+        JsonValue bundle = JsonValue.parseStrict(Files.readString(bundlePath));
+        String status = bundle.get("status").asString(null);
+        assertThat(actualExit).as("live assessment exit (%s)", status).isEqualTo(expectedExit);
+        assertThat(status).isEqualTo(expectedExit == 0 ? "PASS" : "NOT_ASSESSED");
+        if (expectedExit == 1) {
+            assertThat(bundle.get("errors").get(0).get("code").asString(null)).isEqualTo("SUPPRESSION_PRESENT");
+        }
+        int requestsAfterAssessment = targetRequests;
+        assertThat(CiBundleEvaluator.evaluate(bundlePath, "test-assessment", policy))
+                .isEqualTo(new CiBundleEvaluator.Result(status, expectedExit));
+        assertThat(targetRequests).isEqualTo(requestsAfterAssessment);
+    }
+
+    @ParameterizedTest
     @CsvSource({"20000,0", "20001,1"})
     void enforcesTheRetainedDetailBudgetWithoutRejectingTheExactLimit(int count, int exitCode) throws Exception {
         finding = true;
