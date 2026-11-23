@@ -509,7 +509,9 @@ rule out repository declarations.
 ![BootUI Spring Data panel](../images/bootui-data.webp)
 
 The Spring Data panel lists the application's Spring Data repositories with their interfaces, domain types, ID types,
-and query methods. It shows an empty state when Spring Data is absent or no repositories are registered.
+and query methods. Rows with the same repository name also show their bean names. If the selected repository's details
+fail to load, select that repository again to retry. The panel shows an empty state when Spring Data is absent or no
+repositories are registered.
 
 ## Flyway
 

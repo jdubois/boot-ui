@@ -57,6 +57,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Reactive CSRF evidence** distinguishes the supported default matcher from filter presence alone. Relevant
   custom matcher policies remain unassessed without invoking them, while known missing-filter findings and
   unrelated assessed observations remain visible ([Security checks](docs/SECURITY-CHECKS.md)).
+- **Spring Data repository details** stay in sync with the selected repository and can be retried after a load fails
+  ([Spring Data](docs/features/database.md#spring-data)).
 - **PostgreSQL foreign-key evidence** checks native trigger activation instead of inferring enforcement from
   validation declarations. Unsupported layouts remain unknown, and active SET NULL actions retain their findings
   even when other constraint triggers are disabled ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md)).
