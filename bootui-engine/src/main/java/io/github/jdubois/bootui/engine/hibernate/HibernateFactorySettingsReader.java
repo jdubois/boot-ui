@@ -9,6 +9,10 @@ import java.util.Map;
  * never acquires a connection, initializes a region, creates a session or retains native objects.
  */
 public final class HibernateFactorySettingsReader {
+    private static final String JAKARTA_DATABASE_ACTION = "jakarta.persistence.schema-generation.database.action";
+    private static final String JAVAX_DATABASE_ACTION = "javax.persistence.schema-generation.database.action";
+    private static final String HBM2DDL_AUTO = "hibernate.hbm2ddl.auto";
+
     private HibernateFactorySettingsReader() {}
 
     public static HibernateFactorySettings read(
@@ -57,7 +61,7 @@ public final class HibernateFactorySettingsReader {
                 reader.bool(statistics, "isStatisticsEnabled"),
                 region,
                 connectionProvider,
-                schemaAction(settings),
+                schemaAction(properties),
                 reader.bool(options, "isInitializeLazyStateOutsideTransactionsEnabled"),
                 reader.bool(options, "inClauseParameterPaddingEnabled"),
                 statementLogger == null
@@ -143,9 +147,21 @@ public final class HibernateFactorySettingsReader {
         return null;
     }
 
-    private static HibernateFactorySettings.SchemaAction schemaAction(Map<?, ?> settings) {
-        Object jpa = settings.get("jakarta.persistence.schema-generation.database.action");
-        Object value = jpa != null ? jpa : settings.get("hibernate.hbm2ddl.auto");
+    private static HibernateFactorySettings.SchemaAction schemaAction(Object properties) {
+        if (!(properties instanceof Map<?, ?> settings)) return HibernateFactorySettings.SchemaAction.UNKNOWN;
+        Object jpa = settings.get(JAKARTA_DATABASE_ACTION);
+        Object value = jpa != null ? jpa : settings.get(HBM2DDL_AUTO);
+        if (value == null) {
+            // Legacy JPA and contributor-qualified overrides can also prevent the default from applying.
+            boolean hasActionKey = settings.keySet().stream()
+                    .anyMatch(key -> key instanceof String name
+                            && (isActionKey(name, JAKARTA_DATABASE_ACTION)
+                                    || isActionKey(name, JAVAX_DATABASE_ACTION)
+                                    || isActionKey(name, HBM2DDL_AUTO)));
+            return hasActionKey
+                    ? HibernateFactorySettings.SchemaAction.UNKNOWN
+                    : HibernateFactorySettings.SchemaAction.NONE;
+        }
         if (value instanceof Enum<?> action) {
             if (!"org.hibernate.tool.schema.Action"
                     .equals(action.getDeclaringClass().getName())) return HibernateFactorySettings.SchemaAction.UNKNOWN;
@@ -163,6 +179,10 @@ public final class HibernateFactorySettingsReader {
                         ? HibernateFactorySettings.SchemaAction.jakarta(string)
                         : HibernateFactorySettings.SchemaAction.hibernate(string)
                 : HibernateFactorySettings.SchemaAction.UNKNOWN;
+    }
+
+    private static boolean isActionKey(String name, String base) {
+        return name.equals(base) || name.startsWith(base + ".");
     }
 
     private static boolean isType(Object value, String name) {

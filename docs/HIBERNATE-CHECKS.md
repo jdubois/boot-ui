@@ -37,9 +37,9 @@ dismissals keep their meaning. Retired identifiers are never reused.
 
 Factory settings belong to their persistence unit, not to whichever factory was discovered first. The advisor reads an
 allowlisted snapshot of effective Hibernate factory options where available and attributes findings to that unit.
-Effective values come from the factory's own `SessionFactoryOptions` and SQL statement logger, so a setting the
-application never configured reads as Hibernate's effective default (for example `hibernate.use_sql_comments=false` or
-a slow-query threshold of 0) rather than as unavailable evidence. Only a failed read is unknown.
+Effective values come from the factory's own `SessionFactoryOptions`, SQL statement logger, and selected factory
+properties. An unset option can be an observed default (for example `hibernate.use_sql_comments=false` or a slow-query
+threshold of 0); failed reads and unrecognized values are not treated as defaults.
 
 Factory defaults do not establish per-session overrides, query-cache opt-in, entity-cache eligibility, or workload, and
 missing or unreadable evidence is not an observed `false`, zero, or framework default. Missing persistence-unit
@@ -1142,6 +1142,11 @@ mode this rule could never emit a finding and only forced scans of applications 
 
 - **Severity**: INFO (can emit MEDIUM, HIGH, or CRITICAL based on profile and value)
 - **Inspects**: the owning unit's normalized schema database action and active profiles.
+- **Evidence**: a readable factory properties map with no database-action override establishes Hibernate's default
+  of no database action. Spring Boot omits `hbm2ddl.auto` for its effective `none` but keeps an embedded database's
+  effective `create-drop` when selected. Unavailable reads, invalid action values, and legacy or contributor-specific
+  action keys outside the check's interpretation do not establish the default. A previous finding can resolve on
+  verified absence; missing evidence leaves it unverified.
 - **Fires when**: a mutating action is observed outside a test profile. Production-like profiles take precedence:
   destructive drop/drop-and-create actions emit CRITICAL, create-only/update emit HIGH. Dev/local profiles emit INFO;
   unpinned non-test profiles emit MEDIUM. A profile name does not prove the database is disposable.
