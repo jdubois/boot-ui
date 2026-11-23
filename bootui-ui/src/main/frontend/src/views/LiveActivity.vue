@@ -947,17 +947,26 @@ function onKeydown(event) {
 function trapFocus(event) {
   const root = drawerEl.value
   if (!root) return
-  const focusable = root.querySelectorAll(
-    'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  // Native controls can still have a negative tabindex, and v-show leaves hidden descendants mounted.
+  const tabbable = [...root.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')].filter(
+    (element) =>
+      element instanceof HTMLElement &&
+      element.tabIndex >= 0 &&
+      !element.matches(':disabled') &&
+      !element.closest('[inert]') &&
+      element.getClientRects().length > 0 &&
+      getComputedStyle(element).visibility === 'visible'
   )
-  if (!focusable.length) return
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
+  if (!tabbable.length) return
+  const first = tabbable[0]
+  const last = tabbable[tabbable.length - 1]
   const active = document.activeElement
-  if (event.shiftKey && (active === first || active === root)) {
+  // Recover focus that fell to the page without intercepting native scroll stops inside the drawer.
+  const outsideDrawer = !root.contains(active)
+  if (event.shiftKey && (active === first || active === root || outsideDrawer)) {
     event.preventDefault()
     last.focus()
-  } else if (!event.shiftKey && active === last) {
+  } else if (!event.shiftKey && (active === last || outsideDrawer)) {
     event.preventDefault()
     first.focus()
   }
@@ -2401,7 +2410,7 @@ function toggleFlow() {
                 </span>
                 <span>Trace waterfall</span>
               </h3>
-              <TraceWaterfall :spans="profile.trace.spans" compact />
+              <TraceWaterfall :spans="profile.trace.spans" compact focus-on-overflow />
             </section>
 
             <section

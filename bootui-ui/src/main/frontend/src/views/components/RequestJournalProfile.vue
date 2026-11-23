@@ -1,7 +1,8 @@
 <script setup>
-import {computed, inject, ref} from 'vue'
+import {computed, inject, ref, useId} from 'vue'
 
 import {formatBytes, formatDuration, formatNumber} from '../../utils/format.js'
+import {useHorizontalOverflow} from '../../utils/useHorizontalOverflow.js'
 import RouteWhySlow from './RouteWhySlow.vue'
 
 // The runtime journal's view of one request (docs/PLAN-v2.md §5.3, §5.11): its work on one timeline, the collections
@@ -45,6 +46,9 @@ const TOUCHED = [
 
 const timeline = computed(() => props.profile.timeline ?? [])
 const authorizations = computed(() => props.profile.authorizations ?? [])
+const authorizationTitleId = `request-authorization-${useId()}`
+const authorizationScrollRegion = ref(null)
+const authorizationOverflows = useHorizontalOverflow(authorizationScrollRegion, authorizations)
 const handoffs = computed(() => (props.profile.handoffs ?? []).map(handoffRow))
 const lateHandoffs = computed(() => props.profile.lateHandoffs ?? 0)
 const gcPauses = computed(() => props.profile.gcPauses ?? [])
@@ -524,13 +528,21 @@ function onBaselineChange(event) {
       </div>
 
       <div v-if="authorizations.length || springSecurityExplainLink" class="request-journal__card mb-3">
-        <h4 v-if="authorizations.length" class="request-journal__section-title">
+        <h4 v-if="authorizations.length" :id="authorizationTitleId" class="request-journal__section-title">
           <span class="request-journal__section-icon" aria-hidden="true">
             <i class="bi bi-shield-check"></i>
           </span>
           <span>Authorization decisions</span>
         </h4>
-        <div v-if="authorizations.length" class="table-responsive mb-2">
+        <div
+          v-if="authorizations.length"
+          ref="authorizationScrollRegion"
+          class="table-responsive mb-2"
+          :class="{'bootui-keyboard-target': authorizationOverflows}"
+          :role="authorizationOverflows ? 'region' : null"
+          :aria-labelledby="authorizationOverflows ? authorizationTitleId : null"
+          :tabindex="authorizationOverflows ? 0 : null"
+        >
           <table class="table table-sm small align-middle mb-0 request-journal__authorizations">
             <thead>
               <tr>

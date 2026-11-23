@@ -1,11 +1,14 @@
 <script setup>
-import {computed} from 'vue'
+import {computed, ref} from 'vue'
 import {formatDuration} from '../../utils/format.js'
+import {useHorizontalOverflow} from '../../utils/useHorizontalOverflow.js'
 
 const props = defineProps({
   spans: {type: /** @type {import('vue').PropType<any[]>} */ (Array), required: true},
-  compact: {type: Boolean, default: false}
+  compact: {type: Boolean, default: false},
+  focusOnOverflow: {type: Boolean, default: false}
 })
+const scrollRegion = ref(null)
 
 const waterfall = computed(() => {
   if (!props.spans || props.spans.length === 0) return null
@@ -44,6 +47,8 @@ const waterfall = computed(() => {
   return {spans: ordered, totalNanos, ticks}
 })
 
+const hasHorizontalOverflow = useHorizontalOverflow(scrollRegion, waterfall, () => props.focusOnOverflow)
+
 const kindLegend = [
   {cls: 'kind-server', label: 'Server'},
   {cls: 'kind-client', label: 'Client'},
@@ -68,7 +73,14 @@ function spanColor(span) {
         <i :class="k.cls" class="waterfall-swatch"></i>{{ k.label }}
       </span>
     </div>
-    <div aria-label="Trace span waterfall" class="waterfall" role="table">
+    <div
+      ref="scrollRegion"
+      aria-label="Trace span waterfall"
+      class="waterfall"
+      :class="{'bootui-keyboard-target': hasHorizontalOverflow}"
+      :tabindex="hasHorizontalOverflow ? 0 : null"
+      role="table"
+    >
       <div class="waterfall-row waterfall-ruler" role="row">
         <div role="columnheader">Span</div>
         <div class="waterfall-ticks" role="columnheader">
