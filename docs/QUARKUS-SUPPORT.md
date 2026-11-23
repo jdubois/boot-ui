@@ -335,7 +335,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `Security Logs`       | **Implemented** — captures Quarkus CDI security events into the shared `SecurityEventBuffer` via `QuarkusSecurityEventCapture` (a `@Observes SecurityEvent` observer), which replaces Spring's `AuditEventRepository`. Gated on `quarkus-security` (the observer is excluded by the deployment processor when no security extension is present, R2) and `quarkus.security.events.enabled=true` (panel reports unavailable with a clear message when events are disabled). Honest partial: Quarkus fires events only for authentication success/failure and authorization failure — no logout or session events (no Quarkus equivalent). SSE `/stream` ticks on each capture. Read-only (no write endpoints) |
 | `Log Tail`            | **Implemented** — captured via a `java.util.logging` `Handler` (`QuarkusLogTailHandler`) attached to the root JBoss LogManager logger at `StartupEvent` (detached at `ShutdownEvent` so dev-mode restarts never leak handlers). The handler feeds the shared `LogTailBuffer`; both `/recent` (snapshot) and the SSE `/stream` (live fan-out with atomic snapshot-then-subscribe to avoid gaps) are full-fidelity, and both apply the value-exposure policy to messages when they are read. BootUI's own loggers are self-filtered. Identical wire to Spring's Logback appender path |
 | `Email`               | **Implemented** — captured via a CDI `@Observes SentMail` observer (`QuarkusEmailCapture`) into the shared `EmailCaptureService`, replacing Spring's `CapturingJavaMailSender` decorator; one observer catches the blocking/reactive/Mutiny send styles (all funnel through the internal mailer that fires `io.quarkus.mailer.SentMail` after each successful send, mock or real). Gated on `quarkus-mailer` — the sole `io.quarkus.mailer`-importing class (`QuarkusEmailCapture`) is `provided`-scoped and excluded by the deployment `registerEmail` build step (class-presence check on `io.quarkus.mailer.reactive.ReactiveMailer`, non-prod only) when absent, R2; the mailer-free `EmailResource`/`EmailCaptureService` are always wired, so `GET /bootui/api/email` renders `available:false` with a `quarkus-mailer` hint rather than throwing. The `.eml` download delegates to the shared engine renderer so the bytes match Spring. Reduced fidelity: because the event fires *after* the send, there is no BootUI dev-trap — the sent/not-sent distinction instead reflects the framework's own mock-mail mode (`quarkus.mailer.mock`, default in dev/test), labelled **mock** in the UI; attachment size is unknown (the sent-attachment API exposes none). Content masking is identical (revealed by default, decoupled from `bootui.expose-values`; opt in with `bootui.email.mask-content=true`). `clear` (DELETE) behind the `LocalhostGuard` write floor |
-| `Kafka`               | **Implemented** — the standalone panel over the same shared `KafkaActivityRecorder`/`Capability.KAFKA` gate described in the `Live Activity` row above; `GET`/`DELETE /bootui/api/kafka` mirror Spring's `KafkaController` contract exactly (list newest-first, clear), and the same reduced-fidelity notes carry over unchanged: metadata-only capture (never the payload), a null consumer group id (`IncomingKafkaRecordMetadata` exposes none), the channel name used as the listener id, and a null producer duration (the ack callback carries no send-start timestamp). Reports unavailable with a `quarkus-messaging-kafka` hint when the capability is absent. `clear` (DELETE) behind the `LocalhostGuard` write floor |
+| `Kafka`               | **Implemented** — the standalone panel uses the same `KafkaActivityRecorder` and SmallRye Kafka connector as `Live Activity`; `GET`/`DELETE /bootui/api/kafka` mirror Spring's contract (list newest-first, clear). Capture is metadata-only, with no consumer group id or producer duration and with the channel name as the listener id. Reports unavailable with a `quarkus-messaging-kafka` hint when the connector is absent. `clear` (DELETE) behind the `LocalhostGuard` write floor |
 | `RabbitMQ`            | **Implemented** — the standalone panel over the shared `RabbitActivityRecorder` and class-presence gate described in the `Live Activity` row above; `GET`/`DELETE /bootui/api/rabbitmq` mirror Spring's list/clear contract. Capture is metadata-only, correlation IDs are omitted by default and hashed when explicitly enabled, and failures use generic text. Reports unavailable with a `quarkus-messaging-rabbitmq` hint when the connector is absent. `clear` (DELETE) behind the shared write and panel read-only gates |
 | `WebSockets`          | **Implemented** — endpoint topology is captured at build time from the Jandex index (`@WebSocket` classes and their `@OnOpen`/`@OnTextMessage`/… callbacks) and replayed through a synthetic `QuarkusWebSockets` bean; live connections come from `OpenConnections` plus `@Observes @Open`/`@Closed WebSocketConnection` events. Reduced fidelity: WebSockets Next exposes no message-interception SPI, so the report states `frameCaptureSupported=false` with that reason and the panel shows endpoints and connections only — no frame log. Gated on `quarkus-websockets-next` class presence with the two websockets-importing beans excluded when absent |
 
@@ -386,7 +386,7 @@ non-public `AbstractCache` type. A Spring-style decorator has no comparable runt
 
 ::: details Messaging capture on Quarkus (Kafka & RabbitMQ)
 
-**Kafka capture is gated on `quarkus-messaging-kafka` (`Capability.KAFKA`).** Quarkus apps use SmallRye Reactive
+**Kafka capture requires the SmallRye connector from `quarkus-messaging-kafka`.** Quarkus apps use SmallRye Reactive
 Messaging's `@Incoming`/`@Outgoing` channels rather than Spring's imperative `KafkaTemplate`/`@KafkaListener`. Capture is
 done by two `@ApplicationScoped` interceptors — `QuarkusKafkaProducerCapture` (`OutgoingInterceptor`) and
 `QuarkusKafkaConsumerCapture` (`IncomingInterceptor`) — that read Kafka record metadata into the shared, framework-neutral
@@ -394,7 +394,8 @@ done by two `@ApplicationScoped` interceptors — `QuarkusKafkaProducerCapture` 
 (`enabled`/`capture-key` `true`, `max-entries` `200`, `max-key-length` `16`), with capture disabled whenever the
 dedicated Kafka panel is disabled. The resource merges `MESSAGING` entries through the shared `KafkaActivityEntries`
 mapping: producer messages can nest under their exact request/execution owner; consumed messages are top-level
-executions anchoring their listener's recorded work.
+executions anchoring their listener's recorded work. The low-level `quarkus-kafka-client` alone does not provide
+the messaging hooks; BootUI leaves the interceptors unwired and reports the Kafka panel as unavailable.
 
 **RabbitMQ follows the same SmallRye pattern.** `QuarkusRabbitProducerCapture`/`QuarkusRabbitConsumerCapture` feed the
 shared `RabbitActivityRecorder`, are class-presence-gated on `quarkus-messaging-rabbitmq`, stop capture whenever the
@@ -413,9 +414,7 @@ normally. An outgoing message is captured only when it already carries the match
 interceptor callback. SmallRye also selects only one default `OutgoingInterceptor` and one default `IncomingInterceptor`
 per channel. BootUI's Kafka and RabbitMQ pairs are both default-qualified at the same fallback priority, so an
 application that installs both connectors currently gets capture for only the pair SmallRye selects; a channel-specific
-application interceptor takes precedence over BootUI as designed. Finally, Kafka availability is currently gated by the
-broad Quarkus `KAFKA` capability, so an application with only the lower-level `quarkus-kafka-client` can over-report the
-panel as available even though Reactive Messaging capture is not wired.
+application interceptor takes precedence over BootUI as designed.
 
 :::
 
@@ -824,7 +823,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Security Logs       | **done**    | Rebuild | `SecurityEventBuffer`            | CDI security-event observer                 |
 | Log Tail            | **done**    | Rebuild | `LogTailBuffer`                  | JBoss LogManager handler                    |
 | Email               | **done**    | Rebuild | Email capture service            | CDI `@Observes SentMail` observer → quarkus-mailer |
-| Kafka               | **done**    | Rebuild | `KafkaActivityRecorder`          | SmallRye `Outgoing`/`IncomingInterceptor` (`Capability.KAFKA`-gated); same recorder as Live Activity |
+| Kafka               | **done**    | Rebuild | `KafkaActivityRecorder`          | SmallRye `Outgoing`/`IncomingInterceptor` (requires the Kafka messaging connector); same recorder as Live Activity |
 | RabbitMQ            | **done**    | Rebuild | `RabbitActivityRecorder`         | SmallRye `Outgoing`/`IncomingInterceptor` (`quarkus-messaging-rabbitmq` class-presence-gated); same recorder as Live Activity |
 | JMS                 | spring-only | Not yet | `JmsActivityRecorder`            | Quarkus JMS capture not yet implemented; use Kafka/RabbitMQ panels |
 | REST Client         | **done**    | Rebuild | `RestClientTraceRecorder`        | `Capability.REST_CLIENT_REACTIVE`-gated generated `RestClientListener` service provider → metadata-only `QuarkusRestClientTraceFilter`; URI sanitization, status-0 transport failures, trace correlation, SSE/actions, and absent-extension type exclusion |

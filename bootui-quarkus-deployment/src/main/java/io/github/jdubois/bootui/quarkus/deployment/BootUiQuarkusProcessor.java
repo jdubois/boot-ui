@@ -258,7 +258,8 @@ class BootUiQuarkusProcessor {
     // SmallRye Reactive Messaging's io.smallrye.reactive.messaging.OutgoingInterceptor / IncomingInterceptor
     // and read io.smallrye.reactive.messaging.kafka.api metadata, so the deployment classloader must never load
     // them while augmenting an application without quarkus-messaging-kafka (loading them would link the messaging
-    // API that must stay absent — R2). The KAFKA capability gate registers them only when present.
+    // API that must stay absent — R2). The Kafka connector, not the low-level client, supplies these types.
+    private static final String KAFKA_CONNECTOR_CLASS = "io.smallrye.reactive.messaging.kafka.KafkaConnector";
     private static final String KAFKA_PRODUCER_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.kafka.QuarkusKafkaProducerCapture";
     private static final String KAFKA_CONSUMER_CAPTURE_CLASS =
@@ -2552,42 +2553,19 @@ class BootUiQuarkusProcessor {
     }
 
     /**
-     * Capability-gated registration of the Live Activity Kafka capture interceptors (R2), mirroring
-     * {@link #registerCacheAdvisor} exactly.
-     *
-     * <p>{@code QuarkusKafkaProducerCapture} and {@code QuarkusKafkaConsumerCapture} are
-     * {@code @ApplicationScoped} beans implementing SmallRye Reactive Messaging's {@code OutgoingInterceptor}
-     * / {@code IncomingInterceptor} SPI (which SmallRye discovers as CDI beans and applies to every channel),
-     * and they read {@code io.smallrye.reactive.messaging.kafka.api} record metadata. Because the extension
-     * runtime jar is Jandex-indexed, Arc would discover these {@code @ApplicationScoped} interceptors
-     * <em>unconditionally</em> — and loading them in an application without {@code quarkus-messaging-kafka}
-     * would link the SmallRye messaging API that must stay absent (R2). A CDI scope on the class is therefore
-     * exactly what makes it discoverable and dangerous, so the interceptors must be actively
-     * {@linkplain ExcludedTypeBuildItem excluded} from discovery when the {@code KAFKA} capability is absent
-     * (a Kafka connector implies reactive messaging, so gating on {@code KAFKA} alone is sufficient). When it
-     * is present, both are registered and pinned unremovable (SmallRye resolves them via {@code Instance}
-     * lookups Arc's usage analysis cannot see).</p>
-     *
-     * <p>This same capability gate also lights up the dedicated Kafka panel: {@link
-     * QuarkusPanelAvailability#KAFKA_PRESENT_KEY} is emitted alongside the interceptor registration, exactly
-     * as {@link #registerCacheAdvisor} emits {@code CACHE_PRESENT_KEY}. The always-produced {@code
-     * KafkaActivityRecorder} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays
-     * empty when no capture interceptor is wired, so both the Kafka panel and {@code LiveActivityResource}
-     * render no messages/{@code MESSAGING} entries until {@code quarkus-messaging-kafka} is added — exactly as
-     * on Spring without {@code spring-kafka}.</p>
+     * Wires Kafka capture and enables the panel only when the SmallRye Kafka connector is on the application's
+     * runtime classpath. {@code quarkus-kafka-client} also provides {@code Capability.KAFKA} but has neither
+     * the interceptor SPI nor Kafka connector metadata. Without the connector, exclude both indexed beans
+     * from Arc discovery so startup does not link the optional messaging types.
      */
     @BuildStep
     void registerKafkaCapture(
             LaunchModeBuildItem launchMode,
-            Capabilities capabilities,
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
             BuildProducer<ExcludedTypeBuildItem> excludedTypes,
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
-        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.KAFKA);
-        // No quarkus-messaging-kafka (or production): keep the SmallRye-messaging-importing interceptors out
-        // of bean discovery so Arc never loads them and links the messaging API. The recorder still wires via
-        // the always-produced KafkaActivityRecorder and stays empty, so Live Activity renders no MESSAGING
-        // entries and the Kafka panel reports itself unavailable (KAFKA_PRESENT_KEY defaults to false).
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && QuarkusClassLoader.isClassPresentAtRuntime(KAFKA_CONNECTOR_CLASS);
         registerCapabilityGatedBeans(
                 present,
                 additionalBeans,
@@ -2599,11 +2577,9 @@ class BootUiQuarkusProcessor {
     }
 
     /**
-     * Class-presence-gated registration of the Live Activity RabbitMQ capture interceptors (R2). Mirrors
-     * {@link #registerKafkaCapture} exactly, except there is no dedicated {@code RABBITMQ}
-     * {@link io.quarkus.deployment.Capability} constant in Quarkus core, so the gate uses the runtime class
-     * presence of {@link #INCOMING_RABBITMQ_METADATA_CLASS} — the same pattern
-     * {@link #registerEmail} uses for the absence of a MAILER capability. The always-produced
+     * Class-presence-gated registration of the Live Activity RabbitMQ capture interceptors (R2). Like
+     * {@link #registerKafkaCapture}, it uses a connector-specific runtime class:
+     * {@link #INCOMING_RABBITMQ_METADATA_CLASS}. The always-produced
      * {@link io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder} (see
      * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) simply stays empty when no capture
      * interceptor is wired, so both the RabbitMQ panel and {@code LiveActivityResource} render no messages
