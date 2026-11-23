@@ -984,18 +984,6 @@ class LiveActivityControllerTests {
         return null;
     }
 
-    private static Thread awaitThreadNamed(String name) throws InterruptedException {
-        for (int i = 0; i < 100; i++) {
-            for (Thread thread : Thread.getAllStackTraces().keySet()) {
-                if (name.equals(thread.getName())) {
-                    return thread;
-                }
-            }
-            Thread.sleep(10);
-        }
-        return null;
-    }
-
     private static boolean awaitNotAlive(Thread thread) throws InterruptedException {
         for (int i = 0; i < 100 && thread.isAlive(); i++) {
             Thread.sleep(10);

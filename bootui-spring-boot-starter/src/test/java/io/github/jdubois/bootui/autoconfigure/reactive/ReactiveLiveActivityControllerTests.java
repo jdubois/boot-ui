@@ -1452,36 +1452,6 @@ class ReactiveLiveActivityControllerTests {
                 });
     }
 
-    private static HttpExchangeDto timedExchange(String id, long timestamp, int status, long durationMs) {
-        return new HttpExchangeDto(
-                id,
-                Instant.ofEpochMilli(timestamp),
-                "GET",
-                "/api/orders",
-                null,
-                "/api/orders",
-                status,
-                status / 100 + "xx",
-                durationMs,
-                null,
-                "127.0.0.1",
-                null,
-                null,
-                null,
-                List.of(),
-                List.of());
-    }
-
-    private static HttpExchangesReport exchangesReport(List<HttpExchangeDto> exchanges) {
-        return new HttpExchangesReport(
-                exchanges.size(),
-                exchanges.size(),
-                0,
-                exchanges,
-                new PageMetadata(exchanges.size(), exchanges.size(), 0, exchanges.size(), exchanges.size(), false),
-                null);
-    }
-
     private ReactiveLiveActivityController profileController(
             BootUiProperties properties, RestClientTraceRecorder restRecorder, CacheActivityRecorder cacheRecorder) {
         HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
@@ -1572,25 +1542,6 @@ class ReactiveLiveActivityControllerTests {
                 bufferMaxEntries,
                 Duration.ofDays(7),
                 instanceId);
-    }
-
-    private static Thread awaitThreadNamed(String name) throws InterruptedException {
-        for (int i = 0; i < 100; i++) {
-            for (Thread thread : Thread.getAllStackTraces().keySet()) {
-                if (name.equals(thread.getName())) {
-                    return thread;
-                }
-            }
-            Thread.sleep(10);
-        }
-        return null;
-    }
-
-    private static boolean awaitNotAlive(Thread thread) throws InterruptedException {
-        for (int i = 0; i < 100 && thread.isAlive(); i++) {
-            Thread.sleep(10);
-        }
-        return !thread.isAlive();
     }
 
     private static ReactiveLiveActivityController controller(BootUiProperties properties) {
