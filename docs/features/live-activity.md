@@ -336,7 +336,9 @@ prunes, nor deletes it. The prefix can therefore stay `bootui_activity` while
 Durable history requires an enabled, open runtime journal. If the journal is disabled, persistence warns and writes
 nothing; the regular in-memory endpoint remains available. With a durable store, **Load older** pages beyond the hot
 tail, filters become database queries, and one feed can include several runs and instances from the same
-namespace/application. A global sequence orders concurrent writers. Poll the head to see new rows, and use
+namespace/application. The durable feed's text filter looks for a literal substring, not a wildcard pattern:
+`alpha_key` does not match `alphaXkey`, and `50%off` does not match `50percentoff`.
+A global sequence orders concurrent writers. Poll the head to see new rows, and use
 `pageInfo.nextCursor` to walk backward through history. Every row carries namespace, application, run, instance,
 journal sequence, and global-sequence origin so equal local IDs are not merged.
 
