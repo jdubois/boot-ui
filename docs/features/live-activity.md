@@ -59,7 +59,9 @@ Signals that cannot be tied to a request stay top-level. Any filter or search fl
 
 - Adjacent identical entries collapse with an occurrence count.
 - Filter by type, severity, free text (path, status, SQL, or exception class), and an **errors-only** toggle. Filters
-  persist across reloads.
+  persist across reloads. They filter the retained in-memory feed locally, or search across durable history in the
+  selected archive scope once storage is confirmed. If the first durable search fails, **Clear filters** loads the
+  feed without the saved filters.
 - A requests-over-time sparkline shows spikes and error bursts. With the runtime journal as source, dashed lines mark
   **MARKER** rows: a change made from a BootUI panel, an availability change, a configuration refresh, or shutdown. A
   marker names its target, never a value.

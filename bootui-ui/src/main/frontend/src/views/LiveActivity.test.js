@@ -119,6 +119,12 @@ function stubFetch(activity, profile, journalProfile = {available: false, unavai
   })
 }
 
+function stubActivityFeed(fetchFeed) {
+  vi.stubGlobal('fetch', (url) =>
+    url === 'api/activity/service-map' ? Promise.resolve(jsonResponse({available: false})) : fetchFeed(url)
+  )
+}
+
 function mountLiveActivity(options = {}) {
   const {global: globalOptions = {}, ...rest} = options
   return mount(LiveActivity, {
@@ -1043,6 +1049,151 @@ describe('LiveActivity', () => {
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/resources')).toBe(true)
     expect(wrapper.find('#activity-runtime-resources').exists()).toBe(true)
+  })
+
+  it('restores a saved search across the full durable feed before declaring no matches', async () => {
+    safeLocalStorage.setJson('bootui.activity.filters', {text: 'archive-only-needle'})
+    vi.stubGlobal('EventSource', undefined)
+    let finishSearch
+    const search = new Promise((resolve) => {
+      finishSearch = resolve
+    })
+    const mock = vi.fn((url) =>
+      url === 'api/activity?q=archive-only-needle'
+        ? search
+        : Promise.resolve(
+            jsonResponse(
+              activityReport({
+                entries: [requestEntry({summary: 'Newer unrelated request'})],
+                pageInfo: {persistent: true, hasMore: true, nextCursor: 'unfiltered-cursor'}
+              })
+            )
+          )
+    )
+    stubActivityFeed(mock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('No activity matches the current filters.')
+    expect(wrapper.text()).not.toContain('Load older activity')
+    expect(wrapper.find('.skeleton-wrapper[aria-busy="true"]').exists()).toBe(true)
+    finishSearch(
+      jsonResponse(
+        activityReport({
+          entries: [requestEntry({id: 'archived-match', summary: 'Older archive-only-needle request'})],
+          pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+        })
+      )
+    )
+    await flushPromises()
+
+    expect(wrapper.get('#activity-text-filter').element.value).toBe('archive-only-needle')
+    expect(wrapper.get('table tbody').text()).toContain('Older archive-only-needle request')
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', 'api/activity?q=archive-only-needle'])
+  })
+
+  it('lets the user clear a rejected saved search without showing the discovery page or its cursor', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    vi.stubGlobal('EventSource', undefined)
+    const text = 'x'.repeat(2001)
+    safeLocalStorage.setJson('bootui.activity.filters', {text})
+    const mock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          activityReport({
+            entries: [requestEntry({summary: 'Unfiltered discovery row'})],
+            pageInfo: {persistent: true, hasMore: true, nextCursor: 'unfiltered-cursor'}
+          })
+        )
+      )
+      .mockResolvedValueOnce(jsonResponse({error: 'text exceeds 2000 characters'}, false, 400))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          activityReport({
+            entries: [requestEntry({summary: 'Recovered activity row'})],
+            pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+          })
+        )
+      )
+    stubActivityFeed(mock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Request failed with status 400')
+    expect(wrapper.text()).not.toContain('No activity matches the current filters.')
+    expect(wrapper.text()).not.toContain('Unfiltered discovery row')
+    expect(wrapper.text()).not.toContain('Load older activity')
+    expect(safeLocalStorage.getJson('bootui.activity.filters').text).toBe(text)
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', `api/activity?q=${text}`])
+    const clear = wrapper.findAll('button').find((button) => button.text() === 'Clear filters')
+    expect(clear).toBeDefined()
+    await clear.trigger('click')
+    await vi.advanceTimersByTimeAsync(301)
+    await flushPromises()
+
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', `api/activity?q=${text}`, 'api/activity'])
+    expect(wrapper.text()).not.toContain('Request failed with status 400')
+    expect(wrapper.get('table tbody').text()).toContain('Recovered activity row')
+    expect(wrapper.get('#activity-text-filter').element.value).toBe('')
+    expect(safeLocalStorage.getJson('bootui.activity.filters').text).toBe('')
+  })
+
+  it('keeps memory filtering local and ignores a superseded search when the feed becomes durable', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    vi.stubGlobal('EventSource', undefined)
+    const head = (summary, cursor = null) =>
+      jsonResponse(
+        activityReport({
+          entries: [requestEntry({summary})],
+          pageInfo: {persistent: true, hasMore: cursor !== null, nextCursor: cursor}
+        })
+      )
+    let finishOldSearch
+    const oldSearch = new Promise((resolve) => {
+      finishOldSearch = resolve
+    })
+    let finishCurrentSearch
+    const currentSearch = new Promise((resolve) => {
+      finishCurrentSearch = resolve
+    })
+    const mock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(activityReport({entries: [requestEntry({summary: 'Memory row'})]})))
+      .mockResolvedValueOnce(head('Newer unrelated request', 'unfiltered-cursor'))
+      .mockReturnValueOnce(oldSearch)
+      .mockReturnValueOnce(currentSearch)
+    stubActivityFeed(mock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('#activity-text-filter').setValue('archive')
+    await vi.advanceTimersByTimeAsync(301)
+    expect(wrapper.get('table tbody').text()).toContain('No activity matches the current filters.')
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity'])
+
+    wrapper.findComponent(PanelHeader).vm.$emit('refresh')
+    await flushPromises()
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['api/activity', 'api/activity', 'api/activity?q=archive'])
+
+    await wrapper.get('#activity-text-filter').setValue('current archive')
+    await vi.advanceTimersByTimeAsync(301)
+    finishOldSearch(head('Obsolete current archive row', 'obsolete-cursor'))
+    await flushPromises()
+    expect(mock.mock.calls.map(([url]) => url)).toEqual([
+      'api/activity',
+      'api/activity',
+      'api/activity?q=archive',
+      'api/activity?q=current+archive'
+    ])
+    expect(wrapper.text()).not.toContain('Obsolete current archive row')
+    expect(wrapper.text()).not.toContain('Load older activity')
+
+    finishCurrentSearch(head('Current archive match'))
+    await flushPromises()
+    expect(wrapper.get('table tbody').text()).toContain('Current archive match')
   })
 
   it('keeps filters usable when browser storage reads and writes are denied', async () => {

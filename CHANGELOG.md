@@ -101,6 +101,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Shared JDK state** checks include cryptographic engines, regex matchers and positively identified subtypes under
   the existing MEDIUM rule. Unresolved ancestry stays unknown rather than proving safe concurrent use
   ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-code-019---classes-should-not-store-stateful-jdk-processors-in-static-or-shared-bean-fields)).
+- **Saved Live Activity filters** search durable history on reload and can be cleared if the first search fails
+  ([Live Activity](docs/features/live-activity.md)).
 - **Database index comparisons** use complete ordinary InnoDB catalog evidence on MySQL and MariaDB, retaining
   unknown definitions and avoiding unrelated primary-key-overlap warnings. Newly assessed LOW findings use unchanged
   severity and strict CI policies ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md)).
