@@ -13,9 +13,8 @@ warning's message or a request path, follow the same rule as
 [Live Activity](live-activity.md#safety-and-limits).
 
 The normal panel is the current process run. A direct REST caller can qualify a durable historical run with
-`namespace`, `application`, and `run`; those reads do require a bounded database projection. The
-[`bootui archive insights`](../CLI.md#read-durable-journal-history-offline) command performs the same projection
-without a running application.
+`namespace`, `application`, and `run`; those reads do require a bounded database projection through a running
+application.
 
 The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
 WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,
@@ -317,10 +316,6 @@ Historical projection is bounded to the retained run's event and byte limits (at
 adapters. Missing safe `_details`, an absent end snapshot, incomplete SQL qualification, or an unavailable previous
 summary add explicit limitations. The current Java agent and live-only agent evidence cannot be consulted for a past
 run. An interrupted run can still be read from its latest checkpoint, but it is not presented as complete.
-
-`bootui archive insights --run <runId>` reads one run; omitting `--run` projects the newest bounded set for one
-application, and repeated `--scope namespace/application/run` values project several explicit runs. All archive reads
-are masked and read-only.
 
 :::
 

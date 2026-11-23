@@ -52,7 +52,6 @@ showcaseVideo: true
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
 | Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
 | Ask a running application from a terminal | [Command line](CLI.md) |
-| Read a durable journal without an application | [Offline archive commands](CLI.md#read-durable-journal-history-offline) |
 | Gate integration tests in GitHub Actions | [CI/CD setup](CI.md) |
 
 ## Install the BootUI agent skill

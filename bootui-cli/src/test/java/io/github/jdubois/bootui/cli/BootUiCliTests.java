@@ -414,6 +414,17 @@ class BootUiCliTests {
         assertThat(requests).isEmpty();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"runs", "activity", "profile", "insights"})
+    void removedArchiveCommandsFailWithoutContactingAnApplication(String subcommand) {
+        Result result = runPiped("archive", subcommand, "--json");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(result.out).isEmpty();
+        assertThat(result.err).contains("archive");
+        assertThat(requests).isEmpty();
+    }
+
     @Test
     void rootHelpListsEveryCommandWithItsArgumentsAndOneExample() {
         Result result = runPiped("--help");
@@ -433,7 +444,7 @@ class BootUiCliTests {
                 .contains("Example: bootui insights impact 'OrderService#total'")
                 .contains("bootui tools", "bootui mcp status|enable|disable")
                 .contains("(only on spring mvc, spring webflux)")
-                .doesNotContain("\u001B[");
+                .doesNotContain("\u001B[", "bootui archive");
     }
 
     @Test

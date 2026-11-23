@@ -384,9 +384,6 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
    resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included
    alongside a journal HTTP profile when retained), and `none` says neither window retains the id.
-4. For a durable historical run, use `bootui archive runs|profile|insights` with the JDBC options. Archive reports are
-   masked and read-only; they are bounded and may be partial after queue loss, retention, a clear, missing safe details,
-   or an interrupted run. They cannot consult the current Java agent.
 
 ### Change code and verify it with runtime evidence
 

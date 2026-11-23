@@ -40,11 +40,6 @@ class CliDistributionIT {
                     .isNotNull();
             assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/ci/CiCollection.class"))
                     .isNotNull();
-            assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/ArchiveCommands.class"))
-                    .isNotNull();
-            assertThat(all.getJarEntry("io/github/jdubois/bootui/engine/journal/DurableJournalArchiveService.class"))
-                    .isNotNull();
-            assertThat(all.stream().map(JarEntry::getName)).noneMatch(name -> name.startsWith("org/h2/"));
             assertThat(all.getJarEntry("bootui-tools.json")).isNotNull();
             assertThat(thin.stream().map(JarEntry::getName))
                     .noneMatch(name -> name.startsWith("bootui-docs/")
@@ -71,6 +66,28 @@ class CliDistributionIT {
                         .isNotNull();
             }
         }
+    }
+
+    @Test
+    void runnableJarDoesNotBundleTheEngineOrItsRuntimeDependencies() throws Exception {
+        Path runnable = Path.of(System.getProperty("bootui.cli.jar"));
+        try (JarFile jar = new JarFile(runnable.toFile())) {
+            assertThat(jar.stream().map(JarEntry::getName))
+                    .noneMatch(name -> name.startsWith("io/github/jdubois/bootui/engine/")
+                            || name.startsWith("io/github/jdubois/bootui/core/")
+                            || name.startsWith("io/github/jdubois/bootui/spi/")
+                            || name.startsWith("io/github/jdubois/bootui/cli/ArchiveCommands")
+                            || name.startsWith("META-INF/maven/com.julien-dubois.bootui/bootui-engine/")
+                            || name.startsWith("io/micrometer/")
+                            || name.startsWith("org/HdrHistogram/")
+                            || name.startsWith("org/LatencyUtils/")
+                            || name.startsWith("org/slf4j/")
+                            || name.startsWith("com/tngtech/archunit/")
+                            || name.startsWith("org/h2/"));
+        }
+        Result rejected = process(List.of(java(), "-jar", runnable.toString(), "archive", "runs"), Map.of());
+        assertThat(rejected.code()).isEqualTo(ExitCodes.ERROR);
+        assertThat(rejected.output()).contains("archive");
     }
 
     @Test

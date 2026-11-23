@@ -35,20 +35,11 @@
             <optional>true</optional>
         </dependency>
 
-        <!--
-            Archive commands deliberately use the engine offline. The dependency stays optional so the
-            dependency-free io.github.jdubois.bootui.client package still brings no runtime dependencies to
-            consumers of the thin jar. The shaded runnable "all" classifier includes it.
-        -->
+        <!-- Test-only: generate the manifest and verify parity with the engine's MCP tool catalog. -->
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-engine</artifactId>
             <version>${project.version}</version>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -172,9 +163,8 @@
             </plugin>
             <!--
                 The artifact people actually run is the shaded one: `java -jar` and JBang both need every
-                dependency in a single file, and the CLI's dependency set is small enough — picocli plus the
-                dependency-free client — that shading costs nothing and removes the classpath step. The shade
-                plugin includes optional dependencies, so picocli is in it.
+                dependency in a single file. The CLI needs only picocli plus the dependency-free client;
+                shading removes the classpath step. The shade plugin includes optional dependencies, so picocli is in it.
 
                 It is attached under a classifier rather than replacing the main jar, so a build plugin can
                 depend on the client without inheriting a shaded, unrelocatable picocli, or any picocli at all.

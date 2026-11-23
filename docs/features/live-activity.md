@@ -435,8 +435,8 @@ changing the journal's simple owner-and-sequence model. None is a current commit
 
 Historical request profiles carry the origin from their durable activity row and merge bounded typed events with its
 safe detail rows. The archive service uses one bounded detail read per profile or Runtime Insights report to fill
-missing request or exception fields and to flag absent detail rows. Read profiles without a running application with
-[`bootui archive profile`](../CLI.md#read-durable-journal-history-offline).
+missing request or exception fields and to flag absent detail rows. Open historical profiles from origin-scoped
+durable activity rows in the running application's Live Activity panel.
 
 When the database cannot serve Live Activity, the REST endpoint can still show a partial first page from the current
 run. Text search (`q`, a literal case-insensitive match on visible row text) and the inclusive end time (`until`)
@@ -567,8 +567,7 @@ written to durable history, as it does for live rows. A search of durable histor
 so it never finds a row by text masked or withheld on read.
 
 Reads default to their own namespace. Cross-namespace selection is refused unless
-`bootui.activity.persistence.reader-archive-cross-namespace=true`; direct offline archive reads require the equivalent
-explicit `--allow-cross-namespace` opt-in.
+`bootui.activity.persistence.reader-archive-cross-namespace=true`.
 
 A SQL statement that mixes a quote with a backslash or a `#`, which MySQL and MariaDB may read as an escaped quote or a
 comment, is cut at its first quote rather than guessed at.
