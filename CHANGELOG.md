@@ -18,6 +18,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Resource attribution** keeps observed connection overlap without inferring nested waiting or an exhaustion
   estimate, and asks about write atomicity across captured data sources and boundaries without claiming physical
   ownership or independent commits ([Runtime Insights](docs/features/runtime-insights.md)).
+- **Archived Clear recording** excludes an intentionally deleted prefix from omission counts only after the delete
+  has been confirmed in durable metadata. Read bounds and requests spanning Clear remain qualified. Confirmed-Clear
+  snapshots require an updated archive reader ([Live Activity](docs/features/live-activity.md#durable-history)).
 - **Authorization target evidence** distinguishes request-route restrictions from object-level method decisions.
   Genuine request findings retain exposure-controlled paths and separately labeled method context without
   exposing method rules ([Runtime Insights](docs/features/runtime-insights.md)).

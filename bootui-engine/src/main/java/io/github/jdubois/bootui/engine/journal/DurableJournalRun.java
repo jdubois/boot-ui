@@ -29,7 +29,7 @@ public record DurableJournalRun(
 
     public static final int MAX_STATUS_LENGTH = 32;
     public static final int MAX_METADATA_LENGTH = 4_000;
-    public static final int MAX_METADATA_PAYLOAD_LENGTH = DurableJournalRunMetadataCodec.MAX_ENCODED_BYTES;
+    public static final int MAX_METADATA_PAYLOAD_LENGTH = DurableJournalRunMetadataCodec.MAX_FRAMED_BYTES;
     public static final int MAX_INSTANCE_ID_LENGTH = 128;
 
     public DurableJournalRun {

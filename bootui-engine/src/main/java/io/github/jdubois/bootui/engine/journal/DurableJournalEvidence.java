@@ -72,7 +72,10 @@ public final class DurableJournalEvidence {
             return hot;
         }
 
-        DurableJournalRunMetadata metadata = store.findRunMetadata(scope);
+        var archived = sameRun ? null : store.findArchivedMetadata(scope);
+        DurableJournalRunMetadata metadata = archived == null ? store.findRunMetadata(scope) : archived.metadata();
+        // Only an acknowledged, persisted delete excuses a missing historical prefix.
+        long confirmedClear = archived == null ? 0 : archived.confirmedClearThrough();
         JournalStatus base = hotStatus == null ? metadata == null ? null : metadata.journalStatus() : hotStatus;
         if (base == null) {
             throw new DurableJournalUnavailableException(
@@ -139,9 +142,13 @@ public final class DurableJournalEvidence {
         }
 
         List<JournalEntry> entries = enrich(scope, bounded.newestFirst());
+        if (!sameRun) {
+            durableOmitted = Math.max(0, firstSequence - confirmedClear);
+        }
+        long gapCheckAfter = Math.max(firstSequence, confirmedClear);
         long missingSequences = 0;
-        for (long sequence = firstSequence + 1; sequence <= durableThrough; sequence++) {
-            if (!availableSequences.contains(sequence)) {
+        for (long sequence = gapCheckAfter; sequence < durableThrough; ) {
+            if (!availableSequences.contains(++sequence)) {
                 missingSequences++;
             }
         }
@@ -156,7 +163,9 @@ public final class DurableJournalEvidence {
                 && omitted == 0
                 && base.droppedTotal() == 0
                 && metadata.durableDroppedEvents() == 0
-                && metadata.durableQuarantinedEvents() == 0;
+                && metadata.durableQuarantinedEvents() == 0
+                // A deleted prefix is not recovered work: a request can still straddle Clear.
+                && confirmedClear == 0;
         JournalStatus status = withEvidence(base, entries, bounded.bytes(), durableComplete);
         boolean recoveredOffload = currentArchive && metadata != null && omitted == 0;
         Long clearHorizon = currentArchive ? journal.explicitClearLossHorizon() : null;
