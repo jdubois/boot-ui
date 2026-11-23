@@ -257,6 +257,104 @@ class ThreadLocalsTests {
     }
 
     @Test
+    void anExplicitScopeClosedWhileTheSensorIsOffDoesNotScan() {
+        long token = enabledClaim();
+        context.set(owner(REQUEST));
+        long scope = ThreadLocals.open();
+        assertThat(scope).isPositive();
+        assertThat(scanner.snapshots).isEqualTo(1);
+        scanner.set(TENANT, true);
+
+        assertThat(AgentBridge.switchSensor(token, SideEffects.THREAD_LOCALS, false)
+                        .get("status"))
+                .isEqualTo(AgentBridge.ARMED);
+        ThreadLocals.close(scope);
+
+        assertThat(scanner.leftoverScans).isZero();
+        assertThat(ThreadLocals.counter("scans")).isEqualTo(1L);
+        assertThat(drain(token)).isEmpty();
+        assertScopeCleared();
+
+        assertThat(AgentBridge.switchSensor(token, SideEffects.THREAD_LOCALS, true)
+                        .get("status"))
+                .isEqualTo(AgentBridge.ARMED);
+        long next = ThreadLocals.open();
+        assertThat(next).isPositive().isNotEqualTo(scope);
+        ThreadLocals.close(scope);
+        scanner.set(CLEARED, true);
+        ThreadLocals.close(next);
+
+        assertThat(scanner.leftoverScans).isEqualTo(1);
+        assertThat(drain(token)).singleElement().satisfies(record -> {
+            assertThat(record[SideEffects.R_REQUEST]).isEqualTo(REQUEST_BITS);
+            assertThat(record[SideEffects.R_NANOS]).isEqualTo(scanner.hash(CLEARED) & 0xFFFFFFFFL);
+        });
+    }
+
+    @Test
+    void anOwnerSlotFromAReplacedClaimClosesWithoutScanning() {
+        enabledClaim();
+        long oldGeneration = generation();
+        SideEffects.handoff(new Object[] {REQUEST}, oldGeneration, true);
+        assertThat(scanner.snapshots).isEqualTo(1);
+        scanner.set(TENANT, true);
+
+        long next = enabledClaim();
+        long newGeneration = generation();
+        assertThat(newGeneration).isGreaterThan(oldGeneration);
+        SideEffects.handoffDone();
+
+        assertThat(scanner.leftoverScans).isZero();
+        assertThat(drain(next)).isEmpty();
+        assertScopeCleared();
+        assertThat(CodePaths.FRAME.get().slots).isZero();
+
+        SideEffects.handoff(new Object[] {REQUEST}, newGeneration, true);
+        scanner.set(CLEARED, true);
+        SideEffects.handoffDone();
+
+        assertThat(scanner.leftoverScans).isEqualTo(1);
+        assertThat(drain(next)).singleElement().satisfies(record -> {
+            assertThat(record[SideEffects.R_GENERATION]).isEqualTo(newGeneration);
+            assertThat(record[SideEffects.R_NANOS]).isEqualTo(scanner.hash(CLEARED) & 0xFFFFFFFFL);
+        });
+    }
+
+    @Test
+    void aScopeStillReportsAfterARefinementInTheSameGeneration() {
+        long token = enabledClaim();
+        long generation = generation();
+        context.set(owner(REQUEST));
+        long scope = ThreadLocals.open();
+        scanner.set(TENANT, true);
+
+        assertThat(AgentBridge.refine(token, Map.of("packages", List.of("com.example", "org.example")))
+                        .get("status"))
+                .isEqualTo(AgentBridge.ARMED);
+        assertThat(generation()).isEqualTo(generation);
+        ThreadLocals.close(scope);
+
+        assertThat(scanner.leftoverScans).isEqualTo(1);
+        assertThat(drain(token)).hasSize(1);
+    }
+
+    @Test
+    void aScopeDisabledWhileScanningDiscardsTheResultAndClearsItsBuffers() {
+        long token = enabledClaim();
+        context.set(owner(REQUEST));
+        long scope = ThreadLocals.open();
+        scanner.set(TENANT, true);
+        scanner.afterLeftovers = () -> SideEffects.disable(SideEffects.MASK_THREAD_LOCALS, null);
+
+        ThreadLocals.close(scope);
+
+        assertThat(scanner.leftoverScans).isEqualTo(1);
+        assertThat(ThreadLocals.counter("reported")).isZero();
+        assertThat(drain(token)).isEmpty();
+        assertScopeCleared();
+    }
+
+    @Test
     void aCloseOnAnotherThreadOrWithAnotherTokenDoesNothing() throws Exception {
         long token = enabledClaim();
         context.set(owner(REQUEST));
@@ -522,6 +620,8 @@ class ThreadLocalsTests {
         final Map<Thread, Map<Object, boolean[]>> maps = new IdentityHashMap<>();
         boolean tooLarge;
         int snapshots;
+        int leftoverScans;
+        Runnable afterLeftovers;
 
         void set(Object local, boolean value) {
             set(local, value, false);
@@ -565,6 +665,7 @@ class ThreadLocalsTests {
 
         @Override
         public int leftovers(int[] open, int openCount, Object[] keys, int[] hashes, boolean[] inheritable) {
+            leftoverScans++;
             int found = 0;
             for (Map.Entry<Object, boolean[]> entry : map().entrySet()) {
                 int hash = hash(entry.getKey());
@@ -576,6 +677,9 @@ class ThreadLocalsTests {
                     }
                     found++;
                 }
+            }
+            if (afterLeftovers != null) {
+                afterLeftovers.run();
             }
             return found;
         }
@@ -617,6 +721,13 @@ class ThreadLocalsTests {
 
     private static Object[] owner(String request) {
         return new Object[] {request, null, null, null, null, null, null, 1L, 1L};
+    }
+
+    private static void assertScopeCleared() {
+        ThreadLocals.Scope scope = CodePaths.FRAME.get().threadLocals;
+        assertThat(scope.depth).isZero();
+        assertThat(scope.token).isZero();
+        assertThat(scope.keys).containsOnlyNulls();
     }
 
     private static long generation() {
