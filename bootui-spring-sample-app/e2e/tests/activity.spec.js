@@ -1,6 +1,9 @@
 // @ts-check
 import {acceptConfirm, expect, test} from './fixtures.js'
 import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
+import {registerArchivedRouteBreakdownTest} from '../scenarios/archived-route-breakdown.js'
+
+registerArchivedRouteBreakdownTest(test, expect)
 
 test.describe('Live Activity view', () => {
   test('merges requests, SQL and exceptions into one live stream', async ({openView, page}) => {

@@ -1,6 +1,9 @@
 // @ts-check
 import {acceptConfirm, expect, test} from './fixtures.js'
 import {registerResourceLedgerTests} from '../../../bootui-spring-sample-app/e2e/scenarios/resource-ledger.js'
+import {registerArchivedRouteBreakdownTest} from '../../../bootui-spring-sample-app/e2e/scenarios/archived-route-breakdown.js'
+
+registerArchivedRouteBreakdownTest(test, expect)
 
 /**
  * Live Activity (Quarkus).

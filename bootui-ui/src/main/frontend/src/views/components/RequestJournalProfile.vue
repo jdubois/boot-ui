@@ -11,6 +11,7 @@ import RouteWhySlow from './RouteWhySlow.vue'
 // the BootUI agent propagated from this request to an executor (M5-2).
 const props = defineProps({
   profile: {type: Object, required: true},
+  origin: {type: Object, default: null},
   method: {type: String, default: null},
   path: {type: String, default: null},
   status: {type: Number, default: null}
@@ -343,6 +344,7 @@ function onBaselineChange(event) {
         <RouteWhySlow
           v-if="profile.route && !profile.route.startsWith('Scheduled:') && !profile.route.startsWith('Message:')"
           :route="profile.route"
+          :origin="origin"
         />
       </template>
     </div>
