@@ -1,8 +1,11 @@
-import {flushPromises, mount} from '@vue/test-utils'
+import {enableAutoUnmount, flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {createMemoryHistory, createRouter} from 'vue-router'
 
 import {routes} from './routes.js'
+
+// Removing DOM nodes alone leaves App's window listeners alive between tests.
+enableAutoUnmount(afterEach)
 
 const TestPanel = {
   template: '<section />',
