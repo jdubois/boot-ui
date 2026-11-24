@@ -235,8 +235,8 @@ function centerFocusedNode() {
 
     <div v-if="definitionsByName.get(focusName)?.length > 1" class="alert alert-info py-2 small mb-2" role="status">
       <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
-      {{ definitionsByName.get(focusName).length }} bean definitions share the name <code>{{ focusName }}</code
-      >. Their recorded dependencies are combined in this graph.
+      {{ definitionsByName.get(focusName).length }} bean definitions share the name <code>{{ focusName }}</code>. Their
+      recorded dependencies are combined in this graph.
     </div>
 
     <!-- No neighbours notice for isolated beans -->

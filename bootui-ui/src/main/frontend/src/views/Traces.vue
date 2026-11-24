@@ -226,8 +226,7 @@ const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchTrace
         <template v-else>
           No traces received yet. With the BootUI starter on the classpath, local application spans are captured
           automatically. Exercise your application to populate this panel; cooperating services can still export OTLP to
-          <code>{{ otlpEndpoint }}</code
-          >.
+          <code>{{ otlpEndpoint }}</code>.
         </template>
       </div>
 

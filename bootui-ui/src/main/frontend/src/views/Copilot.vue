@@ -553,8 +553,7 @@ watch(
       <div class="card-body">
         <h3 class="h5 card-title"><i class="bi bi-info-circle me-2"></i>{{ panelConfig.emptyTitle }}</h3>
         <p class="card-text mb-1">
-          BootUI looked for sessions under <code>{{ sessionStateDir }}</code
-          >.
+          BootUI looked for sessions under <code>{{ sessionStateDir }}</code>.
         </p>
         <p class="card-text small text-muted mb-0">
           {{ panelConfig.emptyHint }}, or set <code>{{ panelConfig.propertyPrefix }}.session-state-dir</code>.
@@ -577,8 +576,7 @@ watch(
                 Inspired by
                 <a :href="panelConfig.inspiration.href" rel="noopener noreferrer" target="_blank">{{
                   panelConfig.inspiration.label
-                }}</a
-                >.
+                }}</a>.
               </div>
               <div class="small text-muted">
                 <span v-if="dashboard?.lastActivityEpochMillis">

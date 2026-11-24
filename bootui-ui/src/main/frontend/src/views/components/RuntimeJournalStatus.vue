@@ -228,8 +228,8 @@ onMounted(load)
         <dd class="col-sm-9">
           <template v-if="status.droppedEvents === 0">None: every event was recorded.</template>
           <template v-else>
-            <span class="text-warning-emphasis">{{ formatNumber(status.droppedEvents) }}</span
-            >, because the queue was full:
+            <span class="text-warning-emphasis">{{ formatNumber(status.droppedEvents) }}</span>, because the queue was
+            full:
             <ul class="list-inline mb-0 d-inline">
               <li v-for="[source, count] in dropped" :key="source" class="list-inline-item">
                 <code>{{ source }}</code> {{ formatNumber(count) }}
@@ -246,9 +246,8 @@ onMounted(load)
           </span>
           <ul v-else class="list-unstyled mb-0 runtime-journal-runs">
             <li v-for="run in previousRuns" :key="run.runId">
-              Run {{ run.ordinal }} <code>{{ run.runId }}</code
-              >, {{ formatClockTime(run.startedAt) }} to {{ formatClockTime(run.endedAt) }}:
-              {{ counted(run.requests, 'request')
+              Run {{ run.ordinal }} <code>{{ run.runId }}</code>, {{ formatClockTime(run.startedAt) }} to
+              {{ formatClockTime(run.endedAt) }}: {{ counted(run.requests, 'request')
               }}<span v-if="run.failedRequests > 0" class="text-warning-emphasis"
                 >, {{ formatNumber(run.failedRequests) }} failed</span
               >, {{ counted(run.events, 'event') }}

@@ -195,8 +195,8 @@ const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchStatu
               </h3>
               <p class="text-muted small mb-0">
                 Toggling here overrides the
-                <code>bootui.mcp.enabled</code> property at runtime (configured: <code>{{ status.configuredMode }}</code
-                ><span v-if="status.overridden"> · currently overridden</span>).
+                <code>bootui.mcp.enabled</code> property at runtime (configured:
+                <code>{{ status.configuredMode }}</code><span v-if="status.overridden"> · currently overridden</span>).
               </p>
             </div>
           </div>
@@ -379,9 +379,8 @@ const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchStatu
                 clients.</template
               >
               <template v-else
-                >Paste this into <code>{{ client.file }}</code
-                >, or run <code>bootui init --{{ client.id }}</code> to merge it without overwriting other MCP
-                servers.</template
+                >Paste this into <code>{{ client.file }}</code>, or run <code>bootui init --{{ client.id }}</code> to
+                merge it without overwriting other MCP servers.</template
               >
             </p>
             <pre

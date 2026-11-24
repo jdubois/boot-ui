@@ -582,8 +582,7 @@ function clearForm() {
           </div>
           <div :id="routePickerHintId" class="form-text">
             Prefills method, path<template v-if="routeBasePath">
-              (prefixed with base path <code>{{ routeBasePath }}</code
-              >)</template
+              (prefixed with base path <code>{{ routeBasePath }}</code>)</template
             >, and <code>Accept</code> / <code>Content-Type</code> headers from Mappings without sending a request.
           </div>
         </div>
@@ -719,8 +718,7 @@ function clearForm() {
           <h4 class="fs-6">Headers</h4>
           <ul class="list-unstyled small mb-0">
             <li v-for="(value, name) in response.headers" :key="name">
-              <code>{{ name }}</code
-              >: {{ value }}
+              <code>{{ name }}</code>: {{ value }}
             </li>
           </ul>
         </div>

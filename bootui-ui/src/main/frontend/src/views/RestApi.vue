@@ -364,8 +364,7 @@ watch(contractFilter, () => contract.scheduleReload())
             />
             <UnavailableState v-if="contractFilteredEmpty" icon="bi-search">
               <span
-                >No declared handler matches <strong>{{ contractFilter.trim() }}</strong
-                >.</span
+                >No declared handler matches <strong>{{ contractFilter.trim() }}</strong>.</span
               >
               <button class="btn btn-sm btn-outline-secondary ms-2" type="button" @click="clearContractFilter">
                 Clear filter

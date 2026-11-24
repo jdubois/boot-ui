@@ -692,8 +692,7 @@ function securitySignalUrl(signal) {
 
     <div v-if="lastFetched" class="small text-muted mb-3">
       Cached snapshot:
-      <time :datetime="new Date(lastFetched).toISOString()">{{ formatDate(lastFetched) }}</time
-      >.
+      <time :datetime="new Date(lastFetched).toISOString()">{{ formatDate(lastFetched) }}</time>.
       <span v-if="error">The previous snapshot is still shown; the refresh did not succeed.</span>
     </div>
 
@@ -780,8 +779,7 @@ function securitySignalUrl(signal) {
       <div v-if="selectedRemote === 'upstream' || (!unavailable && forkData)" class="alert alert-info">
         <p v-if="unavailable" class="mb-2">The selected configured upstream is unavailable.</p>
         <p v-else-if="forkData" class="mb-2">
-          Security cards show fork data for <strong>{{ repository?.fullName }}</strong
-          >, not its upstream.
+          Security cards show fork data for <strong>{{ repository?.fullName }}</strong>, not its upstream.
         </p>
         <p v-else class="mb-2">Showing the explicitly selected configured upstream remote.</p>
         <template v-if="selectedRemote === 'origin'">

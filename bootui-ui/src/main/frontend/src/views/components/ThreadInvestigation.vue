@@ -972,8 +972,8 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p class="small">
-        {{ detail.thread.state }} · {{ detail.activity }} · family <code>{{ detail.family }}</code
-        >. {{ detail.stackTruncated ? 'Stack depth limited.' : '' }}
+        {{ detail.thread.state }} · {{ detail.activity }} · family <code>{{ detail.family }}</code>.
+        {{ detail.stackTruncated ? 'Stack depth limited.' : '' }}
         {{ detail.ownershipComplete ? '' : 'Owned-lock inventory is partial.' }}
       </p>
       <p v-if="detail.thread.lockName" class="small">

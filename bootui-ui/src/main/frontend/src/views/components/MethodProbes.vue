@@ -432,8 +432,7 @@ defineExpose({load})
                       <template v-if="showsShapes(probe) && hit.returned">
                         <code class="ms-1 code-paths-probe-shape" :title="shapeTitle(hit.returned)">{{
                           shapeLabel(hit.returned)
-                        }}</code
-                        ><span v-if="shapeNote(hit.returned)" class="visually-hidden">
+                        }}</code><span v-if="shapeNote(hit.returned)" class="visually-hidden">
                           ({{ shapeNote(hit.returned) }})</span
                         >
                       </template>
@@ -442,8 +441,9 @@ defineExpose({load})
                       <span v-if="!hit.arguments?.length" class="text-muted">none</span>
                       <template v-for="(shape, position) in hit.arguments ?? []" :key="position">
                         <span v-if="position" class="text-muted">, </span>
-                        <code class="code-paths-probe-shape" :title="shapeTitle(shape)">{{ shapeLabel(shape) }}</code
-                        ><span v-if="shapeNote(shape)" class="visually-hidden"> ({{ shapeNote(shape) }})</span>
+                        <code class="code-paths-probe-shape" :title="shapeTitle(shape)">{{
+                          shapeLabel(shape)
+                        }}</code><span v-if="shapeNote(shape)" class="visually-hidden"> ({{ shapeNote(shape) }})</span>
                       </template>
                       <span v-if="hit.argumentsNotRecorded" class="text-muted">{{
                         `, +${formatNumber(hit.argumentsNotRecorded)} more`

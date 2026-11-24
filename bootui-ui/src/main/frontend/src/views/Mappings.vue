@@ -125,8 +125,7 @@ watch(filter, scheduleMappingsReload)
         />
         <UnavailableState v-else-if="panelState.filteredEmpty.value" icon="bi-search">
           <span
-            >No mappings match <strong>{{ filter.trim() }}</strong
-            >.</span
+            >No mappings match <strong>{{ filter.trim() }}</strong>.</span
           >
           <button class="btn btn-sm btn-outline-secondary ms-2" type="button" @click="clearFilter">Clear filter</button>
         </UnavailableState>

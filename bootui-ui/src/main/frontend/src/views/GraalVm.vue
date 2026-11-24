@@ -593,15 +593,13 @@ onBeforeUnmount(stopProgressPolling)
                     </div>
                     <p class="small text-muted mb-2">
                       A heuristic scaffold seeded from the last scan. Review and complete it with the GraalVM tracing
-                      agent, then place it under <code>{{ report.metadataDirectory }}</code
-                      >.
+                      agent, then place it under <code>{{ report.metadataDirectory }}</code>.
                     </p>
                     <div v-if="installResult" :class="installResultClass" class="alert py-2 small mb-2">
                       {{ installResult.message }}
                     </div>
                     <div v-else-if="report.installable && report.installPath" class="small text-muted mb-2">
-                      Detected source tree: install writes to <code>{{ report.installPath }}</code
-                      >.
+                      Detected source tree: install writes to <code>{{ report.installPath }}</code>.
                     </div>
                     <div v-else-if="!report.installable && report.installPath" class="small text-muted mb-2">
                       Direct install unavailable: {{ report.installPath }}
@@ -671,8 +669,7 @@ onBeforeUnmount(stopProgressPolling)
                       v-else-if="report.dockerfile && report.dockerfile.installable && report.dockerfile.installPath"
                       class="small text-muted mb-2"
                     >
-                      Detected source tree: write saves to <code>{{ report.dockerfile.installPath }}</code
-                      >.
+                      Detected source tree: write saves to <code>{{ report.dockerfile.installPath }}</code>.
                     </div>
                     <div
                       v-else-if="report.dockerfile && !report.dockerfile.installable && report.dockerfile.installPath"
