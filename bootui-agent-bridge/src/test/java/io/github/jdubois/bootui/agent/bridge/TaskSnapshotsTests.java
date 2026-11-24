@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.agent.bridge;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
@@ -222,6 +223,8 @@ class TaskSnapshotsTests {
         assertThat(snapshots.size()).isEqualTo(1);
         assertThat(snapshots.entries.get()).isEqualTo(1);
         assertThat(snapshots.neverApplied()).isEqualTo(reclaimed);
+        // The admitted task must stay alive while the status reads trigger collection of the old tasks.
+        Reference.reachabilityFence(task);
     }
 
     @Test
@@ -244,12 +247,16 @@ class TaskSnapshotsTests {
 
     private static List<WeakReference<Object>> fillWithGarbage(TaskSnapshots snapshots, int count) {
         List<WeakReference<Object>> references = new ArrayList<>();
+        List<Object> liveTasks = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             Object task = new Object();
+            liveTasks.add(task);
             references.add(new WeakReference<>(task));
             assertThat(snapshots.put(task, GENERATION, owner("g" + i), 0L)).isEqualTo(TaskSnapshots.OWNED);
         }
         assertThat(snapshots.put(new Object(), GENERATION, owner("g"), 0L)).isEqualTo(TaskSnapshots.REFUSED);
+        // Fill and check the cap before permitting GC to reclaim the tasks that the caller will expunge.
+        Reference.reachabilityFence(liveTasks);
         return references;
     }
 
