@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.architecture.ProxyReceiverEvidenceTests;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -346,19 +348,24 @@ class ArchUnitBytecodeImportsTests {
             output.closeEntry();
         }
         URI uri = URI.create("jar:" + archive.toUri() + "!/" + entry);
-        URI normalUri = new ClassFileImporter()
-                .importLocations(List.of(Location.of(uri)))
-                .get(Fixture.class)
-                .getSource()
-                .orElseThrow()
-                .getUri();
-        var imported = ArchUnitBytecodeImports.importLocations(
-                List.of(Location.of(uri)), ArchUnitBytecodeImports.Hook::new, LIMITS);
-        JavaClass type = imported.classes().get(Fixture.class);
+        var connection = (JarURLConnection) uri.toURL().openConnection();
+        // Own ArchUnit's cached JAR handle so Windows can delete the temporary archive.
+        try (JarFile cachedJar = connection.getJarFile()) {
+            URI normalUri = new ClassFileImporter()
+                    .importLocations(List.of(Location.of(uri)))
+                    .get(Fixture.class)
+                    .getSource()
+                    .orElseThrow()
+                    .getUri();
+            var imported = ArchUnitBytecodeImports.importLocations(
+                    List.of(Location.of(uri)), ArchUnitBytecodeImports.Hook::new, LIMITS);
+            JavaClass type = imported.classes().get(Fixture.class);
 
-        assertThat(type.getSource().orElseThrow().getUri()).isEqualTo(normalUri);
-        assertThat(imported.bytecode().bytesOf(type))
-                .hasValueSatisfying(value -> assertThat(value).isEqualTo(expected));
+            assertThat(type.getSource().orElseThrow().getUri()).isEqualTo(normalUri);
+            assertThat(imported.bytecode().bytesOf(type))
+                    .hasValueSatisfying(value -> assertThat(value).isEqualTo(expected));
+        }
+        Files.delete(archive);
     }
 
     private static ArchUnitBytecodeImports.Root root(URI uri, byte[] bytes) {
