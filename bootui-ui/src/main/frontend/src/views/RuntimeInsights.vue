@@ -704,8 +704,7 @@ provide(
                             <span
                               class="insight-subject-method"
                               :class="`insight-subject-method--${splitSubjectBadge(preview).method.toLowerCase()}`"
-                              >{{ splitSubjectBadge(preview).method }}</span
-                            >{{ ' ' }}
+                              >{{ splitSubjectBadge(preview).method }}</span>{{ ' ' }}
                           </template>
                           <code>{{ splitSubjectBadge(preview).rest }}</code>
                         </span>

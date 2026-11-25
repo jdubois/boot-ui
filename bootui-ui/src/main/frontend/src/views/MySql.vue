@@ -459,8 +459,7 @@ onMounted(async () => {
               <summary>Changes between compatible observations ({{ source.changes.length }})</summary>
               <ul class="mt-2 mb-0">
                 <li v-for="(change, index) in source.changes" :key="index">
-                  <span class="font-monospace">{{ change.metric }}</span
-                  >:
+                  <span class="font-monospace">{{ change.metric }}</span>:
                   <span class="font-monospace">{{ formatCounter(change.delta) }} {{ change.unit }}</span>
                   · {{ scopes[change.scope] || change.scope }} · {{ formatClockTime(change.previousReadAt) }}–{{
                     formatClockTime(change.readAt)

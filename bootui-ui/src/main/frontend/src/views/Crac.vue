@@ -499,8 +499,7 @@ onMounted(loadReport)
                     v-else-if="dockerfile && dockerfile.installable && dockerfile.installPath"
                     class="small text-muted mb-2"
                   >
-                    Detected source tree: write saves to <code>{{ dockerfile.installPath }}</code
-                    >.
+                    Detected source tree: write saves to <code>{{ dockerfile.installPath }}</code>.
                   </div>
                   <div
                     v-else-if="dockerfile && !dockerfile.installable && dockerfile.installPath"
@@ -565,8 +564,7 @@ onMounted(loadReport)
                     v-else-if="entrypoint && entrypoint.installable && entrypoint.installPath"
                     class="small text-muted mb-2"
                   >
-                    Detected source tree: write saves to <code>{{ entrypoint.installPath }}</code
-                    >.
+                    Detected source tree: write saves to <code>{{ entrypoint.installPath }}</code>.
                   </div>
                   <div
                     v-else-if="entrypoint && !entrypoint.installable && entrypoint.installPath"

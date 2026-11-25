@@ -843,8 +843,7 @@ function clearTrace() {
 
           <div v-if="linkedEntryIds" class="alert alert-info small py-2 d-flex align-items-center gap-2">
             <span class="flex-grow-1">
-              Showing only the retained executions linked from <code>{{ linkedEntryLabel }}</code
-              >.
+              Showing only the retained executions linked from <code>{{ linkedEntryLabel }}</code>.
               <template v-if="linkedEntryTruncated">
                 This group ran more times than BootUI keeps deep links for, so these are the first linked executions
                 rather than all of them.

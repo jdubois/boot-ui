@@ -119,8 +119,7 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
                 <span class="visually-hidden">{{ row.changeLabel }}:{{ ' ' }}</span>
               </span>
               <span class="insight-comparison-sentence">
-                <code :title="row.key">{{ row.name }}</code
-                >{{ ' '
+                <code :title="row.key">{{ row.name }}</code>{{ ' '
                 }}<span
                   class="small insight-comparison-code-status"
                   :class="row.ran ? 'text-body' : 'insight-comparison-not-run'"
