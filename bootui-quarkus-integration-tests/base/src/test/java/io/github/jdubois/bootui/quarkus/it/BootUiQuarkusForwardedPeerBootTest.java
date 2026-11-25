@@ -25,6 +25,10 @@ class BootUiQuarkusForwardedPeerBootTest {
         @Override
         public Map<String, String> getConfigOverrides() {
             return Map.of(
+                    "quarkus.http.host",
+                    "0.0.0.0",
+                    "quarkus.http.test-host",
+                    "127.0.0.1",
                     "quarkus.http.proxy.proxy-address-forwarding",
                     "true",
                     "quarkus.http.proxy.allow-forwarded",

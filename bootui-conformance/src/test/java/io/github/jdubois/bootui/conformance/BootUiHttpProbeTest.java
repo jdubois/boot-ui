@@ -8,12 +8,39 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class BootUiHttpProbeTest {
+
+    @Test
+    void rawProbeRoutesSourceBoundRequestsThroughThatInterfaceAndPreservesHost() throws Exception {
+        InetAddress source = InetAddress.getByName("127.0.0.1");
+        HttpServer server = HttpServer.create(new InetSocketAddress(source, 0), 0);
+        server.createContext("/probe", exchange -> {
+            byte[] body = (exchange.getRemoteAddress().getAddress().getHostAddress() + " "
+                            + exchange.getRequestHeaders().getFirst("Host"))
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            int port = server.getAddress().getPort();
+            var response =
+                    new BootUiRawHttpProbe("http://127.0.0.2:" + port).request("GET", "/probe", Map.of(), null, source);
+
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.body()).isEqualTo("127.0.0.1 127.0.0.2:" + port);
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void waitsForTheBlankLineThatEndsTheEventCarryingTheNeedle() {

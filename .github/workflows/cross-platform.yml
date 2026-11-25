@@ -58,30 +58,6 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Enable source-bound loopback security tests on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        # Windows' strong-host model rejects a non-loopback source connecting to
-        # 127.0.0.1. Adjust only this disposable runner's loopback interface; keep
-        # the test servers loopback-only and preserve the real-peer assertions.
-        run: |
-          Set-NetIPInterface -InterfaceIndex 1 -AddressFamily IPv4 -PolicyStore ActiveStore -WeakHostSend Enabled -WeakHostReceive Enabled
-          $source = Get-NetIPAddress -AddressFamily IPv4 |
-            Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
-            Select-Object -First 1 -ExpandProperty IPAddress
-          if (-not $source) { throw 'A non-loopback IPv4 source is required for the security tests.' }
-          $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-          $client = [Net.Sockets.TcpClient]::new([Net.IPEndPoint]::new([Net.IPAddress]::Parse($source), 0))
-          try {
-            $listener.Start()
-            $connection = $client.ConnectAsync([Net.IPAddress]::Loopback, $listener.LocalEndpoint.Port)
-            if (-not $connection.Wait(10000)) { throw 'Source-bound loopback connection timed out.' }
-            Write-Output 'Source-bound loopback probe succeeded.'
-          } finally {
-            $client.Dispose()
-            $listener.Stop()
-          }
-
       - name: Build all modules
         # clean install builds every module, including the bootui-ui frontend
         # (Node/npm download + npm ci with optional deps + Vite build) and runs the

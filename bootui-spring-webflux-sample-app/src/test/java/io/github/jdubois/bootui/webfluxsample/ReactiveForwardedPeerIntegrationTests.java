@@ -10,7 +10,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "spring.profiles.active=dev",
-            "server.address=127.0.0.1",
+            "server.address=0.0.0.0",
             "server.forward-headers-strategy=NATIVE",
             "bootui.show-banner=false",
             "bootui.overrides-file=target/forwarded-peer/application-bootui.properties"
@@ -31,7 +31,7 @@ class ReactiveForwardedPeerIntegrationTests {
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "spring.profiles.active=dev",
-            "server.address=127.0.0.1",
+            "server.address=0.0.0.0",
             "server.forward-headers-strategy=FRAMEWORK",
             "bootui.show-banner=false",
             "bootui.overrides-file=target/forwarded-peer/application-bootui.properties"

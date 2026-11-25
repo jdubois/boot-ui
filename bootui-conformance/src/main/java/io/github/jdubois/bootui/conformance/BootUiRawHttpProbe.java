@@ -46,7 +46,12 @@ public final class BootUiRawHttpProbe {
             if (source != null) {
                 socket.bind(new InetSocketAddress(source, 0));
             }
-            socket.connect(new InetSocketAddress(base.getHost(), base.getPort() < 0 ? 80 : base.getPort()), 10_000);
+            InetAddress destination = InetAddress.getByName(base.getHost());
+            if (source != null && destination.isLoopbackAddress()) {
+                // Windows rejects a non-loopback source routed into a loopback destination.
+                destination = source;
+            }
+            socket.connect(new InetSocketAddress(destination, base.getPort() < 0 ? 80 : base.getPort()), 10_000);
             socket.setSoTimeout(10_000);
             socket.getOutputStream().write(head.toString().getBytes(StandardCharsets.ISO_8859_1));
             socket.getOutputStream().write(content);
