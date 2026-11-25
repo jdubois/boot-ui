@@ -33,8 +33,9 @@ class AgentLauncherIT {
                     "io/github/jdubois/bootui/agent/AgentClassLoader.class");
             assertThat(rootClasses)
                     .as("only the launcher, its class loader, and the bridge sit at the root")
-                    .allMatch(name ->
-                            name.startsWith("io/github/jdubois/bootui/agent/bridge/") || launcher.contains(name))
+                    .allMatch(name -> name.startsWith("io/github/jdubois/bootui/agent/bridge/")
+                            || name.startsWith("io/github/jdubois/bootui/agent/AgentClassLoader$")
+                            || launcher.contains(name))
                     .containsAll(launcher)
                     .contains(
                             "io/github/jdubois/bootui/agent/bridge/AgentBridge.class",
@@ -42,7 +43,8 @@ class AgentLauncherIT {
             assertThat(jar.getEntry("inst/io/github/jdubois/bootui/agent/BootUiAgent.classdata"))
                     .isNotNull();
             assertThat(jar.stream().map(JarEntry::getName))
-                    .anyMatch(name -> name.startsWith("inst/io/github/jdubois/bootui/agent/shaded/bytebuddy/"))
+                    .anyMatch(name -> name.equals("inst/byte-buddy/index"))
+                    .noneMatch(name -> name.startsWith("inst/io/github/jdubois/bootui/agent/shaded/bytebuddy/"))
                     .noneMatch(name -> name.startsWith("net/bytebuddy/") || name.startsWith("inst/net/bytebuddy/"))
                     .noneMatch(name -> name.contains("ithook"))
                     .noneMatch(name -> name.contains("META-INF/services/"));

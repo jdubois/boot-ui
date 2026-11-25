@@ -128,43 +128,43 @@ class CentralBundleTests(unittest.TestCase):
         with jar.open("r+b") as output:
             output.truncate(size)
 
-    def test_signed_payload_must_be_strictly_below_25_decimal_megabytes(self):
+    def test_signed_payload_must_be_strictly_below_20_decimal_megabytes(self):
         self.sign()
-        self.resize_payload(24_999_999)
+        self.resize_payload(19_999_999)
         self.assertEqual(self.errors(), [])
-        for size in (25_000_000, 25_000_001):
+        for size in (20_000_000, 20_000_001):
             with self.subTest(size=size):
                 self.resize_payload(size)
-                self.assert_error("must be below 25,000,000 bytes (25 MB)")
+                self.assert_error("must be below 20,000,000 bytes (20 MB)")
         with patch("sys.stderr"), patch("builtins.print"):
             self.assertEqual(bundle.main(["check-central-bundle.py", str(self.root), VERSION]), 1)
 
     def test_unsigned_candidates_reserve_space_for_every_signature(self):
         unsigned = [path for path in self.files() if path.suffix in (".jar", ".pom")]
         reserve = len(unsigned) * 4096
-        self.resize_payload(25_000_000 - reserve - 1)
+        self.resize_payload(20_000_000 - reserve - 1)
         self.assertEqual(self.errors(), [])
-        self.resize_payload(25_000_000 - reserve)
-        self.assert_error(f"plus {reserve:,} bytes reserved for missing signatures; must be below 25,000,000 bytes")
+        self.resize_payload(20_000_000 - reserve)
+        self.assert_error(f"plus {reserve:,} bytes reserved for missing signatures; must be below 20,000,000 bytes")
         # A present signature replaces its reserve, not adds to it, including in partially signed candidates.
         unsigned[0].with_name(unsigned[0].name + ".asc").write_text("signature", encoding="utf-8")
         self.assertEqual(self.errors(), [])
 
     def test_pull_request_ci_can_explicitly_skip_only_the_size_gate(self):
         self.sign()
-        self.resize_payload(25_000_001)
+        self.resize_payload(20_000_001)
         with patch.dict("os.environ", {"BOOTUI_SKIP_RELEASE_SIZE_CHECK": "true"}):
             self.assertEqual(self.errors(), [])
-        self.assert_error("must be below 25,000,000 bytes (25 MB)")
+        self.assert_error("must be below 20,000,000 bytes (20 MB)")
 
     def test_checksums_and_signatures_count_toward_the_payload_budget(self):
         self.sign()
-        self.resize_payload(24_999_999)
+        self.resize_payload(19_999_999)
         for suffix in (".sha1", ".asc"):
             path = next(path for path in self.files() if path.name.endswith(suffix))
             original = path.read_bytes()
             path.write_bytes(original + b"x")
-            self.assert_error("must be below 25,000,000 bytes")
+            self.assert_error("must be below 20,000,000 bytes")
             path.write_bytes(original)
         self.assertEqual(self.errors(), [])
 

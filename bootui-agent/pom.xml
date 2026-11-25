@@ -17,7 +17,8 @@
 
     <!--
         The published jar uses OpenTelemetry's layout (PLAN-v2 D33): the launcher, its isolated class loader, and the
-        bridge at the root; the implementation and Byte Buddy, relocated, as inst/**.classdata. The shade plugin builds
+        bridge at the root; the implementation as inst/**.classdata and relocated Byte Buddy in bounded private shards.
+        The shade plugin builds
         target/bootui-agent-shaded.jar, then the antrun plugin rebuilds the module's main jar in that layout, replacing the
         jar plugin's output, which is what gets installed and published. Both dependencies are optional and shaded in, so
         the published POM gives a consumer no dependency.
@@ -151,6 +152,19 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <configuration>
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                            <include>src/build/java/**/*.java</include>
+                        </includes>
+                    </java>
+                </configuration>
+            </plugin>
             <!--
               Published: Maven Central receives a flattened, parentless POM (configured in the root POM). The jar shades
               the bridge and Byte Buddy, so the published POM declares no dependencies: tools such as dependency:get
@@ -307,6 +321,13 @@
                                         <exclude name="inst/**"/>
                                     </patternset>
                                 </unzip>
+                                <property name="shards" value="${project.build.directory}/agent-shards"/>
+                                <delete dir="${shards}"/>
+                                <java sourcefile="${project.basedir}/src/build/java/PackAgentShards.java"
+                                      fork="true" failonerror="true">
+                                    <arg value="${layout}"/>
+                                    <arg value="${shards}"/>
+                                </java>
                                 <delete file="${bootui.agent.jar}"/>
                                 <jar destfile="${bootui.agent.jar}" level="9">
                                     <manifest>
@@ -327,6 +348,7 @@
                                         <include name="META-INF/LICENSE"/>
                                         <include name="META-INF/NOTICE"/>
                                     </fileset>
+                                    <zipfileset dir="${shards}" prefix="inst/byte-buddy"/>
                                     <mappedresources>
                                         <fileset dir="${layout}">
                                             <include name="**/*.class"/>
@@ -334,12 +356,14 @@
                                             <exclude name="io/github/jdubois/bootui/agent/AgentLauncher*.class"/>
                                             <exclude name="io/github/jdubois/bootui/agent/AgentBootstrap*.class"/>
                                             <exclude name="io/github/jdubois/bootui/agent/AgentClassLoader*.class"/>
+                                            <exclude name="io/github/jdubois/bootui/agent/shaded/bytebuddy/**"/>
                                         </fileset>
                                         <globmapper from="*.class" to="inst/*.classdata"/>
                                     </mappedresources>
                                     <mappedresources>
                                         <fileset dir="${layout}">
                                             <exclude name="**/*.class"/>
+                                            <exclude name="io/github/jdubois/bootui/agent/shaded/bytebuddy/**"/>
                                             <exclude name="META-INF/LICENSE"/>
                                             <exclude name="META-INF/NOTICE"/>
                                         </fileset>
