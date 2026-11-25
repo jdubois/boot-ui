@@ -23,6 +23,47 @@ class BootUiRuntimeHintsTests {
     }
 
     @Test
+    void registersTheHibernateSessionListenerConstructorSelectedByClassName() throws Exception {
+        Class<?> listener = Class.forName("io.github.jdubois.bootui.autoconfigure.orm.BootUiHibernateSessionListener");
+        assertThat(RuntimeHintsPredicates.reflection().onConstructorInvocation(listener.getConstructor()))
+                .accepts(hints);
+        assertThat(hints.reflection().getTypeHint(listener).getMemberCategories())
+                .containsExactly(MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"org.hibernate", "io.github.jdubois.bootui.autoconfigure.orm.BootUiHibernateSessionListener"})
+    void hibernateListenerHintRemainsOptionalWithoutHibernateOrTheListener(String absentPackage) throws Exception {
+        RuntimeHints absent = new RuntimeHints();
+        try (FilteredClassLoader loader = new FilteredClassLoader(absentPackage)) {
+            new BootUiRuntimeHints().registerHints(absent, loader);
+        }
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(TypeReference.of(
+                                "io.github.jdubois.bootui.autoconfigure.orm.BootUiHibernateSessionListener")))
+                .rejects(absent);
+    }
+
+    @Test
+    void doesNotAttemptToLoadTheListenerWhenHibernateIsAbsent() throws Exception {
+        RuntimeHints absent = new RuntimeHints();
+        java.util.concurrent.atomic.AtomicBoolean listenerRequested = new java.util.concurrent.atomic.AtomicBoolean();
+        try (FilteredClassLoader loader = new FilteredClassLoader("org.hibernate") {
+            @Override
+            public Class<?> loadClass(String name) throws ClassNotFoundException {
+                if (name.equals("io.github.jdubois.bootui.autoconfigure.orm.BootUiHibernateSessionListener")) {
+                    listenerRequested.set(true);
+                }
+                return super.loadClass(name);
+            }
+        }) {
+            new BootUiRuntimeHints().registerHints(absent, loader);
+        }
+        assertThat(listenerRequested).isFalse();
+    }
+
+    @Test
     void registersTheOptionalNativeMetricsFilterIdentityWithoutInvokingItsPolicy() {
         assertThat(RuntimeHintsPredicates.reflection()
                         .onType(TypeReference.of("io.micrometer.core.instrument.binder.logging.MetricsTurboFilter")))
