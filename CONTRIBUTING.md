@@ -839,7 +839,7 @@ any POM that is not flattened. Every signature must verify and be by the pinned
 release key before the upload; the workflow also checks the build's signatures before
 the tag.
 
-The bundle check's temporary budget requires the published files to total **less than 25 MB (25,000,000 bytes)**,
+The bundle check's temporary budget requires the published files to total **less than 20 MB (20,000,000 bytes)**,
 including checksums and signatures, regardless of the upload ZIP's compressed size. Unsigned candidates reserve
 4 KiB per missing signature before tagging; the signed bundle is checked against its actual size before upload.
 This is a per-release budget, not a guarantee of monthly capacity:
@@ -849,6 +849,16 @@ thresholds and usage in the [Usage Center](https://central.sonatype.com/publishi
 including other projects' usage and urgent fixes.
 The CLI's picocli command-line classes, tool manifest, and offline docs ship only in its runnable `all` JAR, not in
 the thin client or sources JAR.
+
+The agent packs only its relocated Byte Buddy classes into private 128 KiB-target compression shards. The JDK-only
+build helper under `bootui-agent/src/build/java/` writes a sorted, versioned offset index; the isolated loader reads it
+only when Byte Buddy is needed and retains at most four bounded shards. BootUI's own implementation and advice stay
+flat under `inst/`, and no temporary files or extra runtime dependencies are introduced. `AgentShardsIT` compares every
+packed class/resource with the shaded input, checks bounded warm-up inflation and corrupt-payload containment, and
+compares both layouts in fresh JVMs with 64 MiB heaps as well as a same-JVM define-only comparison. These timings are
+diagnostic measurements, not enforced performance budgets. The existing packaged-agent integration tests cover actual
+sensors, coexistence, and reloads.
+Repacking always precedes signing.
 
 Normal version preparation stages the exact unsigned candidate bundle and runs the consumer smoke tests before the
 release commit and tag. A tag-entry or `skip_build` run that did not pass that smoke stages and tests from the immutable

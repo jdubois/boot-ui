@@ -37,6 +37,7 @@ public final class ChildMain {
             case "status" -> status();
             case "probe" -> probe();
             case "claim-only" -> claimOnly();
+            case "shard-claim" -> shardClaim();
             case "self-test" -> selfTest(args[1]);
             case "mockito" -> mockito();
             case "behaviors" -> Behaviors.main(new String[] {"agent"});
@@ -117,6 +118,32 @@ public final class ChildMain {
                 (Map<String, Object>) bridge.getMethod("status").invoke(null);
         System.out.println("EXECUTORS=" + status.get("executors"));
         // The bridge holds the claim's capture and reopen weakly: they must outlive every task submitted above.
+        java.lang.ref.Reference.reachabilityFence(capture);
+        java.lang.ref.Reference.reachabilityFence(reopen);
+    }
+
+    @SuppressWarnings("unchecked")
+    static void shardClaim() throws Exception {
+        Class<?> bridge = bridge();
+        Supplier<Object> capture = () -> null;
+        Function<Object, AutoCloseable> reopen = snapshot -> () -> {};
+        bridge.getMethod("claim", Map.class, Supplier.class, Function.class)
+                .invoke(
+                        null,
+                        Map.of(
+                                "application", "shards",
+                                "packages", List.of("bootuiagentit.probed"),
+                                "sensors", List.of("inventory")),
+                        capture,
+                        reopen);
+        Map<String, Object> status =
+                (Map<String, Object>) bridge.getMethod("status").invoke(null);
+        Map<String, Object> agent = (Map<String, Object>) status.get("agent");
+        if (!((List<?>) agent.get("sensors")).isEmpty()) {
+            System.out.println("SENSOR_inventory=" + SensorWait.awaitSettled("inventory"));
+        }
+        System.out.println("STATUS=" + bridge.getMethod("status").invoke(null));
+        System.out.println("APPLICATION_ALIVE=" + Greeter.greet("shards"));
         java.lang.ref.Reference.reachabilityFence(capture);
         java.lang.ref.Reference.reachabilityFence(reopen);
     }

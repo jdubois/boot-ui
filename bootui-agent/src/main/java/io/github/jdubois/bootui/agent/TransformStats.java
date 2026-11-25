@@ -84,21 +84,22 @@ final class TransformStats {
      * it defines; first used from inside a transformer, as for a JDK class another agent's transformer was the first to
      * load, a thread holding such a class's loading lock can wait for a JDK class that a second thread, running this
      * transformer on that very class, is loading and waits on the same lock: a deadlock beside the OpenTelemetry agent.
-     * Every Byte Buddy class is defined, and a throwaway transformer applies advice to a generated class, so none of
-     * that is left for the first real class. Never fails an install.
+     * Every available Byte Buddy class is defined, and a throwaway transformer applies advice to a generated class, so
+     * none of that is left for the first real class. Invalid packed dependency bytes fail before installing a transformer;
+     * the best-effort advice dry run never fails an install.
      */
     static synchronized void warmTransformation() {
         if (transformationWarmed) {
             return;
         }
+        if (TransformStats.class.getClassLoader() instanceof AgentClassLoader) {
+            // Every Byte Buddy class, not only the ones the dry run below reaches: advice binding, the type pool's
+            // lazy types, and a visitor's own helpers differ by what a sensor transforms.
+            ((AgentClassLoader) TransformStats.class.getClassLoader())
+                    .define("io.github.jdubois.bootui.agent.shaded.bytebuddy.");
+        }
         transformationWarmed = true;
         try {
-            if (TransformStats.class.getClassLoader() instanceof AgentClassLoader) {
-                // Every Byte Buddy class, not only the ones the dry run below reaches: advice binding, the type pool's
-                // lazy types, and a visitor's own helpers differ by what a sensor transforms.
-                ((AgentClassLoader) TransformStats.class.getClassLoader())
-                        .define("io.github.jdubois.bootui.agent.shaded.bytebuddy.");
-            }
             byte[] bytes = new ByteBuddy()
                     .subclass(Object.class)
                     .name("bootui.warm.Up")
