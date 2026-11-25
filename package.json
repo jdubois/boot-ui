@@ -10,12 +10,12 @@
     "test:analytics": "node --test docs/.vuepress/analytics.test.mjs"
   },
   "devDependencies": {
-    "@vuepress/bundler-vite": "2.0.0-rc.31",
-    "@vuepress/plugin-slimsearch": "^2.0.0-rc.137",
-    "@vuepress/theme-default": "2.0.0-rc.137",
+    "@vuepress/bundler-vite": "2.0.0-rc.32",
+    "@vuepress/plugin-slimsearch": "^2.0.0-rc.138",
+    "@vuepress/theme-default": "2.0.0-rc.138",
     "sass-embedded": "1.108.2",
     "serve": "14.2.8",
     "vue": "3.5.45",
-    "vuepress": "2.0.0-rc.31"
+    "vuepress": "2.0.0-rc.32"
   }
 }
