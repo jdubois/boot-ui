@@ -106,6 +106,18 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection()
                 .registerTypeIfPresent(classLoader, "io.micrometer.core.instrument.binder.logging.MetricsTurboFilter");
 
+        // Runtime journal ORM capture: Hibernate resolves the listener from the class-name property
+        // contributed by BootUiActuatorDefaultsEnvironmentPostProcessor and invokes its public no-arg
+        // constructor. Keep the optional API check before resolving the listener: it implements
+        // SessionEventListener and must not be loaded in applications without Hibernate.
+        if (ClassUtils.isPresent("org.hibernate.SessionEventListener", classLoader)) {
+            hints.reflection()
+                    .registerTypeIfPresent(
+                            classLoader,
+                            "io.github.jdubois.bootui.autoconfigure.orm.BootUiHibernateSessionListener",
+                            MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
+        }
+
         // Heap Dump panel: HeapDumpService reflectively calls HotSpotDiagnosticMXBean#dumpHeap.
         hints.reflection()
                 .registerTypeIfPresent(classLoader, HOTSPOT_DIAGNOSTIC_MXBEAN, MemberCategory.INVOKE_PUBLIC_METHODS);
