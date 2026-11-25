@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.sample.config;
 
 import io.github.jdubois.bootui.sample.catalog.ProductSummary;
 import io.github.jdubois.bootui.sample.catalog.SampleCatalog;
+import java.io.Serializable;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -9,6 +10,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.hibernate.cache.internal.BasicCacheKeyImplementation;
+import org.hibernate.cache.spi.entry.StandardCacheEntryImpl;
+import org.hibernate.cache.spi.support.AbstractReadWriteAccess;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -30,6 +34,8 @@ import org.springframework.context.annotation.ImportRuntimeHints;
  *   <li><b>JDK serialization</b> — the default Redis cache serializer serializes cached values with
  *       {@link java.io.ObjectOutputStream}. The cached {@code List<ProductSummary>} graph (the
  *       record, its element wrappers and the immutable list type) is registered for serialization.
+ *       Caffeine's store-by-value JCache also serializes the {@code Product} READ_WRITE cache's
+ *       simple identifier key, disassembled entry, cached item and soft lock graph.
  *   <li><b>Hibernate persister reflection</b> — the {@code SampleBillingDocument}/{@code
  *       SampleReceipt} {@code @Inheritance(TABLE_PER_CLASS)} hierarchy is loaded through Hibernate's
  *       {@code UnionSubclassEntityPersister}, which Hibernate instantiates reflectively via its
@@ -86,6 +92,15 @@ class NativeHintsConfiguration {
             // Serial proxy used by List.of()/Stream#toList() immutable collections.
             serializable.add(serializationProxyClass());
             serializable.addAll(immutableCollections);
+            // Caffeine's store-by-value copier serializes Product's simple Long identifier key and
+            // Hibernate READ_WRITE entry/lock graph. These are sample-only cache implementation
+            // details, not a reason to register every Hibernate type in the shared starter.
+            serializable.add(BasicCacheKeyImplementation.class);
+            serializable.add(StandardCacheEntryImpl.class);
+            serializable.add(AbstractReadWriteAccess.Item.class);
+            serializable.add(AbstractReadWriteAccess.SoftLockImpl.class);
+            serializable.add(Serializable[].class);
+            serializable.add(UUID.class);
             for (Class<?> type : serializable) {
                 hints.reflection().registerJavaSerialization(type);
             }
