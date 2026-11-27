@@ -29,7 +29,7 @@ it. Its core, REST client, production-guard, and Hibernate JVM fixtures have als
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-quarkus</artifactId>
-  <version>2.5.0</version>
+  <version>2.6.0</version>
 </dependency>
 ```
 
@@ -37,12 +37,12 @@ it. Its core, REST client, production-guard, and Hibernate JVM fixtures have als
 
 ```groovy
 // Groovy DSL (build.gradle)
-implementation 'com.julien-dubois.bootui:bootui-quarkus:2.5.0'
+implementation 'com.julien-dubois.bootui:bootui-quarkus:2.6.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-implementation("com.julien-dubois.bootui:bootui-quarkus:2.5.0")
+implementation("com.julien-dubois.bootui:bootui-quarkus:2.6.0")
 ```
 
 :::

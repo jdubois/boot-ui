@@ -52,7 +52,7 @@ Declare the starter in a `dev` profile and tell the Spring Boot plugin to run wi
       <dependency>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-spring-boot-starter</artifactId>
-        <version>2.5.0</version>
+        <version>2.6.0</version>
       </dependency>
     </dependencies>
     <build>
@@ -80,7 +80,7 @@ Guard the starter behind the `-Pdev` project property and set the `dev` Spring B
 // Groovy DSL (build.gradle)
 if (project.hasProperty('dev')) {
     dependencies {
-        runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:2.5.0'
+        runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:2.6.0'
     }
     tasks.named('bootRun') {
         systemProperty 'spring.profiles.active', 'dev'
@@ -92,7 +92,7 @@ if (project.hasProperty('dev')) {
 // Kotlin DSL (build.gradle.kts)
 if (project.hasProperty("dev")) {
     dependencies {
-        "runtimeOnly"("com.julien-dubois.bootui:bootui-spring-boot-starter:2.5.0")
+        "runtimeOnly"("com.julien-dubois.bootui:bootui-spring-boot-starter:2.6.0")
     }
     tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
         systemProperty("spring.profiles.active", "dev")
