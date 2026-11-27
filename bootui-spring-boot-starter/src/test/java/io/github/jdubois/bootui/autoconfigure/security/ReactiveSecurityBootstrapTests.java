@@ -117,8 +117,11 @@ class ReactiveSecurityBootstrapTests {
             ReactiveSecurityObservation observation = new SpringReactiveSecurityObservationCollector(
                             context.getBeanProvider(SecurityWebFilterChain.class), factories, environment)
                     .collect();
-            SecurityReport report = ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC())
-                    .scan();
+            var scanner = ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC());
+            // This fixture concerns security environment evidence; declare its unrelated endpoint absence.
+            scanner.setWebSocketOriginsSupplier(
+                    io.github.jdubois.bootui.engine.security.WebSocketOriginObservation::absent);
+            SecurityReport report = scanner.scan();
             return new NativePortObservation(
                     ManagementPortType.get(environment),
                     SecurityActuatorObservation.observe(captured),
@@ -160,8 +163,10 @@ class ReactiveSecurityBootstrapTests {
             ReactiveSecurityObservation observation = new SpringReactiveSecurityObservationCollector(
                             context.getBeanProvider(SecurityWebFilterChain.class), factories, environment)
                     .collect();
-            SecurityReport report = ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC())
-                    .scan();
+            var scanner = ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC());
+            scanner.setWebSocketOriginsSupplier(
+                    io.github.jdubois.bootui.engine.security.WebSocketOriginObservation::absent);
+            SecurityReport report = scanner.scan();
             var captured = (org.springframework.core.env.ConfigurableEnvironment)
                     SecurityEnvironmentSnapshot.capture(environment);
             var capturedTypes = captured.getPropertySources().stream()

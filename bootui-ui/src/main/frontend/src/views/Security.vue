@@ -77,7 +77,7 @@ const panel = useAdvisorPanel(props, {
         ]"
       />
       <div class="alert alert-info">
-        <strong v-if="staticOnlyReport">Static analyzer configuration check.</strong>
+        <strong v-if="staticOnlyReport">Limited security declaration checks.</strong>
         <strong v-else>Heuristic {{ fwName }} rules.</strong>
         {{ panel.report.disclaimer }}
         <span v-if="staticOnlyReport"> {{ panel.report.scan.message }}</span>

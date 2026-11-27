@@ -614,6 +614,13 @@ scan inspects bounded local declarations for SpotBugs/FindSecBugs, Semgrep, Sona
 analyzer. Missing or indeterminate build files produce no absence finding, and static-only results do not assess
 runtime security or create a score. Cached report reads do not inspect project files.
 
+The shared `SEC-WS-001` INFO rule also runs without filter chains or build files. It reviews any declared WebSocket
+origin wildcard once per endpoint where policy metadata is available. WebFlux currently provides only endpoint
+presence: empty topology origin lists and HTTP CORS configuration are not handshake policy evidence. Present endpoints
+therefore limit coverage without a finding or inferred pass. The passive reader invokes no handler metadata methods,
+does not initialize lazy beans or FactoryBean products, and never opens a handshake. Cached reads do not recollect
+WebSocket evidence. See [the shared rule](SECURITY-CHECKS.md#sec-ws-001-review-declared-websocket-wildcard-origins).
+
 The catalogue is aligned with the Java 17 / Spring Boot 4.1.1 / Spring Security 7.1.1 baseline and deliberately
 describes only evidence the adapter can observe: installed filter/header-writer types, inspectable CORS maps, and host
 `Environment` properties. An installed `AuthorizationWebFilter` does not reveal whether its manager chose `permitAll`,

@@ -26,9 +26,14 @@ public class BootUiReactiveStaticSecurityAutoConfiguration {
 
     @Bean
     ReactiveSecurityAdvisorService bootUiStaticReactiveSecurityAdvisorService(
-            DismissedRulesStore dismissedRules, BootUiProperties properties) {
+            DismissedRulesStore dismissedRules,
+            BootUiProperties properties,
+            org.springframework.context.ApplicationContext applicationContext) {
         StaticSecurityAdvisorService staticAdvisor =
                 new StaticSecurityAdvisorService(() -> Path.of(System.getProperty("user.dir", ".")), Clock.systemUTC());
+        staticAdvisor.setWebSocketOriginsSupplier(
+                new io.github.jdubois.bootui.autoconfigure.security.SpringWebSocketOriginCollector(
+                        applicationContext, properties)::collect);
         ReactiveSecurityAdvisorService advisor = new ReactiveSecurityAdvisorService(staticAdvisor, dismissedRules);
         advisor.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return advisor;

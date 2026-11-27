@@ -8,9 +8,15 @@ import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.cli.BootUiCli;
 import io.github.jdubois.bootui.client.JsonValue;
 import io.github.jdubois.bootui.client.JsonWriter;
+import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.SecurityReport;
+import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.hibernate.HibernateQueryCoverageFixture;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
+import io.github.jdubois.bootui.engine.security.WebSocketOriginObservation;
+import io.github.jdubois.bootui.engine.security.WebSocketOriginRule;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -77,6 +83,7 @@ class CiAssessmentRunnerTests {
     private int runtimeInsightsLimit;
     private String runtimeInsightsBody = runtimeInsightsReport(false, false);
     private HibernateScanner hibernateCoverageScanner;
+    private AdvisorScanState<SecurityReport> securityOrigins;
     private Path producedCaptureDirectory;
     private final Map<String, UnaryOperator<String>> responseTransforms = new LinkedHashMap<>();
 
@@ -152,6 +159,70 @@ class CiAssessmentRunnerTests {
                         .exitCode())
                 .isZero();
         assertThat(Files.readString(output.resolve("junit.xml"))).contains("<testsuite");
+    }
+
+    @Test
+    void producedWebSocketRulePreservesRuleAndOccurrenceCountsThroughLiveAndOfflineAssessment() throws Exception {
+        securityOrigins =
+                new AdvisorScanState<>(SecurityReport::withViolationDetails, () -> List.of(WebSocketOriginRule.ID));
+        var collector = securityOrigins.collector();
+        var origins = new WebSocketOriginObservation.Builder();
+        origins.endpoint("/one", List.of("*"), true);
+        origins.endpoint("/two", List.of("https://*.example.com"), true);
+        var baseline = new SecurityReport(
+                true,
+                "",
+                List.of("chain"),
+                1,
+                0,
+                0,
+                List.of(),
+                new SecurityScanStatusDto("test", "SCANNED", "", 1L, 0, 1, 0),
+                List.of(),
+                List.of(),
+                new AdvisorEvidenceDto(true, true, List.of()));
+        securityOrigins.publish(WebSocketOriginRule.append(baseline, origins::build, collector), collector);
+        startServer();
+        Path policy = temp.resolve("security-policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"high"},
+                  "security":{"required":true,"failOn":"high"}
+                }}
+                """);
+        Path witness = temp.resolve("security-witness.json");
+        Path output = temp.resolve("security-assessment");
+        assertThat(runCli(
+                        "ci",
+                        "attach",
+                        "--url",
+                        url(),
+                        "--assessment-id",
+                        "websocket-origins",
+                        "--policy",
+                        policy.toString(),
+                        "--output",
+                        witness.toString()))
+                .isZero();
+        assertThat(runCli(
+                        "ci",
+                        "assess",
+                        "--url",
+                        url(),
+                        "--assessment-id",
+                        "websocket-origins",
+                        "--policy",
+                        policy.toString(),
+                        "--witness",
+                        witness.toString(),
+                        "--output-dir",
+                        output.toString()))
+                .isZero();
+        JsonValue bundle = JsonValue.parse(Files.readString(output.resolve("bundle.json")));
+        assertThat(bundle.toJson()).contains("\"findingCount\":2", "SEC-WS-001");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "websocket-origins", policy)
+                        .exitCode())
+                .isZero();
     }
 
     @Test
@@ -2260,6 +2331,20 @@ class CiAssessmentRunnerTests {
             if (changeIdentityAfterRuntimeInsights) {
                 currentInstance = "b1b2c3d4";
             }
+        } else if (path.endsWith("/tools/security_scan") && securityOrigins != null) {
+            body = producedJson(McpScanSummaries.security(securityOrigins.currentReport(() -> null)))
+                    .toJson();
+        } else if (path.endsWith("/tools/get_security_report") && securityOrigins != null) {
+            body = producedJson(securityOrigins.currentReport(() -> null)).toJson();
+        } else if (path.endsWith("/tools/get_security_rule_violations") && securityOrigins != null) {
+            JsonValue arguments =
+                    JsonValue.parse(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            body = producedJson(securityOrigins.ruleViolations(
+                            arguments.get("id").asString(null),
+                                    arguments.get("scanId").asString(null),
+                            arguments.get("offset").asInt(0),
+                                    arguments.get("limit").asInt(100)))
+                    .toJson();
         } else if (path.endsWith("/tools/hibernate_scan") && hibernateCoverageScanner != null) {
             body = producedJson(McpScanSummaries.hibernate(hibernateCoverageScanner.scan()))
                     .toJson();
@@ -2381,6 +2466,18 @@ class CiAssessmentRunnerTests {
                 false,
                 "RULE_VIOLATIONS",
                 List.of("id", "scanId", "offset", "limit")));
+        if (securityOrigins != null) {
+            tools.add(tool("security_scan", true, "NONE", List.of(), "security", true, false));
+            tools.add(tool("get_security_report", false, "NONE", List.of(), "security", true, false));
+            tools.add(tool(
+                    "get_security_rule_violations",
+                    false,
+                    "RULE_VIOLATIONS",
+                    List.of("id", "scanId", "offset", "limit"),
+                    "security",
+                    true,
+                    false));
+        }
         if (hibernateCoverageScanner != null) {
             tools.add(tool("hibernate_scan", true, "NONE", List.of(), "hibernate", true, false));
             tools.add(tool("get_hibernate_report", false, "NONE", List.of(), "hibernate", true, false));

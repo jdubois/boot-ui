@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.security.WebSocketOriginObservation;
+import io.github.jdubois.bootui.engine.security.WebSocketOriginRule;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisDetector;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisRule;
 import io.github.jdubois.bootui.engine.support.DetailText;
@@ -47,6 +49,12 @@ public final class QuarkusSecurityScanner {
     private final Supplier<Path> projectRootSupplier;
     private final StaticSecurityAnalysisDetector staticSecurityDetector = new StaticSecurityAnalysisDetector();
     private final Clock clock;
+    private Supplier<WebSocketOriginObservation> webSocketOrigins = WebSocketOriginObservation::unavailable;
+
+    public void setWebSocketOriginsSupplier(Supplier<WebSocketOriginObservation> supplier) {
+        this.webSocketOrigins = java.util.Objects.requireNonNull(supplier);
+    }
+
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     /** The synthetic id of an analysisErrors entry when the observation itself failed. */
     static final String ANALYSIS_RULE_ID = "QS-ANALYSIS";
@@ -83,7 +91,7 @@ public final class QuarkusSecurityScanner {
     public SecurityReport scan() {
         return singleFlight.run(ActionOperations.SECURITY_SCAN, () -> {
             AdvisorViolationCollector collector = state.collector();
-            return state.publish(doScan(collector), collector);
+            return state.publish(WebSocketOriginRule.append(doScan(collector), webSocketOrigins, collector), collector);
         });
     }
 
@@ -226,6 +234,7 @@ public final class QuarkusSecurityScanner {
         List<String> catalog = new java.util.ArrayList<>(QuarkusSecurityChecks.ruleIds());
         catalog.add(ANALYSIS_RULE_ID);
         catalog.add(StaticSecurityAnalysisDetector.RULE_ID);
+        catalog.add(WebSocketOriginRule.ID);
         return catalog;
     }
 

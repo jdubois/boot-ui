@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.autoconfigure.security;
 
 import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorContributions;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -271,34 +270,13 @@ final class SecurityEnvironmentSnapshot extends StandardEnvironment {
         for (int depth = 0;
                 depth < 8 && raw != null && raw.getClass().getName().equals("java.util.Collections$UnmodifiableMap");
                 depth++) {
-            raw = JdkMapDelegate.read(raw);
+            raw = PassiveJdkField.read(raw, raw.getClass(), "m", Map.class);
         }
         return raw;
     }
 
     // Boot's config loader uses this JDK wrapper. Inspect its backing map before invoking any map method:
     // trusting the wrapper alone would execute callbacks from an application-supplied backing map.
-    private static final class JdkMapDelegate {
-        static Object read(Object wrapper) {
-            try {
-                Field delegate = wrapper.getClass().getDeclaredField("m");
-                if (delegate.getType() != Map.class || Modifier.isStatic(delegate.getModifiers())) return null;
-                if (delegate.trySetAccessible()) return delegate.get(wrapper);
-                Class<?> unsafeType = Class.forName("sun.misc.Unsafe", false, ClassLoader.getPlatformClassLoader());
-                Field singleton = unsafeType.getDeclaredField("theUnsafe");
-                if (!singleton.trySetAccessible()) return null;
-                Object unsafe = singleton.get(null);
-                long offset = (Long)
-                        unsafeType.getMethod("objectFieldOffset", Field.class).invoke(unsafe, delegate);
-                return unsafeType
-                        .getMethod("getObject", Object.class, long.class)
-                        .invoke(unsafe, wrapper, offset);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
-                return null;
-            }
-        }
-    }
-
     static boolean generatedValues(PropertySource<?> source) {
         return source instanceof Barrier barrier && "random.".equals(barrier.prefix);
     }

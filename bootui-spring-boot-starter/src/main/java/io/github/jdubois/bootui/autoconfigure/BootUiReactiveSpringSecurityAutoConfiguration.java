@@ -79,13 +79,16 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
             ObjectProvider<ListableBeanFactory> beanFactories,
             org.springframework.core.env.Environment environment,
             DismissedRulesStore dismissedRules,
-            BootUiProperties properties) {
+            BootUiProperties properties,
+            org.springframework.context.ApplicationContext applicationContext) {
         SpringReactiveSecurityObservationCollector collector =
                 new SpringReactiveSecurityObservationCollector(filterChains, beanFactories, environment);
-        ReactiveSecurityAdvisorService advisor = new ReactiveSecurityAdvisorService(
-                ReactiveSecurityScanner.using(
-                        collector::collect, Clock.systemUTC(), () -> Path.of(System.getProperty("user.dir", "."))),
-                dismissedRules);
+        ReactiveSecurityScanner scanner = ReactiveSecurityScanner.using(
+                collector::collect, Clock.systemUTC(), () -> Path.of(System.getProperty("user.dir", ".")));
+        scanner.setWebSocketOriginsSupplier(
+                new io.github.jdubois.bootui.autoconfigure.security.SpringWebSocketOriginCollector(
+                        applicationContext, properties)::collect);
+        ReactiveSecurityAdvisorService advisor = new ReactiveSecurityAdvisorService(scanner, dismissedRules);
         advisor.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return advisor;
     }

@@ -380,7 +380,10 @@ class SecurityAuditAccuracyTests {
         var context = withEvidence(
                 context(chain, new MockEnvironment()),
                 new SecurityContext.Evidence(List.of(), true, false, Set.of(), Set.of(), true));
-        var report = new SecurityScanner(context, Clock.systemUTC()).scan();
+        var scanner = new SecurityScanner(context, Clock.systemUTC());
+        scanner.setWebSocketOriginsSupplier(
+                io.github.jdubois.bootui.engine.security.WebSocketOriginObservation::absent);
+        var report = scanner.scan();
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.evidence().coverageComplete()).isTrue();
         assertThat(report.evidence().limitations()).isEmpty();

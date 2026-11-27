@@ -1143,6 +1143,53 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void websocketOriginRuleIsRegisteredOnEveryStackWithOccurrenceTotalsAndCachedEvidence() {
+        BootUiHttpProbe probe = probe();
+        Response scanned = probe.request("POST", api("/security/scan"), stateChangingHeaders(probe), "");
+        assertThat(scanned.status()).isEqualTo(200);
+        JsonNode report = scanned.json();
+        assertOneOutcomePerRule("security", report);
+        int counted = 0;
+        int occurrences = 0;
+        for (JsonNode finding : report.path("results")) {
+            if (!finding.path("dismissed").asBoolean()) {
+                counted++;
+                occurrences += finding.path("violationCount").asInt();
+            }
+        }
+        assertThat(report.path("violationsFound").asInt()).isEqualTo(counted);
+        assertThat(report.path("scan").path("violationsFound").asInt()).isEqualTo(counted);
+        int severityTotal = 0;
+        for (JsonNode severity : report.path("severityCounts")) {
+            severityTotal += severity.path("count").asInt();
+        }
+        assertThat(severityTotal).isEqualTo(occurrences);
+        String scanId = report.path("violationDetails").path("scanId").asText();
+        String route = api("/security/rules/SEC-WS-001/violations") + "?scanId="
+                + URLEncoder.encode(scanId, StandardCharsets.UTF_8) + "&offset=0&limit=10";
+        Response details = probe.get(route);
+        JsonNode originFinding = null;
+        for (JsonNode finding : report.path("results")) {
+            if ("SEC-WS-001".equals(finding.path("id").asText())) {
+                originFinding = finding;
+            }
+        }
+        if (originFinding == null) {
+            assertThat(details.status()).isEqualTo(404);
+            assertThat(details.json().path("error").asText()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
+        } else {
+            assertThat(originFinding.path("severity").asText()).isEqualTo("INFO");
+            assertThat(originFinding.path("sampleViolations").size()).isLessThanOrEqualTo(10);
+            assertThat(details.status()).isEqualTo(200);
+            assertThat(details.json().path("violationCount").asInt())
+                    .isEqualTo(originFinding.path("violationCount").asInt());
+        }
+        JsonNode cached = probe.get(api("/security")).json();
+        assertThat(cached.path("violationDetails").path("scanId").asText()).isEqualTo(scanId);
+        assertThat(cached.path("evidence")).isEqualTo(report.path("evidence"));
+    }
+
+    @Test
     void advisorViolationPagesStayBoundToTheCountedSnapshot() {
         for (String panel :
                 List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {

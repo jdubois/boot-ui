@@ -73,7 +73,8 @@ class McpToolDescriptionsTests {
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
             assertThat(descriptions.apply("security_scan"))
                     .contains("bounded local declarations", "FindSecBugs", "BootUI never runs these tools")
-                    .contains("static-only result does not assess runtime security");
+                    .contains("local-analyzer-only result does not assess runtime security")
+                    .contains("SEC-WS-001", "INFO", "once per endpoint", "No handshake", "Unexposed");
             assertThat(descriptions.apply("get_security_report"))
                     .contains("without starting a new configuration scan", "does not assess runtime security");
         }

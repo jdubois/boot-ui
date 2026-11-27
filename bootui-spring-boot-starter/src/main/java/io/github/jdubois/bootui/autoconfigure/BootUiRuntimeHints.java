@@ -102,6 +102,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
 
         registerDtoBindingHints(hints, classLoader);
         new SecurityRuntimeHints().registerHints(hints, classLoader);
+        io.github.jdubois.bootui.autoconfigure.security.SpringWebSocketOriginHints.register(hints, classLoader);
         new ActuatorRuntimeHints().registerHints(hints, classLoader);
         hints.reflection()
                 .registerTypeIfPresent(classLoader, "io.micrometer.core.instrument.binder.logging.MetricsTurboFilter");

@@ -13,6 +13,26 @@ import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
 
 class BootUiEngineProducerAdvisorConfigTest {
+    @Test
+    void securityOriginCollectionIsExplicitCachedAndRespectsLivePanelVisibility() {
+        var provider = mock(io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketMetadataProvider.class);
+        var builder = new io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.Builder();
+        builder.endpoint("/ws", null, false);
+        when(provider.originObservation()).thenReturn(builder.build());
+        var scanner = new BootUiEngineProducer().quarkusSecurityScanner(StubConfig.empty(), provider);
+        scanner.initialReport();
+        scanner.lastReport();
+        org.mockito.Mockito.verifyNoInteractions(provider);
+        var report = scanner.scan();
+        assertThat(report.evidence().limitations()).anyMatch(note -> note.contains("WebSocket origin policy coverage"));
+        scanner.lastReport();
+        org.mockito.Mockito.verify(provider).originObservation();
+
+        var disabled = new BootUiEngineProducer()
+                .quarkusSecurityScanner(new StubConfig(Map.of("bootui.panels.websockets.enabled", "false")), provider);
+        disabled.scan();
+        org.mockito.Mockito.verifyNoMoreInteractions(provider);
+    }
 
     @Test
     void memoryHistogramConfigurationMatchesSpringWithoutCollecting() {

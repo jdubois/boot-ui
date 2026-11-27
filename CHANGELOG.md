@@ -5,6 +5,13 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **WebSocket origin review** flags declared wildcard origins with endpoint-level INFO advice and honest policy
+  coverage limits ([#1797](https://github.com/jdubois/boot-ui/issues/1797)).
+
 ## [2.6.0] - 2026-11-25
 
 This release improves recorded-request investigations, advisor accuracy, and GitHub's cache-first behavior.

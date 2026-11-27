@@ -36,6 +36,9 @@ test.describe('Security advisor (Quarkus)', () => {
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
     expect(report.results.map((result) => result.id)).not.toContain('QS-TLS-002')
+    // HTTP CORS findings do not establish the sample WebSocket endpoint's handshake policy.
+    expect(report.results.map((result) => result.id)).not.toContain('SEC-WS-001')
+    expect(report.evidence.limitations.join(' ')).toContain('WebSocket origin policy coverage is incomplete')
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
     await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
     await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)

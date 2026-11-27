@@ -3403,6 +3403,15 @@ resolves remote configuration; missing build files and indeterminate inspections
 `SEC-STATIC-001` is INFO advice only and does not establish runtime security evidence or a score. Cached report GETs
 do not inspect project files.
 
+The shared `SEC-WS-001` adds an explicit-scan-only INFO review of any declared WebSocket handshake origin wildcard,
+including constrained subdomains and wildcard ports, once per distinct endpoint. MVC reads supported already-held
+native handler/STOMP/SockJS metadata without bean creation or application callbacks. WebFlux and Quarkus currently
+expose endpoint presence but not origin policy; missing policy limits coverage and never becomes a finding or inferred
+pass. HTTP CORS is not handshake policy evidence. No handshake is attempted and cached reads never recollect metadata.
+Cookie-authenticated sockets may need cross-site hijacking review; public or appropriately token-authenticated sockets
+may intentionally declare broad origins. This is not a confirmed vulnerability. DTO/tool shapes remain unchanged;
+occurrence totals, retained details and dismissal counts include endpoint-level findings. See [Security checks](SECURITY-CHECKS.md).
+
 The Quarkus application advisor's `QA-CDI-005` reports normal-scoped beans or producer types that cannot be
 client-proxied, not every JDK return type. Indexed or non-initializing JDK metadata must distinguish valid abstract
 types such as `Clock` from final, sealed, or constructor-inaccessible types; unresolved metadata remains unknown.

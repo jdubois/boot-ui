@@ -45,6 +45,9 @@ class BootUiQuarkusSecurityResourceTest {
         assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
         assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(49);
         assertThat(scanned.path("analysisErrors")).isEmpty();
+        assertThat(scanned.path("evidence").path("limitations").toString())
+                .as("without WebSockets endpoints there is no applicable origin policy to assess")
+                .doesNotContain("WebSocket origin policy coverage");
         assertThat(ruleIds(scanned))
                 .as("a no-auth Quarkus app must flag QS-AUTH-001")
                 .contains("QS-AUTH-001")

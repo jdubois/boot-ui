@@ -116,6 +116,35 @@ class SecurityScannerTests {
     Path projectRoot;
 
     @Test
+    void websocketReviewRunsWithoutChainsAndCachedReadsNeverRecollect() {
+        var origins = new io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.Builder();
+        origins.endpoint("/one", List.of("*"), true);
+        origins.endpoint("/two", List.of("https://*.example.com"), true);
+        AtomicInteger calls = new AtomicInteger();
+        SecurityScanner scanner = new SecurityScanner((SecurityContext) null, CLOCK);
+        scanner.setWebSocketOriginsSupplier(() -> {
+            calls.incrementAndGet();
+            return origins.build();
+        });
+        scanner.initialReport();
+        scanner.lastReport();
+        assertThat(calls).hasValue(0);
+        SecurityReport report = scanner.scan();
+        assertThat(report.violationsFound()).isOne();
+        assertThat(report.rulesEvaluated()).isOne();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(scanner.ruleViolations(
+                                "SEC-WS-001", report.violationDetails().scanId(), 0, 10)
+                        .violationCount())
+                .isEqualTo(2);
+        assertThat(scanner.applyDismissals(report, Set.of("SEC-WS-001")).violationsFound())
+                .isZero();
+        assertThat(scanner.applyDismissals(report, Set.of()).violationsFound()).isOne();
+        scanner.lastReport();
+        assertThat(calls).hasValue(1);
+    }
+
+    @Test
     void noSecurityContextStillReportsStaticAdvisoryWithoutClaimingRuntimeEvidence() throws Exception {
         Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
         SecurityScanner scanner = new SecurityScanner((SecurityContext) null, CLOCK, () -> projectRoot);
@@ -160,7 +189,8 @@ class SecurityScannerTests {
         assertThat(report.scan().message())
                 .contains("No Spring Security filter chain was found", "No local static analyzer");
         assertThat(report.scan().analyzer()).isEqualTo("BootUI Static Security Advisor");
-        assertThat(report.disclaimer()).contains("local analyzer configuration only");
+        assertThat(report.disclaimer())
+                .contains("local analyzer configuration and supported declared WebSocket origins");
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-STATIC-001");
         assertThat(report.evidence().usable()).isFalse();
     }
@@ -1933,7 +1963,7 @@ class SecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("DISABLED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.results()).isEmpty();
         assertThat(report.filterChainsAnalyzed()).isZero();
     }
@@ -2550,7 +2580,7 @@ class SecurityScannerTests {
         SecurityReport empty = new SecurityScanner(emptyContext(), CLOCK).scan();
         assertThat(empty.evidence().usable()).isFalse();
         SecurityReport missing = scannerFor(null, null).scan();
-        assertThat(missing.scan().status()).isEqualTo("DISABLED");
+        assertThat(missing.scan().status()).isEqualTo("PARTIAL");
         assertThat(missing.evidence().usable()).isFalse();
         assertThat(missing.evidence().coverageComplete()).isFalse();
     }

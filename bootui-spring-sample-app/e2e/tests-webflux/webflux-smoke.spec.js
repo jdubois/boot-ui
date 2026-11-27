@@ -457,6 +457,8 @@ test.describe('BootUI on Spring WebFlux', () => {
     const report = await (await scanResponse).json()
     expect(report.rulesEvaluated).toBe(33)
     expect(report.results.map((result) => result.id)).not.toContain('SEC-STATIC-001')
+    expect(report.results.map((result) => result.id)).not.toContain('SEC-WS-001')
+    expect(report.evidence.limitations.join(' ')).toContain('WebSocket origin policy coverage is incomplete')
     await expect(
       page.locator('.advisor-summary__metric--status').getByText('Results available', {exact: true})
     ).toBeVisible({timeout: 15_000})

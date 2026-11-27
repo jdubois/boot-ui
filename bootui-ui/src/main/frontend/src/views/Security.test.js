@@ -151,10 +151,28 @@ describe('Security', () => {
 
     const wrapper = await mountWithReport(report)
 
-    expect(wrapper.text()).toContain('Static analyzer configuration check.')
+    expect(wrapper.text()).toContain('Limited security declaration checks.')
     expect(wrapper.text()).toContain('Runtime security was not assessed.')
     expect(wrapper.text()).toContain('No local static security analysis declared')
     expect(wrapper.find('.advisor-summary__value').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Heuristic Spring Security rules.')
+  })
+
+  it('counts endpoint-level INFO findings in the fallback without inventing unknown-policy evidence', async () => {
+    const report = advisorReport([
+      ruleResult('SEC-WS-001', 'Review declared WebSocket wildcard origins', 'INFO', 'VIOLATION', 3)
+    ])
+    report.scan.analyzer = 'BootUI Static Security Advisor'
+    report.scan.status = 'PARTIAL'
+    report.evidence = {usable: true, coverageComplete: false, limitations: ['WebSocket origin policy is unavailable.']}
+    report.filterChains = []
+    report.filterChainsAnalyzed = 0
+    report.rulesEvaluated = 1
+    const wrapper = await mountWithReport(report)
+    expect(wrapper.text()).toContain('Limited security declaration checks.')
+    expect(wrapper.get('.advisor-summary__value').text()).toBe('100')
+    expect(wrapper.text()).toContain('3 findings found for this rule.')
+    expect(wrapper.get('details.advisor-summary__notes p').text()).toContain('WebSocket origin policy is unavailable.')
+    expect(report.violationsFound).toBe(1)
   })
 })

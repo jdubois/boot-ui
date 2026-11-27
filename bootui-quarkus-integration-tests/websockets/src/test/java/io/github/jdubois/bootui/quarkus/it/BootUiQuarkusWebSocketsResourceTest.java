@@ -43,6 +43,23 @@ class BootUiQuarkusWebSocketsResourceTest {
     }
 
     @Test
+    void securityScanKeepsUnexposedWebSocketPolicyUnknownAndCached() {
+        Response response = probe().post("/bootui/api/security/scan", JSON_HEADERS);
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        assertThat(report.path("evidence").path("coverageComplete").asBoolean(true))
+                .isFalse();
+        assertThat(report.path("evidence").path("limitations").toString()).contains("WebSocket origin policy coverage");
+        assertThat(report.path("results"))
+                .noneMatch(result -> "SEC-WS-001".equals(result.path("id").asText()));
+        assertThat(report.path("analysisErrors"))
+                .noneMatch(result -> "SEC-WS-001".equals(result.path("id").asText()));
+        JsonNode cached = probe().get("/bootui/api/security").json();
+        assertThat(cached.path("violationDetails").path("scanId"))
+                .isEqualTo(report.path("violationDetails").path("scanId"));
+    }
+
+    @Test
     void webSocketsPanelListsTheAnnotatedEndpoint() {
         Response response = probe().get("/bootui/api/websockets");
         assertThat(response.status()).as("GET /bootui/api/websockets status").isEqualTo(200);

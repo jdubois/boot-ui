@@ -342,8 +342,13 @@ user; BootUI's own panel and read-only gates still apply.
   configurations keep working. A rule appears once per scan: in `results` when it found something, with any coverage
   gap stated on the finding and in `evidence.limitations`, or in `analysisErrors` when it could not be evaluated.
   `security_scan` also checks local project configuration for declared SpotBugs/FindSecBugs, Semgrep, SonarQube, and
-  CodeQL setup. It never runs those tools; the static-only result does not assess runtime security. The check runs only
+  CodeQL setup. It never runs those tools; a local-analyzer-only result does not assess runtime security. The check runs only
   on explicit scans and stays silent when no build file exists.
+  The shared `SEC-WS-001` adds a passive INFO review of any declared WebSocket origin wildcard once per endpoint,
+  even without Spring Security or a build file. MVC supports native handler/STOMP/SockJS declarations; WebFlux and
+  Quarkus currently expose endpoint presence but not origin policy. Unknown policy limits coverage without an inferred
+  pass or finding. No handshake is attempted; HTTP CORS is not handshake policy evidence. Review cookie-authenticated
+  sockets for cross-site hijacking risk, without treating intentional public/token-authenticated sockets as vulnerabilities.
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last

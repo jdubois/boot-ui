@@ -1212,12 +1212,15 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public QuarkusSecurityScanner quarkusSecurityScanner(Config config) {
+    public QuarkusSecurityScanner quarkusSecurityScanner(Config config, QuarkusWebSocketMetadataProvider webSockets) {
         QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(
                 new QuarkusSecuritySnapshotProviderImpl(config)::snapshot,
                 Clock.systemUTC(),
                 () -> Path.of(System.getProperty("user.dir", ".")));
         scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        scanner.setWebSocketOriginsSupplier(() -> new QuarkusPanelAccessConfig(config).isPanelEnabled("websockets")
+                ? webSockets.originObservation()
+                : io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.unavailable());
         return scanner;
     }
 

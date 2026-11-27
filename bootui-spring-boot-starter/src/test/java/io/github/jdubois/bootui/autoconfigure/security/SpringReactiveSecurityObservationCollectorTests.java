@@ -107,8 +107,10 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     private static SecurityReport scan(ReactiveSecurityObservation observation) {
-        return ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC())
-                .scan();
+        var scanner = ReactiveSecurityScanner.using(() -> observation, Clock.systemUTC());
+        scanner.setWebSocketOriginsSupplier(
+                io.github.jdubois.bootui.engine.security.WebSocketOriginObservation::absent);
+        return scanner.scan();
     }
 
     private static ServerHttpSecurity http() {
