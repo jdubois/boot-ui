@@ -686,8 +686,8 @@ these passive observations do not prove an exploitable injection. Unknown policy
 
 On Spring Boot it evaluates a 51-rule servlet catalogue over already-created `SecurityFilterChain` configuration and
 supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
-also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
-check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
+also remains available without Spring Security for bounded local static-analyzer configuration and supported declared
+WebSocket origins; static-analyzer advice alone is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
 verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 
 The servlet missing-HTTP-authorization and blanket-`permitAll` findings remain visible at **MEDIUM** when metadata marked
@@ -709,7 +709,12 @@ inside a real chain. Unknown scope stays incomplete, and existing `SEC-AUTHZ-001
 
 On WebFlux it evaluates a dedicated 32-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
 CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own permit-all chain. The shared static
-analyzer configuration check is also available when Spring Security is absent.
+analyzer configuration check and declared WebSocket origin review are also available when Spring Security is absent.
+`SEC-WS-001` is an INFO review of any declared wildcard, one occurrence per endpoint, not a vulnerability verdict.
+MVC can read native handler/STOMP and SockJS declarations; WebFlux and Quarkus currently expose endpoint presence but
+not origin policy, so present endpoints limit coverage without a finding or inferred pass. Cookie-authenticated sockets
+need cross-site hijacking review; public or appropriately token-authenticated sockets may intentionally use broad origins.
+No handshake or HTTP CORS inference is performed. Cached reads do not recollect evidence.
 
 ::: details On Quarkus
 

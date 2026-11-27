@@ -24,11 +24,16 @@ public class StaticSecurityController implements SecurityAdvisorOperations {
     private final DismissedRulesStore dismissedRules;
 
     @Autowired
-    public StaticSecurityController(DismissedRulesStore dismissedRules, BootUiProperties properties) {
+    public StaticSecurityController(
+            DismissedRulesStore dismissedRules,
+            BootUiProperties properties,
+            org.springframework.context.ApplicationContext applicationContext) {
         this(
                 new StaticSecurityAdvisorService(() -> Path.of(System.getProperty("user.dir", ".")), Clock.systemUTC()),
                 dismissedRules,
                 properties);
+        advisor.setWebSocketOriginsSupplier(
+                new SpringWebSocketOriginCollector(applicationContext, properties)::collect);
     }
 
     StaticSecurityController(

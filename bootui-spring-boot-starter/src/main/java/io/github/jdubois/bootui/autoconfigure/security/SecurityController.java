@@ -38,7 +38,8 @@ public class SecurityController implements SecurityAdvisorOperations {
             ObjectProvider<ListableBeanFactory> beanFactories,
             Environment environment,
             DismissedRulesStore dismissedRules,
-            BootUiProperties properties) {
+            BootUiProperties properties,
+            org.springframework.context.ApplicationContext applicationContext) {
         this(
                 new SecurityScanner(
                         filterChainProxies,
@@ -48,6 +49,8 @@ public class SecurityController implements SecurityAdvisorOperations {
                         () -> java.nio.file.Path.of(System.getProperty("user.dir", "."))),
                 dismissedRules);
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        scanner.setWebSocketOriginsSupplier(
+                new SpringWebSocketOriginCollector(applicationContext, properties)::collect);
     }
 
     SecurityController(SecurityScanner scanner, DismissedRulesStore dismissedRules) {

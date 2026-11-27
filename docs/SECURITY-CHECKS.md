@@ -1,8 +1,8 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**51 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
-analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
+**51 servlet rules** and **32 reactive rules**, plus the shared `SEC-STATIC-001` static-analysis declaration check and
+`SEC-WS-001` WebSocket origin review. It inspects recognized, already-created filter chains and supported metadata. It does not
 execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
 to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
 configuration. Credentials, keys and session identifiers never belong in findings.
@@ -44,6 +44,42 @@ no analyzer is declared, the INFO finding recommends adding one. This local conf
 runtime security or contribute runtime evidence or a score by itself. It does not resolve remote Maven parents,
 Gradle applied scripts or convention plugins, or organization-managed CI configuration, so its finding describes only
 declarations observed in the bounded local project and repository files.
+
+### SEC-WS-001 - Review declared WebSocket wildcard origins
+
+- **Severity**: INFO
+
+On explicit scans, this shared rule flags **any literal wildcard** in an exposed handshake origin declaration,
+including `*`, constrained subdomains such as `https://*.example.com`, and wildcard port patterns. Each distinct
+endpoint contributes one occurrence, regardless of the number of wildcard entries, interceptors, or STOMP destinations.
+A constrained wildcard is not described as accepting every origin. The shared rule keeps a ten-occurrence preview;
+the existing retained-detail endpoint, MCP/CLI tools and rule dismissal apply without a new schema.
+Report and scan `violationsFound` count active rule rows; the rule's `violationCount`, retained-detail total and severity
+buckets count endpoint occurrences.
+
+Cookie-authenticated sockets can be exposed to cross-site WebSocket hijacking; public or appropriately
+token-authenticated sockets may deliberately use broad origins. This is a review prompt, **not a confirmed
+vulnerability**. Custom interceptors, authentication and actual handshake acceptance are not assessed. BootUI never
+opens a handshake or treats HTTP CORS configuration as WebSocket protection.
+
+- **Spring MVC:** the narrow reader inspects already-held native handler/STOMP and SockJS registration fields,
+  including declared origin patterns. It never initializes lazy beans, asks a `FactoryBean` for a product/type, calls
+  application getters/handlers/interceptors, or invokes the WebSockets topology report.
+- **Spring WebFlux and Quarkus:** registered endpoints are observable, but their declared handshake origin policy is
+  currently unavailable. Empty topology `allowedOrigins` lists are **not** restrictive-policy evidence.
+- Missing/unexposed policies, disabled WebSockets visibility, unsupported implementations, lazy registrations and
+  bounded/incomplete inventories produce coverage limitations, not findings or inferred passes. Confirmed endpoint
+  absence is not applicable and contributes no score. Genuine collection failures appear as sanitized analysis errors
+  when the rule has no finding; otherwise they remain coverage limitations, preserving one outcome per rule;
+  readable declarations and unrelated security findings survive.
+
+The observation is bounded to 1,000 endpoints, 100 origin entries per endpoint and 512 characters per string;
+Spring registry traversal is separately bounded. Reaching a bound limits coverage. Findings omit origin URLs and
+unsafe endpoint text, credentials and query strings. INFO retains its zero score penalty. The rule runs independently
+of filter chains and local build files, including the no-Spring-Security fallback; cached report/detail/dismissal reads
+never recollect declarations.
+Unobservable policies (including present WebFlux/Quarkus endpoints or disabled WebSockets visibility) can make an
+otherwise complete Security scan partial and ineligible for complete-evidence CI assessment.
 
 Spring Security rules inspect recognized, already-created filter chains and supported configuration metadata.
 Unsupported or unreadable observations remain unknown: dependent rules do not manufacture a passing result or a

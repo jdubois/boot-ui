@@ -52,7 +52,8 @@ class ReactiveSecurityScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.scan().analyzer()).isEqualTo("BootUI Static Security Advisor");
-        assertThat(report.disclaimer()).contains("local analyzer configuration only");
+        assertThat(report.disclaimer())
+                .contains("local analyzer configuration and supported declared WebSocket origins");
         assertThat(report.rulesEvaluated()).isEqualTo(1);
         assertThat(report.evidence().usable()).isFalse();
         assertThat(report.results()).singleElement().satisfies(result -> {
@@ -232,7 +233,9 @@ class ReactiveSecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("DISABLED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().limitations())
+                .contains(io.github.jdubois.bootui.engine.security.WebSocketOriginRule.LIMITATION);
         assertThat(report.filterChainsAnalyzed()).isZero();
         assertThat(report.rulesEvaluated()).isZero();
         assertThat(report.violationsFound()).isZero();
@@ -248,7 +251,7 @@ class ReactiveSecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("DISABLED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.results()).isEmpty();
     }
 
@@ -262,7 +265,7 @@ class ReactiveSecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("DISABLED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.scan().message()).contains("IllegalStateException");
         assertThat(report.evidence().usable()).isFalse();
     }
@@ -285,7 +288,7 @@ class ReactiveSecurityScannerTests {
                     CLOCK);
             assertThat(scanner.scan().filterChains()).isNotEmpty();
             SecurityReport after = scanner.scan();
-            assertThat(after.scan().status()).isEqualTo("DISABLED");
+            assertThat(after.scan().status()).isEqualTo("PARTIAL");
             assertThat(after.filterChains()).isEmpty();
             assertThat(after.toString()).doesNotContain("do-not-leak");
         }
@@ -632,7 +635,9 @@ class ReactiveSecurityScannerTests {
 
         SecurityReport report = scanner.scan();
 
-        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().limitations())
+                .contains(io.github.jdubois.bootui.engine.security.WebSocketOriginRule.LIMITATION);
         assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
         assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.violationsFound()).isPositive();
@@ -2051,7 +2056,7 @@ class ReactiveSecurityScannerTests {
         assertThat(passing.results())
                 .extracting(SecurityRuleResultDto::id)
                 .doesNotContain("SEC-RXF-METHOD-001", "SEC-RXF-OAUTH2-006");
-        assertThat(passing.scan().status()).isEqualTo("SCANNED");
+        assertThat(passing.scan().status()).isEqualTo("PARTIAL");
 
         ReactiveSecurityObservation incomplete = new ReactiveSecurityObservation(
                 List.of(chain),

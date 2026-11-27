@@ -1508,6 +1508,39 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void dismissalKeepsRuleTotalsSeparateFromOccurrenceSeverityCounts() {
+        Snap snap = new Snap();
+        snap.secrets = List.of("application.password", "application.secret", "application.token");
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK);
+        var origins = new io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.Builder();
+        origins.endpoint("/one", List.of("*"), true);
+        origins.endpoint("/two", List.of("*"), true);
+        for (boolean withWebSockets : List.of(false, true)) {
+            scanner.setWebSocketOriginsSupplier(() -> withWebSockets
+                    ? origins.build()
+                    : io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.absent());
+            SecurityReport scanned = scanner.scan();
+            for (Set<String> dismissed :
+                    List.of(Set.of("unrelated-rule"), Set.of("QS-CFG-001"), Set.of("SEC-WS-001"))) {
+                SecurityReport report = scanner.applyDismissals(scanned, dismissed);
+                int occurrences = report.results().stream()
+                        .filter(result -> !result.dismissed())
+                        .mapToInt(SecurityRuleResultDto::violationCount)
+                        .sum();
+                int rules = (int) report.results().stream()
+                        .filter(result -> !result.dismissed())
+                        .count();
+                assertThat(report.violationsFound()).isEqualTo(rules);
+                assertThat(report.scan().violationsFound()).isEqualTo(rules);
+                assertThat(report.severityCounts().stream()
+                                .mapToInt(count -> count.count())
+                                .sum())
+                        .isEqualTo(occurrences);
+            }
+        }
+    }
+
+    @Test
     void initialReportIsNotScanned() {
         Snap s = new Snap();
         SecurityReport r = QuarkusSecurityScanner.usingSnapshot(s::build, CLOCK).initialReport();

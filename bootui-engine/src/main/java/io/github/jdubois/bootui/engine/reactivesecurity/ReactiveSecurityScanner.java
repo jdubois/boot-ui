@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.security.WebSocketOriginObservation;
+import io.github.jdubois.bootui.engine.security.WebSocketOriginRule;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisDetector;
 import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisRule;
@@ -57,6 +59,12 @@ public final class ReactiveSecurityScanner {
     private final Supplier<Path> projectRootSupplier;
     private final StaticSecurityAnalysisDetector staticSecurityDetector = new StaticSecurityAnalysisDetector();
     private final Clock clock;
+    private Supplier<WebSocketOriginObservation> webSocketOrigins = WebSocketOriginObservation::unavailable;
+
+    public void setWebSocketOriginsSupplier(Supplier<WebSocketOriginObservation> supplier) {
+        this.webSocketOrigins = java.util.Objects.requireNonNull(supplier);
+    }
+
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<SecurityReport> state =
             new AdvisorScanState<>(SecurityReport::withViolationDetails, ReactiveSecurityScanner::ruleCatalog);
@@ -104,7 +112,7 @@ public final class ReactiveSecurityScanner {
     public SecurityReport scan() {
         return singleFlight.run(ActionOperations.SECURITY_SCAN, () -> {
             AdvisorViolationCollector collector = state.collector();
-            return state.publish(doScan(collector), collector);
+            return state.publish(WebSocketOriginRule.append(doScan(collector), webSocketOrigins, collector), collector);
         });
     }
 
@@ -225,6 +233,7 @@ public final class ReactiveSecurityScanner {
                 ReactiveSecurityRuleRegistry.activeRules(),
                 rule -> rule.definition().id()));
         ids.add(StaticSecurityAnalysisDetector.RULE_ID);
+        ids.add(WebSocketOriginRule.ID);
         return List.copyOf(ids);
     }
 

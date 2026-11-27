@@ -10,7 +10,22 @@ test.describe('Security Advisor view', () => {
     // already have scan data on mount.
     await expect(page.locator('main')).toContainText('Heuristic Spring Security rules.')
 
+    const scanResponse = page.waitForResponse(
+      (response) => response.request().method() === 'POST' && /\/security\/scan$/.test(new URL(response.url()).pathname)
+    )
     await page.getByRole('button', {name: 'Run security checks'}).click()
+    const report = await (await scanResponse).json()
+    const origins = report.results.find((result) => result.id === 'SEC-WS-001')
+    expect(origins.severity).toBe('INFO')
+    expect(origins.violationCount).toBe(2) // Native /echo and SockJS/STOMP /ws registrations, not destinations.
+    expect(origins.sampleViolations).toHaveLength(2)
+    for (const detail of origins.sampleViolations) {
+      expect(detail).toContain('constrained wildcard')
+      expect(detail).toContain('not necessarily every origin')
+    }
+    await expect(page.locator('.list-group-item', {hasText: 'SEC-WS-001'})).toContainText(
+      'Review declared WebSocket wildcard origins'
+    )
 
     // After the scan the severity card is populated and the empty state disappears.
     await expect(page.getByText('No Security Advisor data yet')).toHaveCount(0, {timeout: 30_000})

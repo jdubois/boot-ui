@@ -36,6 +36,26 @@ public class QuarkusWebSocketMetadataProvider implements WebSocketMetadataProvid
         this.captured = captured;
     }
 
+    /** Build-time inventory only. Empty topology origin lists are not declared policy evidence. */
+    public io.github.jdubois.bootui.engine.security.WebSocketOriginObservation originObservation() {
+        if (captured == null || captured.isUnsatisfied()) {
+            return io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.absent();
+        }
+        if (!captured.isResolvable()) {
+            return io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.unavailable();
+        }
+        var builder = new io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.Builder();
+        int count = 0;
+        for (var endpoint : captured.get().endpoints()) {
+            if (++count > io.github.jdubois.bootui.engine.security.WebSocketOriginObservation.MAX_ENDPOINTS) {
+                builder.incomplete();
+                break;
+            }
+            builder.endpoint(endpoint.path(), null, false);
+        }
+        return builder.build();
+    }
+
     @Override
     public WebSocketTopologySnapshot topology() {
         List<WebSocketEndpointSnapshot> endpoints = endpoints();

@@ -20,6 +20,13 @@ analyzer, and does not assess runtime security or contribute runtime evidence or
 file produces no absence finding. The bounded local inspection does not resolve remote Maven parents, Gradle applied
 scripts or convention plugins, or organization-managed CI configuration.
 
+The additional shared **`SEC-WS-001` (INFO)** reviews declared WebSocket wildcard origins, counting one occurrence per
+endpoint, including constrained subdomains and wildcard ports. Quarkus currently supplies endpoint presence from its
+build-time WebSockets Next inventory, **not origin-policy declarations**: present endpoints limit coverage, without a
+finding or inferred pass. Empty `allowedOrigins` and Quarkus HTTP CORS settings are not handshake policy evidence.
+Absent endpoints are not applicable. No handshake, authentication callback or endpoint code is invoked; unknown policy
+does not become clean. See the [shared rule and limits](SECURITY-CHECKS.md#sec-ws-001-review-declared-websocket-wildcard-origins).
+
 OIDC checks aggregate the active default tenant and active named tenants; a tenant with
 `quarkus.oidc[.<tenant>].tenant-enabled=false` is excluded.
 

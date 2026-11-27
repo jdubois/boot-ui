@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.security.WebSocketOriginRule;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,6 +38,14 @@ class SecurityDocumentationTests {
         }
 
         Set<String> activeRuleIds = new LinkedHashSet<>();
+        activeRuleIds.add(WebSocketOriginRule.ID);
+        String sharedHeading = "### " + WebSocketOriginRule.ID + " - ";
+        int sharedStart = documentation.indexOf(sharedHeading);
+        assertThat(sharedStart).as("shared origin rule documentation").isNotNegative();
+        assertThat(sectionAt(documentation, sharedStart, sharedStart + sharedHeading.length()))
+                .startsWith(sharedHeading + WebSocketOriginRule.NAME + "\n")
+                .contains("- **Severity**: " + WebSocketOriginRule.SEVERITY);
+
         for (SecurityRule rule : SecurityRuleRegistry.activeRules()) {
             SecurityRuleDefinition definition = rule.definition();
             activeRuleIds.add(definition.id());
