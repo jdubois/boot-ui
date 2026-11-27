@@ -19,6 +19,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -144,12 +146,23 @@ class BootUiQuarkusSqlTraceCaptureTest {
     }
 
     @Test
-    void sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers() {
+    void sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers() throws InterruptedException {
         exchanges.offloadRetainedData();
+        CountDownLatch requestCaptured = new CountDownLatch(1);
+        Runnable unsubscribe = exchanges.subscribe(() -> {
+            if (exchanges.snapshot().stream()
+                    .anyMatch(exchange -> exchange.uri() != null
+                            && "/it/sql-trace/4711".equals(exchange.uri().getPath()))) {
+                requestCaptured.countDown();
+            }
+        });
         try {
             Response request = probe().get("/it/sql-trace/4711?access_token=synthetic-route-secret");
             assertThat(request.status()).isEqualTo(200);
             assertThat(request.body()).isEqualTo("4711");
+            assertThat(requestCaptured.await(10, TimeUnit.SECONDS))
+                    .as("response completion must reach the exchange buffer before reading attribution")
+                    .isTrue();
 
             JsonNode root = SqlTraceInsightsContract.read(probe(), "/bootui/api");
             assertThat(root.path("available").asBoolean())
@@ -159,7 +172,7 @@ class BootUiQuarkusSqlTraceCaptureTest {
             assertThat(root.path("statements")).isNotEmpty();
             JsonNode routes = root.path("attribution").path("routes");
             assertThat(routes)
-                    .as("the native HTTP request must attribute its JDBC work")
+                    .as("the native HTTP request must attribute its JDBC work (%s)", root.path("attribution"))
                     .hasSize(1);
             JsonNode route = routes.get(0);
             assertThat(route.path("method").asText()).isEqualTo("GET");
@@ -173,6 +186,7 @@ class BootUiQuarkusSqlTraceCaptureTest {
             assertThat(routes.toString()).doesNotContain("synthetic-route-secret", "access_token");
             SqlTraceInsightsContract.sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers(root);
         } finally {
+            unsubscribe.run();
             // A completed request window must not claim a later test's unrelated test-thread query.
             exchanges.offloadRetainedData();
         }

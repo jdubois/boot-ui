@@ -925,6 +925,7 @@ const aiDetail = {
 const devTools = {
   liveReloadAvailable: true,
   liveReloadPort: 35729,
+  liveReloadConnections: 2,
   liveReloadUnavailableReason: null,
   restartAvailable: true,
   restartPending: false,
@@ -6430,7 +6431,7 @@ const screenshots = [
       await page.getByText('orders_customer_created_idx').waitFor()
     }
   ],
-  ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('FetchType.EAGER')],
+  ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('Eager collection fetching should stay bounded')],
   [
     'mysql',
     'MySQL',

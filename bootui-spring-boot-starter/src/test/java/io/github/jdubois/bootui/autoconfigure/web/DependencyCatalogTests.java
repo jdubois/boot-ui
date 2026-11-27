@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.JarURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -33,13 +34,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.Attributes;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.AnnotatedElementContext;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.io.TempDirFactory;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
@@ -201,8 +206,12 @@ class DependencyCatalogTests {
         Path jar = gradleJar(
                 tempDir, "runtime.group", "widget", "1.2.3", false, Map.of("META-INF/sbom/application.cdx.json", sbom));
         Path unrelated = plainJar("unrelated-2.0.jar");
-        try (URLClassLoader loader = new URLClassLoader(
-                new URL[] {jar.toUri().toURL(), unrelated.toUri().toURL()}, null)) {
+        var connection = (JarURLConnection)
+                URI.create("jar:" + jar.toUri() + "!/").toURL().openConnection();
+        // Spring's SBOM resource read caches this JAR separately from the class loader.
+        try (JarFile cachedJar = connection.getJarFile();
+                URLClassLoader loader = new URLClassLoader(
+                        new URL[] {jar.toUri().toURL(), unrelated.toUri().toURL()}, null)) {
             Class<?> marker = loader.loadClass(GradleCacheMarker.class.getName());
             assertThat(marker.getClassLoader()).isSameAs(loader);
             assertThat(marker.getMethod("identity").invoke(null)).isEqualTo("gradle-cache-marker");
@@ -227,6 +236,7 @@ class DependencyCatalogTests {
                     .containsExactly(tuple("packaging.group:unrelated", "2.0"), tuple("runtime.group:widget", "1.2.3"));
             assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 0, List.of()));
         }
+        Files.delete(jar);
     }
 
     @Test
@@ -238,7 +248,7 @@ class DependencyCatalogTests {
                 "modules-2/files-2.0/com.acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
                 "modules-2/files-2.1/com/acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
                 "modules-2/files-2.1/com..acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
-                "modules-2/files-2.1/com:acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
+                "modules-2/files-2.1/com acme/widget/1.2.3/" + hash + "/widget-1.2.3.jar",
                 "modules-2/files-2.1/com.acme/widget/${version}/" + hash + "/widget-${version}.jar",
                 "modules-2/files-2.1/com.acme/widget/1.2.3/not-a-hash/widget-1.2.3.jar",
                 "modules-2/files-2.1/com.acme/widget/1.2.3/0" + hash + "/widget-1.2.3.jar",
@@ -321,7 +331,8 @@ class DependencyCatalogTests {
     }
 
     @Test
-    void resolvesRelativeGradleEntriesAndEscapedUrlsWithoutOpeningRemoteUrls() throws Exception {
+    void resolvesRelativeGradleEntriesAndEscapedUrlsWithoutOpeningRemoteUrls(
+            @TempDir(factory = WorkingDirectoryTempDirFactory.class) Path tempDir) throws Exception {
         Path jar = gradleJar(tempDir.resolve("cache root+literal"), "com.acme", "widget", "1.2.3", false, Map.of());
         Path relative = Path.of("").toAbsolutePath().relativize(jar);
         assertThat(withClassPath(emptyResolver(), relative.toString()))
@@ -465,6 +476,14 @@ class DependencyCatalogTests {
     @Configuration(proxyBeanMethods = false)
     @EnableWebFlux
     static class ReactiveInventoryConfiguration {}
+
+    static final class WorkingDirectoryTempDirFactory implements TempDirFactory {
+        @Override
+        public Path createTempDirectory(AnnotatedElementContext elementContext, ExtensionContext extensionContext)
+                throws IOException {
+            return Files.createTempDirectory(Path.of("target").toAbsolutePath(), "dependency-catalog-");
+        }
+    }
 
     private Path gradleJar(
             Path root,
