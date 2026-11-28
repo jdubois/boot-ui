@@ -1,0 +1,656 @@
+package io.github.jdubois.bootui.quarkus4.web;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
+import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.quarkus4.exceptions.QuarkusExceptionLogHandler;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.quarkus.runtime.ImageMode;
+import io.smallrye.config.PropertiesConfigSource;
+import io.smallrye.config.SmallRyeConfigBuilder;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
+import io.vertx.core.Handler;
+import io.vertx.core.MultiMap;
+import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpMethod;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.HttpServerResponse;
+import io.vertx.ext.web.RoutingContext;
+import jakarta.enterprise.inject.Instance;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
+import org.eclipse.microprofile.config.Config;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+
+/**
+ * White-box binding tests for {@link QuarkusHttpExchangeCaptureFilter}'s self-traffic exclusion: BootUI's
+ * own requests must never reach the shared {@code HttpExchangeBuffer} (and therefore never reach the HTTP
+ * Exchanges panel or Live Activity correlation), under the default root path, a non-default
+ * {@code quarkus.http.root-path}, and a custom {@code bootui.path} mount alike — while application traffic
+ * stays captured.
+ *
+ * <p>It also pins that capture can never disturb the request it observes: a response ended off the event loop
+ * (a worker or virtual thread) hands Vert.x's live header map to the event loop before the body-end handler runs,
+ * so iterating it there intermittently threw {@code NullPointerException}/{@code NoSuchElementException} into
+ * Vert.x, and {@code QuarkusErrorHandler} reported BootUI's failure as the application's.</p>
+ */
+class QuarkusHttpExchangeCaptureFilterTest {
+
+    @Test
+    void admittedNativeHttpCaptureDoesNotInitializeJvmMetersOrAgentFragments() {
+        RoutingContext rc = mockRequest("/native-orders");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        try (var activation = mockStatic(BootUiNativeActivation.class);
+                var image = mockStatic(ImageMode.class);
+                var meters = mockStatic(SegmentMeter.class);
+                var codePaths = mockStatic(AgentCodePaths.class);
+                var eventLoops = mockStatic(io.github.jdubois.bootui.engine.javaagent.AgentEventLoops.class)) {
+            image.when(ImageMode::current).thenReturn(ImageMode.NATIVE_RUN);
+            completeRequest(filter(buffer, Map.of("bootui.http-exchanges.expose-request-id-header", "false")), rc);
+            assertThat(buffer.snapshot()).singleElement().satisfies(exchange -> {
+                assertThat(exchange.requestId()).isNotBlank();
+                assertThat(exchange.status()).isEqualTo(200);
+            });
+            meters.verifyNoInteractions();
+            codePaths.verifyNoInteractions();
+            eventLoops.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    void capturesApplicationTraffic() {
+        RoutingContext rc = mockRequest("/orders/42");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        completeRequest(filter(buffer, Map.of()), rc);
+
+        verify(rc).next();
+        assertThat(buffer.snapshot()).hasSize(1);
+    }
+
+    @Test
+    void aClosedResponseWithoutBodyEndCompletesCaptureAndItsMeterExactlyOnce() throws Exception {
+        RoutingContext rc = mockRequest("/stream");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        RequestPhases phases = mock(RequestPhases.class);
+        SegmentMeter meter = mock(SegmentMeter.class);
+        AtomicReference<Handler<AsyncResult<Void>>> ended = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    ended.set(invocation.getArgument(0));
+                    return rc;
+                })
+                .when(rc)
+                .addEndHandler(any());
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> tracing = mock(Instance.class);
+        try (RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+                MockedStatic<SegmentMeter> meters = mockStatic(SegmentMeter.class);
+                MockedStatic<AgentCodePaths> codePaths = mockStatic(AgentCodePaths.class)) {
+            meters.when(SegmentMeter::shared).thenReturn(meter);
+            new QuarkusHttpExchangeCaptureFilter(buffer, tracing, new SmallRyeConfigBuilder().build(), phases, journal)
+                    .handle(rc);
+            when(rc.response().closed()).thenReturn(true);
+            if (ended.get() != null) ended.get().handle(Future.failedFuture("Connection closed"));
+            assertThat(buffer.snapshot())
+                    .singleElement()
+                    .satisfies(exchange -> assertThat(exchange.status()).isZero());
+            verify(meter, times(1)).take(any());
+            verify(phases, times(1)).end(any());
+            assertThat(journal.awaitDrained(java.time.Duration.ofSeconds(10))).isTrue();
+            assertThat(journal.entries())
+                    .filteredOn(entry -> entry.event().source() == JournalSource.HTTP)
+                    .singleElement()
+                    .satisfies(entry -> assertThat(((HttpPayload) entry.event().payload()).status())
+                            .isZero());
+            bodyEndHandler(rc).handle(null);
+            assertThat(buffer.snapshot()).hasSize(1);
+            verify(meter, times(1)).take(any());
+            codePaths.verify(AgentCodePaths::clearPhase, times(2));
+        }
+    }
+
+    @Test
+    void aNormalBodyEndAndRequestEndKeepOneExchangeWithTheRealStatus() {
+        RoutingContext rc = mockRequest("/orders");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        AtomicReference<Handler<AsyncResult<Void>>> ended = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    ended.set(invocation.getArgument(0));
+                    return rc;
+                })
+                .when(rc)
+                .addEndHandler(any());
+        completeRequest(filter(buffer, Map.of()), rc);
+        when(rc.response().ended()).thenReturn(true);
+        if (ended.get() != null) ended.get().handle(Future.succeededFuture());
+        assertThat(buffer.snapshot())
+                .singleElement()
+                .satisfies(exchange -> assertThat(exchange.status()).isEqualTo(200));
+    }
+
+    @Test
+    void skipsBootUiTrafficUnderTheDefaultRootPath() {
+        RoutingContext rc = mockRequest("/bootui/api/overview");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        filter(buffer, Map.of()).handle(rc);
+
+        verify(rc).next();
+        verify(rc, never()).addBodyEndHandler(any());
+        assertThat(buffer.snapshot()).isEmpty();
+    }
+
+    @Test
+    void skipsBootUiTrafficUnderANonDefaultRootPath() {
+        RoutingContext rc = mockRequest("/app/bootui/api/overview");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        filter(buffer, Map.of("quarkus.http.root-path", "/app")).handle(rc);
+
+        verify(rc).next();
+        verify(rc, never()).addBodyEndHandler(any());
+        assertThat(buffer.snapshot()).isEmpty();
+    }
+
+    @Test
+    void skipsBootUiTrafficOnACustomMount() {
+        RoutingContext rc = mockRequest("/app/dev-console/api/overview");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        filter(buffer, Map.of("bootui.path", "/dev-console", "quarkus.http.root-path", "/app"))
+                .handle(rc);
+
+        verify(rc).next();
+        verify(rc, never()).addBodyEndHandler(any());
+        assertThat(buffer.snapshot()).isEmpty();
+    }
+
+    @Test
+    void stillCapturesApplicationTrafficUnderANonDefaultRootPath() {
+        RoutingContext rc = mockRequest("/app/bootui-other/status");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        completeRequest(filter(buffer, Map.of("quarkus.http.root-path", "/app")), rc);
+
+        assertThat(buffer.snapshot()).hasSize(1);
+    }
+
+    @Test
+    void stampsEachExchangeWithItsOwnRequestId() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        QuarkusHttpExchangeCaptureFilter filter = filter(buffer, Map.of());
+
+        completeRequest(filter, mockRequest("/orders"));
+        completeRequest(filter, mockRequest("/orders"));
+
+        assertThat(buffer.snapshot())
+                .extracting(CapturedHttpExchange::requestId)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(20);
+
+        // Default is true: loopback request receives X-BootUI-Request-Id matching its captured exchange.
+        RoutingContext defaultRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(filter(buffer, Map.of()), defaultRc);
+        CapturedHttpExchange defaultExchange = buffer.snapshot().get(0);
+        assertThat(defaultRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(defaultExchange.requestId());
+        assertThat(defaultExchange.responseHeaders().get("X-BootUI-Request-Id"))
+                .containsExactly(defaultExchange.requestId());
+
+        // Explicitly disabled: loopback request receives no X-BootUI-Request-Id header.
+        RoutingContext disabledRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(filter(buffer, Map.of("bootui.http-exchanges.expose-request-id-header", "false")), disabledRc);
+        assertThat(disabledRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // Enabled on loopback and trusted proxy: response and captured exchange carry the exact requestId.
+        QuarkusHttpExchangeCaptureFilter enabledFilter = filter(
+                buffer,
+                Map.of(
+                        "bootui.trusted-proxies", "10.30.0.0/16",
+                        "bootui.allow-non-localhost", "true"));
+        RoutingContext loopbackRc = mockRequest("/orders", "127.0.0.1");
+        enabledFilter.handle(loopbackRc);
+        headersEndHandler(loopbackRc).handle(null);
+        bodyEndHandler(loopbackRc).handle(null);
+        CapturedHttpExchange loopbackExchange = buffer.snapshot().get(0);
+        assertThat(loopbackRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(loopbackExchange.requestId());
+        assertThat(loopbackExchange.responseHeaders().get("X-BootUI-Request-Id"))
+                .containsExactly(loopbackExchange.requestId());
+
+        // Enabled on trusted proxy: receives the header even when only bodyEndHandler fires in a mock test.
+        RoutingContext trustedProxyRc = mockRequest("/orders", "10.30.1.9");
+        completeRequest(enabledFilter, trustedProxyRc);
+        CapturedHttpExchange trustedExchange = buffer.snapshot().get(0);
+        assertThat(trustedProxyRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(trustedExchange.requestId());
+
+        // Untrusted non-loopback peer never receives the header, even with allow-non-localhost=true.
+        RoutingContext untrustedRc = mockRequest("/orders", "203.0.113.5");
+        enabledFilter.handle(untrustedRc);
+        headersEndHandler(untrustedRc).handle(null);
+        bodyEndHandler(untrustedRc).handle(null);
+        assertThat(untrustedRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // BootUI's own requests never receive the header.
+        RoutingContext bootUiRc = mockRequest("/bootui/api/overview", "127.0.0.1");
+        enabledFilter.handle(bootUiRc);
+        assertThat(bootUiRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // Existing application header is never overwritten.
+        RoutingContext appHeaderRc = mockRequest("/orders", "127.0.0.1");
+        appHeaderRc.response().headers().set("X-BootUI-Request-Id", "app-provided-id");
+        enabledFilter.handle(appHeaderRc);
+        headersEndHandler(appHeaderRc).handle(null);
+        bodyEndHandler(appHeaderRc).handle(null);
+        assertThat(appHeaderRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly("app-provided-id");
+
+        // Disabling the http-exchanges panel suppresses the header.
+        QuarkusHttpExchangeCaptureFilter disabledPanelFilter = filter(
+                buffer,
+                Map.of(
+                        "bootui.http-exchanges.expose-request-id-header", "true",
+                        "bootui.panels.http-exchanges.enabled", "false"));
+        RoutingContext disabledPanelRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(disabledPanelFilter, disabledPanelRc);
+        assertThat(disabledPanelRc.response().headers().get("X-BootUI-Request-Id"))
+                .isNull();
+
+        // Invalid boolean value fails closed to false without disturbing capture.
+        QuarkusHttpExchangeCaptureFilter invalidConfigFilter =
+                filter(buffer, Map.of("bootui.http-exchanges.expose-request-id-header", "not-a-boolean"));
+        RoutingContext invalidConfigRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(invalidConfigFilter, invalidConfigRc);
+        assertThat(invalidConfigRc.response().headers().get("X-BootUI-Request-Id"))
+                .isNull();
+
+        // A failure inside header emission is isolated and never drops the captured exchange or its response headers.
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
+        when(traceIdProvider.isResolvable()).thenReturn(false);
+        Config enabledConfig = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(
+                        Map.of("bootui.http-exchanges.expose-request-id-header", "true"), "test", 1000))
+                .build();
+        io.github.jdubois.bootui.quarkus4.BootUiQuarkusSafetyFilter throwingSafety =
+                mock(io.github.jdubois.bootui.quarkus4.BootUiQuarkusSafetyFilter.class);
+        when(throwingSafety.isTrustedSource(any())).thenThrow(new IllegalStateException("safety check failed"));
+        QuarkusHttpExchangeCaptureFilter isolatedFilter = new QuarkusHttpExchangeCaptureFilter(
+                buffer, traceIdProvider, enabledConfig, null, null, throwingSafety);
+        RoutingContext isolatedRc = mockRequest("/orders", "127.0.0.1");
+        isolatedRc.response().headers().set("X-App", "preserved");
+        int beforeCount = buffer.snapshot().size();
+        completeRequest(isolatedFilter, isolatedRc);
+        assertThat(buffer.snapshot()).hasSize(beforeCount + 1);
+        assertThat(buffer.snapshot().get(0).responseHeaders().get("X-App")).containsExactly("preserved");
+    }
+
+    @Test
+    void makesTheRequestContextCurrentWhileTheChainRunsAndRestoresItAfter() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        RoutingContext rc = mockRequest("/orders");
+        AtomicReference<CorrelationContext> duringChain = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    duringChain.set(BootUiCorrelation.current());
+                    return null;
+                })
+                .when(rc)
+                .next();
+
+        completeRequest(filter(buffer, Map.of()), rc);
+
+        assertThat(duringChain.get().requestId())
+                .isEqualTo(buffer.snapshot().get(0).requestId());
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void leavesNoMeteringOnTheThreadWhenRoutingReturnsWithTheResponsePending() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        RoutingContext rc = mockRequest("/orders");
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        AtomicReference<String> duringChain = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    duringChain.set(SegmentMeter.shared().currentRequestId());
+                    return null;
+                })
+                .when(rc)
+                .next();
+
+        meteringFilter(buffer, journal).handle(rc);
+
+        assertThat(duringChain.get())
+                .as("the request is measured while its routing runs")
+                .isNotNull();
+        assertThat(SegmentMeter.shared().currentRequestId())
+                .as("an async dispatch returns with the response pending, and this thread goes on to another request")
+                .isNull();
+        SegmentMeter.shared().take(duringChain.get());
+    }
+
+    @Test
+    void restoresTheThreadWhenTheChainThrows() {
+        RoutingContext rc = mockRequest("/orders");
+        doThrow(new IllegalStateException("handler failed")).when(rc).next();
+
+        assertThatThrownBy(() -> filter(new HttpExchangeBuffer(10), Map.of()).handle(rc))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void readsResponseHeadersFromTheHeadersEndCopyWhenTheResponseEndsOffTheEventLoop() {
+        RoutingContext rc = mockRequest("/api/villains/42");
+        HttpServerResponse response = rc.response();
+        MultiMap committed = MultiMap.caseInsensitiveMultiMap().add("X-Villain", "42");
+        when(response.headers()).thenReturn(committed);
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        QuarkusHttpExchangeCaptureFilter filter = filter(buffer, Map.of());
+
+        filter.handle(rc);
+        headersEndHandler(rc).handle(null);
+        MultiMap beingMutated = concurrentlyMutatedHeaders();
+        when(response.headers()).thenReturn(beingMutated);
+
+        assertThatCode(() -> bodyEndHandler(rc).handle(null)).doesNotThrowAnyException();
+
+        verify(beingMutated, never()).iterator();
+        assertThat(buffer.snapshot())
+                .singleElement()
+                .satisfies(
+                        exchange -> assertThat(exchange.responseHeaders()).containsEntry("X-Villain", List.of("42")));
+    }
+
+    /**
+     * The BootUI agent's code-paths hooks (docs/PLAN-v2.md M5-4a): the request's scope on the event loop, and, on the
+     * thread that ends the response, as a worker that no end() closes, the phase its response filter marked cleared.
+     */
+    @Test
+    void scopesTheCodePathsFragmentAndClearsThePhaseWhenTheResponseEnds() {
+        RoutingContext rc = mockRequest("/orders/42");
+        try (MockedStatic<AgentCodePaths> codePaths = mockStatic(AgentCodePaths.class)) {
+            filter(new HttpExchangeBuffer(10), Map.of()).handle(rc);
+            codePaths.verify(AgentCodePaths::begin);
+            codePaths.verify(() -> AgentCodePaths.phase(RequestPhase.FILTERS));
+            codePaths.verify(AgentCodePaths::end);
+            verify(rc).next();
+            codePaths.verify(AgentCodePaths::clearPhase, never());
+
+            bodyEndHandler(rc).handle(null);
+
+            codePaths.verify(AgentCodePaths::clearPhase);
+        }
+    }
+
+    @Test
+    void readsTheFinalResponseHeadersOnTheEventLoop() throws Exception {
+        RoutingContext rc = mockRequest("/api/villains/42");
+        MultiMap live = MultiMap.caseInsensitiveMultiMap().add("X-Villain", "42");
+        when(rc.response().headers()).thenReturn(live);
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        filter(buffer, Map.of()).handle(rc);
+        headersEndHandler(rc).handle(null);
+        // Vert.x appends cookies added through addCookie after headersEndHandler, before the write.
+        live.add("Set-Cookie", "SESSION=abc");
+        runOnEventLoop(() -> bodyEndHandler(rc).handle(null));
+
+        assertThat(buffer.snapshot())
+                .singleElement()
+                .satisfies(exchange -> assertThat(exchange.responseHeaders())
+                        .containsEntry("X-Villain", List.of("42"))
+                        .containsEntry("Set-Cookie", List.of("SESSION=abc")));
+    }
+
+    @Test
+    void fallsBackToTheHeadersEndCopyWhenTheLiveHeadersFailOnTheEventLoop() throws Exception {
+        RoutingContext rc = mockRequest("/api/villains/42");
+        HttpServerResponse response = rc.response();
+        when(response.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap().add("X-Villain", "42"));
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        filter(buffer, Map.of()).handle(rc);
+        headersEndHandler(rc).handle(null);
+        MultiMap beingMutated = concurrentlyMutatedHeaders();
+        when(response.headers()).thenReturn(beingMutated);
+        runOnEventLoop(() -> bodyEndHandler(rc).handle(null));
+
+        assertThat(buffer.snapshot())
+                .singleElement()
+                .satisfies(
+                        exchange -> assertThat(exchange.responseHeaders()).containsEntry("X-Villain", List.of("42")));
+    }
+
+    @Test
+    void aFailingHeaderReadNeverReachesTheRequestOrTheExceptionsPanel() {
+        RoutingContext rc = mockRequest("/api/villains/999999");
+        MultiMap beingMutated = concurrentlyMutatedHeaders();
+        when(rc.response().headers()).thenReturn(beingMutated);
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        QuarkusHttpExchangeCaptureFilter filter = filter(buffer, Map.of());
+
+        List<LogRecord> logged = captureLogs(() -> {
+            filter.handle(rc);
+            assertThatCode(() -> headersEndHandler(rc).handle(null)).doesNotThrowAnyException();
+            assertThatCode(() -> bodyEndHandler(rc).handle(null)).doesNotThrowAnyException();
+        });
+
+        verify(rc).next();
+        assertThat(buffer.snapshot())
+                .singleElement()
+                .satisfies(exchange -> assertThat(exchange.responseHeaders()).isEmpty());
+        assertNeverCapturedAsAnApplicationException(logged);
+    }
+
+    @Test
+    void aFailingRecordNeverReachesTheRequestOrTheExceptionsPanel() {
+        RoutingContext rc = mockRequest("/api/villains/5063");
+        HttpExchangeBuffer buffer = mock(HttpExchangeBuffer.class);
+        doThrow(new IllegalStateException("capture failed")).when(buffer).record(any(CapturedHttpExchange.class));
+        QuarkusHttpExchangeCaptureFilter filter = filter(buffer, Map.of());
+
+        List<LogRecord> logged = captureLogs(() -> {
+            filter.handle(rc);
+            assertThatCode(() -> bodyEndHandler(rc).handle(null)).doesNotThrowAnyException();
+        });
+
+        verify(rc).next();
+        assertNeverCapturedAsAnApplicationException(logged);
+    }
+
+    @Test
+    void aFailureBeforeRegistrationStillContinuesTheRequest() {
+        RoutingContext rc = mockRequest("/api/villains/42");
+        MultiMap beingMutated = concurrentlyMutatedHeaders();
+        when(rc.request().headers()).thenReturn(beingMutated);
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+
+        assertThatCode(() -> filter(buffer, Map.of()).handle(rc)).doesNotThrowAnyException();
+
+        verify(rc).next();
+        verify(rc, never()).addBodyEndHandler(any());
+    }
+
+    /** The failure is reported under BootUI's own logger, without a throwable, so log capture ignores it. */
+    private static void assertNeverCapturedAsAnApplicationException(List<LogRecord> logged) {
+        assertThat(logged).isNotEmpty().allSatisfy(record -> {
+            assertThat(record.getLevel()).isEqualTo(Level.WARNING);
+            assertThat(record.getThrown()).isNull();
+        });
+        ExceptionStore store = new ExceptionStore(10, 10, 20);
+        QuarkusExceptionLogHandler logCapture = new QuarkusExceptionLogHandler(
+                store,
+                new InternalPackageMatcher(List.of("io.github.jdubois.bootui.quarkus4")),
+                null,
+                null,
+                new SmallRyeConfigBuilder().build());
+        logged.forEach(logCapture::publish);
+        assertThat(store.totalExceptions()).isZero();
+    }
+
+    private static List<LogRecord> captureLogs(Runnable action) {
+        Logger logger = Logger.getLogger(QuarkusHttpExchangeCaptureFilter.class.getName());
+        List<LogRecord> records = new CopyOnWriteArrayList<>();
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                records.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        logger.addHandler(handler);
+        try {
+            action.run();
+        } finally {
+            logger.removeHandler(handler);
+        }
+        return records;
+    }
+
+    /**
+     * A header map whose iteration fails the way Vert.x's {@code HeadersMultiMap} did when the event loop mutated
+     * it while the body-end handler iterated it.
+     */
+    private static MultiMap concurrentlyMutatedHeaders() {
+        MultiMap headers = mock(MultiMap.class);
+        when(headers.iterator())
+                .thenThrow(new NullPointerException("Cannot read field \"key\" because \"this.val$next\" is null"));
+        return headers;
+    }
+
+    private static void runOnEventLoop(Runnable action) throws Exception {
+        Vertx vertx = Vertx.vertx();
+        try {
+            CompletableFuture<Void> done = new CompletableFuture<>();
+            vertx.runOnContext(ignored -> {
+                try {
+                    assertThat(io.vertx.core.Context.isOnEventLoopThread()).isTrue();
+                    action.run();
+                    done.complete(null);
+                } catch (Throwable failure) {
+                    done.completeExceptionally(failure);
+                }
+            });
+            done.get(10, TimeUnit.SECONDS);
+        } finally {
+            vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        }
+    }
+
+    private static Handler<Void> headersEndHandler(RoutingContext rc) {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Handler<Void>> captor = ArgumentCaptor.forClass(Handler.class);
+        verify(rc).addHeadersEndHandler(captor.capture());
+        return captor.getValue();
+    }
+
+    private static Handler<Void> bodyEndHandler(RoutingContext rc) {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Handler<Void>> captor = ArgumentCaptor.forClass(Handler.class);
+        verify(rc).addBodyEndHandler(captor.capture());
+        return captor.getValue();
+    }
+
+    /** Runs the filter and then fires the headers-end and body-end handlers it registered, as Vert.x does on response end. */
+    private static void completeRequest(QuarkusHttpExchangeCaptureFilter filter, RoutingContext rc) {
+        filter.handle(rc);
+        headersEndHandler(rc).handle(null);
+        bodyEndHandler(rc).handle(null);
+    }
+
+    private static QuarkusHttpExchangeCaptureFilter filter(HttpExchangeBuffer buffer, Map<String, String> properties) {
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
+        when(traceIdProvider.isResolvable()).thenReturn(false);
+        Config config = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(properties, "test", 1000))
+                .build();
+        return new QuarkusHttpExchangeCaptureFilter(buffer, traceIdProvider, config);
+    }
+
+    /** A filter wired to a journal that records resources, so the request is actually metered. */
+    private static QuarkusHttpExchangeCaptureFilter meteringFilter(HttpExchangeBuffer buffer, RuntimeJournal journal) {
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
+        when(traceIdProvider.isResolvable()).thenReturn(false);
+        Config config = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(Map.of(), "test", 1000))
+                .build();
+        return new QuarkusHttpExchangeCaptureFilter(buffer, traceIdProvider, config, new RequestPhases(), journal);
+    }
+
+    private static RoutingContext mockRequest(String path) {
+        return mockRequest(path, null);
+    }
+
+    private static RoutingContext mockRequest(String path, String remoteHost) {
+        HttpServerResponse response = mock(HttpServerResponse.class);
+        when(response.getStatusCode()).thenReturn(200);
+        when(response.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap());
+        HttpServerRequest request = mock(HttpServerRequest.class);
+        when(request.method()).thenReturn(HttpMethod.GET);
+        when(request.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap());
+        when(request.absoluteURI()).thenReturn("http://localhost:8080" + path);
+        if (remoteHost != null) {
+            io.vertx.core.net.SocketAddress remoteAddress = mock(io.vertx.core.net.SocketAddress.class);
+            when(remoteAddress.hostAddress()).thenReturn(remoteHost);
+            when(request.remoteAddress()).thenReturn(remoteAddress);
+            io.vertx.core.http.HttpConnection connection = mock(io.vertx.core.http.HttpConnection.class);
+            when(request.connection()).thenReturn(connection);
+            when(connection.remoteAddress()).thenReturn(remoteAddress);
+        }
+        RoutingContext rc = mock(RoutingContext.class);
+        when(rc.normalizedPath()).thenReturn(path);
+        when(rc.request()).thenReturn(request);
+        when(rc.response()).thenReturn(response);
+        return rc;
+    }
+}

@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-parent</artifactId>
+        <version>2.5.0</version>
+        <relativePath>../bootui-quarkus-4-parent/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-4-sample-app</artifactId>
+    <name>BootUI :: Quarkus 4 Sample App</name>
+    <description>Reference Quarkus application that demonstrates the BootUI developer console (see docs/QUARKUS-SUPPORT.md).</description>
+
+    <!--
+        Quarkus analogue of bootui-spring-sample-app: a reference Quarkus application that demonstrates the
+        BootUI developer console (see docs/QUARKUS-SUPPORT.md §8).
+
+        This module joins the reactor on JDK 21+ and compiles for Java 21. Hibernate augmentation runs on
+        JDK 21 to 27; the unsupported-JDK profile below preserves plain compilation and unit tests on
+        newer JDKs without claiming that the resulting artifact is runnable.
+
+        The platform comes from the independent Quarkus 4 parent. LangChain4j 2.0.0.CR1 is the published
+        Quarkus-4-compatible extension candidate; its core 1.24.0 must match the listener's compile baseline.
+    -->
+
+    <properties>
+        <!-- Demo/integration module only: never publish to Maven Central (mirrors bootui-spring-sample-app). -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+
+        <!-- Keep the provided core baseline in bootui-quarkus-4-parent aligned with this BOM. -->
+        <quarkus-langchain4j.version>2.0.0.CR1</quarkus-langchain4j.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkiverse.langchain4j</groupId>
+                <artifactId>quarkus-langchain4j-bom</artifactId>
+                <version>${quarkus-langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${sample-h2.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--
+            The BootUI Quarkus extension. Activates the /bootui console in dev/test mode, the analogue of
+            bootui-spring-boot-starter.
+        -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-4-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- REST layer: drives the REST API advisor, Mappings, and the demo endpoints. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+
+        <!-- Persistence: Hibernate ORM + Panache, drives the Hibernate advisor, DB pools, SQL trace. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm-panache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-postgresql</artifactId>
+        </dependency>
+        <!--
+            H2 is here only so the published container image (Dockerfile-quarkus) can run Docker-free on
+            an in-memory database, the same way the Spring sample's "dev" profile does. The normal build,
+            tests, and `quarkus:dev` keep db-kind=postgresql and use Dev Services; the image overrides
+            db-kind=h2 via an environment variable at startup.
+        -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+
+        <!-- Schema migrations: both Flyway and Liquibase, like the Spring sample. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-liquibase</artifactId>
+        </dependency>
+
+        <!-- Quarkus Cache: replaces the Spring Cache panel with the Quarkus Cache panel. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-cache</artifactId>
+        </dependency>
+
+        <!-- Scheduled Tasks. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
+
+        <!-- SmallRye Fault Tolerance: drives the Fault Tolerance panel. The sample declares one annotation of each
+             kind BootUI understands, including a named circuit breaker (whose live state SmallRye can report)
+             and an anonymous one (whose state it cannot), plus a MicroProfile config override so the panel can
+             show configured-versus-annotated provenance honestly. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
+        </dependency>
+
+        <!-- REST Client Reactive: drives the REST Client panel. The sample makes periodic outbound calls to the
+             httpbin.org-compatible echo endpoint (or a local stub so no real network is needed in tests), feeding
+             the shared RestClientTraceRecorder via the BootUI MicroProfile RestClientListener SPI hook. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client</artifactId>
+        </dependency>
+
+        <!-- WebSockets Next: drives the WebSockets panel. The sample declares one @WebSocket echo endpoint, so
+             BootUI can show the build-time endpoint topology plus live connections; no external service is
+             required and no message payload is ever read by BootUI. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-websockets-next</artifactId>
+        </dependency>
+
+        <!-- Mailer: drives the Email panel. The sample runs the mailer in mock mode (see application.properties),
+             so BootUI captures each outgoing message for the panel but nothing is ever handed to a real SMTP
+             transport — no mail server (and no Docker) is required. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mailer</artifactId>
+        </dependency>
+
+        <!-- Security: drives Security Logs + the Quarkus advisor. Simple file-based users for the demo. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-elytron-security-properties-file</artifactId>
+        </dependency>
+
+        <!-- Health + Metrics: Health and Metrics panels (SmallRye Health + Micrometer). -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- Tracing: feeds the Traces panel (and AI Framework GenAI spans) via OpenTelemetry. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-opentelemetry</artifactId>
+        </dependency>
+
+        <!-- AI: LangChain4j + Ollama, drives the AI Framework panel. -->
+        <dependency>
+            <groupId>io.quarkiverse.langchain4j</groupId>
+            <artifactId>quarkus-langchain4j-ollama</artifactId>
+        </dependency>
+
+        <!-- Bean validation for request DTOs. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-validator</artifactId>
+        </dependency>
+
+        <!-- Test. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../bootui-ui/src/main/frontend/public</directory>
+                <targetPath>META-INF/resources</targetPath>
+                <includes>
+                    <include>bootui-theme.css</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../bootui-spring-sample-app/src/main/resources/static</directory>
+                <targetPath>META-INF/resources</targetPath>
+                <includes>
+                    <include>sample-lab.css</include>
+                    <include>sample-lab.js</include>
+                </includes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <bootui.test.langchain4j.compile-version>${langchain4j.version}</bootui.test.langchain4j.compile-version>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <id>quarkus-build</id>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>mysql-diagnostics</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-jdbc-mysql</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--
+            On JDK 28+, disable only Hibernate augmentation/codegen, not Java 21 compilation or the
+            non-bootstrapping unit tests. A skipped augmentation is not runnable-application evidence.
+        -->
+        <profile>
+            <id>skip-quarkus-build-on-unsupported-jdk</id>
+            <activation>
+                <jdk>[28,)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>io.quarkus</groupId>
+                        <artifactId>quarkus-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>quarkus-build</id>
+                                <phase>none</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

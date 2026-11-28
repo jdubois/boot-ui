@@ -4,6 +4,9 @@ This page installs BootUI in a Spring Boot Spring MVC application. On WebFlux, t
 [BootUI on Spring WebFlux](setup/webflux.md). On Quarkus, follow [BootUI on Quarkus](setup/quarkus.md). All three serve
 the same console and the same JSON contract.
 
+The Quarkus guide separates the generations' coordinates and Java minimums. Choose the adapter for your application's
+major version rather than substituting one Quarkus extension for another.
+
 ## Prerequisites
 
 - Java 17 or later

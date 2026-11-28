@@ -84,7 +84,8 @@ public final class ThreadLocals {
         "io.github.jdubois.bootui.core.",
         "io.github.jdubois.bootui.spi.",
         "io.github.jdubois.bootui.autoconfigure.",
-        "io.github.jdubois.bootui.quarkus."
+        "io.github.jdubois.bootui.quarkus.",
+        "io.github.jdubois.bootui.quarkus4."
     };
 
     /** A scope's depth when the engine opened it explicitly. */

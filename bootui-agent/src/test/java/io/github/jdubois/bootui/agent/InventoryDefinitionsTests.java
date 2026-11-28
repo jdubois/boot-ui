@@ -7,6 +7,10 @@ import io.github.jdubois.bootui.agent.bridge.CodeInventory;
 import java.lang.ref.Reference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
+import java.security.CodeSource;
+import java.security.ProtectionDomain;
+import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -153,6 +157,28 @@ class InventoryDefinitionsTests {
 
         assertThat(CodeInventory.eligibleDefinition(observed.token(existing))).isFalse();
         assertThat(CodeInventory.eligibleDefinition(observed.token(gap))).isTrue();
+    }
+
+    @Test
+    void quarkus4RuntimeClassesAreNotRecordedButAdjacentApplicationClassesAre() throws Exception {
+        ApplicationMethodsSensor.ClassLoadRecorder recorder = new ApplicationMethodsSensor.ClassLoadRecorder();
+        ProtectionDomain domain = new ProtectionDomain(
+                new CodeSource(Path.of("quarkus4-boundaries.jar").toUri().toURL(), (Certificate[]) null), null);
+        String[] names = {
+            "io.github.jdubois.bootui.quarkus4.RuntimeHook",
+            "io.github.jdubois.bootui.quarkus4sample.Application",
+            "io.github.jdubois.bootui.quarkus4fixture.Application"
+        };
+        for (String name : names) {
+            recorder.transform(getClass().getClassLoader(), name.replace('.', '/'), null, domain, new byte[0]);
+        }
+
+        assertThat(CodeInventory.codeSources()).singleElement().satisfies(source -> {
+            assertThat(source).containsEntry("loaded", 2L);
+            long generation = CodeInventory.currentGeneration();
+            assertThat(CodeInventory.classLoads((Integer) source.get("id"), names))
+                    .containsExactly(CodeInventory.NOT_SEEN, 0L, generation, 1L, generation, 1L);
+        });
     }
 
     private void claim() {

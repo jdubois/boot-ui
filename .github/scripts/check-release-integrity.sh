@@ -107,7 +107,7 @@ require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
   'documentation redeploy decision from the tags on origin'
 require_literal "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'" \
   'documentation redeploy restricted to the newest major'
-readonly PUBLICATION_REACTOR='-pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \'
+readonly PUBLICATION_REACTOR='-pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-4-parent,bootui-quarkus-4,bootui-quarkus-4-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \'
 require_literal "$PUBLICATION_REACTOR" 'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
   'runnable CLI uber-jar availability check'
@@ -122,6 +122,8 @@ readonly PUBLISHED_ARTIFACTS=(
   bootui-spring-boot-starter
   bootui-quarkus
   bootui-quarkus-deployment
+  bootui-quarkus-4
+  bootui-quarkus-4-deployment
   bootui-cli
   bootui-agent
 )
@@ -153,6 +155,8 @@ require_literal 'fs.readFileSync("plugins/bootui/plugin.json", "utf8")' \
 require_literal 'if (plugin.version !== process.argv[1]) {' 'portable plugin release version verification'
 require_literal 'python3 .github/scripts/workshop-version.py update "$VERSION"' 'workshop release version update'
 require_literal 'python3 .github/scripts/workshop-version.py check "$VERSION"' 'workshop immutable release version check'
+require_literal 'python3 .github/scripts/release-quarkus-4-docs.py update "$VERSION"' 'Quarkus 4 first-release marker update'
+require_literal 'python3 .github/scripts/release-quarkus-4-docs.py check "$VERSION"' 'Quarkus 4 immutable release documentation check'
 require_literal 'python3 .github/scripts/ci-docs-version.py update "$VERSION"' 'CI documentation release manifest update'
 require_literal 'python3 .github/scripts/ci-docs-version.py check "$VERSION"' 'CI documentation immutable release manifest check'
 require_literal 'python3 .github/scripts/ci-examples.py render' 'CI documentation consumer render'
@@ -177,6 +181,9 @@ require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO
   'Central bundle assembled from the installed release'
 require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
   'Central Portal bundle upload'
+require_literal 'run: echo "SMOKE_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"' 'preserved Java 17 legacy consumer runtime'
+require_literal 'run: echo "SMOKE_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"' 'preserved Java 21 Quarkus 4 consumer runtime'
+require_literal "java-version: '25'" 'Java 25 complete publication build'
 
 smoke_test_step="$(
   sed -n '/- name: Smoke test published distributions/,/- name: Decide documentation redeploy/p' "$WORKFLOW"
@@ -218,12 +225,12 @@ fi
 if grep -Fq 'bootui-agent-bridge/' <<<"$availability_step"; then
   report_error 'bootui-agent-bridge is never published and must not be polled on Maven Central'
 fi
-polled_artifacts="$(grep -oE '^[[:space:]]+"[a-z-]+/\$\{VERSION\}/' <<<"$availability_step" | tr -d ' "' | cut -d/ -f1 | sort -u)"
+polled_artifacts="$(grep -oE '^[[:space:]]+"[a-z0-9-]+/\$\{VERSION\}/' <<<"$availability_step" | tr -d ' "' | cut -d/ -f1 | sort -u)"
 if [[ "$polled_artifacts" != "$EXPECTED_PUBLISHED" ]]; then
   report_error "Maven Central availability must poll exactly the published coordinates ($(tr '\n' ' ' <<<"$EXPECTED_PUBLISHED")), found: $(tr '\n' ' ' <<<"$polled_artifacts")"
 fi
-if grep -Eq '"bootui-(quarkus-)?parent/' <<<"$availability_step"; then
-  report_error 'neither parent POM is published, so neither may be polled on Maven Central'
+if grep -Eq '"bootui-(quarkus-(4-)?)?parent/' <<<"$availability_step"; then
+  report_error 'no parent POM is published, so none may be polled on Maven Central'
 fi
 
 # The 1-based number of the first line of the text $2 that is exactly $1, or nothing.
@@ -263,7 +270,7 @@ smoke_published="$(sed -n '/^readonly PUBLISHED_ARTIFACTS=(/,/^)/p' "$SMOKE_SCRI
 if [[ "$smoke_published" != "$EXPECTED_PUBLISHED" ]]; then
   report_error "$SMOKE_SCRIPT must expect exactly the published coordinates"
 fi
-bundle_published="$(sed -n '/^PUBLISHED = (/,/^)/p' "$BUNDLE_CHECK" | grep -oE '"bootui-[a-z-]+"' | tr -d '"' | sort)"
+bundle_published="$(sed -n '/^PUBLISHED = (/,/^)/p' "$BUNDLE_CHECK" | grep -oE '"bootui-[a-z0-9-]+"' | tr -d '"' | sort)"
 if [[ "$bundle_published" != "$EXPECTED_PUBLISHED" ]]; then
   report_error "$BUNDLE_CHECK must expect exactly the published coordinates"
 fi
@@ -327,6 +334,12 @@ require_smoke_literal '-f "$AGENT_SMOKE_DIR/pom.xml"' 'external Java agent consu
 require_smoke_literal 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then' \
   'Java agent consumer dependency-free assertion'
 require_smoke_literal 'java -javaagent:"$AGENT_JAR" -version' 'Java agent attach smoke test'
+require_smoke_literal 'if ! java -version 2>&1 | grep -Eq '"'"'version "17[.]'"'"'; then' \
+  'actual Java 17 legacy consumer runtime check'
+require_smoke_literal 'consumer_quarkus4_mvn -f "$QUARKUS4_SMOKE_DIR/pom.xml" package -Dmaven.test.skip=true' \
+  'Quarkus 4 external consumer augmentation'
+require_smoke_literal 'for platform in "$QUARKUS4_VERSION" 4.0.0; do' \
+  'baseline-built Quarkus 4 binaries tested at the declared minimum'
 require_smoke_literal 'AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); dormant until BootUI claims it"' \
   'Java agent dormant startup assertion'
 readonly SMOKE_PURGE='rm -rf "$LOCAL_REPO/com/julien-dubois/bootui"'
@@ -415,7 +428,7 @@ for literal in \
     previous_line="$found_line"
   fi
 done
-require_order '- name: Set up JDK 17' '- name: Check the release signing key' \
+require_order '- name: Set up JDK 25' '- name: Check the release signing key' \
   'the release signing key must be checked after it is imported'
 require_order '- name: Check the release signing key' '- name: Prepare release version' \
   'the release signing key must be checked before anything is signed or tagged'
@@ -472,6 +485,27 @@ readonly excluded_artifacts
 readonly expected_exclusions=(
   bootui-parent
   bootui-quarkus-parent
+  bootui-quarkus-4-parent
+  bootui-quarkus-4-sample-app
+  bootui-quarkus-4-integration-tests-aggregator
+  bootui-quarkus-4-integration-tests
+  bootui-quarkus-4-cache-integration-tests
+  bootui-quarkus-4-datasource-integration-tests
+  bootui-quarkus-4-email-integration-tests
+  bootui-quarkus-4-fault-tolerance-integration-tests
+  bootui-quarkus-4-flyway-integration-tests
+  bootui-quarkus-4-health-integration-tests
+  bootui-quarkus-4-hibernate-integration-tests
+  bootui-quarkus-4-liquibase-integration-tests
+  bootui-quarkus-4-micrometer-integration-tests
+  bootui-quarkus-4-native-console-integration-tests
+  bootui-quarkus-4-otel-integration-tests
+  bootui-quarkus-4-prod-shell-guard-integration-tests
+  bootui-quarkus-4-rabbit-integration-tests
+  bootui-quarkus-4-rest-client-integration-tests
+  bootui-quarkus-4-scheduler-integration-tests
+  bootui-quarkus-4-security-integration-tests
+  bootui-quarkus-4-websockets-integration-tests
   bootui-conformance
   bootui-agent-bridge
   bootui-coverage
@@ -567,7 +601,7 @@ for literal in '<id>no-web-stack</id>' '<bannedDependencies>' '<searchTransitive
   fi
 done
 
-require_order '- name: Check release workflow integrity' '- name: Set up JDK 17' \
+require_order '- name: Check release workflow integrity' '- name: Set up JDK 25' \
   'release integrity must be checked before importing signing credentials or preparing a version'
 require_order './mvnw -B -ntp -Prelease clean verify' 'git commit -m "Release $TAG"' \
   'release verification must happen before the release commit'
@@ -587,6 +621,20 @@ require_order '- name: Checkout immutable release' 'python3 .github/scripts/work
   'the workshop version must be checked from the immutable release checkout'
 require_order 'python3 .github/scripts/workshop-version.py check "$VERSION"' '- name: Publish to Maven Central' \
   'the workshop version must be checked before publication'
+require_order './mvnw -B -ntp versions:set' 'python3 .github/scripts/release-quarkus-4-docs.py update "$VERSION"' \
+  'Quarkus 4 snippets must be updated after release version validation'
+require_order 'python3 .github/scripts/release-quarkus-4-docs.py update "$VERSION"' 'if [[ "$SKIP_BUILD" != "true" ]]; then' \
+  'Quarkus 4 snippets must be updated before release verification and sealing, including skip_build'
+require_order '- name: Checkout immutable release' 'python3 .github/scripts/release-quarkus-4-docs.py check "$VERSION"' \
+  'Quarkus 4 snippets must be checked from immutable contents'
+require_order 'python3 .github/scripts/release-quarkus-4-docs.py check "$VERSION"' '- name: Publish to Maven Central' \
+  'Quarkus 4 snippets must be checked before publication'
+for command in '          python3 .github/scripts/release-quarkus-4-docs.py update "$VERSION"' \
+  '         python3 .github/scripts/release-quarkus-4-docs.py check "$VERSION"'; do
+  if ! grep -Fxq "$command" "$WORKFLOW"; then
+    report_error "Quarkus 4 release documentation must run '$command' on a line of its own, never commented or soft-failed"
+  fi
+done
 require_order './mvnw -B -ntp versions:set' 'python3 .github/scripts/ci-docs-version.py update "$VERSION"' \
   'the CI manifest must be updated after release version validation'
 require_order 'python3 .github/scripts/ci-docs-version.py update "$VERSION"' 'python3 .github/scripts/ci-examples.py render' \
@@ -833,6 +881,67 @@ for step in 'Download the per-platform digests' 'Log in to Docker Hub' 'Create t
 done
 require_workflow_literal "$DOCKER_WORKFLOW" \
   'steps.push_retry.outputs.digest || steps.push_first.outputs.digest' 'the digest of the successful push attempt'
+
+# The publication inventory is built on 25, without silently replacing the legacy 17 consumers.
+readonly BUILD_WORKFLOW="$REPOSITORY_ROOT/.github/workflows/build.yml"
+candidate="$(job_block "$BUILD_WORKFLOW" release-candidate)"
+for literal in '      - name: Set up complete candidate JDK 25' "          java-version: '25'" \
+  '        run: echo "SMOKE_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"' \
+  '        run: echo "SMOKE_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"'; do
+  if ! grep -Fxq -- "$literal" <<<"$candidate"; then
+    report_workflow_error "$BUILD_WORKFLOW" "complete release candidate must preserve its JDK build/runtime split ('$literal')"
+  fi
+done
+release_jdk="$(step_block "$WORKFLOW" maven-central 'Set up JDK 25')"
+if ! grep -Fxq "          java-version: '25'" <<<"$release_jdk"; then
+  report_error 'the release signing/build JDK step must use Java 25'
+fi
+q4_jvm="$(job_block "$BUILD_WORKFLOW" quarkus-4)"
+if ! grep -Fxq "        java: [ '21', '25' ]" <<<"$q4_jvm" ||
+  grep -Eq '^    if:|^[[:space:]]*continue-on-error:' <<<"$q4_jvm"; then
+  report_workflow_error "$BUILD_WORKFLOW" 'Quarkus 4 requires separate blocking Java 21 and 25 JVM lanes'
+fi
+for literal in '          -pl bootui-quarkus-4-deployment,bootui-quarkus-4-integration-tests/base,bootui-cli' \
+  '          --maven-repository "$HOME/.m2/repository" --quarkus-generation 4 --stacks quarkus'; do
+  if ! grep -Fxq "$literal" <<<"$q4_jvm"; then
+    report_workflow_error "$BUILD_WORKFLOW" "Quarkus 4 JVM lanes must execute their contracts and Action consumer ('$literal')"
+  fi
+done
+q4_native="$(job_block "$BUILD_WORKFLOW" quarkus-4-native)"
+for literal in '    runs-on: ${{ matrix.runner }}' \
+  '      fail-fast: false' \
+  '        target: [ linux-x86_64, linux-arm64, macos-arm64 ]' \
+  '        fixture: [ jdbc, hibernate ]'; do
+  if ! grep -Fxq "$literal" <<<"$q4_native"; then
+    report_workflow_error "$BUILD_WORKFLOW" "native acceptance must execute both JDBC and Hibernate on all three real targets ('$literal')"
+  fi
+done
+for pair in 'linux-x86_64|ubuntu-24.04' 'linux-arm64|ubuntu-24.04-arm' 'macos-arm64|macos-15'; do
+  target="${pair%|*}"; runner="${pair#*|}"
+  if ! [[ "$q4_native" == *"          - target: $target"$'\n'"            runner: $runner"$'\n'* ]]; then
+    report_workflow_error "$BUILD_WORKFLOW" "native acceptance must execute on its real $target runner ($runner)"
+  fi
+done
+if grep -Eq '^    if:|^[[:space:]]*continue-on-error:|^[[:space:]]*exclude:|setup-qemu|platforms:' <<<"$q4_native"; then
+  report_workflow_error "$BUILD_WORKFLOW" 'native acceptance must be blocking real-target execution of every fixture leg, never emulation'
+fi
+for step in 'Install checksum-pinned GraalVM CE 25.2.4' 'Compile and execute the actual native console'; do
+  if grep -Eq '^[[:space:]]*if:' <<<"$(step_block "$BUILD_WORKFLOW" quarkus-4-native "$step")"; then
+    report_workflow_error "$BUILD_WORKFLOW" "native acceptance must run '$step' unconditionally in every fixture leg"
+  fi
+done
+for literal in '        run: bash .github/scripts/setup-quarkus-4-graalvm.sh "$NATIVE_TARGET" target/ci/graalvm-quarkus-4' \
+  '          NATIVE_FIXTURE: ${{ matrix.fixture }}' \
+  '          python3 -B .github/scripts/quarkus-4-native-acceptance.py' \
+  '          --target "$NATIVE_TARGET" --fixture "$NATIVE_FIXTURE" --maven-repo "$GITHUB_WORKSPACE/.m2"' \
+  '          --output "target/quarkus-4-native-evidence/$NATIVE_TARGET/$NATIVE_FIXTURE"' \
+  '          name: quarkus-4-native-${{ matrix.target }}-${{ matrix.fixture }}' \
+  '          path: target/quarkus-4-native-evidence/${{ matrix.target }}/${{ matrix.fixture }}/' \
+  '          if-no-files-found: error'; do
+  if ! grep -Fxq "$literal" <<<"$q4_native"; then
+    report_workflow_error "$BUILD_WORKFLOW" "native acceptance requires its verified compiler and real execution harness ('$literal')"
+  fi
+done
 
 # Every branch declares its release line, consistent with its project version.
 project_version="$(perl -0ne 'print $1 and exit if m{<artifactId>bootui-parent</artifactId>\s*<version>([^<]+)</version>}' "$ROOT_POM")"

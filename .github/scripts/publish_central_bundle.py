@@ -15,14 +15,19 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 
+from assemble_central_bundle import _load_bundle_check
+
+BUNDLE_CHECK = _load_bundle_check()
 DEFAULT_PORTAL_URL = "https://central.sonatype.com"
 # Validation of a release-sized bundle usually takes a few minutes; this is a patience limit only.
 DEFAULT_TIMEOUT_SECONDS = 60 * 60
@@ -34,6 +39,27 @@ IN_PROGRESS_STATES = {"PENDING", "VALIDATING"}
 
 class PublishError(Exception):
     pass
+
+
+def validate_bundle(bundle: Path, name: str) -> None:
+    """Refuse partial/foreign distributions and over-budget ZIP payloads before any Portal mutation."""
+    match = re.fullmatch(r"bootui-((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))", name)
+    if match is None:
+        raise PublishError("deployment name must be bootui-<stable version>")
+    version = match[1]
+    expected = set()
+    for artifact in BUNDLE_CHECK.PUBLISHED:
+        prefix = f"com/julien-dubois/bootui/{artifact}/{version}/{artifact}-{version}"
+        payloads = [prefix + suffix for suffix in (".pom", ".jar", "-sources.jar", "-javadoc.jar")]
+        payloads += [f"{prefix}-{classifier}.jar" for classifier in BUNDLE_CHECK.EXTRA_FILES.get(artifact, ())]
+        expected.update(payload + suffix for payload in payloads for suffix in ("", ".md5", ".sha1", ".sha256", ".asc"))
+    with zipfile.ZipFile(bundle) as archive:
+        files = archive.infolist()
+        if len(files) != len(expected) or {item.filename for item in files} != expected:
+            raise PublishError(f"bundle must contain exactly all {len(BUNDLE_CHECK.PUBLISHED)} signed published coordinates")
+        size = sum(item.file_size for item in files)
+        if size >= BUNDLE_CHECK.MAX_RELEASE_BYTES:
+            raise PublishError(f"release payload must be below {BUNDLE_CHECK.MAX_RELEASE_BYTES:,} bytes, regardless of ZIP compression")
 
 
 def _authorization() -> str:
@@ -133,11 +159,12 @@ def main(argv: list[str]) -> int:
     try:
         if not bundle.is_file():
             raise PublishError(f"bundle {bundle} does not exist")
+        validate_bundle(bundle, name)
         authorization = _authorization()
         deployment_id = upload(portal_url, authorization, bundle, name, auto_publish)
         print(f"Uploaded {bundle.name} as Central Portal deployment {deployment_id}", flush=True)
         state = wait(portal_url, authorization, deployment_id, auto_publish, timeout_seconds, poll_seconds)
-    except PublishError as error:
+    except (PublishError, OSError, zipfile.BadZipFile) as error:
         print(f"::error::Maven Central publication failed: {error}", file=sys.stderr)
         return 1
     if state == "VALIDATED":

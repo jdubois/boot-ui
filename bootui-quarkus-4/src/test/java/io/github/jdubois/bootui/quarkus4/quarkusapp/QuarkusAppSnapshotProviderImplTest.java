@@ -1,0 +1,1052 @@
+package io.github.jdubois.bootui.quarkus4.quarkusapp;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
+import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
+import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
+import io.quarkus.restclient.config.AbstractRestClientConfigBuilder;
+import io.quarkus.restclient.config.RegisteredRestClient;
+import io.quarkus.runtime.configuration.DurationConverter;
+import io.smallrye.config.PropertiesConfigSource;
+import io.smallrye.config.SmallRyeConfig;
+import io.smallrye.config.SmallRyeConfigBuilder;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.eclipse.microprofile.config.spi.ConfigSource;
+import org.junit.jupiter.api.Test;
+
+class QuarkusAppSnapshotProviderImplTest {
+
+    private static final String CLIENT = "com.example.RemoteClient";
+    private static final QuarkusAppMetadata EMPTY =
+            new QuarkusAppMetadata(true, 0, 0, 0, 0, 0, true, true, false, List.of(), List.of(), List.of(), List.of());
+
+    @Test
+    void productionDeclarationDoesNotCertifyAnUnobservedDeployment() {
+        QuarkusAppSnapshot snapshot =
+                snapshot("dev", Map.of("%prod.quarkus.hibernate-orm.schema-management.strategy", "drop-and-create"));
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("drop-and-create");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-PROD-002");
+        assertThat(snapshot.problems()).anyMatch(p -> p.ruleId().equals("QA-PROD-002"));
+    }
+
+    @Test
+    void unprofiledActiveProductionSettingsUseNativeConfigResolutionAndDeferHibernateRulesToHibernateAdvisor() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.hibernate-orm.schema-management.strategy", "create",
+                        "%dev.quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                        "quarkus.hibernate-orm.log.sql", "true",
+                        "quarkus.log.level", "DEBUG",
+                        "%dev.quarkus.log.level", "INFO"));
+        assertThat(values(snapshot, "QA-PROD-002")).isEmpty();
+        assertThat(values(snapshot, "QA-CFG-002")).isEmpty();
+        assertThat(values(snapshot, "QA-CFG-003")).containsExactly("verbose");
+        assertThat(snapshot.evaluatedConfigurationRules()).contains("QA-PROD-002", "QA-CFG-002", "QA-CFG-003");
+    }
+
+    @Test
+    void unqualifiedBaseFileProductionSettingsAreProjectedUnlessProductionOverridesThem() {
+        ConfigSource base = new PropertiesConfigSource(
+                Map.of(
+                        "quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                        "quarkus.hibernate-orm.log.sql", "true",
+                        "quarkus.log.level", "FINE",
+                        "quarkus.datasource.jdbc.url", "jdbc:h2:mem"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        QuarkusAppSnapshot projected = collect(builder("dev").withSources(base).build(), EMPTY);
+        assertThat(values(projected, "QA-PROD-002")).containsExactly("drop-and-create");
+        assertThat(values(projected, "QA-CFG-002")).containsExactly("true");
+        assertThat(values(projected, "QA-CFG-003")).containsExactly("verbose");
+        assertThat(values(projected, "QA-PROD-003")).containsExactly("in-memory");
+
+        ConfigSource overridden = new PropertiesConfigSource(
+                Map.of(
+                        "quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                        "%prod.quarkus.hibernate-orm.schema-management.strategy", "validate",
+                        "quarkus.hibernate-orm.log.sql", "true",
+                        "%prod.quarkus.hibernate-orm.log.sql", "false"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        QuarkusAppSnapshot overriddenSnap =
+                collect(builder("dev").withSources(overridden).build(), EMPTY);
+        assertThat(values(overriddenSnap, "QA-PROD-002")).containsExactly("validate");
+        assertThat(values(overriddenSnap, "QA-CFG-002")).containsExactly("false");
+
+        ConfigSource placeholders = new PropertiesConfigSource(
+                Map.of(
+                        "quarkus.hibernate-orm.schema-management.strategy", "${SCHEMA_STRATEGY:none}",
+                        "quarkus.log.level", "${LOG_LEVEL:INFO}",
+                        "quarkus.datasource.jdbc.url", "${DB_URL:jdbc:postgresql://localhost/db}",
+                        "quarkus.hibernate-orm.log.bind-parameters", "${BIND_PARAMS:false}"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        QuarkusAppSnapshot placeholderSnap =
+                collect(builder("dev").withSources(placeholders).build(), EMPTY);
+        assertThat(values(placeholderSnap, "QA-PROD-002")).isEmpty();
+        assertThat(values(placeholderSnap, "QA-CFG-003")).isEmpty();
+        assertThat(values(placeholderSnap, "QA-PROD-003")).isEmpty();
+        assertThat(values(placeholderSnap, "QA-CFG-005")).isEmpty();
+        assertThat(placeholderSnap.problems())
+                .noneMatch(p -> p.message().equals("Required configuration evidence could not be read or converted."));
+    }
+
+    @Test
+    void developmentDefaultIsNotProjectedIntoProduction() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                        "%dev.quarkus.datasource.jdbc.url", "jdbc:h2:mem:dev"));
+        assertThat(values(snapshot, "QA-PROD-002")).isEmpty();
+        assertThat(values(snapshot, "QA-PROD-003")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-PROD-002", "QA-PROD-003");
+    }
+
+    @Test
+    void removedExplicitStrategyCannotHideTheActiveReplacement() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod.quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                        "%prod.quarkus.hibernate-orm.database.generation", "validate"));
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("drop-and-create");
+        assertThat(values(snapshot, "QA-CFG-004")).containsExactly("legacy");
+    }
+
+    @Test
+    void namedUnitsAndQuotedDotsAreNotLost() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod.quarkus.hibernate-orm.\"orders.eu\".schema-management.strategy", "create",
+                        "%prod.quarkus.hibernate-orm.billing.database.generation", "update",
+                        "%prod.quarkus.hibernate-orm.billing.log.sql", "true"));
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("create");
+        assertThat(values(snapshot, "QA-CFG-002")).containsExactly("true");
+        assertThat(values(snapshot, "QA-CFG-004")).containsExactly("legacy");
+    }
+
+    @Test
+    void specificProfileOverridesCombinedProfileDeclaration() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod,dev.quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                        "%prod.quarkus.hibernate-orm.schema-management.strategy", "validate"));
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("validate");
+    }
+
+    @Test
+    void productionSourcePriorityIsPreserved() {
+        ConfigSource lower = new PropertiesConfigSource(
+                Map.of("%prod.quarkus.hibernate-orm.schema-management.strategy", "drop-and-create"), "lower", 100);
+        ConfigSource higher = new PropertiesConfigSource(
+                Map.of("%prod.quarkus.hibernate-orm.schema-management.strategy", "validate"), "higher", 500);
+        QuarkusAppSnapshot snapshot =
+                collect(builder("dev").withSources(lower, higher).build(), EMPTY);
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("validate");
+    }
+
+    @Test
+    void inactiveProductionExpressionsCannotResolveThroughDevelopmentValues() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod.quarkus.hibernate-orm.schema-management.strategy", "${schema.mode}",
+                        "schema.mode", "drop-and-create",
+                        "%prod.quarkus.log.level", "DEBUG"));
+        assertThat(values(snapshot, "QA-PROD-002")).isEmpty();
+        assertThat(values(snapshot, "QA-CFG-003")).containsExactly("verbose");
+        assertThat(snapshot.problems()).anyMatch(p -> p.ruleId().equals("QA-PROD-002"));
+    }
+
+    @Test
+    void multipleActiveProfilesAreNotMistakenForTheProductionDeployment() {
+        SmallRyeConfig config = builder("dev")
+                .withProfiles(List.of("prod", "dev"))
+                .withSources(new PropertiesConfigSource(
+                        Map.of(
+                                "%prod.quarkus.hibernate-orm.schema-management.strategy", "validate",
+                                "%dev.quarkus.hibernate-orm.schema-management.strategy", "drop-and-create"),
+                        "test",
+                        1000))
+                .build();
+        QuarkusAppSnapshot snapshot = collect(config, EMPTY);
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("validate");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-PROD-002");
+    }
+
+    @Test
+    void invalidNewStrategyIsNotAliasedToADestructiveAction() {
+        QuarkusAppSnapshot snapshot =
+                snapshot("dev", Map.of("%prod.quarkus.hibernate-orm.schema-management.strategy", "create-drop"));
+        assertThat(values(snapshot, "QA-PROD-002")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-PROD-002");
+        assertThat(snapshot.problems())
+                .anyMatch(p -> p.ruleId().equals("QA-PROD-002")
+                        && p.message().equals("A schema action could not be classified safely."));
+    }
+
+    @Test
+    void namespaceParserMatchesKnownUnitAndDatasourceSuffixesWithoutFabricatingPhantomUnits() {
+        assertThat(QuarkusAppSnapshotProviderImpl.namespace(
+                        "quarkus.hibernate-orm.database.generation.create-schemas", "quarkus", "hibernate-orm"))
+                .isNull();
+        assertThat(QuarkusAppSnapshotProviderImpl.namespace(
+                        "quarkus.hibernate-orm.scripts.generation.create-target", "quarkus", "hibernate-orm"))
+                .isNull();
+        assertThat(QuarkusAppSnapshotProviderImpl.namespace(
+                        "quarkus.datasource.jdbc.telemetry.enabled", "quarkus", "datasource"))
+                .isNull();
+        assertThat(QuarkusAppSnapshotProviderImpl.namespace(
+                        "quarkus.hibernate-orm.\"orders\".packages", "quarkus", "hibernate-orm"))
+                .isEqualTo("quarkus.hibernate-orm.\"orders\".");
+        assertThat(QuarkusAppSnapshotProviderImpl.namespace(
+                        "quarkus.datasource.\"orders\".db-kind", "quarkus", "datasource"))
+                .isEqualTo("quarkus.datasource.\"orders\".");
+    }
+
+    @Test
+    void julLoggingLevelsAreClassifiedCorrectly() {
+        for (String verbose : List.of("FINE", "FINER", "FINEST")) {
+            assertThat(values(snapshot("prod", Map.of("quarkus.log.level", verbose)), "QA-CFG-003"))
+                    .as(verbose)
+                    .containsExactly("verbose");
+        }
+        for (String normal : List.of("CONFIG", "SEVERE", "WARNING")) {
+            assertThat(values(snapshot("prod", Map.of("quarkus.log.level", normal)), "QA-CFG-003"))
+                    .as(normal)
+                    .containsExactly("normal");
+        }
+    }
+
+    @Test
+    void deprecatedGenerationSubPropertiesAlsoTriggerMigrationAdvice() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.hibernate-orm.database.generation", "update",
+                        "quarkus.hibernate-orm.database.generation.create-schemas", "true",
+                        "%prod.quarkus.hibernate-orm.\"orders\".database.generation.halt-on-error", "true",
+                        "quarkus.hibernate-orm.schema-management.create-schemas", "true",
+                        "quarkus.hibernate-orm.database.default-schema", "app"));
+        assertThat(snapshot.settings())
+                .filteredOn(setting -> setting.ruleId().equals("QA-CFG-004"))
+                .extracting(QuarkusAppSnapshot.Setting::target)
+                .containsExactly(
+                        "%prod.quarkus.hibernate-orm.\"orders\".database.generation",
+                        "quarkus.hibernate-orm.database.generation");
+    }
+
+    @Test
+    void legacyGenerationRecognizesOnlyTheDeprecatedGroup() {
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration("quarkus.hibernate-orm.database.generation"))
+                .isTrue();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
+                        "quarkus.hibernate-orm.\"a.b\".database.generation.create-schemas"))
+                .isTrue();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration("quarkus.hibernate-orm.database.generation.other"))
+                .isFalse();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
+                        "quarkus.hibernate-orm.scripts.generation.create-target"))
+                .isFalse();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration("vendor.hibernate-orm.database.generation"))
+                .isFalse();
+    }
+
+    @Test
+    void unrelatedAndAbsentLegacyPropertiesDoNotTriggerMigrationAdvice() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "prod",
+                Map.of(
+                        "vendor.database.generation", "update",
+                        "quarkus.hibernate-orm.database.generation", "",
+                        "quarkus.hibernate-orm.\"unit\".vendor.database.generation", "create"));
+        assertThat(values(snapshot, "QA-CFG-004")).isEmpty();
+    }
+
+    @Test
+    void databaseKindAloneNeverProvesVolatileStorage() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.db-kind", "h2",
+                        "quarkus.datasource.jdbc.url", "jdbc:h2:file:./durable"));
+        assertThat(values(snapshot, "QA-PROD-003")).containsExactly("persistent-or-unclassified");
+    }
+
+    @Test
+    void memoryUrlClassificationRecognizesStorageModeNotIncidentalSubstrings() {
+        for (String url : List.of(
+                "jdbc:h2:mem",
+                "jdbc:h2:mem;DB_CLOSE_DELAY=-1",
+                "jdbc:h2:mem:test",
+                "jdbc:hsqldb:mem:test",
+                "jdbc:derby:memory:test",
+                "jdbc:sqlite::memory:",
+                "jdbc:sqlite::memory:?cache=shared",
+                "jdbc:h2:tcp://localhost/mem:test",
+                "jdbc:derby://localhost:1527/memory:test")) {
+            assertThat(QuarkusAppSnapshotProviderImpl.inMemory(url)).as(url).isTrue();
+        }
+        for (String url : List.of(
+                "jdbc:h2:file:./mem:data",
+                "jdbc:postgresql://localhost/mem:database",
+                "jdbc:h2:tcp://localhost/persistent",
+                "jdbc:derby:./database",
+                "jdbc:h2:tcp://mem:9000/persistent")) {
+            assertThat(QuarkusAppSnapshotProviderImpl.inMemory(url)).as(url).isFalse();
+        }
+    }
+
+    @Test
+    void namedDatasourceMemoryEvidenceNeverExposesTheUrl() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "prod",
+                Map.of("quarkus.datasource.\"orders\".jdbc.url", "jdbc:h2:mem:orders;PASSWORD=never-print-this"));
+        assertThat(values(snapshot, "QA-PROD-003")).containsExactly("in-memory");
+        assertThat(snapshot.toString()).doesNotContain("never-print-this", "jdbc:h2:");
+    }
+
+    @Test
+    void compressionDistinguishesKnownDefaultAndExplicitOverrideIncludingBuildTimeRunTimeFixedSource() {
+        assertThat(values(snapshot("prod", Map.of()), "QA-WEB-001")).containsExactly("default-disabled");
+        assertThat(values(snapshot("prod", Map.of("quarkus.http.enable-compression", "false")), "QA-WEB-001"))
+                .containsExactly("disabled");
+        assertThat(values(snapshot("prod", Map.of("quarkus.http.enable-compression", "true")), "QA-WEB-001"))
+                .containsExactly("enabled");
+
+        ConfigSource buildTimeDefaults = new PropertiesConfigSource(
+                Map.of("quarkus.http.enable-compression", "false"), "BuildTime RunTime Fixed", Integer.MAX_VALUE);
+        assertThat(values(collect(builder("dev").withSources(buildTimeDefaults).build(), EMPTY), "QA-WEB-001"))
+                .containsExactly("default-disabled");
+
+        ConfigSource userDisabled = new PropertiesConfigSource(
+                Map.of("quarkus.http.enable-compression", "false"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        assertThat(values(
+                        collect(
+                                builder("dev")
+                                        .withSources(buildTimeDefaults, userDisabled)
+                                        .build(),
+                                EMPTY),
+                        "QA-WEB-001"))
+                .containsExactly("disabled");
+    }
+
+    @Test
+    void productionBindParameterLoggingIgnoresTheRemovedFlag() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod.quarkus.hibernate-orm.log.bind-param", "true",
+                        "%prod.quarkus.hibernate-orm.log.bind-parameters", "false"));
+        assertThat(values(snapshot, "QA-CFG-005")).containsExactly("false");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-CFG-005");
+        assertThat(snapshot.problems()).anyMatch(p -> p.ruleId().equals("QA-CFG-005"));
+        assertThat(values(
+                        snapshot("dev", Map.of("%prod.quarkus.hibernate-orm.log.bind-parameters", "off")),
+                        "QA-CFG-005"))
+                .containsExactly("false");
+        assertThat(values(snapshot("dev", Map.of("%prod.quarkus.hibernate-orm.log.bind-param", "true")), "QA-CFG-005"))
+                .isEmpty();
+    }
+
+    @Test
+    void productionHibernateCategoriesRequireDirectLevelsAndPermittingMinimums() {
+        for (String category : List.of("org.hibernate.orm.jdbc.bind", "org.hibernate.SQL")) {
+            String rule = category.equals("org.hibernate.SQL") ? "QA-CFG-002" : "QA-CFG-005";
+            String threshold = category.equals("org.hibernate.SQL") ? "DEBUG" : "TRACE";
+            String key = "%prod.quarkus.log.category.\"" + category + "\".";
+            QuarkusAppSnapshot snapshot =
+                    snapshot("dev", Map.of(key + "level", threshold, key + "min-level", threshold));
+            assertThat(values(snapshot, rule)).as(category).containsExactly("true");
+            assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain(rule);
+            assertThat(snapshot.problems()).anyMatch(p -> p.ruleId().equals(rule));
+            assertThat(snapshot.settings().stream().filter(s -> s.ruleId().equals(rule)))
+                    .allMatch(s -> s.provenance().contains("production"));
+            var report = QuarkusAppScanner.usingSnapshot(() -> snapshot, Clock.systemUTC())
+                    .scan();
+            assertThat(report.scan().status()).isEqualTo("PARTIAL");
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals(rule))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.severity())
+                                .isEqualTo(category.equals("org.hibernate.SQL") ? "MEDIUM" : "HIGH");
+                        assertThat(result.violationCount()).isEqualTo(1);
+                        assertThat(result.description()).contains("Coverage is incomplete");
+                    });
+        }
+    }
+
+    @Test
+    void productionHibernateCategoryMinimumsSuppressOtherwiseVerboseDeclarations() {
+        for (String category : List.of("org.hibernate.orm.jdbc.bind", "org.hibernate.SQL")) {
+            String rule = category.equals("org.hibernate.SQL") ? "QA-CFG-002" : "QA-CFG-005";
+            String threshold = category.equals("org.hibernate.SQL") ? "DEBUG" : "TRACE";
+            String suppressed = category.equals("org.hibernate.SQL") ? "INFO" : "DEBUG";
+            String key = "%prod.quarkus.log.category.\"" + category + "\".";
+            for (Map<String, String> declarations : List.of(
+                    Map.of(key + "level", threshold, key + "min-level", suppressed),
+                    Map.of(key + "level", "INFO", key + "min-level", threshold))) {
+                QuarkusAppSnapshot snapshot = snapshot("dev", declarations);
+                assertThat(values(snapshot, rule)).as(category).isEmpty();
+                assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain(rule);
+            }
+        }
+    }
+
+    @Test
+    void unresolvedInheritedAndMissingCategoryLevelsDoNotEstablishProductionLogging() {
+        for (String category : List.of("org.hibernate.orm.jdbc.bind", "org.hibernate.SQL")) {
+            String rule = category.equals("org.hibernate.SQL") ? "QA-CFG-002" : "QA-CFG-005";
+            String threshold = category.equals("org.hibernate.SQL") ? "DEBUG" : "TRACE";
+            String key = "%prod.quarkus.log.category.\"" + category + "\".";
+            for (Map<String, String> declarations : List.of(
+                    Map.of(key + "level", threshold),
+                    Map.of(key + "min-level", threshold),
+                    Map.of(key + "level", "inherit", key + "min-level", threshold),
+                    Map.of(key + "level", threshold, key + "min-level", "inherit"),
+                    Map.of(key + "level", "${private.logger.level}", key + "min-level", threshold),
+                    Map.of(key + "level", threshold, key + "min-level", "${private.logger.minimum}"),
+                    Map.of(key + "level", "invalid-private-level", key + "min-level", threshold),
+                    Map.of(
+                            "%prod.quarkus.log.category.\"org.hibernate\".level", threshold,
+                            "%prod.quarkus.log.category.\"org.hibernate\".min-level", threshold))) {
+                QuarkusAppSnapshot snapshot = snapshot("dev", declarations);
+                assertThat(values(snapshot, rule)).as(declarations.toString()).isEmpty();
+                assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain(rule);
+                assertThat(snapshot.problems()).noneMatch(p -> p.message().contains("private"));
+            }
+        }
+    }
+
+    @Test
+    void productionBindCategoryAndGlobalFlagsProduceOnlyOneObservation() {
+        String key = "%prod.quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".";
+        for (String flag : List.of("false", "true")) {
+            QuarkusAppSnapshot snapshot = snapshot(
+                    "dev",
+                    Map.of(
+                            key + "level",
+                            "TRACE",
+                            key + "min-level",
+                            "TRACE",
+                            "%prod.quarkus.hibernate-orm.log.bind-parameters",
+                            flag,
+                            "%prod.quarkus.hibernate-orm.log.bind-param",
+                            flag));
+            assertThat(values(snapshot, "QA-CFG-005")).as(flag).containsExactly("true");
+        }
+        QuarkusAppSnapshot suppressedCategory = snapshot(
+                "dev",
+                Map.of(
+                        key + "level",
+                        "TRACE",
+                        key + "min-level",
+                        "DEBUG",
+                        "%prod.quarkus.hibernate-orm.log.bind-parameters",
+                        "true"));
+        assertThat(values(suppressedCategory, "QA-CFG-005")).containsExactly("true");
+    }
+
+    @Test
+    void unknownLoggingDeclarationsDoNotDiscardIndependentKnownPositives() {
+        String bind = "%prod.quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".";
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        bind + "level",
+                                        "TRACE",
+                                        bind + "min-level",
+                                        "TRACE",
+                                        "%prod.quarkus.hibernate-orm.log.bind-parameters",
+                                        "${unknown.bind.flag}")),
+                        "QA-CFG-005"))
+                .containsExactly("true");
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        bind + "level",
+                                        "${unknown.bind.level}",
+                                        bind + "min-level",
+                                        "TRACE",
+                                        "%prod.quarkus.hibernate-orm.log.bind-parameters",
+                                        "true")),
+                        "QA-CFG-005"))
+                .containsExactly("true");
+        String sql = "%prod.quarkus.log.category.\"org.hibernate.SQL\".";
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        sql + "level",
+                                        "DEBUG",
+                                        sql + "min-level",
+                                        "DEBUG",
+                                        "%prod.quarkus.hibernate-orm.log.sql",
+                                        "${unknown.sql.flag}")),
+                        "QA-CFG-002"))
+                .containsExactly("true");
+    }
+
+    @Test
+    void productionSqlCategoryIsGlobalAndRetainsIndependentUnitLogging() {
+        String key = "%prod.quarkus.log.category.\"org.hibernate.SQL\".";
+        for (String unit : List.of("", "\"orders.eu\".")) {
+            for (String flag : List.of("false", "true")) {
+                QuarkusAppSnapshot snapshot = snapshot(
+                        "dev",
+                        Map.of(
+                                key + "level", "DEBUG",
+                                key + "min-level", "DEBUG",
+                                "%prod.quarkus.hibernate-orm." + unit + "log.sql", flag));
+                assertThat(values(snapshot, "QA-CFG-002").stream().filter("true"::equals))
+                        .as(unit + flag)
+                        .hasSize(flag.equals("true") ? 2 : 1);
+                assertThat(snapshot.settings().stream()
+                                .filter(s -> s.ruleId().equals("QA-CFG-002")
+                                        && s.value().equals("true")
+                                        && s.target().equals("org.hibernate.SQL")))
+                        .hasSize(1);
+            }
+        }
+        QuarkusAppSnapshot multipleUnits = snapshot(
+                "dev",
+                Map.of(
+                        key + "level",
+                        "DEBUG",
+                        key + "min-level",
+                        "DEBUG",
+                        "%prod.quarkus.hibernate-orm.log.sql",
+                        "true",
+                        "%prod.quarkus.hibernate-orm.\"orders.eu\".log.sql",
+                        "true"));
+        assertThat(multipleUnits.settings().stream().filter(s -> s.ruleId().equals("QA-CFG-002")))
+                .extracting(QuarkusAppSnapshot.Setting::target)
+                .containsExactlyInAnyOrder(
+                        "quarkus.hibernate-orm.log.sql",
+                        "quarkus.hibernate-orm.\"orders.eu\".log.sql",
+                        "org.hibernate.SQL");
+    }
+
+    @Test
+    void categoryProjectionPreservesBaseFileAndProductionOverridePrecedence() {
+        String key = "quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".";
+        ConfigSource base = new PropertiesConfigSource(
+                Map.of(key + "level", "TRACE", key + "min-level", "TRACE"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        assertThat(values(collect(builder("dev").withSources(base).build(), EMPTY), "QA-CFG-005"))
+                .containsExactly("true");
+        ConfigSource override =
+                new PropertiesConfigSource(Map.of("%prod." + key + "min-level", "DEBUG"), "production-override", 500);
+        assertThat(values(collect(builder("dev").withSources(base, override).build(), EMPTY), "QA-CFG-005"))
+                .isEmpty();
+    }
+
+    @Test
+    void categoryDeclarationsIgnoreDevelopmentSourcesActiveProductionAndAbsentOrm() {
+        Map<String, String> declarations = Map.of(
+                "quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".level", "TRACE",
+                "quarkus.log.category.\"org.hibernate.orm.jdbc.bind\".min-level", "TRACE",
+                "quarkus.log.category.\"org.hibernate.SQL\".level", "DEBUG",
+                "quarkus.log.category.\"org.hibernate.SQL\".min-level", "DEBUG");
+        for (String profile : List.of("dev", "prod")) {
+            QuarkusAppSnapshot snapshot = snapshot(profile, declarations);
+            assertThat(values(snapshot, "QA-CFG-002")).isEmpty();
+            assertThat(values(snapshot, "QA-CFG-005")).isEmpty();
+        }
+        ConfigSource devFile = new PropertiesConfigSource(
+                declarations, "PropertiesConfigSource[source=file:/app/application-dev.properties]", 255);
+        QuarkusAppSnapshot fromDevFile =
+                collect(builder("dev").withSources(devFile).build(), EMPTY);
+        assertThat(values(fromDevFile, "QA-CFG-002")).isEmpty();
+        assertThat(values(fromDevFile, "QA-CFG-005")).isEmpty();
+
+        Map<String, String> production = new LinkedHashMap<>();
+        declarations.forEach((key, value) -> production.put("%prod." + key, value));
+        QuarkusAppMetadata withoutOrm = new QuarkusAppMetadata(
+                true, 0, 0, 0, 0, 0, false, true, false, List.of(), List.of(), List.of(), List.of());
+        QuarkusAppSnapshot absent = collect(
+                builder("dev")
+                        .withSources(new PropertiesConfigSource(production, "test", 1000))
+                        .build(),
+                withoutOrm);
+        assertThat(values(absent, "QA-CFG-002")).isEmpty();
+        assertThat(values(absent, "QA-CFG-005")).isEmpty();
+        assertThat(absent.evaluatedConfigurationRules()).contains("QA-CFG-002", "QA-CFG-005");
+    }
+
+    @Test
+    void bindParameterLoggingIgnoresDevelopmentPerUnitAndActiveProductionEvidence() {
+        QuarkusAppSnapshot development = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.hibernate-orm.log.bind-parameters", "true",
+                        "%dev.quarkus.hibernate-orm.log.bind-param", "true",
+                        "%prod.quarkus.hibernate-orm.\"orders\".log.bind-parameters", "true"));
+        assertThat(values(development, "QA-CFG-005")).isEmpty();
+
+        QuarkusAppSnapshot activeProduction =
+                snapshot("prod", Map.of("quarkus.hibernate-orm.log.bind-parameters", "true"));
+        assertThat(values(activeProduction, "QA-CFG-005")).isEmpty();
+        assertThat(activeProduction.evaluatedConfigurationRules()).contains("QA-CFG-005");
+    }
+
+    @Test
+    void unqualifiedBaseFileBindParameterLoggingIsPackagedUnlessProductionOverridesIt() {
+        ConfigSource base = new PropertiesConfigSource(
+                Map.of("quarkus.hibernate-orm.log.bind-parameters", "true"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        assertThat(values(collect(builder("dev").withSources(base).build(), EMPTY), "QA-CFG-005"))
+                .containsExactly("true");
+
+        ConfigSource overridden = new PropertiesConfigSource(
+                Map.of(
+                        "quarkus.hibernate-orm.log.bind-parameters", "true",
+                        "%prod.quarkus.hibernate-orm.log.bind-parameters", "false"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        assertThat(values(collect(builder("dev").withSources(overridden).build(), EMPTY), "QA-CFG-005"))
+                .containsExactly("false");
+
+        ConfigSource profileFile = new PropertiesConfigSource(
+                Map.of("quarkus.hibernate-orm.log.bind-parameters", "true"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application-dev.properties]",
+                255);
+        assertThat(values(collect(builder("dev").withSources(profileFile).build(), EMPTY), "QA-CFG-005"))
+                .isEmpty();
+    }
+
+    @Test
+    void absentOrmCapabilityMakesBindParameterLoggingInapplicable() {
+        QuarkusAppMetadata withoutOrm = new QuarkusAppMetadata(
+                true, 0, 0, 0, 0, 0, false, true, false, List.of(), List.of(), List.of(), List.of());
+        QuarkusAppSnapshot snapshot = collect(
+                builder("dev")
+                        .withSources(new PropertiesConfigSource(
+                                Map.of("%prod.quarkus.hibernate-orm.log.bind-parameters", "true"), "test", 1000))
+                        .build(),
+                withoutOrm);
+        assertThat(values(snapshot, "QA-CFG-005")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).contains("QA-CFG-005");
+    }
+
+    @Test
+    void developmentScanMarksProductionFacingWebRulesIncompleteButKeepsTheirObservations() {
+        QuarkusAppSnapshot snapshot = snapshot("dev", Map.of());
+        assertThat(values(snapshot, "QA-WEB-001")).containsExactly("default-disabled");
+        assertThat(values(snapshot, "QA-WEB-004")).containsExactly("absent");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-001", "QA-WEB-004");
+        assertThat(snapshot("prod", Map.of()).evaluatedConfigurationRules()).contains("QA-WEB-001", "QA-WEB-004");
+    }
+
+    @Test
+    void visibleProductionCompressionDeclarationWinsInDevelopment() {
+        QuarkusAppSnapshot enabled = snapshot("dev", Map.of("%prod.quarkus.http.enable-compression", "true"));
+        assertThat(values(enabled, "QA-WEB-001")).containsExactly("enabled");
+        assertThat(enabled.settings())
+                .filteredOn(setting -> setting.ruleId().equals("QA-WEB-001"))
+                .extracting(QuarkusAppSnapshot.Setting::provenance)
+                .containsExactly("visible production declaration");
+        assertThat(values(snapshot("dev", Map.of("%prod.quarkus.http.enable-compression", "false")), "QA-WEB-001"))
+                .containsExactly("disabled");
+        assertThat(values(snapshot("dev", Map.of()), "QA-WEB-001")).containsExactly("default-disabled");
+    }
+
+    @Test
+    void visibleProductionShutdownDeclarationWinsInDevelopment() {
+        QuarkusAppSnapshot declared = snapshot("dev", Map.of("%prod.quarkus.shutdown.timeout", "30s"));
+        assertThat(values(declared, "QA-WEB-004")).containsExactly("positive");
+        assertThat(declared.settings())
+                .filteredOn(setting -> setting.ruleId().equals("QA-WEB-004"))
+                .extracting(QuarkusAppSnapshot.Setting::provenance)
+                .containsExactly("visible production declaration");
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        "quarkus.shutdown.timeout", "10s",
+                                        "%prod.quarkus.shutdown.timeout", "0")),
+                        "QA-WEB-004"))
+                .containsExactly("zero");
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        "quarkus.shutdown.timeout", "10s",
+                                        "%prod.quarkus.shutdown.timeout", "PT0.0005S")),
+                        "QA-WEB-004"))
+                .containsExactly("zero");
+        assertThat(values(snapshot("dev", Map.of("quarkus.shutdown.timeout", "10s")), "QA-WEB-004"))
+                .containsExactly("positive");
+        assertThat(values(snapshot("dev", Map.of()), "QA-WEB-004")).containsExactly("absent");
+    }
+
+    @Test
+    void unresolvableProductionShutdownDeclarationIsAnErrorNotAbsence() {
+        QuarkusAppSnapshot snapshot =
+                snapshot("dev", Map.of("%prod.quarkus.shutdown.timeout", "${drain.timeout}", "drain.timeout", "5s"));
+        assertThat(values(snapshot, "QA-WEB-004")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-004");
+    }
+
+    @Test
+    void shutdownUsesNativeQuarkusDurationsAndDistinguishesAbsence() {
+        assertThat(values(snapshot("prod", Map.of()), "QA-WEB-004")).containsExactly("absent");
+        assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "0")), "QA-WEB-004"))
+                .containsExactly("zero");
+        assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "PT0.0005S")), "QA-WEB-004"))
+                .containsExactly("zero");
+        assertThat(values(snapshot("prod", Map.of("quarkus.shutdown.timeout", "10s")), "QA-WEB-004"))
+                .containsExactly("positive");
+        for (String invalid : List.of("-1s", "PT-0.0005S", "9223372036854776s")) {
+            QuarkusAppSnapshot bad =
+                    snapshot("prod", Map.of("quarkus.shutdown.timeout", invalid, "quarkus.log.level", "DEBUG"));
+            assertThat(values(bad, "QA-WEB-004")).as(invalid).isEmpty();
+            assertThat(values(bad, "QA-CFG-003")).as(invalid).containsExactly("verbose");
+            assertThat(bad.evaluatedConfigurationRules()).as(invalid).doesNotContain("QA-WEB-004");
+            assertThat(bad.problems())
+                    .as(invalid)
+                    .anyMatch(p ->
+                            p.ruleId().equals("QA-WEB-004") && p.message().equals("The shutdown duration is invalid."));
+        }
+    }
+
+    @Test
+    void malformedOneGroupPreservesOtherEvidenceAndSanitizesErrors() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod.quarkus.shutdown.timeout", "secret-unparseable-duration",
+                        "%prod.quarkus.hibernate-orm.schema-management.strategy", "drop"));
+        assertThat(values(snapshot, "QA-PROD-002")).containsExactly("drop");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-004");
+        assertThat(snapshot.toString()).doesNotContain("secret-unparseable-duration");
+    }
+
+    @Test
+    void finiteClientTimeoutsHaveNoArbitraryFiveMinuteCeiling() {
+        for (String timeout : List.of("15000", "30000", "300000", "300001", "3600000")) {
+            QuarkusAppSnapshot snapshot = clientSnapshot(Map.of("quarkus.rest-client.remote.read-timeout", timeout));
+            assertThat(values(snapshot, "QA-WEB-003")).as(timeout).isEmpty();
+            assertThat(snapshot.evaluatedConfigurationRules()).contains("QA-WEB-003");
+        }
+    }
+
+    @Test
+    void clientSpecificNativeAliasesOverrideGlobalZero() {
+        QuarkusAppSnapshot snapshot = clientSnapshot(Map.of(
+                "quarkus.rest-client.connect-timeout", "0",
+                "remote/mp-rest/connectTimeout", "500",
+                "quarkus.rest-client.unregistered.read-timeout", "0"));
+        assertThat(values(snapshot, "QA-WEB-003")).isEmpty();
+    }
+
+    @Test
+    void nativeClientFqcnConfigKeyAndMpKeysAreRecognized() {
+        for (String key : List.of(
+                "quarkus.rest-client.\"" + CLIENT + "\".read-timeout",
+                "quarkus.rest-client.remote.read-timeout",
+                CLIENT + "/mp-rest/readTimeout",
+                "remote/mp-rest/readTimeout")) {
+            assertThat(values(clientSnapshot(Map.of(key, "0")), "QA-WEB-003"))
+                    .as(key)
+                    .containsExactly("read-zero");
+        }
+    }
+
+    @Test
+    void clientAliasResolutionHonorsSourcePriorityRatherThanTextOrdering() {
+        SmallRyeConfigBuilder builder = clientBuilder();
+        builder.withSources(
+                new PropertiesConfigSource(
+                        Map.of("quarkus.rest-client.\"" + CLIENT + "\".read-timeout", "0"), "lower", 100),
+                new PropertiesConfigSource(Map.of("remote/mp-rest/readTimeout", "500"), "higher", 1000));
+        assertThat(values(collect(builder.build(), clientMetadata()), "QA-WEB-003"))
+                .isEmpty();
+    }
+
+    @Test
+    void globalZeroNamesOnlyTheDisabledTimer() {
+        assertThat(values(clientSnapshot(Map.of("quarkus.rest-client.connect-timeout", "0")), "QA-WEB-003"))
+                .containsExactly("connect-zero");
+    }
+
+    @Test
+    void absentClientCapabilityNeedsNoOptionalClientLookup() {
+        QuarkusAppSnapshot snapshot =
+                snapshot("prod", Map.of("quarkus.rest-client.unrelated.read-timeout", "unparseable"));
+        assertThat(values(snapshot, "QA-WEB-003")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).contains("QA-WEB-003");
+    }
+
+    @Test
+    void absentOptionalOrmAndJdbcCapabilitiesDoNotTurnUnusedPropertiesIntoBehavior() {
+        QuarkusAppMetadata withoutDatabase = new QuarkusAppMetadata(
+                true, 0, 0, 0, 0, 0, false, false, false, List.of(), List.of(), List.of(), List.of());
+        SmallRyeConfig config = builder("prod")
+                .withSources(new PropertiesConfigSource(
+                        Map.of(
+                                "quarkus.hibernate-orm.schema-management.strategy", "drop-and-create",
+                                "quarkus.hibernate-orm.log.sql", "true",
+                                "quarkus.datasource.jdbc.url", "jdbc:h2:mem:unused"),
+                        "test",
+                        1000))
+                .build();
+        QuarkusAppSnapshot snapshot = collect(config, withoutDatabase);
+        assertThat(values(snapshot, "QA-PROD-002")).isEmpty();
+        assertThat(values(snapshot, "QA-PROD-003")).isEmpty();
+        assertThat(values(snapshot, "QA-CFG-002")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).contains("QA-PROD-002", "QA-PROD-003", "QA-CFG-002");
+    }
+
+    @Test
+    void missingMetadataIsUnknownRatherThanAnEmptyRegistrationList() {
+        QuarkusAppSnapshot snapshot = collect(builder("prod").build(), QuarkusAppMetadata.unavailable());
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-003");
+        assertThat(snapshot.problems()).anyMatch(p -> p.ruleId().equals("QA-WEB-003"));
+    }
+
+    @Test
+    void propertyNameOverflowIsExplicitWithoutDiscardingDirectEvidence() {
+        Map<String, String> properties = new LinkedHashMap<>();
+        for (int i = 0; i <= QuarkusAppSnapshotProviderImpl.MAX_PROPERTY_NAMES; i++) {
+            properties.put("unrelated.property." + i, "value");
+        }
+        properties.put("quarkus.shutdown.timeout", "0");
+        QuarkusAppSnapshot snapshot = snapshot("prod", properties);
+        assertThat(snapshot.problems()).anyMatch(p -> p.message().contains("inspection limit"));
+        assertThat(values(snapshot, "QA-WEB-004")).containsExactly("zero");
+        assertThat(snapshot.evaluatedConfigurationRules()).isEmpty();
+    }
+
+    @Test
+    void arcBuildTimeSafetyValidationFlagsExplicitFalseAndPreservesTargetName() {
+        QuarkusAppSnapshot disabled = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.arc.fail-on-intercepted-private-method", "false",
+                        "%prod.quarkus.arc.detect-wrong-annotations", "false"));
+        assertThat(disabled.settings())
+                .filteredOn(s -> s.ruleId().equals("QA-CDI-007"))
+                .extracting(QuarkusAppSnapshot.Setting::target, QuarkusAppSnapshot.Setting::value)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.api.Assertions.tuple(
+                                "quarkus.arc.fail-on-intercepted-private-method", "disabled"),
+                        org.assertj.core.api.Assertions.tuple("quarkus.arc.detect-wrong-annotations", "disabled"));
+        assertThat(values(
+                        snapshot(
+                                "prod",
+                                Map.of(
+                                        "quarkus.arc.fail-on-intercepted-private-method", "true",
+                                        "quarkus.arc.detect-wrong-annotations", "true")),
+                        "QA-CDI-007"))
+                .containsExactly("enabled", "enabled");
+    }
+
+    @Test
+    void deprecatedQuarkusPropertiesAreDetectedAcrossAllSupportedGroups() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.ofEntries(
+                        Map.entry("quarkus.vertx.worker-pool-size", "20"),
+                        Map.entry("quarkus.hibernate-orm.batch-fetch-size", "16"),
+                        Map.entry("quarkus.hibernate-orm.\"orders\".max-fetch-depth", "2"),
+                        Map.entry("quarkus.hibernate-orm.validation.enabled", "false"),
+                        Map.entry("quarkus.hibernate-orm.database.globally-quoted-identifiers", "true"),
+                        Map.entry("quarkus.hibernate-orm.log.bind-param", "true"),
+                        Map.entry("quarkus.log.console.enable", "true"),
+                        Map.entry("quarkus.log.file.async.enable", "true"),
+                        Map.entry("quarkus.log.handler.socket.\"audit\".enable", "true"),
+                        Map.entry("quarkus.smallrye-health.ui.enable", "true"),
+                        Map.entry("quarkus.smallrye-openapi.enable", "true"),
+                        Map.entry("quarkus.swagger-ui.enable", "true"),
+                        Map.entry("quarkus.oidc.proxy.host", "proxy.internal"),
+                        Map.entry("quarkus.oidc.\"corp\".proxy.password", "secret"),
+                        Map.entry("quarkus.rest-client.\"billing\".proxy-address", "http://proxy:8080"),
+                        Map.entry("quarkus.rest-client.non-proxy-hosts", "localhost"),
+                        Map.entry("quarkus.thread-pool.max-threads", "50"),
+                        Map.entry("quarkus.hibernate-orm.fetch.batch-size", "16"),
+                        Map.entry("quarkus.swagger-ui.enabled", "true")));
+        assertThat(snapshot.settings())
+                .filteredOn(s -> s.ruleId().equals("QA-CFG-006"))
+                .extracting(QuarkusAppSnapshot.Setting::target)
+                .containsExactly(
+                        "quarkus.hibernate-orm.\"orders\".max-fetch-depth",
+                        "quarkus.hibernate-orm.batch-fetch-size",
+                        "quarkus.hibernate-orm.database.globally-quoted-identifiers",
+                        "quarkus.hibernate-orm.log.bind-param",
+                        "quarkus.hibernate-orm.validation.enabled",
+                        "quarkus.log.console.enable",
+                        "quarkus.log.file.async.enable",
+                        "quarkus.log.handler.socket.\"audit\".enable",
+                        "quarkus.oidc.\"corp\".proxy.password",
+                        "quarkus.oidc.proxy.host",
+                        "quarkus.rest-client.\"billing\".proxy-address",
+                        "quarkus.rest-client.non-proxy-hosts",
+                        "quarkus.smallrye-health.ui.enable",
+                        "quarkus.smallrye-openapi.enable",
+                        "quarkus.swagger-ui.enable",
+                        "quarkus.vertx.worker-pool-size");
+    }
+
+    @Test
+    void configHygieneDetectsDisabledMappingValidationAndProductionConfigValueLogging() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.config.mapping.validate-unknown", "false",
+                        "smallrye.config.mapping.validate-unknown", "false",
+                        "%prod.quarkus.config.log.values", "true",
+                        "%dev.quarkus.config.log.values", "true"));
+        assertThat(values(snapshot, "QA-CFG-007"))
+                .containsExactly("validate-unknown-disabled", "validate-unknown-disabled", "log-values-enabled");
+        assertThat(values(snapshot("dev", Map.of("%dev.quarkus.config.log.values", "true")), "QA-CFG-007"))
+                .isEmpty();
+    }
+
+    @Test
+    void agroalPoolChecksPoolingAndBackgroundValidationWithoutBorrowOrForegroundValidation() {
+        QuarkusAppSnapshot disabled = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.jdbc.pooling-enabled", "false",
+                        "quarkus.datasource.\"orders\".jdbc.background-validation-interval", "0"));
+        assertThat(values(disabled, "QA-DB-002")).containsExactlyInAnyOrder("pooling-disabled", "validation-disabled");
+
+        QuarkusAppSnapshot borrowValidated = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.jdbc.background-validation-interval", "0",
+                        "quarkus.datasource.jdbc.validate-on-borrow", "true"));
+        assertThat(values(borrowValidated, "QA-DB-002")).containsExactly("enabled");
+
+        QuarkusAppSnapshot foregroundValidated = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.datasource.jdbc.background-validation-interval", "0S",
+                        "quarkus.datasource.jdbc.foreground-validation-interval", "30S"));
+        assertThat(values(foregroundValidated, "QA-DB-002")).containsExactly("enabled");
+    }
+
+    @Test
+    void httpLimitsDetectEmptyMaxBodySizeNegativeFormBoundsAndRetainedUploads() {
+        QuarkusAppSnapshot unlimited = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.http.limits.max-body-size", "",
+                        "quarkus.http.limits.max-form-buffered-bytes", "-1",
+                        "quarkus.http.limits.max-form-fields", "-1",
+                        "quarkus.http.body.delete-uploaded-files-on-end", "false"));
+        assertThat(values(unlimited, "QA-WEB-005"))
+                .containsExactly(
+                        "unlimited-body-size",
+                        "unlimited-form-buffered-bytes",
+                        "unlimited-form-fields",
+                        "retained-uploads");
+
+        QuarkusAppSnapshot uploadsDisabled = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.http.limits.max-body-size", "10240K",
+                        "quarkus.http.body.handle-file-uploads", "false",
+                        "quarkus.http.body.delete-uploaded-files-on-end", "false"));
+        assertThat(values(uploadsDisabled, "QA-WEB-005")).containsExactly("bounded", "bounded");
+    }
+
+    @Test
+    void workerThreadPoolDetectsCoreAboveMaxAndShutdownInterruptAtOrAboveTimeout() {
+        QuarkusAppSnapshot misconfigured = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.thread-pool.core-threads", "32",
+                        "quarkus.thread-pool.max-threads", "16",
+                        "quarkus.thread-pool.shutdown-interrupt", "60s",
+                        "quarkus.thread-pool.shutdown-timeout", "30s"));
+        assertThat(values(misconfigured, "QA-PERF-005"))
+                .containsExactly("core-exceeds-max", "interrupt-not-before-timeout");
+
+        QuarkusAppSnapshot valid = snapshot(
+                "prod",
+                Map.of(
+                        "quarkus.thread-pool.core-threads", "8",
+                        "quarkus.thread-pool.max-threads", "32",
+                        "quarkus.thread-pool.shutdown-interrupt", "10s",
+                        "quarkus.thread-pool.shutdown-timeout", "60s"));
+        assertThat(values(valid, "QA-PERF-005")).containsExactly("valid", "valid");
+    }
+
+    private static List<String> values(QuarkusAppSnapshot snapshot, String rule) {
+        return snapshot.settings().stream()
+                .filter(s -> s.ruleId().equals(rule))
+                .map(QuarkusAppSnapshot.Setting::value)
+                .toList();
+    }
+
+    private static QuarkusAppSnapshot snapshot(String profile, Map<String, String> properties) {
+        return collect(
+                builder(profile)
+                        .withSources(new PropertiesConfigSource(properties, "test", 1000))
+                        .build(),
+                EMPTY);
+    }
+
+    private static SmallRyeConfigBuilder builder(String profile) {
+        return new SmallRyeConfigBuilder()
+                .addDefaultInterceptors()
+                .withProfile(profile)
+                .withConverter(Duration.class, 200, new DurationConverter());
+    }
+
+    private static QuarkusAppSnapshot collect(SmallRyeConfig config, QuarkusAppMetadata metadata) {
+        return new QuarkusAppSnapshotProviderImpl(config, () -> metadata).snapshot();
+    }
+
+    private static QuarkusAppMetadata clientMetadata() {
+        return new QuarkusAppMetadata(
+                true,
+                0,
+                0,
+                0,
+                0,
+                0,
+                false,
+                false,
+                true,
+                List.of(),
+                List.of(),
+                List.of(new QuarkusAppMetadata.RestClient(CLIENT, "remote")),
+                List.of());
+    }
+
+    private static SmallRyeConfigBuilder clientBuilder() {
+        return new AbstractRestClientConfigBuilder() {
+            @Override
+            public List<RegisteredRestClient> getRestClients() {
+                return List.of(new RegisteredRestClient(CLIENT, "RemoteClient", "remote"));
+            }
+        }.configBuilder(builder("prod"));
+    }
+
+    private static QuarkusAppSnapshot clientSnapshot(Map<String, String> properties) {
+        return collect(
+                clientBuilder()
+                        .withSources(new PropertiesConfigSource(properties, "test", 1000))
+                        .build(),
+                clientMetadata());
+    }
+}

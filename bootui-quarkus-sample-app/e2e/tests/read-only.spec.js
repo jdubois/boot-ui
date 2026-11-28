@@ -24,8 +24,7 @@ import {assertScorecardReadOnly} from '../../../bootui-spring-sample-app/e2e/sce
  */
 const testDir = path.dirname(fileURLToPath(import.meta.url))
 const e2eDir = path.resolve(testDir, '..')
-const sampleAppDir = path.resolve(e2eDir, '..')
-const repoRoot = path.resolve(sampleAppDir, '..')
+const repoRoot = path.resolve(e2eDir, '../..')
 const mvnw = path.join(repoRoot, process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw')
 // Quarkus dev-mode has to augment the app and let Dev Services pull/start a throwaway PostgreSQL
 // container (Ollama Dev Services are disabled below), which is much slower than a Spring Boot start on a cold CI runner -
@@ -36,10 +35,16 @@ test.describe.configure({mode: 'serial'})
 test.describe('Read-only properties (Quarkus)', () => {
   test.setTimeout(360_000)
 
-  test('global read-only locks action panels in the API and browser UI', async ({page, request}) => {
-    const app = await startSampleApp({'bootui.read-only': 'true'})
+  test('global read-only locks action panels in the API and browser UI', async ({
+    page,
+    request,
+    quarkusGeneration,
+    agentAttached
+  }, testInfo) => {
+    const app = await startSampleApp({'bootui.read-only': 'true'}, quarkusGeneration, agentAttached)
 
     try {
+      await assertSampleIdentity(request, app.baseUrl, quarkusGeneration, agentAttached, testInfo)
       await request.post(`${app.baseUrl}/api/sample/rest-client-capture`)
       const panels = await fetchPanels(request, app.baseUrl)
       const overviewPanel = panels.find((panel) => panel.id === 'overview')
@@ -94,10 +99,16 @@ test.describe('Read-only properties (Quarkus)', () => {
     }
   })
 
-  test('per-panel read-only locks only the configured action panel', async ({page, request}) => {
-    const app = await startSampleApp({'bootui.panels.http-probe.read-only': 'true'})
+  test('per-panel read-only locks only the configured action panel', async ({
+    page,
+    request,
+    quarkusGeneration,
+    agentAttached
+  }, testInfo) => {
+    const app = await startSampleApp({'bootui.panels.http-probe.read-only': 'true'}, quarkusGeneration, agentAttached)
 
     try {
+      await assertSampleIdentity(request, app.baseUrl, quarkusGeneration, agentAttached, testInfo)
       const panels = await fetchPanels(request, app.baseUrl)
       // NOTE: unlike the Spring spec, this does not use the `config` panel as the "unaffected"
       // control. On Quarkus, Configuration is *always* readOnly (no runtime-override write path
@@ -133,6 +144,36 @@ test.describe('Read-only properties (Quarkus)', () => {
     }
   })
 })
+
+/**
+ * @param {import('@playwright/test').APIRequestContext} request
+ * @param {string} baseUrl
+ * @param {string} generation
+ * @param {boolean} agentAttached
+ * @param {import('@playwright/test').TestInfo} testInfo
+ */
+async function assertSampleIdentity(request, baseUrl, generation, agentAttached, testInfo) {
+  const overviewResponse = await request.get(`${baseUrl}/bootui/api/overview`)
+  expect(overviewResponse.ok()).toBe(true)
+  const overview = await overviewResponse.json()
+  const agentResponse = await request.get(`${baseUrl}/bootui/api/java-agent`)
+  expect(agentResponse.ok()).toBe(true)
+  const agent = await agentResponse.json()
+  await testInfo.attach('read-only-server', {
+    body: Buffer.from(
+      JSON.stringify({
+        baseUrl,
+        overview,
+        agent: {state: agent.state, agentVersion: agent.agentVersion, jdk: agent.jdk, jarPath: agent.jarPath}
+      })
+    ),
+    contentType: 'application/json'
+  })
+  expect(overview.frameworkName).toBe('Quarkus')
+  expect(overview.frameworkVersion).toMatch(new RegExp(`^${generation}\\.`))
+  expect(overview.applicationName).toBe(generation === '4' ? 'bootui-quarkus-4-sample' : 'bootui-quarkus-sample')
+  expect(agent.state).toBe(agentAttached ? 'ARMED' : 'NOT_ATTACHED')
+}
 
 /**
  * @param {import('@playwright/test').APIRequestContext} request
@@ -219,8 +260,16 @@ async function assertBlockedPanelAccess(response, panel, reason) {
 
 /**
  * @param {Record<string, string>} properties
+ * @param {string} generation
+ * @param {boolean} agentAttached
  */
-async function startSampleApp(properties) {
+async function startSampleApp(properties, generation, agentAttached) {
+  if (!['3', '4'].includes(generation)) {
+    throw new Error('BOOTUI_QUARKUS_GENERATION must be 3 or 4')
+  }
+  const sampleModule = generation === '4' ? 'bootui-quarkus-4-sample-app' : 'bootui-quarkus-sample-app'
+  const sampleAppDir = path.join(repoRoot, sampleModule)
+  const jvmArguments = agentAttached ? [`-Djvm.args=-javaagent:${agentJar()}`] : []
   const port = await findAvailablePort()
   const baseUrl = `http://127.0.0.1:${port}`
   const output = createOutputBuffer()
@@ -229,9 +278,11 @@ async function startSampleApp(properties) {
     throw new Error(`Maven Wrapper not found at ${mvnw}`)
   }
 
+  const mavenRepo = process.env.BOOTUI_MAVEN_REPO_LOCAL
   const child = spawn(
     mvnw,
     [
+      ...(mavenRepo ? [`-Dmaven.repo.local=${mavenRepo}`] : []),
       '-f',
       path.join(sampleAppDir, 'pom.xml'),
       '-q',
@@ -241,6 +292,14 @@ async function startSampleApp(properties) {
       '-Dquarkus.analytics.disabled=true',
       '-Dquarkus.langchain4j.devservices.enabled=false',
       '-Dquarkus.langchain4j.ollama.devservices.enabled=false',
+      ...(generation === '4'
+        ? [
+            '-Dquarkus.otel.traces.exporter=none',
+            '-Dquarkus.otel.metrics.exporter=none',
+            '-Dquarkus.otel.logs.exporter=none'
+          ]
+        : []),
+      ...jvmArguments,
       ...Object.entries(properties).map(([name, value]) => `-D${name}=${value}`)
     ],
     {
@@ -280,6 +339,25 @@ async function startSampleApp(properties) {
   }
 
   return {baseUrl, stop}
+}
+
+function agentJar() {
+  if (process.env.BOOTUI_AGENT_JAR) {
+    if (!fs.existsSync(process.env.BOOTUI_AGENT_JAR)) {
+      throw new Error(`BOOTUI_AGENT_JAR names no file: ${process.env.BOOTUI_AGENT_JAR}`)
+    }
+    return process.env.BOOTUI_AGENT_JAR
+  }
+  const target = path.join(repoRoot, 'bootui-agent', 'target')
+  const jar = fs.existsSync(target)
+    ? fs
+        .readdirSync(target)
+        .find((name) => /^bootui-agent-\d[\w.-]*\.jar$/.test(name) && !/-(tests|sources|javadoc)\.jar$/.test(name))
+    : undefined
+  if (!jar) {
+    throw new Error('No bootui-agent-*.jar: run ./mvnw install -pl bootui-agent -am, or set BOOTUI_AGENT_JAR')
+  }
+  return path.join(target, jar)
 }
 
 async function findAvailablePort() {

@@ -645,8 +645,15 @@ unavailable. Differences:
 | `cache.use_query_cache` / `cache.use_second_level_cache` | `quarkus.hibernate-orm.second-level-caching-enabled` (single unified toggle) |
 
 (\*) In Quarkus 3.33.3.1, an explicitly configured deprecated `quarkus.hibernate-orm.database.generation` takes
-precedence. Quarkus/Jakarta `create` is create-only, while Hibernate `hbm2ddl.auto=create` is destructive; the advisor
-preserves that difference.
+precedence. Quarkus 4 removes that key and `quarkus.hibernate-orm.log.bind-param`; the Quarkus 4 adapter reads
+`schema-management.strategy` and `log.bind-parameters` instead, including named units. A removed declaration is not
+an effective fallback. Quarkus/Jakarta `create` is create-only, while Hibernate `hbm2ddl.auto=create` is destructive;
+the advisor preserves that difference.
+
+The Quarkus 4 source adapter uses the actual ORM 8 / Persistence 4 candidate metadata. Unit-specific to-one defaults
+and direct/repeated Jakarta fetch overrides are resolved only with verified metadata; missing defaults leave incomplete
+evidence. HIB-MAP-027's old `@GenericGenerator` deprecation advice is not applicable on ORM 8, not a conclusive pass.
+See [Quarkus support](../QUARKUS-SUPPORT.md#quarkus-4) for release and execution boundaries.
 
 With verified Panache transformation, the public-persistent-field finding does not fire, and the `id` field of Panache's base entity is ignored by the `@GeneratedValue` check.
 :::
@@ -721,6 +728,10 @@ forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentia
 `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The shared static analyzer configuration check
 also runs on explicit scans. The UI relabels metrics ("Permission policies" in place of "Filter chains"). See
 [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md).
+
+The Quarkus 4 adapter ignores removed OIDC/OIDC-client `tls.verification` declarations and the old
+`quarkus.http.cors` enable alias. Only supported current settings establish effective TLS/CORS observations;
+plain-HTTP OIDC endpoints and current TLS-registry findings remain assessed. Quarkus 3's legacy semantics are unchanged.
 :::
 
 ## Pentesting

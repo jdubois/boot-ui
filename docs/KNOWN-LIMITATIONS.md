@@ -96,6 +96,13 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
 
 See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 
+- **Quarkus generation and native support are separate decisions.** The published Quarkus 3 path remains unchanged.
+  Quarkus 4 uses a separate Java 21 adapter; its publication status and open JVM/browser/native gates are
+  [documented explicitly](QUARKUS-SUPPORT.md#quarkus-4). Native activation prototypes and JVM results are not real
+  BootUI native-console acceptance.
+- **Dev UI coexistence is bounded JVM evidence.** All four clean 4.0.1 telemetry/BootUI Chromium cells passed without
+  CSP bypass or server-policy changes. Upstream Dev UI still fetched its Inter font from Google Fonts; the result does
+  not establish zero external browser traffic, Dev MCP bridging, native behavior, or compatibility with every host CSP.
 - **55 of the 65 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
   Spring DevTools, and Transactions do not apply to Quarkus; JMS is not available yet.
 - **No transaction capture.** SQL statements carry no transaction id, and `transaction-across-remote-call`,

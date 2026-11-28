@@ -1,0 +1,207 @@
+package io.github.jdubois.bootui.quarkus4.web;
+
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus4.exceptions.QuarkusResourceHandlers;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.quarkus.runtime.ImageMode;
+import io.vertx.core.Context;
+import io.vertx.core.http.HttpServerResponse;
+import io.vertx.ext.web.RoutingContext;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.container.ContainerResponseContext;
+import jakarta.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.core.UriInfo;
+import jakarta.ws.rs.ext.Provider;
+import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import org.jboss.resteasy.reactive.server.core.ResteasyReactiveRequestContext;
+import org.jboss.resteasy.reactive.server.spi.ResteasyReactiveContainerRequestContext;
+
+/**
+ * Marks when a Quarkus REST request enters its resource method, and when the method has returned and the response
+ * entity is about to be written ({@code docs/PLAN-v2.md} §5.1). Its high priority makes its request filter run last,
+ * right before the method, and its response filter run first, right after it; JAX-RS writes the entity after every
+ * response filter, so serialization, where lazy loading surfaces, runs in the {@code RESPONSE} phase. Observes only.
+ *
+ * <p>On a worker or virtual thread, where no correlation scope runs because Quarkus keeps the request's context on its
+ * duplicated Vert.x context, the request filter also opens the request's segment and registers its close on Quarkus'
+ * request-completion callback ({@code docs/PLAN-v2.md} §5.11). An ordinary response is written by that same thread,
+ * so the capture filter's take already closes the segment there; the completion close releases the thread of a
+ * response whose body outlives its chain. See {@link QuarkusRequestSegments}.</p>
+ */
+@Provider
+@Priority(Integer.MAX_VALUE - 100)
+public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, ContainerResponseFilter {
+
+    private final java.util.function.Supplier<RequestPhases> phases;
+
+    @Inject
+    public QuarkusRequestPhaseFilter(Instance<RequestPhases> phases) {
+        this.phases = phases::get;
+    }
+
+    public QuarkusRequestPhaseFilter(RequestPhases phases) {
+        this.phases = () -> phases;
+    }
+
+    @Override
+    public void filter(ContainerRequestContext request) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        mark(RequestPhase.HANDLER);
+        if (ImageMode.current() != ImageMode.NATIVE_RUN) {
+            QuarkusRequestSegments.enter(request);
+            assemblyOnlyUnlessBlocking();
+            pushRequestValues(request);
+        }
+    }
+
+    /**
+     * Hands the request's query and path parameter values to the BootUI agent's request value holder
+     * ({@code docs/PLAN-v2.md} §5.16, M5-6b), only while request-value matching is on: the query parameters decoded from
+     * the URI and the path parameters RESTEasy Reactive matched, never a body. The values are removed when the
+     * response ends, or the connection closes, on Vert.x's end handler, whichever thread pushed them, so none
+     * outlives the response. Observes only, and never fails the request.
+     */
+    static void pushRequestValues(ContainerRequestContext request) {
+        if (BootUiNativeActivation.isNativeInactive() || ImageMode.current() == ImageMode.NATIVE_RUN) {
+            return;
+        }
+        try {
+            if (!AgentRequestValues.active()
+                    || !(request instanceof ResteasyReactiveContainerRequestContext resteasy)) {
+                return;
+            }
+            CorrelationContext correlation = QuarkusRequestCorrelation.current();
+            String requestId = correlation.requestId();
+            if (correlation.bootUi() || requestId == null) {
+                return;
+            }
+            RoutingContext routing =
+                    resteasy.getServerRequestContext() instanceof ResteasyReactiveRequestContext context
+                            ? context.serverRequest().unwrap(RoutingContext.class)
+                            : null;
+            if (routing == null) {
+                return;
+            }
+            UriInfo uri = request.getUriInfo();
+            AgentRequestValues.Values values = new AgentRequestValues.Values()
+                    .addAll(uri.getPathParameters())
+                    .addAll(uri.getQueryParameters());
+            if (values.isEmpty()) {
+                return;
+            }
+            routing.addEndHandler(ended -> AgentRequestValues.end(requestId));
+            AgentRequestValues.begin(requestId, values);
+            HttpServerResponse response = routing.response();
+            if (response != null && (response.ended() || response.closed())) {
+                // The connection closed, or the response ended, before the end handler was added: it never runs.
+                AgentRequestValues.end(requestId);
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Request-value matching is diagnostics only; the request continues untouched.
+        }
+    }
+
+    /**
+     * The types whose resource methods only assemble their result: Mutiny's, a {@code CompletionStage}, and Reactive
+     * Streams' and the JDK's publishers ({@code docs/PLAN-v2.md} §5.14, M5-4b). Compared by name, so none is loaded.
+     */
+    static final Set<String> ASYNCHRONOUS_RESULTS = Set.of(
+            "io.smallrye.mutiny.Uni",
+            "io.smallrye.mutiny.Multi",
+            "java.util.concurrent.CompletionStage",
+            "org.reactivestreams.Publisher",
+            "java.util.concurrent.Flow$Publisher");
+
+    /**
+     * Marks the request assembly only for the BootUI agent's code paths unless its resource method runs blocking on a
+     * worker and returns its result: on the event loop, or returning an asynchronous result, the method's tree times
+     * only the assembly, and when the method is unknown BootUI says so rather than guess.
+     */
+    private static void assemblyOnlyUnlessBlocking() {
+        try {
+            if (!AgentCodePaths.bound()) {
+                return;
+            }
+            String requestId = QuarkusRequestCorrelation.current().requestId();
+            if (requestId == null) {
+                return;
+            }
+            Method method = QuarkusResourceHandlers.currentResourceMethod();
+            if (Context.isOnEventLoopThread() || method == null || asynchronous(method.getReturnType())) {
+                AgentCodePaths.assemblyOnly(requestId);
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Code paths are diagnostics only; the request continues untouched.
+        }
+    }
+
+    /**
+     * Whether each return type only assembles its result, walked once per class: a resource method's return type is
+     * looked up per request, never walked again. A {@link ClassValue}, so a class of a reloaded application is never
+     * kept alive by it.
+     */
+    private static final ClassValue<Boolean> ASYNCHRONOUS = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            WALKS.incrementAndGet();
+            return walk(type);
+        }
+    };
+
+    /** Tests only: how many return types were walked. */
+    static final AtomicLong WALKS = new AtomicLong();
+
+    /** Whether {@code type} is, extends, or implements one of {@link #ASYNCHRONOUS_RESULTS}; cached per class. */
+    static boolean asynchronous(Class<?> type) {
+        return type != null && ASYNCHRONOUS.get(type);
+    }
+
+    private static boolean walk(Class<?> type) {
+        if (type == null) {
+            return false;
+        }
+        if (ASYNCHRONOUS_RESULTS.contains(type.getName())) {
+            return true;
+        }
+        for (Class<?> implemented : type.getInterfaces()) {
+            if (walk(implemented)) {
+                return true;
+            }
+        }
+        return walk(type.getSuperclass());
+    }
+
+    @Override
+    public void filter(ContainerRequestContext request, ContainerResponseContext response) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        mark(RequestPhase.RESPONSE);
+    }
+
+    private void mark(RequestPhase phase) {
+        // Where the BootUI agent's code-paths nodes record the phase they entered in (docs/PLAN-v2.md M5-4a), on the
+        // thread that runs the resource method.
+        if (ImageMode.current() != ImageMode.NATIVE_RUN) {
+            AgentCodePaths.phase(phase);
+        }
+        try {
+            phases.get().mark(QuarkusRequestCorrelation.current().requestId(), phase);
+        } catch (RuntimeException ex) {
+            // Phase markers are diagnostics only; the request continues untouched.
+        }
+    }
+}

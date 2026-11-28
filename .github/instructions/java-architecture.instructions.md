@@ -4,7 +4,8 @@ applyTo: "**/*.java,pom.xml,**/pom.xml"
 
 # Java and shared architecture
 
-- Compile for Java 17 with `-parameters`. Use the Maven Wrapper; do not require a system Maven.
+- Compile shared, Spring and Quarkus 3 modules for Java 17 with `-parameters`. The separate `bootui-quarkus-4*`
+  subtree compiles for Java 21 and joins the reactor on JDK 21+. Use the Maven Wrapper; do not require a system Maven.
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain
   `io.github.jdubois.bootui.*`.
 - Preserve the package direction `io.github.jdubois.bootui.core..` <- `io.github.jdubois.bootui.engine..` and
@@ -13,7 +14,8 @@ applyTo: "**/*.java,pom.xml,**/pom.xml"
   Spring, Quarkus, or servlet/JAX-RS APIs. Core and engine must not depend on either Jackson generation;
   `bootui-conformance` deliberately uses Jackson 2, JUnit and AssertJ in compile scope because its black-box
   HTTP test-support classes live in `src/main` for the sample and integration-test runners.
-- DTOs are annotation-free immutable records in `io.github.jdubois.bootui.core.dto`, one record per file. They must serialize identically with Spring Boot's Jackson 3 and Quarkus' Jackson 2.
+- DTOs are annotation-free immutable records in `io.github.jdubois.bootui.core.dto`, one record per file. They must
+  serialize identically with Spring Boot's Jackson 3, Quarkus 3's Jackson 2 and Quarkus 4's Jackson 3.
 - Keep the engine framework-, DI-, and JSON-free. Parse external JSON in an adapter and pass neutral records to the engine.
 - Put reusable behavior in an engine feature package and expose framework integration through neutral SPI ports in `io.github.jdubois.bootui.spi`.
 - Engine services have explicit adapter factories. Spring uses `@Bean`; Quarkus uses `@Produces`. When Quarkus injects an SPI implementation, inject its concrete class to avoid ambiguous CDI resolution.

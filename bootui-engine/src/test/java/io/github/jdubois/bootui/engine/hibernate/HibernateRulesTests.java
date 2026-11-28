@@ -2822,6 +2822,63 @@ class HibernateRulesTests {
                 .anySatisfy(sample -> assertThat(sample).contains("ClassGenericGeneratorsEntity declares deprecated"));
     }
 
+    @Test
+    void generatorDeprecationIsInapplicableBefore65AndOnHibernate8RatherThanAConclusivePass() {
+        for (String version : List.of("6.4.10.Final", "8.0.0.CR1", "8.0.0.CR2")) {
+            HibernateContext context = new HibernateContext(
+                    List.of(HibernateEntityModel.fromClass(FieldGenericGeneratorEntity.class)),
+                    List.of(),
+                    key -> null,
+                    List.of(),
+                    version);
+
+            var result = new DeprecatedGenericGeneratorRule().evaluate(context);
+
+            assertThat(result.status()).as(version).isEqualTo(HibernateRuleSupport.SKIPPED);
+            assertThat(result.violationCount()).isZero();
+            assertThat(context.evidence().applicable()).isFalse();
+            assertThat(context.evidence().usable()).isFalse();
+            assertThat(context.evidence().requiredUnknown()).isFalse();
+        }
+    }
+
+    @Test
+    void generatorDeprecationWithUnknownVersionRemainsMissingEvidence() {
+        for (String version : List.of("unknown", "6")) {
+            HibernateContext context = new HibernateContext(
+                    List.of(HibernateEntityModel.fromClass(FieldGenericGeneratorEntity.class)),
+                    List.of(),
+                    key -> null,
+                    List.of(),
+                    version);
+
+            var result = new DeprecatedGenericGeneratorRule().evaluate(context);
+
+            assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+            assertThat(result.violationCount()).isZero();
+            assertThat(context.evidence().applicable()).isFalse();
+            assertThat(context.evidence().usable()).isFalse();
+            assertThat(context.evidence().gaps()).containsOnlyKeys(HibernateEvidenceGap.HIBERNATE_VERSION);
+        }
+    }
+
+    @Test
+    void generatorDeprecationStillAppliesAtThe65Boundary() {
+        HibernateContext context = new HibernateContext(
+                List.of(HibernateEntityModel.fromClass(FieldGenericGeneratorEntity.class)),
+                List.of(),
+                key -> null,
+                List.of(),
+                "6.5.0.Final");
+
+        var result = new DeprecatedGenericGeneratorRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(context.evidence().applicable()).isTrue();
+        assertThat(context.evidence().usable()).isTrue();
+    }
+
     // --- HIB-ENTITY-011 -----------------------------------------------------
 
     @Test

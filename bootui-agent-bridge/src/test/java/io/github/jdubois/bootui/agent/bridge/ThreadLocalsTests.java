@@ -235,6 +235,12 @@ class ThreadLocalsTests {
                 .isTrue();
         assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.agent.shaded.bytebuddy.Lock"))
                 .isTrue();
+        assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation$Local"))
+                .isTrue();
+        assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.quarkus4sample.TenantContext"))
+                .isFalse();
+        assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.quarkus4fixture.TenantContext"))
+                .isFalse();
         assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.sample.TenantContext"))
                 .isFalse();
         assertThat(ThreadLocals.bootUi("io.github.jdubois.bootui.webfluxsample.TenantContext"))

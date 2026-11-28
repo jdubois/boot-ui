@@ -26,6 +26,23 @@ class HibernateFactorySettingsReaderTests {
     private static final String HIBERNATE_ACTION = "hibernate.hbm2ddl.auto";
 
     @Test
+    void recordedToOneDefaultsRequireAnExactObservedValue() {
+        for (String type : List.of("EAGER", "LAZY")) {
+            assertThat(read(() -> Map.of(HibernateFactorySettingsReader.DEFAULT_TO_ONE_FETCH_TYPE, type))
+                            .defaultToOneFetchType()
+                            .name())
+                    .isEqualTo(type);
+        }
+        for (Object value : List.of("DEFAULT", "eager", "", 42, true)) {
+            assertThat(read(() -> Map.of(HibernateFactorySettingsReader.DEFAULT_TO_ONE_FETCH_TYPE, value))
+                            .defaultToOneFetchType())
+                    .isEqualTo(HibernateFactorySettings.ToOneFetchType.UNKNOWN);
+        }
+        assertThat(read(Map::of).defaultToOneFetchType()).isEqualTo(HibernateFactorySettings.ToOneFetchType.UNKNOWN);
+        assertThat(read(() -> null).defaultToOneFetchType()).isEqualTo(HibernateFactorySettings.ToOneFetchType.UNKNOWN);
+    }
+
+    @Test
     void aReadableMapWithoutDatabaseActionUsesTheHibernateDefault() {
         assertThat(schemaAction(Map::of)).isEqualTo(SchemaAction.NONE);
         assertThat(schemaAction(() -> Map.of("hibernate.show_sql", true))).isEqualTo(SchemaAction.NONE);

@@ -1,13 +1,20 @@
 ---
-applyTo: "pom.xml,bootui-quarkus-parent/**,bootui-quarkus/**,bootui-quarkus-deployment/**,bootui-quarkus-integration-tests/**,bootui-quarkus-sample-app/**,.github/workflows/jdk-compatibility.yml,docs/QUARKUS-SUPPORT.md"
+applyTo: "pom.xml,bootui-quarkus-parent/**,bootui-quarkus/**,bootui-quarkus-deployment/**,bootui-quarkus-integration-tests/**,bootui-quarkus-sample-app/**,bootui-quarkus-4*/**,.github/workflows/jdk-compatibility.yml,docs/QUARKUS-SUPPORT.md"
 ---
 
 # Quarkus adapter
 
 - Use the `quarkus.platform.version` property in the root POM as the compatibility source of truth. A nearer Quarkus BOM
   under `bootui-quarkus-parent` must override the root Spring Boot BOM for Quarkus modules.
+- Quarkus 4 uses its independent `quarkus4.platform.version` and nearer `bootui-quarkus-4-parent` BOM. Keep Quarkus 3
+  on its LTS policy; the initial non-LTS Quarkus 4 line is an explicit exception, not permission to upgrade to Quarkus 5.
+  Use the separate `io.github.jdubois.bootui.quarkus4` namespace; never depend on the Quarkus 3 adapter.
 - Keep runtime JAX-RS resources and CDI producers thin; put build-time discovery, capability checks, bean registration, and production gating in deployment build steps.
 - Production must remain dark. In `LaunchMode.NORMAL`, do not wire data-bearing endpoints or CDI services, and keep the always-registered production shell guard returning 404 for the BootUI surface.
+- Quarkus 3 keeps that unconditional NORMAL-mode rule. Quarkus 4 may include a deliberately local native console only
+  with the build-time native opt-in and explicit runtime ON/local selection, excluding every production parent.
+  Packaged JVM NORMAL remains dark. Runtime denial must leave baked-in capture hooks, lifecycles, leases and banners
+  dormant; build-selected profiles/defaults are not runtime opt-in. Keep host listener configuration untouched.
 - Runtime resources are discovered from the indexed extension JAR. Add SPI implementation beans that must survive removal to `BootUiQuarkusProcessor.addBeanClasses(...)`.
 - `BootUiQuarkusSafetyFilter` and `QuarkusPanelAccessFilter` are Vert.x global filters and thin bindings over shared
   engine policy. Preserve their ordering and canonical JSON errors. Safety must cover unmatched BootUI paths before

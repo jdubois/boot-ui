@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>2.5.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>bootui-quarkus-4-parent</artifactId>
+    <packaging>pom</packaging>
+    <name>BootUI :: Quarkus 4 Parent</name>
+    <description>Independent Quarkus 4 platform and Java 21 build management.</description>
+    <properties>
+        <java.version>21</java.version>
+        <langchain4j.version>1.24.0</langchain4j.version>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <quarkus.test.argLine>-Djava.util.logging.manager=org.jboss.logmanager.LogManager
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            -javaagent:${net.bytebuddy:byte-buddy-agent:jar}</quarkus.test.argLine>
+    </properties>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus.platform</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus4.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+        </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-maven-plugin</artifactId>
+                    <version>${quarkus4.platform.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-extension-maven-plugin</artifactId>
+                    <version>${quarkus4.platform.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <forkCount>1</forkCount>
+                        <argLine>@{argLine} ${quarkus.test.argLine}</argLine>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

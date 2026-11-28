@@ -1,0 +1,344 @@
+package io.github.jdubois.bootui.quarkus4;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.RETURNS_SELF;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog;
+import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ActionContract;
+import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
+import io.github.jdubois.bootui.engine.panel.BootUiGlobalWritePolicy;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.smallrye.config.PropertiesConfigSource;
+import io.smallrye.config.SmallRyeConfigBuilder;
+import io.vertx.core.http.HttpMethod;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.HttpServerResponse;
+import io.vertx.ext.web.RoutingContext;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.eclipse.microprofile.config.Config;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+/**
+ * White-box binding tests for {@link QuarkusPanelAccessFilter}, mirroring the Spring adapter's
+ * {@code PanelAccessFilterTests} scenario-for-scenario at behavioral parity (same config keys, same
+ * canonical JSON 403 shape and reason strings), matching {@link BootUiQuarkusSafetyFilterTest}'s
+ * convention.
+ */
+class QuarkusPanelAccessFilterTest {
+
+    // --- basic enabled/disabled gating --------------------------------------------------------------
+
+    @Test
+    void allowsEnabledPanelReadRequest() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/memory");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of());
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
+    void blocksDisabledPanelReadRequest() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/memory");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.memory.enabled", "false"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "memory", "Panel is disabled via bootui.panels.memory.enabled=false");
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void blocksDisabledPanelActionRequest() {
+        RoutingContext rc = mockRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.loggers.enabled", "false"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "loggers", "Panel is disabled via bootui.panels.loggers.enabled=false");
+        verify(rc, never()).next();
+    }
+
+    // --- per-panel read-only -------------------------------------------------------------------------
+
+    @Test
+    void allowsReadOnlyPanelReadRequest() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/memory");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.memory.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
+    void advisorDetailsStayReadableButNeverBypassDisabledPanels() {
+        for (String panel :
+                List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            String path = "/bootui/api/" + panel + "/rules/RULE/violations";
+            RoutingContext read = mockRequest("GET", path);
+            newFilter(Map.of("bootui.read-only", "true", "bootui.panels." + panel + ".read-only", "true"))
+                    .handle(read);
+            verify(read).next();
+            verify(read.response(), never()).setStatusCode(anyInt());
+            RoutingContext disabled = mockRequest("GET", path);
+            newFilter(Map.of("bootui.panels." + panel + ".enabled", "false")).handle(disabled);
+            assertBlocked(
+                    disabled.response(), panel, "Panel is disabled via bootui.panels." + panel + ".enabled=false");
+            verify(disabled, never()).next();
+        }
+    }
+
+    @Test
+    void blocksReadOnlyPanelActionRequest() {
+        RoutingContext rc = mockRequest("POST", "/bootui/api/memory/scan");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.memory.read-only", "true"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "memory", "Panel is read-only via bootui.panels.memory.read-only=true");
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void perPanelReadOnlyBlocksPentestingScanAction() {
+        RoutingContext rc = mockRequest("POST", "/bootui/api/pentesting/scan");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.pentesting.read-only", "true"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "pentesting", "Panel is read-only via bootui.panels.pentesting.read-only=true");
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void perPanelReadOnlyBlocksStartingAMethodProbe() {
+        RoutingContext rc = mockRequest("POST", "/bootui/api/code-paths/probes");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.code-paths.read-only", "true"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "code-paths", "Panel is read-only via bootui.panels.code-paths.read-only=true");
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void perPanelReadOnlyAllowsReadingMethodProbes() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/code-paths/probes");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.code-paths.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
+    void perPanelReadOnlyAllowsPentestingReportRead() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/pentesting");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.pentesting.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    // --- global read-only ----------------------------------------------------------------------------
+
+    @Test
+    void globalReadOnlyBlocksEveryQuarkusActionCapablePanelAction() {
+        List<ActionContract> actions = BootUiApiContractCatalog.actions(Runtime.QUARKUS).stream()
+                .filter(action -> action.panelId() != null)
+                .toList();
+
+        // Completeness self-check: every actionCapable panel in the shared registry must be triaged into
+        // exactly one of the fixture map, the not-applicable-on-Quarkus set, or the no-write-path-yet set
+        // (Config). This fails loudly if a new action-capable panel is added to the registry without being
+        // triaged, instead of silently under-covering it.
+        assertThat(actions.stream().map(ActionContract::panelId).collect(java.util.stream.Collectors.toSet()))
+                .containsExactlyInAnyOrderElementsOf(BootUiPanels.all().stream()
+                        .filter(BootUiPanels.Panel::actionCapable)
+                        .map(BootUiPanels.Panel::id)
+                        .filter(id -> !NOT_APPLICABLE_ON_QUARKUS.contains(id))
+                        .filter(id -> !NO_WRITE_PATH_ON_QUARKUS_YET.contains(id))
+                        .toList());
+
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.read-only", "true"));
+        for (ActionContract action : actions) {
+            RoutingContext rc = mockRequest(action.method(), "/bootui/api" + action.relativePath());
+            HttpServerResponse resp = rc.response();
+
+            filter.handle(rc);
+
+            assertBlocked(resp, action.panelId(), "BootUI is read-only via bootui.read-only=true");
+        }
+    }
+
+    @Test
+    void globalReadOnlyBlocksCatalogedNonPanelBrowserWrites() {
+        List<ActionContract> actions = BootUiApiContractCatalog.actions(Runtime.QUARKUS).stream()
+                .filter(action -> action.panelId() == null && action.blockedByGlobalReadOnly())
+                .toList();
+
+        assertThat(actions).isNotEmpty();
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.read-only", "true"));
+        for (ActionContract action : actions) {
+            RoutingContext rc = mockRequest(action.method(), "/bootui/api" + action.relativePath());
+            HttpServerResponse resp = rc.response();
+
+            filter.handle(rc);
+
+            assertBlocked(
+                    resp,
+                    BootUiGlobalWritePolicy.subjectFor(action.relativePath()).orElseThrow(),
+                    "BootUI is read-only via bootui.read-only=true");
+        }
+    }
+
+    @Test
+    void globalReadOnlyDoesNotBlockAPanelWithoutActions() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/metrics");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    // --- bypasses --------------------------------------------------------------------------------------
+
+    @Test
+    void overviewShellEndpointIsNeverGatedByPanelToggle() {
+        // GET /bootui/api/overview is the shell's framework-neutral chrome data source (and CSRF-cookie
+        // primer), so disabling the Overview dashboard panel must not 403 it. BootUiPanels.OVERVIEW
+        // registers no API prefix, so BootUiPanels.byApiPath("/overview") never resolves a Panel and this
+        // filter's panel == null branch lets it through untouched, exactly like the Spring filter.
+        RoutingContext rc = mockRequest("GET", "/bootui/api/overview");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.panels.overview.enabled", "false"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
+    void skipsCorePanelMetadataEndpoint() {
+        RoutingContext rc = mockRequest("GET", "/bootui/api/panels");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
+    void ignoresRequestsOutsideTheBootuiApiSurface() {
+        // The static UI shell under /bootui/** (not /bootui/api/**) is never gated by a panel toggle.
+        RoutingContext rc = mockRequest("GET", "/bootui/index.html");
+        QuarkusPanelAccessFilter filter = newFilter(Map.of("bootui.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    // --- root-path handling --------------------------------------------------------------------------
+
+    @Test
+    void guardsPanelAccessUnderANonDefaultRootPath() {
+        // Under quarkus.http.root-path=/app the console is served at /app/bootui/**; the filter must strip
+        // the prefix (shared QuarkusRootPath helper) and still apply per-panel gating.
+        RoutingContext rc = mockRequest("POST", "/app/bootui/api/cache/clear");
+        HttpServerResponse resp = rc.response();
+        QuarkusPanelAccessFilter filter =
+                newFilter(Map.of("quarkus.http.root-path", "/app", "bootui.panels.cache.enabled", "false"));
+
+        filter.handle(rc);
+
+        assertBlocked(resp, "cache", "Panel is disabled via bootui.panels.cache.enabled=false");
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void ignoresNonBootuiPathsUnderANonDefaultRootPath() {
+        RoutingContext rc = mockRequest("POST", "/app/other");
+        QuarkusPanelAccessFilter filter =
+                newFilter(Map.of("quarkus.http.root-path", "/app", "bootui.read-only", "true"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    // --- helpers ---------------------------------------------------------------------------------------
+
+    /**
+     * Action-capable panels in the shared registry that have zero Quarkus {@code @Path} resources at all
+     * (deliberately not ported: GraalVM/CRaC compile native images and target the Spring startup model
+     * respectively; DevTools and HTTP Sessions have no Quarkus analogue).
+     */
+    private static final Set<String> NOT_APPLICABLE_ON_QUARKUS = Set.of(
+            BootUiPanels.HTTP_SESSIONS,
+            BootUiPanels.GRAALVM,
+            BootUiPanels.DEVTOOLS,
+            BootUiPanels.CRAC,
+            BootUiPanels.TRANSACTIONS);
+
+    /** Action-capable in the shared registry (Spring has a write path), but Quarkus has none yet. */
+    private static final Set<String> NO_WRITE_PATH_ON_QUARKUS_YET = Set.of(BootUiPanels.CONFIG, BootUiPanels.JMS);
+
+    private static QuarkusPanelAccessFilter newFilter(Map<String, String> properties) {
+        return new QuarkusPanelAccessFilter(configOf(properties));
+    }
+
+    private static Config configOf(Map<String, String> properties) {
+        return new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(properties, "test", 100))
+                .build();
+    }
+
+    private static RoutingContext mockRequest(String method, String path) {
+        HttpServerRequest request = mock(HttpServerRequest.class);
+        when(request.method()).thenReturn(HttpMethod.valueOf(method));
+
+        HttpServerResponse response = mock(HttpServerResponse.class, RETURNS_SELF);
+
+        RoutingContext rc = mock(RoutingContext.class);
+        when(rc.normalizedPath()).thenReturn(path);
+        when(rc.request()).thenReturn(request);
+        when(rc.response()).thenReturn(response);
+        return rc;
+    }
+
+    private static void assertBlocked(HttpServerResponse response, String expectedPanelId, String expectedReason) {
+        verify(response).setStatusCode(403);
+        verify(response).putHeader("Content-Type", "application/json");
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(response).end(body.capture());
+        assertThat(body.getValue())
+                .isEqualTo("{\"error\":\"BootUI panel access denied\",\"panel\":\"" + expectedPanelId
+                        + "\",\"reason\":\"" + expectedReason + "\"}");
+    }
+}

@@ -18,6 +18,8 @@
 #   SMOKE_MVC_PORT         HTTP port of the Spring MVC consumer (default: 8080).
 #   SMOKE_WEBFLUX_PORT     HTTP port of the Spring WebFlux consumer (default: 8081).
 #   SMOKE_TIMEOUT_SECONDS  How long a Spring consumer may take to serve BootUI (default: 300).
+#   SMOKE_JAVA17_HOME      JDK 17 for legacy consumer compilation/execution (required with a newer build JDK).
+#   SMOKE_JAVA21_HOME      JDK 21 for Quarkus 4 consumers (defaults to the build JDK).
 
 set -euo pipefail
 
@@ -34,8 +36,21 @@ readonly LOCAL_REPO="${SMOKE_LOCAL_REPO:-$HOME/.m2/repository}"
 readonly MVC_PORT="${SMOKE_MVC_PORT:-8080}"
 readonly WEBFLUX_PORT="${SMOKE_WEBFLUX_PORT:-8081}"
 readonly BOOTUI_SMOKE_TIMEOUT="${SMOKE_TIMEOUT_SECONDS:-300}"
+readonly QUARKUS4_JAVA_HOME="${SMOKE_JAVA21_HOME:-${JAVA_HOME:-}}"
+if [[ -n "${SMOKE_JAVA17_HOME:-}" ]]; then
+  export JAVA_HOME="$SMOKE_JAVA17_HOME"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+if ! java -version 2>&1 | grep -Eq 'version "17[.]'; then
+  echo "::error::Legacy distribution consumers must execute on Java 17; set SMOKE_JAVA17_HOME."
+  exit 1
+fi
+if [[ -z "$QUARKUS4_JAVA_HOME" || ! -x "$QUARKUS4_JAVA_HOME/bin/java" ]]; then
+  echo "::error::Set SMOKE_JAVA21_HOME to a JDK supporting the Quarkus 4 consumer."
+  exit 1
+fi
 
-# The seven published coordinates. Everything a consumer resolves from com.julien-dubois.bootui must be one of
+# The nine published coordinates. Everything a consumer resolves from com.julien-dubois.bootui must be one of
 # them, and together the consumers below resolve all of them. Keep this list in step with release.yml.
 readonly PUBLISHED_ARTIFACTS=(
   bootui-engine
@@ -43,6 +58,8 @@ readonly PUBLISHED_ARTIFACTS=(
   bootui-spring-boot-starter
   bootui-quarkus
   bootui-quarkus-deployment
+  bootui-quarkus-4
+  bootui-quarkus-4-deployment
   bootui-cli
   bootui-agent
 )
@@ -122,14 +139,20 @@ consumer_mvn() {
   MAVEN_OPTS="" "$MVNW" -B -ntp -s "$SETTINGS" -Dmaven.repo.local="$LOCAL_REPO" "$@"
 }
 
+consumer_quarkus4_mvn() {
+  JAVA_HOME="$QUARKUS4_JAVA_HOME" PATH="$QUARKUS4_JAVA_HOME/bin:$PATH" \
+    consumer_mvn "$@"
+}
+
 project_property() {
   "$MVNW" -B -ntp -q -N -f "$REPOSITORY_ROOT/pom.xml" -DforceStdout help:evaluate -Dexpression="$1" | tail -n 1
 }
 
 SPRING_BOOT_VERSION="$(project_property spring-boot.version)"
 QUARKUS_VERSION="$(project_property quarkus.platform.version)"
+QUARKUS4_VERSION="$(project_property quarkus4.platform.version)"
 DEPENDENCY_PLUGIN_VERSION="$(project_property maven-dependency-plugin.version)"
-readonly SPRING_BOOT_VERSION QUARKUS_VERSION DEPENDENCY_PLUGIN_VERSION
+readonly SPRING_BOOT_VERSION QUARKUS_VERSION QUARKUS4_VERSION DEPENDENCY_PLUGIN_VERSION
 readonly DEPENDENCY_PLUGIN="org.apache.maven.plugins:maven-dependency-plugin:${DEPENDENCY_PLUGIN_VERSION}"
 
 echo "Smoke-testing BootUI ${VERSION} from ${SOURCE_LABEL}."
@@ -509,6 +532,27 @@ QUARKUS_POM
 consumer_mvn -f "$QUARKUS_SMOKE_DIR/pom.xml" package -Dmaven.test.skip=true
 echo "Quarkus extension smoke test passed."
 
+# The same baseline-built binaries resolve from the source under test on both Q4 baseline
+# and minimum. The 4.0.0 BOM is published under io.quarkus, not io.quarkus.platform.
+for platform in "$QUARKUS4_VERSION" 4.0.0; do
+  QUARKUS4_SMOKE_DIR="$WORK_DIR/quarkus-4-$platform"
+  mkdir -p "$QUARKUS4_SMOKE_DIR/src/main/java"
+  python3 - "$QUARKUS_SMOKE_DIR/pom.xml" "$QUARKUS4_SMOKE_DIR/pom.xml" "$QUARKUS_VERSION" "$platform" <<'QUARKUS4_POM'
+from pathlib import Path
+import sys
+source, destination, previous, platform = sys.argv[1:]
+pom = Path(source).read_text(encoding="utf-8")
+pom = pom.replace("<artifactId>bootui-quarkus</artifactId>", "<artifactId>bootui-quarkus-4</artifactId>")
+pom = pom.replace("<maven.compiler.release>17</maven.compiler.release>", "<maven.compiler.release>21</maven.compiler.release>")
+pom = pom.replace(f"<version>{previous}</version>", f"<version>{platform}</version>")
+if platform == "4.0.0":
+    pom = pom.replace("<groupId>io.quarkus.platform</groupId>", "<groupId>io.quarkus</groupId>")
+Path(destination).write_text(pom, encoding="utf-8")
+QUARKUS4_POM
+  consumer_quarkus4_mvn -f "$QUARKUS4_SMOKE_DIR/pom.xml" package -Dmaven.test.skip=true
+  echo "Quarkus 4 extension consumer passed on platform $platform."
+done
+
 echo "=== Compatibility: rejected Quarkus platform below the declared minimum ==="
 QUARKUS_OLD_DIR="$WORK_DIR/quarkus-old"
 mkdir -p "$QUARKUS_OLD_DIR/src/main/java"
@@ -689,4 +733,4 @@ if (( origin_errors > 0 )); then
 fi
 
 rm -rf "$WORK_DIR"
-echo "All BootUI ${VERSION} distribution smoke tests passed from ${SOURCE_LABEL} (Spring MVC, CLI and client, Spring WebFlux, Quarkus, Java agent)."
+echo "All BootUI ${VERSION} distribution smoke tests passed from ${SOURCE_LABEL} (Spring MVC, CLI and client, Spring WebFlux, Quarkus 3 and 4, Java agent)."

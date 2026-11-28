@@ -1,11 +1,13 @@
 ---
-applyTo: "bootui-engine/**,bootui-spring-boot-starter/**,bootui-spring-sample-app/**,bootui-spring-webflux-sample-app/**,bootui-quarkus/**,bootui-quarkus-deployment/**,bootui-quarkus-sample-app/**,bootui-conformance/**,bootui-ui/**,docs/**"
+applyTo: "bootui-engine/**,bootui-spring-boot-starter/**,bootui-spring-sample-app/**,bootui-spring-webflux-sample-app/**,bootui-quarkus/**,bootui-quarkus-deployment/**,bootui-quarkus-sample-app/**,bootui-quarkus-4*/**,bootui-conformance/**,bootui-ui/**,docs/**"
 ---
 
 # Panel, API, and safety contracts
 
 - Spring MVC, Spring WebFlux, and Quarkus serve the same Vue UI and JSON contract. Make shared behavior indistinguishable
   unless a capability is intentionally stack-specific.
+- Quarkus 3 and Quarkus 4 retain the same `quarkus` discriminator and shared contract. Native capabilities require
+  actual positive execution evidence or honest unavailable state, not JVM parity inferred from compilation.
 - Before public or visible behavior changes, read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/features/`,
   `docs/WEBFLUX-SUPPORT.md`, and `docs/QUARKUS-SUPPORT.md`.
 - Preserve normalized configurable UI/API mounts. Browser calls are relative to the UI base.

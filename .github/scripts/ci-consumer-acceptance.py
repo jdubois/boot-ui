@@ -45,12 +45,13 @@ def require(condition, message):
         raise AssertionError(message)
 
 
-def project_versions():
+def project_versions(quarkus_generation="3"):
     namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
     project = ET.parse(ROOT / "pom.xml").getroot()
     version = project.findtext("m:version", namespaces=namespace)
     spring = project.findtext("m:properties/m:spring-boot.version", namespaces=namespace)
-    quarkus = project.findtext("m:properties/m:quarkus.platform.version", namespaces=namespace)
+    quarkus_property = "quarkus4.platform.version" if quarkus_generation == "4" else "quarkus.platform.version"
+    quarkus = project.findtext(f"m:properties/m:{quarkus_property}", namespaces=namespace)
     require(bool(version and spring and quarkus), "The reactor must declare BootUI, Spring Boot, and Quarkus versions")
     require(bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", spring)), "Invalid Spring Boot version")
     require(bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", quarkus)), "Invalid Quarkus version")
@@ -107,9 +108,11 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).digest()
 
 
-def candidate_artifacts(version, repository):
+def candidate_artifacts(version, repository, quarkus_generation="3", stacks=("mvc", "webflux", "quarkus")):
     spring_artifacts = {}
     for module in ("bootui-engine", "bootui-ui", "bootui-spring-boot-starter"):
+        if not {"mvc", "webflux"}.intersection(stacks):
+            break
         jar = ROOT / module / "target" / f"{module}-{version}.jar"
         flattened_pom = ROOT / module / ".flattened-pom.xml"
         installed = repository / "com/julien-dubois/bootui" / module / version
@@ -122,7 +125,9 @@ def candidate_artifacts(version, repository):
         spring_artifacts[f"BOOT-INF/lib/{jar.name}"] = digest(jar)
     quarkus_artifacts = {}
     extension_jar = None
-    for module in ("bootui-engine", "bootui-ui", "bootui-quarkus", "bootui-quarkus-deployment"):
+    runtime_module = "bootui-quarkus-4" if quarkus_generation == "4" else "bootui-quarkus"
+    deployment_module = runtime_module + "-deployment"
+    for module in ("bootui-engine", "bootui-ui", runtime_module, deployment_module):
         jar = ROOT / module / "target" / f"{module}-{version}.jar"
         flattened_pom = ROOT / module / ".flattened-pom.xml"
         installed = repository / "com/julien-dubois/bootui" / module / version
@@ -132,9 +137,9 @@ def candidate_artifacts(version, repository):
             require(path.is_file(), f"Missing candidate artifact: {path}; install the current reactor first")
         require(digest(jar) == digest(installed_jar), f"{installed_jar} is not the checkout's built artifact")
         require(digest(flattened_pom) == digest(installed_pom), f"{installed_pom} is not the checkout's flattened POM")
-        if module == "bootui-quarkus":
+        if module == runtime_module:
             extension_jar = jar
-        if module != "bootui-quarkus-deployment":
+        if module != deployment_module:
             runtime_name = f"com.julien-dubois.bootui.{module}-{version}.jar"
             quarkus_artifacts[runtime_name] = digest(jar)
     require(extension_jar is not None, "Missing the built Quarkus runtime extension")
@@ -143,7 +148,7 @@ def candidate_artifacts(version, repository):
         require(metadata in extension.namelist(), "Quarkus runtime extension has no extension descriptor")
         descriptor = extension.read(metadata).decode("utf-8")
     deployment_coordinate = (
-        f"deployment-artifact=com.julien-dubois.bootui\\:bootui-quarkus-deployment\\:{version}"
+        f"deployment-artifact=com.julien-dubois.bootui\\:{deployment_module}\\:{version}"
     )
     require(
         deployment_coordinate in descriptor.splitlines(),
@@ -270,7 +275,18 @@ def build_consumer(project, work, repository, version, stack, diagnostic, artifa
             broken_source.unlink()
 
 
-def build_quarkus_consumer(project, repository, version, quarkus_version, diagnostic, artifacts):
+def render_quarkus_pom(template, version, quarkus_version, quarkus_generation="3"):
+    require(quarkus_generation in ("3", "4"), "Quarkus generation must be 3 or 4")
+    if quarkus_generation == "4":
+        template = template.replace(
+            "<artifactId>bootui-quarkus</artifactId>", "<artifactId>bootui-quarkus-4</artifactId>"
+        ).replace("<maven.compiler.release>17</maven.compiler.release>", "<maven.compiler.release>21</maven.compiler.release>")
+        if quarkus_version == "4.0.0":
+            template = template.replace("<groupId>io.quarkus.platform</groupId>", "<groupId>io.quarkus</groupId>")
+    return template.replace("@BOOTUI_VERSION@", version).replace("@QUARKUS_PLATFORM_VERSION@", quarkus_version)
+
+
+def build_quarkus_consumer(project, repository, version, quarkus_version, diagnostic, artifacts, quarkus_generation="3"):
     template = (project / "pom.xml.template").read_text(encoding="utf-8")
     require(template.count("@BOOTUI_VERSION@") == 1, "Quarkus consumer POM template has an invalid BootUI version marker")
     require(
@@ -278,7 +294,7 @@ def build_quarkus_consumer(project, repository, version, quarkus_version, diagno
         "Quarkus consumer POM template has an invalid platform version marker",
     )
     (project / "pom.xml").write_text(
-        template.replace("@BOOTUI_VERSION@", version).replace("@QUARKUS_PLATFORM_VERSION@", quarkus_version),
+        render_quarkus_pom(template, version, quarkus_version, quarkus_generation),
         encoding="utf-8",
     )
     command = [
@@ -764,9 +780,11 @@ def assess_quarkus_case(case, cli, url, instance, process, expected_status, expe
     require(process.poll() is None, "The owned Quarkus application exited before assessment completed")
 
 
-def exercise_quarkus(project, repository, version, quarkus_version, artifacts, cli, work):
-    build_quarkus_consumer(project, repository, version, quarkus_version, False, artifacts)
-    diagnostic_project = build_quarkus_consumer(project, repository, version, quarkus_version, True, artifacts)
+def exercise_quarkus(project, repository, version, quarkus_version, artifacts, cli, work, quarkus_generation="3"):
+    build_quarkus_consumer(project, repository, version, quarkus_version, False, artifacts, quarkus_generation)
+    diagnostic_project = build_quarkus_consumer(
+        project, repository, version, quarkus_version, True, artifacts, quarkus_generation
+    )
     cases = work / "quarkus-cases"
     cases.mkdir()
     passing = make_case(cases, "quarkus-pass", "critical", advisor="security", runtime_context=True)
@@ -987,6 +1005,7 @@ def exercise_managed_start(project, repository, version, stack, cli, work, senti
         case = make_case(work, f"{stack}-managed-assessment", "critical", runtime_context=False)
         environment_outputs = action_outputs(outputs)
         require(environment_outputs.get("managed") == "true", "The Action did not own the started application")
+        verify_discovery(cli, url)
         for phase in ("attach", "assess"):
             phase_environment = dict(
                 environment,
@@ -1011,14 +1030,29 @@ def exercise_managed_start(project, repository, version, stack, cli, work, senti
     print(f"{stack}: Action auto-started the dev-only BootUI profile and assessed it", flush=True)
 
 
+def verify_discovery(cli, url):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        result = run(["java", "-jar", str(cli), "instances", "--json"])
+        entries = json.loads(result.stdout).get("instances", [])
+        if any(entry.get("baseUrl") == url for entry in entries):
+            return
+        time.sleep(0.25)
+    raise AssertionError(f"The managed consumer did not publish its local discovery lease for {url}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--maven-repository", type=Path, required=True, help="Absolute isolated Maven repository")
+    parser.add_argument("--quarkus-generation", choices=("3", "4"), default="3")
+    parser.add_argument("--stacks", nargs="+", choices=("mvc", "webflux", "quarkus"), default=("mvc", "webflux", "quarkus"))
     arguments = parser.parse_args()
     require(arguments.maven_repository.is_absolute(), "The Maven repository path must be absolute")
     repository = arguments.maven_repository.resolve(strict=True)
-    version, spring, quarkus = project_versions()
-    spring_artifacts, quarkus_artifacts, cli = candidate_artifacts(version, repository)
+    version, spring, quarkus = project_versions(arguments.quarkus_generation)
+    spring_artifacts, quarkus_artifacts, cli = candidate_artifacts(
+        version, repository, arguments.quarkus_generation, arguments.stacks
+    )
     sentinel = "bootui-ci-synthetic-secret-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix="bootui-ci-consumer-") as directory:
         work = Path(directory)
@@ -1028,24 +1062,25 @@ def main():
         require(template.count("@SPRING_BOOT_VERSION@") == 1, "Consumer POM template has an invalid version marker")
         (project / "pom.xml").write_text(template.replace("@SPRING_BOOT_VERSION@", spring), encoding="utf-8")
         for stack in ("mvc", "webflux"):
+            if stack not in arguments.stacks:
+                continue
             production = build_consumer(project, work, repository, version, stack, False, spring_artifacts)
             diagnostic = build_consumer(project, work, repository, version, stack, True, spring_artifacts)
             violation = build_consumer(project, work, repository, version, stack, True, spring_artifacts, broken=True)
             exercise_stack(stack, production, diagnostic, violation, cli, work, sentinel)
             exercise_managed_start(project, repository, version, stack, cli, work, sentinel)
-        quarkus_project = work / "quarkus-project"
-        shutil.copytree(FIXTURE / "quarkus", quarkus_project)
-        exercise_quarkus(
-            quarkus_project,
-            repository,
-            version,
-            quarkus,
-            quarkus_artifacts,
-            cli,
-            work,
-        )
-        exercise_managed_start(quarkus_project, repository, version, "quarkus", cli, work, sentinel)
-    print("Spring and Quarkus consumer acceptance passed; release-signature and GitHub runner execution were not exercised.")
+        if "quarkus" in arguments.stacks:
+            quarkus_project = work / "quarkus-project"
+            shutil.copytree(FIXTURE / "quarkus", quarkus_project)
+            exercise_quarkus(
+                quarkus_project, repository, version, quarkus, quarkus_artifacts, cli, work,
+                arguments.quarkus_generation,
+            )
+            exercise_managed_start(quarkus_project, repository, version, "quarkus", cli, work, sentinel)
+    print(
+        f"Consumer acceptance passed for {arguments.stacks}, Quarkus generation {arguments.quarkus_generation}; "
+        "release-signature and GitHub runner execution were not exercised."
+    )
 
 
 def handle_termination(signum, _frame):

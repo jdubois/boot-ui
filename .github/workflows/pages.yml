@@ -35,7 +35,9 @@ jobs:
         run: bash .github/scripts/release-line-gate.sh
 
       # A prepared same-major release is pushed before its Central upload. Keep the prior site
-      # until this exact manifest version (all seven jars/POMs and the signed CLI all jar) is public.
+      # until this exact manifest version's inventory is public: seven coordinates through 2.6.0,
+      # nine for Quarkus 4 releases, plus the signed CLI all jar. Every selected POM/jar is required.
+      # Manifest availability is not evidence that its prepared release has completed Central publication.
       # Unavailable manifests permit explicitly labeled coming-soon docs, never a public kit.
       - name: Check exact CI documentation release availability
         id: ci_release

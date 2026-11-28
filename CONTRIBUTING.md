@@ -10,16 +10,18 @@ participating you are expected to uphold this code.
 
 ## Prerequisites
 
-- **Java 17** (or newer). The reference toolchain is OpenJDK 17.
+- **Java 17** for the existing modules. The additive Quarkus 4 subtree requires **Java 21+** and compiles to Java 21;
+  use **Java 25** for complete mixed-target validation. Building on a newer JDK does not raise the existing Java 17 targets.
 - **Maven Wrapper**. Use the committed `./mvnw` script; no system Maven
   installation is required.
 - **Node.js 24+** and npm 11+ are downloaded automatically by the
   `frontend-maven-plugin` when you run the build. You do not need to install
   Node manually.
 - **Framework targets**. The Spring MVC and WebFlux adapters target Spring Boot
-  4.0+; the Quarkus build baseline is declared by `quarkus.platform.version` in the root `pom.xml`, while
+  4.0+; the Quarkus 3 build baseline is declared by `quarkus.platform.version` in the root `pom.xml`, while
   `requiresQuarkusCore` and the `quarkus-lts` CI job pin compatibility with the older 3.33 LTS line. BootUI does not support
-  Spring Boot 3.x.
+  Spring Boot 3.x. The separate `quarkus4.platform.version` baseline is 4.0.1, with a declared minimum of core 4.0.0.
+  Quarkus 4 is initially non-LTS; it does not change Quarkus 3's LTS policy.
 
 ## Project layout
 
@@ -36,11 +38,16 @@ bootui-agent-bridge/                 JDK-only agent/engine contract, shaded into
 bootui-agent/                        The optional `-javaagent` jar, dormant until BootUI claims it
 bootui-spring-sample-app/            Reference Spring MVC app + Playwright e2e
 bootui-spring-webflux-sample-app/    Reference Spring WebFlux app
-bootui-quarkus-parent/               Shared Quarkus platform BOM and plugin management
-bootui-quarkus/                      Quarkus runtime adapter
-bootui-quarkus-deployment/           Quarkus deployment/build-time wiring
-bootui-quarkus-integration-tests/    Quarkus @QuarkusTest suites
-bootui-quarkus-sample-app/           Reference Quarkus app
+bootui-quarkus-parent/               Quarkus 3 platform BOM and plugin management
+bootui-quarkus/                      Quarkus 3 runtime adapter
+bootui-quarkus-deployment/           Quarkus 3 deployment/build-time wiring
+bootui-quarkus-integration-tests/    Quarkus 3 @QuarkusTest suites
+bootui-quarkus-sample-app/           Reference Quarkus 3 app
+bootui-quarkus-4-parent/             Independent Quarkus 4 BOM and Java 21 target
+bootui-quarkus-4/                    Quarkus 4 runtime adapter
+bootui-quarkus-4-deployment/         Quarkus 4 deployment/build-time wiring
+bootui-quarkus-4-integration-tests/  Quarkus 4 capability and contract fixtures
+bootui-quarkus-4-sample-app/         Reference Quarkus 4 app; reuses the Quarkus browser workspace
 docs/                                Public documentation source (VuePress)
 ```
 
@@ -51,13 +58,18 @@ Use the root Maven properties as the source of truth for the published adapters 
 ```bash
 ./mvnw -q -DforceStdout help:evaluate -Dexpression=spring-boot.version
 ./mvnw -q -DforceStdout help:evaluate -Dexpression=quarkus.platform.version
+./mvnw -q -DforceStdout help:evaluate -Dexpression=quarkus4.platform.version
 ```
 
 When updating compatibility text in docs (README, `docs/SETUP.md`, `docs/features/`,
 `AGENTS.md`, and `.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`),
 reference those properties and refresh any explicit version strings in the same PR.
-All Quarkus modules, including the non-published sample app, inherit the Quarkus platform through
-`bootui-quarkus-parent`; keep its LangChain4j BOM compatible with the shared platform and the supported older LTS line.
+The Quarkus 3 modules, including their non-published sample app, inherit the platform through
+`bootui-quarkus-parent`; keep its LangChain4j BOM compatible with that platform and the supported older LTS line.
+The Quarkus 4 modules instead inherit `bootui-quarkus-4-parent`, use the separate `...bootui.quarkus4` Java namespace,
+and never depend on the Quarkus 3 adapter. Its sample uses Quarkiverse LangChain4j **2.0.0.CR1**, aligned with core
+**1.24.0**; this candidate is not a stable LangChain4j extension release.
+See [Quarkus support](docs/QUARKUS-SUPPORT.md#quarkus-4) for the managed ORM/Persistence candidates and open acceptance gates.
 
 ## Build
 
@@ -68,6 +80,9 @@ All Quarkus modules, including the non-published sample app, inherit the Quarkus
 This downloads Node + npm, runs `npm install`, runs the Vue unit tests with Vitest,
 builds the Vue UI with Vite, and packages every module. A full clean build takes
 about a minute on a warm cache.
+
+The `quarkus-4` reactor profile activates on JDK 21+. A Java 17 build deliberately omits that subtree and cannot
+validate it. Sample/ORM augmentation remains JDK-gated; a skipped augmentation is not runnable-app evidence.
 
 `-DskipTests` skips both unit tests and Failsafe integration tests. The Failsafe executions bind their
 supported `skipITs` parameter to that property, preserving the same switch across the build. Two narrower properties
@@ -82,7 +97,7 @@ For a faster local build, add `-T 1C` (one reactor thread per CPU core) to build
 ```
 
 This is safe: every module that triggers Quarkus build-time augmentation declares an explicit
-`provided`-scope dependency on `bootui-quarkus-deployment` so the reactor always orders it first, and every
+`provided`-scope dependency on its matching Quarkus deployment module so the reactor always orders it first, and every
 `@QuarkusTest`-bearing module pins its own Surefire `forkCount` so parallel forks never race Quarkus's shared
 test-bootstrap cache (see the `maven-surefire-plugin` comments in the root `pom.xml` and in
 `bootui-quarkus-integration-tests/base/pom.xml`). `-T` is a personal preference, not a project default, so it
@@ -101,9 +116,17 @@ integration-test module and let Maven build its dependencies:
 # Spring WebFlux
 ./mvnw -B -ntp -pl bootui-spring-webflux-sample-app -am install
 
-# Quarkus extension plus Docker-free integration suites
+# Quarkus 3 extension plus Docker-free integration suites
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests -am install
+
+# Quarkus 4 equivalent (JDK 21+)
+./mvnw -B -ntp -pl bootui-quarkus-4,bootui-quarkus-4-deployment -am install
+./mvnw -B -ntp -f bootui-quarkus-4-integration-tests/pom.xml install
 ```
+
+Use one absolute worktree-local Maven repository for installation and spawned consumers/browser servers, as described
+in [AGENTS.md](AGENTS.md#parallel-worktrees). The runtime and deployment modules are distribution artifacts;
+neither generation's parent, sample, nor integration-test modules is published.
 
 ### Docker builds behind a corporate npm registry
 
@@ -248,6 +271,8 @@ CI splits that build across parallel jobs: the main job runs the reactor with
 `bootui-quarkus-integration-tests` child except `base`, plus the JDK-gated Hibernate module), and
 `-Dbootui.skipAgentIts`, which leaves out the integration tests that run the BootUI agent in forked JVMs. Separate jobs
 run those modules and those tests. Without the properties, a local build includes them.
+The Quarkus 4 fixture aggregator has its own `-Dbootui.skipQuarkus4ExtensionIts` switch; it does not inherit the
+Quarkus 3 switch. Do not set either when claiming complete capability coverage.
 
 The `agent-integration-tests` job runs the agent's tests with this command, which also runs them locally:
 
@@ -350,8 +375,11 @@ installing the reactor dependencies, run the affected conformance class:
 # Spring WebFlux
 ./mvnw -B -ntp -pl bootui-spring-webflux-sample-app test -Dtest=WebFluxApiConformanceTest
 
-# Quarkus
+# Quarkus 3
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
+
+# Quarkus 4 (JDK 21+)
+./mvnw -B -ntp -pl bootui-quarkus-4-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
 ```
 
 The Quarkus base API profile supplies a test-only, plain H2 datasource: the shared activity-persistence
@@ -623,12 +651,22 @@ UI, browser-facing API responses, or sample-app behavior:
 # The whole WebFlux suite with the BootUI agent attached
 (cd bootui-spring-sample-app/e2e && npm run test:webflux:agent)
 
-# Quarkus (requires JDK 17 to 27 and Docker/Podman for Dev Services)
+# Quarkus 3 (requires JDK 17 to 27 and Docker/Podman for Dev Services)
 (cd bootui-quarkus-sample-app/e2e && npm ci && npx playwright install chromium)
 (cd bootui-quarkus-sample-app/e2e && npm test)
 # The whole Quarkus suite with the BootUI agent attached, after ./mvnw install -pl bootui-agent -am
 (cd bootui-quarkus-sample-app/e2e && npm run test:agent)
+
+# Quarkus 4 uses the same workspace and scenarios (JDK 21 to 27)
+(cd bootui-quarkus-sample-app/e2e && BOOTUI_QUARKUS_GENERATION=4 npm test)
+(cd bootui-quarkus-sample-app/e2e && BOOTUI_QUARKUS_GENERATION=4 npm run test:agent)
 ```
+
+`BOOTUI_QUARKUS_GENERATION` accepts only `3` or `4`, defaults to `3`, and selects the matching sample module.
+Install that sample and the agent before its agent suite. Neither JVM browser suite proves native support.
+Quarkus 4 native compile-and-run acceptance on Linux x86-64, Linux ARM64, and macOS ARM64 remains a separate,
+unverified gate. The clean 4.0.1 Dev UI telemetry/BootUI coexistence matrix passed in real Chromium without CSP bypass
+or server-policy changes; it is not native evidence. See [Quarkus support](docs/QUARKUS-SUPPORT.md#quarkus-4).
 
 Playwright starts the relevant sample app automatically and reuses an existing
 server on port `8080` (Spring MVC), `8081` (Spring WebFlux), or `8082`
@@ -799,8 +837,10 @@ python3 -B -m unittest discover -s .github/scripts -p 'test_ci_examples*.py'
 npm run docs:build
 ```
 
-`docs/ci/release.json` deliberately marks CI support unavailable until its first release. Do not change it merely to
-make examples installable against an older CLI. Release preparation pins the committed source's Action, synchronizes
+`docs/ci/release.json` records release-ready CI metadata. Before the first CI-capable release, it must mark support
+unavailable. Its `available` flag or a release commit alone does not prove that artifacts are published.
+Do not change metadata merely to make examples installable against an older CLI. Release preparation pins the committed
+source's Action, synchronizes
 the release record and generated examples, and then signs the release; tagged and recovery paths verify without
 rewriting them. The docs build generates the ignored starter-kit ZIP only for release-ready metadata, and the
 publication workflow separately checks exact release availability, including the CLI signature, before deploying it.
@@ -832,8 +872,11 @@ RELEASE_KEY_FINGERPRINT=7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9 \
 python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip bootui-VERSION true
 ```
 
-The assembler bundles only the seven published coordinates, so `bootui-agent-bridge`
-(shaded into `bootui-agent`) and both parent POMs, which the reactor installs, never
+The additive publication allow-list contains the seven existing coordinates plus `bootui-quarkus-4` and
+`bootui-quarkus-4-deployment`. Historical manifests for releases before the first Quarkus 4-carrying release,
+including 2.5.0, remain seven-coordinate records; do not extend their artifact lists when adding the new distribution.
+`bootui-agent-bridge`
+(shaded into `bootui-agent`) and all three parent POMs, which the reactor installs, never
 reach Central; `check-central-bundle.py` refuses any other coordinate or file and
 any POM that is not flattened. Every signature must verify and be by the pinned
 release key before the upload; the workflow also checks the build's signatures before
@@ -863,8 +906,14 @@ Repacking always precedes signing.
 Normal version preparation stages the exact unsigned candidate bundle and runs the consumer smoke tests before the
 release commit and tag. A tag-entry or `skip_build` run that did not pass that smoke stages and tests from the immutable
 tagged checkout before uploading instead; successful pre-tag smoke is not rerun after tagging. After publication,
-the consumers resolve the same seven coordinates from Maven Central. `resume_after_publish` skips staging/upload and
+the consumers resolve the release's exact distribution coordinates from Maven Central. `resume_after_publish` skips staging/upload and
 continues with availability, published-consumer smoke and eligible tag-pinned documentation deployment.
+
+Complete candidate/release builds use **JDK 25**, preserving Java 17 class files for existing modules and Java 21
+for Quarkus 4. Consumer execution is a separate gate: set `SMOKE_JAVA17_HOME` to an actual JDK 17 for legacy
+Spring/Quarkus/CLI/agent smoke, and `SMOKE_JAVA21_HOME` to JDK 21 for Quarkus 4 smoke when invoking
+`.github/scripts/consumer-smoke-tests.sh <version> [staged-repository-directory]`. Compiling with `--release 17`
+on JDK 25 alone does not prove Java 17 execution.
 
 It does not run `deploy` through the Sonatype Central Publishing plugin: under
 Maven 3.10 that plugin stages resolver bookkeeping (`maven-metadata-local.xml`) in
@@ -926,7 +975,7 @@ the non-distribution artifact exclusions, before importing signing credentials.
 The workflow then resolves the remote tag to its peeled commit SHA, checks out that
 SHA in detached state, rechecks the Maven/npm/tag identity, and publishes exactly
 that checkout. After auto-publication it polls every published coordinate, runs the
-Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests and the Java agent smoke
+Spring MVC, Spring WebFlux, and both Quarkus generations' consumer smoke tests and the Java agent smoke
 test (a consumer resolves `bootui-agent` with no dependency, and a JVM started with it
 as its `-javaagent` reports it dormant), and dispatches the
 Pages workflow at the immutable tag rather than at a branch that may have advanced.

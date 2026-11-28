@@ -1,0 +1,101 @@
+package io.github.jdubois.bootui.quarkus4.exceptions;
+
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.quarkus.runtime.ShutdownEvent;
+import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.Logger;
+import org.eclipse.microprofile.config.Config;
+
+/**
+ * Installs and removes the {@link QuarkusExceptionLogHandler} on the root {@code java.util.logging} logger
+ * across the application lifecycle, mirroring how the Spring adapter installs its Logback appender and the
+ * Quarkus Log Tail adapter installs its log handler. The handler is attached at {@link StartupEvent}
+ * (runtime, after Quarkus has installed the JBoss LogManager — not at build/static-init, which would bake
+ * the wrong manager into a native image) and detached at {@link ShutdownEvent} so a dev-mode live reload
+ * never leaves a stale handler pinning the previous store. Install is idempotent: any pre-existing BootUI
+ * handler is removed first.
+ */
+@ApplicationScoped
+public class QuarkusExceptionCapture {
+
+    private final java.util.function.Supplier<ExceptionStore> store;
+    private final java.util.function.Supplier<TraceIdSource> traceIdProvider;
+    private final CurrentVertxRequest currentVertxRequest;
+    private final Config config;
+    private QuarkusExceptionLogHandler handler;
+
+    /**
+     * {@link CurrentVertxRequest} is injected directly (not via {@code Instance<>}): it is a request-scoped
+     * bean produced unconditionally by {@code quarkus-vertx-http} (a transitive dependency of this
+     * extension's {@code quarkus-rest} dependency, same as {@code Filters}), so the bean is always
+     * resolvable — CDI's client proxy simply throws {@code ContextNotActiveException} on an actual method
+     * call made outside an active request scope, which {@link QuarkusExceptionLogHandler} already guards.
+     */
+    @Inject
+    public QuarkusExceptionCapture(
+            Instance<ExceptionStore> store,
+            Instance<TraceIdSource> traceIdProvider,
+            CurrentVertxRequest currentVertxRequest,
+            Config config) {
+        this.store = store::get;
+        this.traceIdProvider = () -> traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
+        this.currentVertxRequest = currentVertxRequest;
+        this.config = config;
+    }
+
+    public QuarkusExceptionCapture(
+            ExceptionStore store,
+            Instance<TraceIdSource> traceIdProvider,
+            CurrentVertxRequest currentVertxRequest,
+            Config config) {
+        this.store = () -> store;
+        this.traceIdProvider = () -> traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
+        this.currentVertxRequest = currentVertxRequest;
+        this.config = config;
+    }
+
+    void onStart(@Observes StartupEvent event) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        Logger root = Logger.getLogger("");
+        for (Handler existing : List.of(root.getHandlers())) {
+            if (existing instanceof QuarkusExceptionLogHandler) {
+                root.removeHandler(existing);
+            }
+        }
+        handler = new QuarkusExceptionLogHandler(
+                store.get(),
+                new InternalPackageMatcher(List.of(
+                        "io.github.jdubois.bootui.quarkus4",
+                        "io.github.jdubois.bootui.engine",
+                        "io.github.jdubois.bootui.core")),
+                traceIdProvider.get(),
+                currentVertxRequest,
+                config);
+        root.addHandler(handler);
+    }
+
+    void onStop(@Observes ShutdownEvent event) {
+        if (handler != null) {
+            Logger.getLogger("").removeHandler(handler);
+            handler = null;
+        }
+    }
+
+    public static java.util.function.BiFunction<
+                    Throwable, String, List<io.github.jdubois.bootui.core.dto.BindingDiagnosticDto>>
+            bindingDiagnosticExtractor() {
+        return new QuarkusBindingDiagnosticsExtractor();
+    }
+}

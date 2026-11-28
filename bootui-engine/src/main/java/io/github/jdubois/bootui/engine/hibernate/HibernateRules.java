@@ -119,17 +119,64 @@ final class HibernateRuleModelSupport {
     private HibernateRuleModelSupport() {}
 
     static boolean hasDeclaredEagerFetch(HibernateContext context, HibernateAttributeModel attribute) {
+        return "EAGER".equals(declaredFetchType(context, attribute));
+    }
+
+    static String declaredFetchType(HibernateContext context, HibernateAttributeModel attribute) {
         Annotation mapping = attribute.isElementCollection()
                 ? attribute.elementCollectionAnnotation()
                 : attribute.associationAnnotation();
         String fetch = mapping == null ? null : attribute.annotationValueName(mapping, "fetch");
-        if ("EAGER".equals(fetch)) {
-            return true;
+        for (Annotation annotation : attribute.annotations()) {
+            String annotationType = annotation.annotationType().getName();
+            Annotation[] options;
+            if ("jakarta.persistence.Fetch".equals(annotationType)) {
+                options = new Annotation[] {annotation};
+            } else if ("jakarta.persistence.Fetch$Fetches".equals(annotationType)) {
+                options = attribute.annotationArrayValue(annotation, "value");
+                if (options == null) {
+                    context.missingEvidence(HibernateEvidenceGap.FETCH_MAPPING, attribute.description());
+                    return null;
+                }
+            } else {
+                continue;
+            }
+            for (Annotation option : options) {
+                String graph = attribute.annotationStringValue(option, "graph");
+                String[] subgraphs = attribute.annotationStringArrayValue(option, "subgraph");
+                if (graph == null || subgraphs == null) {
+                    context.missingEvidence(HibernateEvidenceGap.FETCH_MAPPING, attribute.description());
+                    return null;
+                }
+                if (graph.isEmpty() && subgraphs.length == 0) {
+                    fetch = attribute.annotationValueName(option, "type");
+                    return resolveDeclaredFetchType(context, attribute, fetch);
+                }
+            }
         }
-        if (!"LAZY".equals(fetch)) {
+        return resolveDeclaredFetchType(context, attribute, fetch);
+    }
+
+    private static String resolveDeclaredFetchType(
+            HibernateContext context, HibernateAttributeModel attribute, String fetch) {
+        if ("DEFAULT".equals(fetch) && (attribute.isCollectionAssociation() || attribute.isElementCollection())) {
+            return "LAZY";
+        }
+        if ("DEFAULT".equals(fetch) && attribute.isToOneAssociation()) {
+            HibernateFactorySettings.ToOneFetchType unitDefault = context.factorySettings() == null
+                    ? HibernateFactorySettings.ToOneFetchType.UNKNOWN
+                    : context.factorySettings().defaultToOneFetchType();
+            if (unitDefault == HibernateFactorySettings.ToOneFetchType.EAGER) return "EAGER";
+            if (unitDefault == HibernateFactorySettings.ToOneFetchType.LAZY) return "LAZY";
+            context.evidence().markApplicable(true);
+            context.missingEvidence(HibernateEvidenceGap.FETCH_DEFAULT, attribute.description());
+            return null;
+        }
+        if (!"EAGER".equals(fetch) && !"LAZY".equals(fetch)) {
             context.missingEvidence(HibernateEvidenceGap.FETCH_MAPPING, attribute.description());
+            return null;
         }
-        return false;
+        return fetch;
     }
 
     /** The declared {@code targetEntity} of a {@code @OneToOne}, falling back to the attribute's Java type. */
@@ -1218,8 +1265,10 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
                 context.entities().stream()
                         .flatMap(entity -> entity.attributes().stream())
                         .toList(),
-                this::isBatchFetchCandidate);
-        context.evidence().markApplicable(!candidates.isEmpty());
+                attribute -> isBatchFetchCandidate(context, attribute));
+        context.evidence()
+                .markApplicable(!candidates.isEmpty()
+                        || context.evidence().gaps().containsKey(HibernateEvidenceGap.FETCH_DEFAULT));
         if (defaultBatchSize != null && defaultBatchSize > 0) {
             return pass();
         }
@@ -1242,12 +1291,12 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
         return violation(context, details);
     }
 
-    private boolean isBatchFetchCandidate(HibernateAttributeModel attribute) {
+    private boolean isBatchFetchCandidate(HibernateContext context, HibernateAttributeModel attribute) {
         Annotation association = attribute.associationAnnotation();
         if (association == null || hasNonBatchFetchMode(attribute)) {
             return false;
         }
-        String fetch = attribute.annotationValueName(association, "fetch");
+        String fetch = HibernateRuleModelSupport.declaredFetchType(context, attribute);
         if ("EAGER".equals(fetch)) {
             return false;
         }
@@ -3238,7 +3287,7 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                 String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
                 if (mappedBy != null
                         && !mappedBy.isBlank()
-                        && "LAZY".equals(attribute.annotationValueName(oneToOne, "fetch"))) {
+                        && "LAZY".equals(HibernateRuleModelSupport.declaredFetchType(context, attribute))) {
                     // A mandatory inverse side whose owner shares the primary key can be proxied without enhancement.
                     if (Boolean.FALSE.equals(attribute.annotationBooleanValue(oneToOne, "optional"))
                             && HibernateRuleModelSupport.owningSideSharesPrimaryKey(attribute, oneToOne, mappedBy)) {
@@ -3423,7 +3472,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                     context.missingEvidence(HibernateEvidenceGap.ENTITY_GRAPH, method);
                     continue;
                 }
-                List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(domainEntity);
+                List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(context, domainEntity);
                 if (!eagerToOne.isEmpty()) context.evidence().markApplicable(true);
                 Set<String> fetched = fetchedAttributes(method.query());
                 List<String> uncovered = new ArrayList<>();
@@ -3444,14 +3493,14 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
         return violation(context, details);
     }
 
-    private List<HibernateAttributeModel> eagerToOneAssociations(HibernateEntityModel entity) {
+    private List<HibernateAttributeModel> eagerToOneAssociations(
+            HibernateContext context, HibernateEntityModel entity) {
         List<HibernateAttributeModel> eager = new ArrayList<>();
         for (HibernateAttributeModel attribute : entity.attributes()) {
             if (!attribute.isToOneAssociation()) {
                 continue;
             }
-            Annotation association = attribute.associationAnnotation();
-            if (!"EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
+            if (!HibernateRuleModelSupport.hasDeclaredEagerFetch(context, attribute)) {
                 continue;
             }
             eager.add(attribute);
@@ -4663,8 +4712,8 @@ final class DeprecatedGenericGeneratorRule extends AbstractHibernateRule {
                         "Deprecated @GenericGenerator should be replaced",
                         HibernateCategory.MAPPING,
                         "LOW",
-                        "Detects Hibernate's deprecated @GenericGenerator and @GenericGenerators annotations, which were"
-                                + " deprecated in Hibernate ORM 6.5 and 7.0.",
+                        "Detects deprecated generator declarations in Hibernate ORM 6.5 through 7.x."
+                                + " Hibernate ORM 8 reworked @GenericGenerator and reversed its deprecation.",
                         "Replace @GenericGenerator with a meta-annotated @IdGeneratorType annotation, @UuidGenerator, or"
                                 + " standard JPA @SequenceGenerator / @TableGenerator.",
                         "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators"));
@@ -4672,6 +4721,14 @@ final class DeprecatedGenericGeneratorRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        HibernateRuntimeVersion version = context.hibernateVersion();
+        if (version.major() == null || version.major() == 6 && version.minor() == null) {
+            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION);
+            return skipped("Hibernate version is unavailable or incomplete; generator deprecation cannot be assessed.");
+        }
+        if (version.major() >= 8 || !version.isAtLeastMajorMinor(6, 5)) {
+            return skipped("This generator-deprecation advisory applies only to Hibernate ORM 6.5 through 7.x.");
+        }
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             if (entity.annotationInHierarchy(GENERIC_GENERATOR) != null

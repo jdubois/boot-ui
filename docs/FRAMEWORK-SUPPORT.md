@@ -15,6 +15,19 @@ BootUI targets **Spring Boot 4.0+ within the 4.x line** with Spring Framework 7,
 the 3.x line**. The build baseline and older LTS coverage are recorded in [Repository and documentation](REPOSITORY.md).
 Supported patches do not need to equal BootUI's build patch.
 
+<!-- bootui-quarkus-4:next-release:start -->
+> **Next release:** Releases before the first Quarkus 4-carrying BootUI release do not include the new coordinates. Select a published release that contains this adapter; until then, using Quarkus 4 requires an explicit source build.
+<!-- bootui-quarkus-4:next-release:end -->
+
+| Quarkus generation | Runtime / deployment artifacts | Java minimum | Declared core range | Build baseline |
+| --- | --- | --- | --- | --- |
+| 3 | `bootui-quarkus` / `bootui-quarkus-deployment` | 17 | 3.33+ within 3.x | 3.40.1.2 LTS |
+| 4 | `bootui-quarkus-4` / `bootui-quarkus-4-deployment` | 21 | 4.0.0+ within 4.x | 4.0.1, initially non-LTS |
+
+Choose exactly one generation. Quarkus 4 retains the same `quarkus` discriminator, Vue UI, DTOs, REST, MCP, and CLI
+contracts; it does not add another request stack or imply native parity. See [setup](setup/quarkus.md) and the
+[current execution boundaries](QUARKUS-SUPPORT.md#quarkus-4).
+
 Startup diagnostics use stable `BOOTUI-COMPAT-*` identifiers:
 
 - **A proven incompatible platform stops startup.** Spring Boot 3 is not supported. The diagnostic applies even with
@@ -37,7 +50,7 @@ generating their bean definitions; native startup does not repeat arbitrary libr
 This is not certification of every transitive library version. BootUI does not automatically disable itself, rewrite
 dependencies, or impose exact CLI/server version equality. Some invalid dependency graphs fail in the framework or
 resolver before BootUI's diagnostic can run. Java versions below 17 can likewise be rejected by the JVM before any
-BootUI code executes.
+BootUI code executes; Quarkus 4's Java 21 minimum is likewise enforced before adapter code can run.
 
 Bytecode advisors validate application class-file headers only during an explicit scan. Unsupported or unreadable
 headers yield an error/incomplete result rather than a clean assessment of a silently imported subset. Header
@@ -45,14 +58,17 @@ validation does not certify every class body, dependency resolution, or classpat
 
 ### Maintaining compatibility during upgrades
 
-The root `spring-boot.version` and `quarkus.platform.version` properties select the **build baseline**, not an
-exact-version allowlist. For a dependency upgrade:
+The root `spring-boot.version`, `quarkus.platform.version` (Quarkus 3), and independent `quarkus4.platform.version`
+properties select the **build baseline**, not an exact-version allowlist. Quarkus 3 remains on its LTS policy;
+the initial non-LTS Quarkus 4 baseline is not permission to upgrade to Quarkus 5. For a dependency upgrade:
 
 - Keep the declared support range unless changing it is an explicit, reviewed decision. Ordinary supported
   patch/minor upgrades do not require widening the runtime rules.
 - Run the current-baseline conformance checks and retain older supported consumer coverage: the Spring Boot 4.0
   and 4.1 MVC/WebFlux fixtures in `.github/scripts/consumer-smoke-tests.sh` and the older Quarkus LTS lane in
   `build.yml`.
+- For Quarkus 4, retain clean consumers of the **baseline-built binaries** on core 4.0.0 as well as 4.0.1.
+  Recompiling the adapter against the minimum alone does not prove those binaries work there.
 - Preserve the rejected-platform consumer cases and their actionable diagnostics. Fix API incompatibilities rather
   than weakening checks or removing assertions to make a bump pass.
 - For an intentional generation or minimum-support change, update `PlatformCompatibility`, the affected adapter API
@@ -106,7 +122,7 @@ covered by something else:
 
 | Panel                                | Why, and what to use instead                                                                       |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| **GraalVM**, **CRaC**                | Quarkus is native-first and starts fast by design. Use its own native build.                       |
+| **GraalVM**, **CRaC**                | These readiness advisors do not assess Quarkus. Its application native build is separate from BootUI's native capability acceptance. |
 | **Conditions**, **Startup Timeline** | Quarkus resolves wiring at build time, so there is no runtime graph or step timeline.              |
 | **Spring Security**, **Spring Data** | Quarkus uses Elytron/OIDC and Panache. Use the Quarkus Security advisor and the Hibernate advisor. |
 | **Spring DevTools**                  | Quarkus dev mode already owns live reload.                                                         |
@@ -122,8 +138,13 @@ Vert.x rather than a servlet thread. Live Activity and request profiles correlat
 or execution id, without requiring tracing, and then through an unambiguous OpenTelemetry trace id when present.
 Serving-thread and time-window request-profile joins are deliberately unavailable there.
 
-Everything else ships, including the Java Agent panel, the whole advisor and scoring surface, and the MCP server, which
-is where BootUI adds the most on a stack that already has a dev UI.
+The released Quarkus 3 JVM adapter includes the Java Agent panel, advisor and scoring surface, and MCP server.
+The additive Quarkus 4 JVM adapter follows that capability contract; its full browser/agent acceptance and
+native acceptance remain separate from individual passing fixtures.
+
+Quarkus Dev UI and its experimental Dev MCP remain separate services, not alternative spellings of BootUI's
+contract. The clean 4.0.1 telemetry/BootUI four-cell Chromium matrix passed without CSP bypass or server-policy
+changes. See the [version-backed Dev UI assessment and limits](QUARKUS-SUPPORT.md#dev-ui-assessment).
 
 ## Going deeper
 

@@ -1,0 +1,155 @@
+package io.github.jdubois.bootui.quarkus4.rabbit;
+
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.smallrye.reactive.messaging.OutgoingInterceptor;
+import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.reactive.messaging.Message;
+import org.jboss.logging.Logger;
+
+/**
+ * Captures SmallRye Reactive Messaging RabbitMQ <em>sends</em> into the shared, framework-neutral
+ * {@link RabbitActivityRecorder} — the Quarkus analogue of the Spring adapter's
+ * {@code RabbitProducerCaptureBeanPostProcessor}, feeding the exact same recorder so both adapters render
+ * identical {@code MESSAGING} entries in the Live Activity feed. Quarkus applications use SmallRye's
+ * {@code @Outgoing} channel model (via {@code quarkus-messaging-rabbitmq}), not Spring's imperative
+ * {@code RabbitTemplate} API, so the interception point is SmallRye's {@link OutgoingInterceptor} SPI: a
+ * global (default-qualified) interceptor bean SmallRye auto-discovers and applies to every outgoing
+ * channel that has no channel-specific interceptor of its own.
+ *
+ * <p><strong>This class (with {@link QuarkusRabbitConsumerCapture}) is the sole importer of
+ * {@code io.smallrye.reactive.messaging.rabbitmq.*} types in the Quarkus adapter's capture path (R2).
+ * </strong> The framework-neutral engine and the always-produced {@link RabbitActivityRecorder} never
+ * import these; this bean is class-presence-gated (registered only when
+ * {@code quarkus-messaging-rabbitmq} is on the classpath, and excluded from bean discovery with {@code
+ * ExcludedTypeBuildItem} otherwise) so Arc never links the messaging API in an app without that extension — mirroring the
+ * Email-panel optional-dependency boundary.</p>
+ *
+ * <p><strong>Behavioral contract:</strong> metadata only (never the payload — only exchange/routingKey and
+ * the correlationId when {@code bootui.rabbitmq.capture-correlation-id} is on, enforced by the recorder
+ * itself); a no-op for non-RabbitMQ channels (a Kafka or in-memory outgoing message carries no
+ * {@link OutgoingRabbitMQMetadata}, so nothing is recorded); pass-through / never disrupt the app
+ * ({@link #getPriority()} returns {@link Integer#MAX_VALUE}, and SmallRye applies only the
+ * lowest-priority interceptor per channel, so an application that registers its own outgoing interceptor
+ * for a channel always wins and BootUI steps aside for it); and fail-open (any error while inspecting
+ * metadata or recording is caught and logged at warn, never disrupting the send).</p>
+ *
+ * <p>A publish is timed from when its message enters the channel ({@link #beforeMessageSend}) to its ack or nack, and starts
+ * then, so a request's timeline places it where the request published it.</p>
+ */
+@ApplicationScoped
+public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
+
+    private static final Logger log = Logger.getLogger(QuarkusRabbitProducerCapture.class);
+
+    private final java.util.function.Supplier<RabbitActivityRecorder> recorder;
+
+    @Inject
+    public QuarkusRabbitProducerCapture(Instance<RabbitActivityRecorder> recorder) {
+        this.recorder = recorder::get;
+    }
+
+    public QuarkusRabbitProducerCapture(RabbitActivityRecorder recorder) {
+        this.recorder = () -> recorder;
+    }
+
+    /**
+     * Highest priority value so SmallRye's ascending-priority, first-wins interceptor selection always
+     * prefers an application-defined interceptor over this one — BootUI never displaces the app's own.
+     */
+    @Override
+    public int getPriority() {
+        return Integer.MAX_VALUE;
+    }
+
+    @Override
+    public void onMessageAck(Message<?> message) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        record(message, true, null);
+    }
+
+    @Override
+    public void onMessageNack(Message<?> message, Throwable failure) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        record(message, false, failure == null ? null : failure.getMessage());
+    }
+
+    private void record(Message<?> message, boolean success, String errorMessage) {
+        if (BootUiNativeActivation.isNativeInactive() || !recorder.get().isEnabled()) {
+            return;
+        }
+        try {
+            OutgoingRabbitMQMetadata metadata =
+                    message.getMetadata(OutgoingRabbitMQMetadata.class).orElse(null);
+            if (metadata == null) {
+                // Not a RabbitMQ message (Kafka / in-memory channel): pass through and record nothing.
+                return;
+            }
+            SenderCorrelation sent = sentOf(message);
+            recorder.get()
+                    .recordPublishNanos(
+                            metadata.getExchange().orElse(null),
+                            metadata.getRoutingKey(),
+                            sent.durationNanos(),
+                            success,
+                            errorMessage,
+                            metadata.getProperties().getCorrelationId(),
+                            sent.sender());
+        } catch (RuntimeException ex) {
+            log.warn("BootUI could not capture an outgoing RabbitMQ message; leaving it untouched", ex);
+        }
+    }
+
+    /**
+     * Snapshots the sender's BootUI correlation and the send's {@link System#nanoTime()} when the message enters the
+     * channel ({@code docs/PLAN-v2.md} §5.1): the request, scheduled run, or consumed message that sent it, and when.
+     * The ack or nack that records the send may run on another thread, so the snapshot travels in the message's
+     * metadata.
+     */
+    @Override
+    public Message<?> beforeMessageSend(Message<?> message) {
+        if (BootUiNativeActivation.isNativeInactive() || !recorder.get().isEnabled()) {
+            return message;
+        }
+        try {
+            return message.addMetadata(new SenderCorrelation(QuarkusRequestCorrelation.current(), System.nanoTime()));
+        } catch (RuntimeException ex) {
+            return message;
+        }
+    }
+
+    private static SenderCorrelation sentOf(Message<?> message) {
+        return message.getMetadata(SenderCorrelation.class).orElse(SenderCorrelation.UNKNOWN);
+    }
+
+    /**
+     * Who sent a message and when, as a {@link System#nanoTime()}; {@link #UNKNOWN} when it was not snapshotted, since
+     * any {@code long}, negative ones included, is a valid reading.
+     */
+    record SenderCorrelation(CorrelationContext sender, long sentNanos, boolean timed) {
+
+        static final SenderCorrelation UNKNOWN = new SenderCorrelation(CorrelationContext.NONE, 0, false);
+
+        SenderCorrelation {
+            sender = sender == null ? CorrelationContext.NONE : sender;
+        }
+
+        SenderCorrelation(CorrelationContext sender, long sentNanos) {
+            this(sender, sentNanos, true);
+        }
+
+        /** The nanoseconds from the send to now, or {@code null} when the send time is unknown. */
+        Long durationNanos() {
+            return timed ? Math.max(0, System.nanoTime() - sentNanos) : null;
+        }
+    }
+}

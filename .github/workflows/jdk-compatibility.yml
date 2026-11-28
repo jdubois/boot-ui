@@ -1,6 +1,7 @@
 name: JDK compatibility (21/25/27)
 
-# Keeps Java 17 as the full CI-equivalent/build-release baseline (build.yml + release.yml),
+# Keeps Java 17 as the shared/Spring/Quarkus 3 baseline (build.yml); release staging
+# now uses Java 25 to include Quarkus 4 while its legacy consumers still run on 17.
 # while adding focused compatibility checks on newer supported JDKs for every push to main and
 # to the long-lived v2 branch (PLAN-v2 M5-12: the BootUI agent's acceptance matrix covers Java 21
 # and 25 there too, with the Spring MVC browser suite attached to the agent), every pull request into main,

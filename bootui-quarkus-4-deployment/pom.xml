@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-parent</artifactId>
+        <version>2.5.0</version>
+        <relativePath>../bootui-quarkus-4-parent/pom.xml</relativePath>
+    </parent>
+    <artifactId>bootui-quarkus-4-deployment</artifactId>
+    <name>BootUI :: Quarkus 4 Extension (Deployment)</name>
+    <description>Quarkus 4 build-time wiring and platform checks.</description>
+    <properties>
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+    <dependencies>
+        <!-- Arc deployment brings AdditionalBeanBuildItem + the core deployment API (Feature/IndexDependency/
+             LaunchMode build items) transitively. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc-deployment</artifactId>
+        </dependency>
+        <!-- Deployment counterparts of the runtime extension deps (quarkus-rest, quarkus-rest-jackson). The
+             extension-descriptor goal verifies every runtime extension dependency has its -deployment pair
+             here; these transitively pull vertx-http/vertx/jackson deployment modules. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-deployment</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson-deployment</artifactId>
+        </dependency>
+        <!-- Provides PreExceptionMapperHandlerBuildItem, the RESTEasy Reactive build-time extension point
+             used to observe an exception before it is resolved by any ExceptionMapper (see
+             QuarkusPreMappingExceptionCaptureHandler). Already resolvable transitively through
+             quarkus-rest-deployment, but declared directly since its types are imported directly here. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-server-spi-deployment</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm-deployment-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Plain JUnit 5 + AssertJ (versions managed by quarkus-bom) for the BasePackageRoots antichain
+             unit test. The base-package reduction is pure logic, so it needs no Quarkus bootstrap. -->
+        <!-- Test-only native augmentation fixture for additional secured methods and advisor ordering. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit-internal</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Test-only: the MicroProfile / SmallRye Fault Tolerance annotations the fault tolerance scan reads.
+             They are compiled into the test fixtures so the Jandex index the test builds is the real thing.
+             Deliberately not a compile dependency: the scan matches annotations by DotName and must stay
+             usable in an application that has no fault-tolerance extension at all. -->
+        <dependency>
+            <groupId>org.eclipse.microprofile.fault-tolerance</groupId>
+            <artifactId>microprofile-fault-tolerance-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.smallrye</groupId>
+            <artifactId>smallrye-fault-tolerance-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.microprofile.rest.client</groupId>
+            <artifactId>microprofile-rest-client-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            The BootUI agent, for BootUiAgentLiveReloadLeakIT, which failsafe runs with -javaagent and this jar's path
+            (${com.julien-dubois.bootui:bootui-agent:jar}), once the agent module has packaged it. Kept off every test
+            class path: an agent jar is only ever loaded by -javaagent.
+        -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-agent</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${quarkus4.platform.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>io.github.jdubois.bootui.quarkus4.deployment</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <skipITs>${bootui.skipAgentIts}</skipITs>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                    <argLine>@{argLine} ${quarkus.test.argLine} -javaagent:${com.julien-dubois.bootui:bootui-agent:jar} -Xmx3g</argLine>
+                    <systemPropertyVariables>
+                        <bootui.agent.it.required>true</bootui.agent.it.required>
+                    </systemPropertyVariables>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>com.julien-dubois.bootui:bootui-agent</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

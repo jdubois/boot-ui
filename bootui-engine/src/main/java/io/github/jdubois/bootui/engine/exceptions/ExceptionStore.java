@@ -72,6 +72,11 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
     /** Maximum depth walked through an exception's cause chain. */
     private static final int MAX_CAUSE_DEPTH = 8;
 
+    private static final String CONSTRAINT_VIOLATION_EXCEPTION_CLASS =
+            "jakarta.validation.ConstraintViolationException";
+    // Gate before the typed helper so native linking can prune an absent optional API.
+    private static final boolean VALIDATION_API_PRESENT = validationApiPresent();
+
     /** Upper bound on a retained raw message, before display masking/truncation. */
     private static final int MAX_MESSAGE_LENGTH = 4096;
 
@@ -237,7 +242,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
                 raw = List.of();
             }
         }
-        if ((raw == null || raw.isEmpty()) && hasConstraintViolationInChain(throwable)) {
+        if (VALIDATION_API_PRESENT && (raw == null || raw.isEmpty()) && hasConstraintViolationInChain(throwable)) {
             try {
                 raw = ConstraintViolationReader.extract(throwable, handler);
             } catch (RuntimeException | LinkageError ignored) {
@@ -247,12 +252,21 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         return raw == null ? List.of() : raw;
     }
 
+    private static boolean validationApiPresent() {
+        try {
+            Class.forName(CONSTRAINT_VIOLATION_EXCEPTION_CLASS, false, ExceptionStore.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException absent) {
+            return false;
+        }
+    }
+
     private static boolean hasConstraintViolationInChain(Throwable throwable) {
         Throwable current = throwable;
         int depth = 0;
         while (current != null && depth < MAX_CAUSE_DEPTH) {
             for (Class<?> t = current.getClass(); t != null && t != Object.class; t = t.getSuperclass()) {
-                if ("jakarta.validation.ConstraintViolationException".equals(t.getName())) {
+                if (CONSTRAINT_VIOLATION_EXCEPTION_CLASS.equals(t.getName())) {
                     return true;
                 }
             }

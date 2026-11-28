@@ -165,6 +165,64 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "stale"):
             acceptance.verify_quarkus_application(project, expected, diagnostic=True)
 
+    def test_q4_template_preserves_the_generation_and_minimum_consumer_bom(self):
+        template = (acceptance.FIXTURE / "quarkus/pom.xml.template").read_text(encoding="utf-8")
+        for platform in ("4.0.1", "4.0.0"):
+            rendered = acceptance.render_quarkus_pom(template, "3.0.0", platform, "4")
+            self.assertIn("<artifactId>bootui-quarkus-4</artifactId>", rendered)
+            self.assertNotIn("<artifactId>bootui-quarkus</artifactId>", rendered)
+            self.assertIn("<maven.compiler.release>21</maven.compiler.release>", rendered)
+            self.assertNotIn("@BOOTUI_VERSION@", rendered)
+            self.assertEqual("<groupId>io.quarkus.platform</groupId>" in rendered, platform != "4.0.0")
+        q3 = acceptance.render_quarkus_pom(template, "3.0.0", "3.40.1.2")
+        self.assertIn("<maven.compiler.release>17</maven.compiler.release>", q3)
+        self.assertIn("<artifactId>bootui-quarkus</artifactId>", q3)
+
+    def test_q4_candidate_requires_matching_runtime_and_deployment_without_q3(self):
+        repository = self.root / "repository"
+        for module in ("bootui-engine", "bootui-ui", "bootui-quarkus-4", "bootui-quarkus-4-deployment"):
+            source = self.root / module
+            (source / "target").mkdir(parents=True)
+            jar = source / "target" / f"{module}-2.5.0.jar"
+            if module == "bootui-quarkus-4":
+                with zipfile.ZipFile(jar, "w") as archive:
+                    archive.writestr(
+                        "META-INF/quarkus-extension.properties",
+                        "deployment-artifact=com.julien-dubois.bootui\\:bootui-quarkus-4-deployment\\:2.5.0\n",
+                    )
+            else:
+                jar.write_bytes(b"candidate")
+            (source / ".flattened-pom.xml").write_bytes(b"flattened")
+            installed = repository / "com/julien-dubois/bootui" / module / "2.5.0"
+            installed.mkdir(parents=True)
+            (installed / jar.name).write_bytes(jar.read_bytes())
+            (installed / f"{module}-2.5.0.pom").write_bytes(b"flattened")
+        cli = self.root / "bootui-cli/target/bootui-cli-2.5.0-all.jar"
+        cli.parent.mkdir(parents=True)
+        cli.write_bytes(b"cli")
+        installed_cli = repository / "com/julien-dubois/bootui/bootui-cli/2.5.0" / cli.name
+        installed_cli.parent.mkdir(parents=True)
+        installed_cli.write_bytes(b"cli")
+        with patch.object(acceptance, "ROOT", self.root):
+            spring, quarkus, _ = acceptance.candidate_artifacts("2.5.0", repository, "4", ("quarkus",))
+            self.assertEqual(spring, {})
+            self.assertEqual(len(quarkus), 3)
+            self.assertTrue(any("bootui-quarkus-4-" in name for name in quarkus))
+            deployment = repository / "com/julien-dubois/bootui/bootui-quarkus-4-deployment/2.5.0/bootui-quarkus-4-deployment-2.5.0.jar"
+            deployment.write_bytes(b"stale")
+            with self.assertRaisesRegex(AssertionError, "not the checkout's built artifact"):
+                acceptance.candidate_artifacts("2.5.0", repository, "4", ("quarkus",))
+
+    def test_discovery_requires_the_owned_consumer_url_not_a_different_live_instance(self):
+        result = subprocess.CompletedProcess([], 0, '{"instances":[{"baseUrl":"http://127.0.0.1:8123"}]}', "")
+        with patch.object(acceptance, "run", return_value=result):
+            acceptance.verify_discovery(self.root / "cli.jar", "http://127.0.0.1:8123")
+        with patch.object(acceptance, "run", return_value=result), \
+                patch.object(acceptance.time, "monotonic", side_effect=[0, 1, 31]), \
+                patch.object(acceptance.time, "sleep"):
+            with self.assertRaisesRegex(AssertionError, "discovery lease"):
+                acceptance.verify_discovery(self.root / "cli.jar", "http://127.0.0.1:8124")
+
     def test_quarkus_production_fast_jar_rejects_embedded_bootui_classes(self):
         project = self.root / "production"
         libraries = project / "target/quarkus-app/lib/main"

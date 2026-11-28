@@ -78,6 +78,46 @@ public final class PlatformCompatibility {
         return List.of();
     }
 
+    public static List<Finding> quarkus4(String quarkusVersion) {
+        return quarkus4(quarkusVersion, false);
+    }
+
+    public static List<Finding> quarkus4(String quarkusVersion, boolean quarkus3AdapterPresent) {
+        if (quarkus3AdapterPresent) {
+            return List.of(new Finding(
+                    "BOOTUI-COMPAT-023",
+                    Severity.ERROR,
+                    "The BootUI Quarkus 3 and Quarkus 4 adapters cannot be installed together.",
+                    "For Quarkus 4, remove bootui-quarkus and bootui-quarkus-deployment and retain only"
+                            + " bootui-quarkus-4 and its matching deployment artifact."));
+        }
+        int[] version = version(quarkusVersion);
+        if (version == null) {
+            return List.of(new Finding(
+                    "BOOTUI-COMPAT-021",
+                    Severity.INFO,
+                    "Quarkus version metadata is unavailable or unrecognized.",
+                    "Unknown metadata is not evidence of incompatibility."));
+        }
+        if (version[0] < 4) {
+            return List.of(new Finding(
+                    "BOOTUI-COMPAT-020",
+                    Severity.ERROR,
+                    "The BootUI Quarkus 4 extension requires Quarkus 4.0 or later in the Quarkus 4 line."
+                            + " Detected Quarkus " + display(quarkusVersion) + ".",
+                    "Use bootui-quarkus for Quarkus 3, or upgrade the platform to Quarkus 4; do not install both"
+                            + " BootUI Quarkus extensions."));
+        }
+        if (version[0] > 4) {
+            return List.of(new Finding(
+                    "BOOTUI-COMPAT-022",
+                    Severity.WARNING,
+                    "This Quarkus generation is outside BootUI's declared Quarkus 4 target.",
+                    "Verify compatibility before relying on BootUI diagnostics."));
+        }
+        return List.of();
+    }
+
     private static int[] version(String value) {
         if (value == null) {
             return null;

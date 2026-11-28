@@ -34,6 +34,8 @@ pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/Qua
 # Where the adapters wire request ends to the thread-activity and resources sensors (M5-5e, M5-5g).
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiEngineConfiguration'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/BootUiEngineProducer'
+pattern+='|bootui-quarkus-4/src/main/java/io/github/jdubois/bootui/quarkus4/(BootUiEngineProducer|web/(QuarkusHttpExchangeCaptureFilter|QuarkusThreadLocalsFilter|SideEffectsResource)|scheduled/QuarkusScheduledExecutionInterceptor)'
+pattern+='|bootui-quarkus-4(-deployment)?/src/main/java/io/github/jdubois/bootui/quarkus4/(deployment/)?(agent|javaagent|codepaths|inventory|sideeffects|correlation)/'
 # Where the adapters open the thread-locals sensor's scopes (M5-5f), and BootUI's own thread locals' marker class.
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(BootUiAutoConfiguration|reactive/(BootUiCorrelationThreadLocalAccessor|ReactorThreadLocalsScopes)|scheduled/ScheduledTaskRunObservationHandler)'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/(web/QuarkusThreadLocalsFilter|scheduled/QuarkusScheduledExecutionInterceptor)'
@@ -50,10 +52,12 @@ pattern+='|bootui-quarkus-sample-app/e2e/(tests-agent|playwright\.agent\.config)
 pattern+='|bootui-spring-sample-app/src/test/java/.*Agent'
 pattern+='|bootui-spring-sample-app/src/test/java/io/github/jdubois/bootui/sample/SpringStartupSqlComparisonIT\.java$'
 pattern+='|bootui-quarkus-deployment/src/test/java/.*/BootUiAgentLiveReloadLeakIT\.java$'
+pattern+='|bootui-quarkus-4-deployment/src/test/java/.*/BootUiAgentLiveReloadLeakIT\.java$'
+pattern+='|bootui-quarkus-4(-parent|-deployment|-sample-app)?/pom\.xml$'
 pattern+='|bootui-(quarkus(-parent|-deployment)?|spring-webflux-sample-app)/pom\.xml$'
 pattern+='|bootui-spring-sample-app/src/test/java/io/github/jdubois/bootui/sample/SampleExecutableJar(ReadinessTests)?\.java$'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/SideEffectsResource'
-pattern+='|bootui-(spring-sample-app|spring-webflux-sample-app|quarkus-sample-app)/src/main/java/.*/sideeffects/'
+pattern+='|bootui-(spring-sample-app|spring-webflux-sample-app|quarkus(-4)?-sample-app)/src/main/java/.*/sideeffects/'
 pattern+='|bootui-(spring|quarkus)-sample-app/e2e/tests[^/]*/side-effects\.spec\.js$'
 pattern+=')'
 

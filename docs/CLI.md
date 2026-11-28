@@ -15,6 +15,10 @@ from the registry at build time and a test fails when the two disagree. `tools` 
 `mcp status|enable|disable` call the MCP Server panel directly rather than invoking catalog tools.
 `docs`, `update`, `ci`, `init`, and `instances` are client-side commands, not MCP tools.
 
+The Quarkus generations use different application extension coordinates, not different CLI commands or platform
+discriminators. See [Quarkus setup](setup/quarkus.md) for release availability and Java minimums. The CLI itself still
+needs Java 17+, even when a Quarkus 4 application needs Java 21+. A JVM CLI response does not prove native-console support.
+
 ## Offline documentation
 
 The runnable `all` JAR ships its own release's documentation. No application or network is needed:

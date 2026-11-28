@@ -59,6 +59,7 @@ The candidates below are not prerequisites for this slice.
 
 | Candidate | Status | Decision needed |
 | --------- | ------ | --------------- |
+| Additive Quarkus 4 support | In progress | Separate Java 21 runtime/deployment modules; preserve Quarkus 3. Clean 4.0.1 Dev UI coexistence passed; complete the remaining JVM/agent, three-platform native, and distribution gates before declaring support. See [current evidence](QUARKUS-SUPPORT.md#quarkus-4). |
 | §3.18 Data access map | 💤 Backlog | Decide whether a dedicated route-by-table SQL Trace view adds enough value beyond released change impact and anonymous-access observations. |
 | Assessment mode with external DAST traffic and SARIF ([#1629](https://github.com/jdubois/boot-ui/issues/1629)) | Proposal | Validate feasibility, evidence quality, privacy, and the boundary with existing opt-in security-sink sensors before accepting scope. |
 | Other deferred v2 ideas | Historical candidates only | Reassess individually against current capabilities and demonstrated demand; none inherits a delivery order from `PLAN-v2.md` §5.10. |

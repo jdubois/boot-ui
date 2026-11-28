@@ -403,9 +403,10 @@ call-site capture, buffer size, the slow-query and N+1 thresholds, and truncatio
 `bootui.sql-trace.*`. The panel refreshes over Server-Sent Events from `/bootui/api/sql-trace/stream`; the push
 carries no data, so masking and exposure rules still apply through the regular endpoint.
 
-::: tip GraalVM native images are supported
-BootUI registers the tracing proxies as native-image proxy metadata, so SQL Trace works in a native executable. If a
+::: tip Spring Boot native SQL tracing
+The Spring Boot adapter registers the tracing proxies as native-image proxy metadata, so SQL Trace works in its native executable. If a
 proxy cannot be created, the `DataSource` is left untraced rather than breaking startup.
+This is not Quarkus native evidence; [Quarkus 4 native acceptance remains open](../QUARKUS-SUPPORT.md#quarkus-4).
 :::
 
 ::: details On Quarkus: JDBC executions and ORM preparations

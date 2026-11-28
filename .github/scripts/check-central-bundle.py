@@ -30,15 +30,33 @@ from pathlib import Path
 GROUP = "com.julien-dubois.bootui"
 NS = {"m": "http://maven.apache.org/POM/4.0.0"}
 
+# Prepared bundles always use this nine-coordinate inventory, even for a historical test version.
 PUBLISHED = (
     "bootui-engine",
     "bootui-ui",
     "bootui-spring-boot-starter",
     "bootui-quarkus",
     "bootui-quarkus-deployment",
+    "bootui-quarkus-4",
+    "bootui-quarkus-4-deployment",
     "bootui-cli",
     "bootui-agent",
 )
+
+# The immutable v2.6.0 source still has the seven-coordinate distribution. Historical Pages
+# probes must use that inventory; manifest availability does not itself prove Central publication.
+LAST_SEVEN_COORDINATE_RELEASE = (2, 6, 0)
+
+
+def published_for_version(version):
+    """Select historical Pages probes, never the inventory for a newly prepared bundle."""
+    if tuple(map(int, version.split("."))) <= LAST_SEVEN_COORDINATE_RELEASE:
+        return tuple(
+            artifact for artifact in PUBLISHED
+            if artifact not in ("bootui-quarkus-4", "bootui-quarkus-4-deployment")
+        )
+    return PUBLISHED
+
 
 EXTRA_FILES = {"bootui-cli": ("all",)}
 

@@ -1,0 +1,15 @@
+name: BootUI
+description: Local-only developer console for Quarkus, using the Quarkus 4 adapter over bootui-engine.
+group-id: com.julien-dubois.bootui
+artifact-id: bootui-quarkus-4
+artifact: "com.julien-dubois.bootui:bootui-quarkus-4::jar:0"
+metadata:
+  keywords:
+    - bootui
+    - developer-console
+    - dev-tools
+    - diagnostics
+  categories:
+    - "developer-tools"
+  status: "experimental"
+  guide: "https://github.com/jdubois/boot-ui/blob/main/docs/QUARKUS-SUPPORT.md"

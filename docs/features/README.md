@@ -3,6 +3,10 @@
 These groups match the console's own menu. Pick one to read its panels in detail, or use the search box to jump
 straight to a panel by name.
 
+Quarkus generations share these panel and client contracts but have different extension coordinates and Java minimums.
+See [Framework support](../FRAMEWORK-SUPPORT.md) for availability and the [Quarkus execution boundaries](../QUARKUS-SUPPORT.md#quarkus-4);
+JVM availability does not imply native availability.
+
 Use **Help improve BootUI** at the bottom of the sidebar to open the user survey or contribute on GitHub.
 The popover stays closed until opened, works in the collapsed sidebar and mobile navigation, and opens both
 destinations in a new tab. BootUI does not send application diagnostics with either link.

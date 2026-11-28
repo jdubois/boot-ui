@@ -1,0 +1,884 @@
+package io.github.jdubois.bootui.quarkus4;
+
+import io.github.jdubois.bootui.core.dto.PanelDto;
+import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
+import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
+import io.github.jdubois.bootui.quarkus4.agent.QuarkusClaudeCodeProperties;
+import io.github.jdubois.bootui.quarkus4.agent.QuarkusCopilotProperties;
+import io.github.jdubois.bootui.quarkus4.devservices.CapturedDevServices;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeCapabilities;
+import io.quarkus.runtime.ImageMode;
+import io.smallrye.config.SmallRyeConfig;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.eclipse.microprofile.config.Config;
+
+/**
+ * Computes the BootUI panel manifest for the Quarkus adapter.
+ *
+ * <p>The panel registry ({@link BootUiPanels}) is shared with the Spring adapter, so panel ids, titles
+ * and order are identical and the shared Vue UI renders the same sidebar on both platforms. Availability
+ * is platform-specific and computed here (the Spring adapter's {@code PanelsController} computes its own
+ * over Actuator/bean presence). This release lights up the framework-neutral Threads, Heap Dump,
+ * Live Memory, JVM Tuning and Loggers panels, the Memory advisor (always available: it aggregates
+ * JMX heap/GC/thread/class-loading data and runs the shared static rule registry on demand), the Metrics panel (which reports real Micrometer meters when a
+ * {@code quarkus-micrometer} registry is present and otherwise renders as unavailable), the HTTP Probe panel
+ * (which probes the application's own loopback port), the Health panel (always available: it reports real
+ * SmallRye Health when {@code quarkus-smallrye-health} is present and otherwise renders setup guidance), the
+ * Architecture (ArchUnit) advisor (which bounds its bytecode import to the application base packages discovered
+ * from the build-time Jandex index and runs the shared curated rule registry on demand), plus the
+ * OpenTelemetry-backed Traces and AI Framework panels (whose read services are always wired — they simply
+ * render empty until spans are captured, which requires {@code quarkus-opentelemetry} on the application
+ * classpath), plus the Vulnerabilities panel (statically available: it lists the application's local
+ * dependency inventory, captured from the build-time application model, and reaches out to OSV.dev only on
+ * the user-initiated {@code POST /scan} — never on render); every other panel is reported unavailable with
+ * a clear reason until its Quarkus backing is
+ * ported. The <strong>Beans</strong> panel is also lit up (always available like Architecture/Metrics): the
+ * shared engine {@code BeansService} reads the live Arc/CDI container through {@code QuarkusBeanProvider}
+ * (the Quarkus analogue of the Spring adapter's Actuator-backed provider), with BootUI's own beans filtered
+ * out; Arc injection dependencies are captured at build time, while {@code resource} remains empty and
+ * {@code scope} uses the CDI vocabulary. The <strong>Pentesting</strong> (local OWASP hygiene) advisor is also lit up: it reuses the shared
+ * engine {@code PentestingScanner}, whose framework-neutral value comes from two synthetic loopback probes
+ * (security headers, cookies, CORS, TRACE, technology disclosure), so the Quarkus adapter supplies only the
+ * live server port + context path and a deliberately neutral endpoint/security/config snapshot (the
+ * Spring-Security and Actuator checks stay inert on Quarkus) — note Traces (its buffer can be cleared),
+ * Loggers (a logger level can be set), HTTP Probe (it issues a request), Architecture (it runs a scan and
+ * dismisses rules), Pentesting (it runs a scan), Vulnerabilities (it runs an OSV scan) and Cache (it clears
+ * caches) are action-capable, plus the Memory advisor (it runs a scan), so they are the Quarkus panels
+ * exposing state-changing actions. Per-panel enabled/read-only gating is modelled exactly like the Spring
+ * adapter's {@code PanelAccessFilter}: {@code enabled} reflects the live
+ * {@code bootui.panels.<id>.enabled} config (default {@code true}), and {@code readOnly}/{@code
+ * readOnlyReason} reflect the OR of the live {@code bootui.panels.<id>.read-only} / global {@code
+ * bootui.read-only} config (default {@code false}) with the Configuration panel's own inherent
+ * read-only-ness (it has no write path on Quarkus at all yet, unrelated to this config — see below); both
+ * are computed by {@link QuarkusPanelAccessConfig}, shared with {@link QuarkusPanelAccessFilter} so the
+ * manifest and the enforcing filter can never disagree.</p>
+ *
+ * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
+ * statically-available panels above, it is lit up only when the application actually uses Hibernate ORM. The
+ * deployment processor detects the {@code HIBERNATE_ORM} capability at build time and feeds the decision back
+ * as the {@code bootui.internal.hibernate-present} runtime-config default (see
+ * {@link #HIBERNATE_PRESENT_KEY}); when Hibernate ORM is absent the panel reports an honest capability hint
+ * rather than the generic "not yet ported" reason. The engine scanner and its {@code GET}/{@code POST /scan}
+ * resource are always wired regardless — only the optional {@code jakarta.persistence}-reading entity
+ * discovery is capability-gated (R2) — so the panel renders a not-configured report rather than failing when
+ * the extension is absent.</p>
+ *
+ * <p>The <strong>Scheduled Tasks</strong> panel is available <em>dynamically</em> in the same way: the deployment
+ * processor detects the {@code SCHEDULER} capability at build time and feeds it back as the
+ * {@code bootui.internal.scheduled-present} runtime-config default (see {@link #SCHEDULED_PRESENT_KEY}); when
+ * {@code quarkus-scheduler} is absent the panel reports an honest capability hint. Unlike Hibernate, no producer is
+ * capability-gated — the panel captures {@code @Scheduled} metadata at build time (no runtime
+ * {@code io.quarkus.scheduler.*} import), so the engine service and its read resource always wire and render an
+ * empty {@code schedulingPresent=false} report when the scheduler is absent.</p>
+ * <p>The <strong>Cache</strong> panel (kept under the shared id {@code cache}) is likewise available
+ * <em>dynamically</em>: it is lit up only when the application uses Quarkus Cache. The deployment processor
+ * detects the {@code CACHE} capability at build time and feeds the decision back as the
+ * {@code bootui.internal.cache-present} runtime-config default (see {@link #CACHE_PRESENT_KEY}); when
+ * {@code quarkus-cache} is absent the panel reports an honest capability hint rather than the generic "not yet
+ * ported" reason. The cache-API-free engine {@code CacheService} and its {@code GET}/{@code POST /clear}
+ * resource are always wired regardless — only the {@code io.quarkus.cache.*}-reading {@code CacheProvider}
+ * impl is capability-gated (R2), so the panel renders {@code cacheAvailable:false} rather than failing when
+ * the extension is absent. The {@code POST /clear} action makes Cache action-capable on Quarkus (behind the
+ * shared {@code LocalhostGuard} write floor); Quarkus has no runtime cached-operation registry (its caching
+ * annotations are build-time woven), so the operations list is empty by design.</p>
+ *
+ * <p>The <strong>Flyway</strong> panel is likewise available <em>dynamically</em>: it is lit up only when the
+ * application uses Quarkus Flyway. The deployment processor detects the {@code FLYWAY} capability at build time
+ * and feeds the decision back as the {@code bootui.internal.flyway-present} runtime-config default (see
+ * {@link #FLYWAY_PRESENT_KEY}); when {@code quarkus-flyway} is absent the panel reports an honest capability
+ * hint rather than the generic "not yet ported" reason. The Flyway-API-free engine {@code FlywayService} and
+ * its {@code GET}/{@code POST migrate}/{@code POST clean} resource are always wired regardless — only the
+ * {@code org.flywaydb.*}/{@code io.quarkus.flyway.*}-reading {@code FlywayProvider} impl is capability-gated
+ * (R2), so the panel renders {@code flywayPresent:false} rather than failing when the extension is absent. The
+ * {@code migrate}/{@code clean} actions make Flyway action-capable on Quarkus (behind the shared
+ * {@code LocalhostGuard} write floor); {@code clean} preserves Flyway's disabled-by-default, confirmation-gated
+ * semantics. Quarkus has no Spring-Modulith analogue, so the module-aware read-only views never appear.</p>
+ *
+ * <p>The Overview dashboard panel is available on Quarkus. Its scoring dashboard is rendered entirely
+ * client-side: the shared {@code Overview.vue} aggregates each advisor's own scan/report endpoints
+ * (Architecture, Memory, REST API, the Quarkus application advisor, Hibernate, Security, Pentesting,
+ * Vulnerabilities, GitHub) — all of which are lit up here — and computes the overall score in the
+ * browser, hiding cards whose backing advisor is unavailable. There is no backend dashboard
+ * aggregation to port; the only backend dependency is {@code GET /bootui/api/overview} (served by
+ * {@code OverviewResource}/{@code QuarkusApplicationInfo}), which supplies the shared shell's
+ * framework-neutral chrome/CSRF-priming data on every platform.</p>
+ *
+ * <p>The Mappings panel is served on Quarkus by capturing the host application's JAX-RS routes at build
+ * time — scanning the {@code BeanArchiveIndexBuildItem} Jandex index for {@code @Path} resources — and
+ * replaying them into a synthetic bean via a build step + {@code @Recorder}, since Quarkus exposes no clean
+ * <em>runtime</em> route-enumeration API (Vert.x {@code Router.getRoutes()} yields paths but not the
+ * per-route method/produces/consumes the {@code MappingDto} contract needs). The pre-resolved
+ * {@code ResteasyReactiveResourceMethodEntriesBuildItem} is produced <em>after</em> Arc builds the bean
+ * container, so consuming it to register the synthetic bean (which Arc must see <em>before</em> it builds
+ * the container) forms a build-step cycle; reading the Jandex index — available early — avoids it. {@code
+ * quarkus-rest} is a hard dependency of the BootUI extension, so the Mappings panel is statically available,
+ * mapping JAX-RS resource methods one-to-one onto the same {@code /flat} contract the Spring adapter serves
+ * from Actuator's {@code MappingsEndpoint}.</p>
+ *
+ *
+ * <p>The <strong>GraalVM</strong> and <strong>CRaC</strong> advisors are deliberate, permanent exceptions
+ * (see {@link #NOT_APPLICABLE}): they have no meaningful Quarkus equivalent rather than simply not being
+ * ported yet. GraalVM native-image readiness is a Spring-specific concern — Quarkus compiles native images
+ * itself and generates its own reachability metadata at build time, so the Spring-oriented advisor and its
+ * {@code reachability-metadata.json} / {@code Dockerfile-native} scaffolding do not apply. CRaC targets the
+ * Spring Boot startup model ({@code spring.context.checkpoint=onRefresh}); Quarkus's fast startup comes from
+ * build-time augmentation and native images instead. <strong>Conditions</strong> is likewise permanently not
+ * applicable: Spring's report enumerates {@code @ConditionalOn…} auto-configuration matches, which Quarkus has no
+ * runtime analogue for (it wires via build-time augmentation and extensions/capabilities, not a runtime
+ * condition-match graph). The <strong>Startup Timeline</strong> panel is likewise excluded: Quarkus eliminates
+ * startup steps via build-time augmentation, so there is no runtime per-step buffer (Spring's
+ * {@code BufferingApplicationStartup}) to record a fine-grained timeline — only coarse boot totals exist. All four
+ * therefore report an honest, panel-specific reason so
+ * the shared Vue unavailable-alert never implies a port is forthcoming. <strong>HTTP Sessions</strong>,
+ * <strong>Spring Data</strong> and <strong>Spring Security</strong> are likewise permanent exceptions: HTTP
+ * Sessions inventories servlet sessions through embedded Tomcat's session managers in Spring MVC applications
+ * (Quarkus is reactive/stateless and has no equivalent registry, even when servlet sessions are added via quarkus-undertow); Spring Data
+ * enumerates Spring Data repository beans (Quarkus uses Panache/Hibernate instead — the Hibernate advisor covers
+ * mapping insight); and Spring Security reads Spring Security's filter chain and user store (Quarkus security is
+ * covered by the Quarkus-native Security advisor). The <strong>Security</strong> advisor,
+ * by contrast, is now lit up with a Quarkus-native ruleset (see {@code QuarkusSecurityScanner}), as is the
+ * <strong>Spring</strong> advisor panel, which runs a Quarkus-native idiom ruleset (see {@code QuarkusAppScanner}).</p>
+ */
+@ApplicationScoped
+public class QuarkusPanelAvailability {
+
+    /**
+     * Runtime-config key carrying the build-time {@code HIBERNATE_ORM} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
+     * reads it back to decide whether the dynamically-available Hibernate advisor panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@code QUARKUS_VERSION_KEY} /
+     * {@code BASE_PACKAGES_KEY}.
+     */
+    public static final String HIBERNATE_PRESENT_KEY = "bootui.internal.hibernate-present";
+
+    /**
+     * Runtime-config key carrying whether the application declares any JAX-RS resources (a {@code @Path}
+     * class with HTTP-method handlers). The deployment processor counts them in the build-time
+     * {@code ApplicationIndexBuildItem} and emits the flag (default {@code false}); when no application
+     * resource exists the REST API advisor reports an honest "no JAX-RS resources" reason rather than the
+     * generic "not yet ported" reason. A simple capability gate would be tautological because BootUI itself
+     * depends on quarkus-rest. Mirrors {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String REST_API_PRESENT_KEY = "bootui.internal.rest-api-present";
+
+    /**
+     * Runtime-config key carrying the build-time {@code SCHEDULER} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}) whenever
+     * {@code quarkus-scheduler} is present in a non-production launch; this bean reads it back to decide
+     * whether the dynamically-available Scheduled Tasks panel is lit up (true even with zero {@code @Scheduled}
+     * methods). Mirrors {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String SCHEDULED_PRESENT_KEY = "bootui.internal.scheduled-present";
+
+    /**
+     * Runtime-config key carrying the build-time {@code SMALLRYE_FAULT_TOLERANCE} capability decision. The
+     * deployment processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false})
+     * whenever {@code quarkus-smallrye-fault-tolerance} is present in a non-production launch; this bean reads
+     * it back to decide whether the dynamically-available Fault Tolerance panel is lit up (true even with zero
+     * annotated methods). Mirrors {@link #SCHEDULED_PRESENT_KEY}.
+     */
+    public static final String FAULT_TOLERANCE_PRESENT_KEY = "bootui.internal.fault-tolerance-present";
+    /**
+     * Runtime-config key carrying the build-time {@code CACHE} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
+     * back to decide whether the dynamically-available Cache panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String CACHE_PRESENT_KEY = "bootui.internal.cache-present";
+    /**
+     * Runtime-config key carrying the build-time {@code AGROAL} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
+     * back to decide whether the dynamically-available Database Connection Pools panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #CACHE_PRESENT_KEY}.
+     */
+    public static final String CONNECTION_POOLS_PRESENT_KEY = "bootui.internal.connection-pools-present";
+
+    /**
+     * Runtime-config key carrying the build-time {@code FLYWAY} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}) whenever
+     * {@code quarkus-flyway} is present in a non-production launch; this bean reads it back to decide whether
+     * the dynamically-available Flyway panel is lit up (true even with zero managed datasources). Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #CACHE_PRESENT_KEY}.
+     */
+    public static final String FLYWAY_PRESENT_KEY = "bootui.internal.flyway-present";
+
+    /**
+     * Runtime-config key carrying the build-time {@code LIQUIBASE} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
+     * reads it back to decide whether the dynamically-available Liquibase panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String LIQUIBASE_PRESENT_KEY = "bootui.internal.liquibase-present";
+
+    /**
+     * Runtime-config key carrying the build-time {@code SECURITY} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
+     * reads it back, together with {@code quarkus.security.events.enabled}, to decide whether the Security
+     * Logs panel is lit up. Shared with {@code BootUiQuarkusProcessor}, mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String SECURITY_LOGS_PRESENT_KEY = "bootui.internal.security-logs-present";
+
+    /**
+     * Runtime-config key carrying the build-time Quarkus Mailer decision. The deployment processor emits it
+     * (default {@code false}) only when {@code io.quarkus.mailer.reactive.ReactiveMailer} is present at runtime
+     * and the launch mode is non-production; this bean reads it back to decide whether the dynamically-available
+     * Email Viewer panel is lit up, mirroring {@link #HIBERNATE_PRESENT_KEY}. (There is no {@code MAILER}
+     * capability, so the processor gates on class presence instead — see {@code BootUiQuarkusProcessor}.)
+     */
+    public static final String EMAIL_PRESENT_KEY = "bootui.internal.email-present";
+
+    /**
+     * Runtime-config key emitted when the SmallRye Kafka connector is present and capture interceptors
+     * are wired in a non-production launch. The low-level Kafka client alone leaves this flag unset
+     * (default {@code false}) and the panel unavailable. The recorder backing the panel is produced either way.
+     */
+    public static final String KAFKA_PRESENT_KEY = "bootui.internal.kafka-present";
+
+    /**
+     * Build-time config key written by the {@code registerRabbitCapture} build step to signal that
+     * {@code quarkus-messaging-rabbitmq} is present and the capture beans were wired; read back here
+     * (default {@code false}) only when SmallRye RabbitMQ metadata is present at build time and the launch
+     * mode is non-production; this bean reads it back to decide whether the dedicated RabbitMQ panel is lit
+     * up, mirroring {@link #KAFKA_PRESENT_KEY}.
+     */
+    public static final String RABBIT_PRESENT_KEY = "bootui.internal.rabbit-present";
+
+    /**
+     * Build-time config key written by the {@code registerWebSockets} build step to signal that
+     * {@code quarkus-websockets-next} is present, the connection-observing beans were wired, and at least
+     * one {@code @WebSocket} endpoint was found in the index. Read back here (default {@code false}) so the
+     * WebSockets panel lights up only for applications that actually declare an endpoint, mirroring
+     * {@link #RABBIT_PRESENT_KEY}.
+     */
+    public static final String WEBSOCKETS_PRESENT_KEY = "bootui.internal.websockets-present";
+
+    /**
+     * Runtime-config key carrying the build-time REST Client Reactive presence decision. The deployment
+     * processor emits it (default {@code false}) only when the REST Client Reactive capability is present
+     * and the launch mode is non-production. The recorder is produced unconditionally; the panel remains
+     * visible when the capability exists so it can explain that no proxy has been initialized yet and then
+     * start streaming as soon as the first call is captured.
+     */
+    public static final String REST_CLIENT_TRACE_PRESENT_KEY = "bootui.internal.rest-client-trace-present";
+
+    public static final String REST_CLIENT_TRACE_DISABLED =
+            "REST Client capture is disabled via bootui.rest-client-trace.enabled=false";
+    public static final String REST_CLIENT_TRACE_NOT_INSTRUMENTED =
+            "No REST Client Reactive proxy has been instrumented yet.";
+
+    private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
+
+    private static final String HIBERNATE_ABSENT =
+            "Not available: this application does not use Hibernate ORM. Add the quarkus-hibernate-orm"
+                    + " extension to enable the JPA mapping advisor.";
+
+    private static final String SCHEDULED_ABSENT =
+            "Not available: this application has no scheduler. Add the quarkus-scheduler extension and"
+                    + " annotate a method with @Scheduled to enable the Scheduled Tasks panel.";
+
+    private static final String FAULT_TOLERANCE_ABSENT =
+            "Not available: this application has no fault-tolerance library. Add the"
+                    + " quarkus-smallrye-fault-tolerance extension and annotate a method with @CircuitBreaker,"
+                    + " @Retry, @Timeout, @Bulkhead or @RateLimit to enable the Fault Tolerance panel.";
+
+    private static final String CACHE_ABSENT =
+            "Not available: this application does not use Quarkus Cache. Add the quarkus-cache extension to"
+                    + " enable the cache panel.";
+
+    private static final String FLYWAY_ABSENT =
+            "Not available: this application does not use Flyway. Add the quarkus-flyway extension to enable"
+                    + " the Flyway migrations panel.";
+
+    private static final String LIQUIBASE_ABSENT =
+            "Not available: this application does not use Liquibase. Add the quarkus-liquibase extension and a"
+                    + " change log to enable the Liquibase panel.";
+
+    private static final String CONNECTION_POOLS_ABSENT =
+            "Not available: this application has no JDBC datasource. Add a JDBC datasource extension (e.g."
+                    + " quarkus-jdbc-postgresql) to enable the Database Connection Pools panel.";
+
+    private static final String DEV_SERVICES_ABSENT =
+            "Not available: no Quarkus Dev Services were started. Run in dev/test mode with a Dev Services-backed"
+                    + " extension (and Docker/Podman available) so containers are auto-started.";
+
+    private static final String EMAIL_ABSENT =
+            "Not available: this application does not use the Quarkus Mailer. Add the quarkus-mailer extension"
+                    + " to enable the Email Viewer panel.";
+
+    private static final String KAFKA_ABSENT =
+            "Not available: this application does not use Kafka messaging. Add the quarkus-messaging-kafka"
+                    + " extension (with an @Incoming/@Outgoing channel) to enable the Kafka panel.";
+
+    private static final String RABBIT_ABSENT =
+            "Not available: this application does not use RabbitMQ messaging. Add the quarkus-messaging-rabbitmq"
+                    + " extension (with an @Incoming/@Outgoing channel) to enable the RabbitMQ panel.";
+
+    private static final String WEBSOCKETS_ABSENT =
+            "Not available: this application declares no WebSocket endpoint. Add the quarkus-websockets-next"
+                    + " extension and a @WebSocket endpoint to enable the WebSockets panel.";
+
+    private static final String REST_CLIENT_TRACE_ABSENT =
+            "Not available: this application does not use Quarkus REST Client Reactive. Add the"
+                    + " quarkus-rest-client extension (with at least one REST Client"
+                    + " interface) to enable the REST Client panel.";
+
+    private static final String SQL_TRACE_ABSENT =
+            "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"
+                    + " (e.g. quarkus-jdbc-h2) so SQL executions can be traced.";
+
+    private static final String POSTGRESQL_ABSENT =
+            "Not available: no PostgreSQL datasource is configured. Add a PostgreSQL datasource"
+                    + " (quarkus-jdbc-postgresql with quarkus.datasource.db-kind=postgresql) so its vital signs"
+                    + " can be read.";
+
+    private static final String MYSQL_ABSENT =
+            "Not available: no supported MySQL JDBC datasource is declared. Add quarkus-jdbc-mysql and"
+                    + " configure an active JDBC datasource with db-kind=mysql or a recognized MySQL JDBC URL."
+                    + " Unknown declarations are not verified; MariaDB Connector/J (db-kind=mariadb) and"
+                    + " reactive-only clients are not supported.";
+
+    private static final String PROFILE_DIFF_ABSENT =
+            "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
+                    + " compare profile-specific configuration.";
+
+    private static final String REST_API_ABSENT =
+            "Not available: no JAX-RS resources were found under the application base packages. Add a"
+                    + " @Path resource so the REST API advisor has controllers to analyse.";
+
+    private static final String SECURITY_LOGS_ABSENT =
+            "Not available: Quarkus security events are disabled. Set quarkus.security.events.enabled=true"
+                    + " (with a security extension) to capture authentication/authorization events.";
+
+    private static final String COPILOT_ABSENT = "Not available: no Copilot CLI session-state directory found (default"
+            + " ~/.copilot/session-state). Run the Copilot CLI locally so it has sessions to show.";
+
+    private static final String CLAUDE_CODE_ABSENT =
+            "Not available: no Claude Code project directory found (default ~/.claude/projects)."
+                    + " Run Claude Code locally so it has sessions to show.";
+
+    /**
+     * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
+     * Quarkus equivalent — as opposed to the generic {@link #NOT_YET_AVAILABLE} panels that simply have not
+     * been ported yet. Each maps to an honest, panel-specific reason.
+     */
+    private static final Map<String, String> NOT_APPLICABLE = Map.of(
+            BootUiPanels.GRAALVM,
+            "Not applicable on Quarkus: Quarkus builds native images and generates its own reachability"
+                    + " metadata at build time, so this Spring-oriented native-image readiness advisor is not"
+                    + " used here.",
+            BootUiPanels.CRAC,
+            "Not applicable on Quarkus: this CRaC checkpoint/restore advisor targets the Spring Boot startup"
+                    + " model, and Quarkus's fast startup comes from build-time augmentation and native images"
+                    + " instead, so it is not used here.",
+            BootUiPanels.CONDITIONS,
+            "Not applicable on Quarkus: Spring Conditions reports @ConditionalOn… auto-configuration match"
+                    + " outcomes, but Quarkus performs build-time augmentation and exposes extensions/capabilities"
+                    + " and profiles instead — there is no runtime positive/negative condition-match graph to"
+                    + " display.",
+            BootUiPanels.STARTUP,
+            "Not applicable on Quarkus: startup steps are eliminated by build-time augmentation, so there is no"
+                    + " runtime per-step buffer (Spring's BufferingApplicationStartup) to record a timeline; only"
+                    + " coarse boot totals exist, so this fine-grained step timeline is not used here.",
+            BootUiPanels.HTTP_SESSIONS,
+            "Not applicable on Quarkus: this panel inventories servlet HTTP sessions through embedded Tomcat's"
+                    + " session managers in Spring MVC applications, but Quarkus is reactive/stateless by default and"
+                    + " exposes no equivalent"
+                    + " active-session registry to list (servlet sessions added via quarkus-undertow are not"
+                    + " tracked), so it is not used here.",
+            BootUiPanels.DATA,
+            "Not applicable on Quarkus: this panel enumerates Spring Data repository beans, which Quarkus does not"
+                    + " run; Quarkus models persistence with Panache/Hibernate ORM instead — see the Hibernate"
+                    + " advisor for mapping insight.",
+            BootUiPanels.SPRING_SECURITY,
+            "Not applicable on Quarkus: this panel reads Spring Security's filter chain and user store, which"
+                    + " Quarkus does not run. Quarkus security (Elytron/OIDC, RBAC, TLS, CORS) is covered by the"
+                    + " Quarkus-native Security advisor.",
+            BootUiPanels.DEVTOOLS,
+            "Not applicable on Quarkus: Spring Boot DevTools restart/LiveReload has no runtime analogue. Quarkus"
+                    + " dev mode owns live reload through build-time augmentation, with no stable runtime API to"
+                    + " read or trigger it, so this panel is not used here.",
+            BootUiPanels.TRANSACTIONS,
+            "Not applicable on Quarkus: transaction boundary capture relies on Spring Framework's"
+                    + " TransactionExecutionListener hook, registered against ConfigurableTransactionManager beans."
+                    + " Quarkus's transaction management goes through Narayana's JTA TransactionManager/Synchronization"
+                    + " or the CDI @Transactional interceptor, neither of which exposes a comparable per-boundary"
+                    + " listener without far more invasive instrumentation, so this panel is not used here.");
+
+    private static final Map<String, String> NOT_YET_AVAILABLE_REASONS = Map.of(
+            BootUiPanels.JMS,
+            "Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and"
+                    + " @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.");
+
+    /**
+     * Reasons shown for panels that are unavailable only because the corresponding Quarkus
+     * extension/capability is missing from the application — as opposed to {@link #NOT_APPLICABLE},
+     * which is permanent regardless of what the application adds. Keyed by panel id; consulted by
+     * {@link #unavailableReason} once the dynamic GitHub case (the only reason computed fresh per
+     * call) has been ruled out. Mirrors the {@code dynamicAvailability} map {@link #isPanelAvailable}
+     * consults, so every dynamically-available panel has a matching absent-reason entry here.
+     */
+    private static final Map<String, String> CAPABILITY_ABSENT = Map.ofEntries(
+            Map.entry(BootUiPanels.HIBERNATE, HIBERNATE_ABSENT),
+            Map.entry(BootUiPanels.HIBERNATE_STATISTICS, HIBERNATE_ABSENT),
+            Map.entry(BootUiPanels.SCHEDULED, SCHEDULED_ABSENT),
+            Map.entry(BootUiPanels.FAULT_TOLERANCE, FAULT_TOLERANCE_ABSENT),
+            Map.entry(BootUiPanels.CACHE, CACHE_ABSENT),
+            Map.entry(BootUiPanels.FLYWAY, FLYWAY_ABSENT),
+            Map.entry(BootUiPanels.LIQUIBASE, LIQUIBASE_ABSENT),
+            Map.entry(BootUiPanels.DATABASE_CONNECTION_POOLS, CONNECTION_POOLS_ABSENT),
+            Map.entry(BootUiPanels.DEV_SERVICES, DEV_SERVICES_ABSENT),
+            Map.entry(BootUiPanels.EMAIL, EMAIL_ABSENT),
+            Map.entry(BootUiPanels.KAFKA, KAFKA_ABSENT),
+            Map.entry(BootUiPanels.RABBITMQ, RABBIT_ABSENT),
+            Map.entry(BootUiPanels.WEBSOCKETS, WEBSOCKETS_ABSENT),
+            Map.entry(BootUiPanels.RUNTIME_INSIGHTS, RuntimeInsightsService.DISABLED),
+            Map.entry(BootUiPanels.REST_CLIENT_TRACE, REST_CLIENT_TRACE_ABSENT),
+            Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
+            Map.entry(BootUiPanels.POSTGRESQL, POSTGRESQL_ABSENT),
+            Map.entry(BootUiPanels.MYSQL, MYSQL_ABSENT),
+            Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
+            Map.entry(BootUiPanels.REST_API, REST_API_ABSENT),
+            Map.entry(BootUiPanels.SECURITY_LOGS, SECURITY_LOGS_ABSENT),
+            Map.entry(BootUiPanels.COPILOT, COPILOT_ABSENT),
+            Map.entry(BootUiPanels.CLAUDE_CODE, CLAUDE_CODE_ABSENT));
+
+    private static final Set<String> AVAILABLE_PANELS = Set.of(
+            BootUiPanels.OVERVIEW,
+            BootUiPanels.THREADS,
+            BootUiPanels.HEAP_DUMP,
+            BootUiPanels.LIVE_MEMORY,
+            BootUiPanels.JVM_TUNING,
+            BootUiPanels.MEMORY,
+            BootUiPanels.METRICS,
+            BootUiPanels.LOGGERS,
+            BootUiPanels.LOG_TAIL,
+            BootUiPanels.BEANS,
+            BootUiPanels.MAPPINGS,
+            BootUiPanels.CONFIG,
+            BootUiPanels.HEALTH,
+            BootUiPanels.HTTP_PROBE,
+            BootUiPanels.ARCHITECTURE,
+            BootUiPanels.SPRING,
+            BootUiPanels.PENTESTING,
+            BootUiPanels.SECURITY,
+            BootUiPanels.TRACES,
+            BootUiPanels.AI,
+            BootUiPanels.HTTP_EXCHANGES,
+            BootUiPanels.ACTIVITY,
+            BootUiPanels.EXCEPTIONS,
+            BootUiPanels.MCP_SERVER,
+            BootUiPanels.CLI,
+            BootUiPanels.JAVA_AGENT,
+            BootUiPanels.VULNERABILITIES,
+            BootUiPanels.DATABASE_ADVISOR);
+
+    private static final String CONFIG_READONLY =
+            "Runtime config overrides are not available on Quarkus (they target the Spring bootstrap"
+                    + " property sources); properties remain fully visible.";
+
+    private final boolean hibernatePresent;
+
+    private final boolean schedulingPresent;
+
+    private final boolean faultTolerancePresent;
+
+    private final boolean cachePresent;
+
+    private final boolean flywayPresent;
+    private final boolean liquibasePresent;
+    private final boolean connectionPoolsPresent;
+    private final boolean postgresConfigured;
+
+    private final boolean devServicesPresent;
+
+    private final boolean emailPresent;
+
+    private final boolean kafkaPresent;
+
+    private final boolean rabbitPresent;
+    private final boolean webSocketsPresent;
+    private final boolean restClientTracePresent;
+
+    private final boolean securityLogsAvailable;
+
+    private final List<String> githubAllowedApiHosts;
+
+    private final boolean profilesActive;
+
+    private final boolean restApiPresent;
+    private final boolean copilotPanelAvailable;
+    private final boolean claudeCodePanelAvailable;
+    private final QuarkusPanelAccessConfig accessConfig;
+    private final boolean nativeRuntime;
+
+    /**
+     * Panel id → live availability for every panel gated by a build-time capability flag or a
+     * dynamic detector (everything {@link #isPanelAvailable} checks besides the static
+     * {@link #AVAILABLE_PANELS} set and the GitHub special case). Built once here, right after the
+     * individual flags above are computed, so {@link #isPanelAvailable} reduces to a single map
+     * lookup instead of a 14-way OR-chain.
+     */
+    private final Map<String, Boolean> dynamicAvailability;
+
+    /**
+     * Code Inventory, whose availability is the BootUI agent's: computed fresh per call, like GitHub's. Absent when this
+     * class is built outside the container, as in tests, where the panel is then unavailable with the agent's reason.
+     */
+    @Inject
+    Instance<CodeInventoryService> codeInventory;
+
+    /** Code Paths, whose availability is the BootUI agent's code-paths sensor's, computed fresh per call. */
+    @Inject
+    Instance<CodePathsService> codePaths;
+
+    /** Side Effects, whose availability is the BootUI agent's, computed fresh per call. */
+    @Inject
+    Instance<SideEffectsService> sideEffects;
+
+    @Inject
+    public QuarkusPanelAvailability(Config config) {
+        this(config, ImageMode.current() == ImageMode.JVM && mySqlJdbcDriverPresent());
+    }
+
+    QuarkusPanelAvailability(Config config, boolean mySqlJdbcDriverPresent) {
+        this(config, mySqlJdbcDriverPresent, ImageMode.current() != ImageMode.JVM);
+    }
+
+    QuarkusPanelAvailability(Config config, boolean mySqlJdbcDriverPresent, boolean nativeRuntime) {
+        this.nativeRuntime = nativeRuntime;
+        this.hibernatePresent =
+                config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.schedulingPresent =
+                config.getOptionalValue(SCHEDULED_PRESENT_KEY, Boolean.class).orElse(false);
+        this.faultTolerancePresent = config.getOptionalValue(FAULT_TOLERANCE_PRESENT_KEY, Boolean.class)
+                .orElse(false);
+        this.cachePresent =
+                config.getOptionalValue(CACHE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.flywayPresent =
+                config.getOptionalValue(FLYWAY_PRESENT_KEY, Boolean.class).orElse(false);
+        this.liquibasePresent =
+                config.getOptionalValue(LIQUIBASE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
+                .orElse(false);
+        this.postgresConfigured = postgresConfigured(config);
+        // Not a config key: emitting a runtime default from the Dev Services results would make Dev Services a
+        // bean-container input (see CapturedDevServices). The recorder publishes the snapshot at static init.
+        this.devServicesPresent = CapturedDevServices.current().isPresent();
+        this.emailPresent =
+                config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
+        this.kafkaPresent =
+                config.getOptionalValue(KAFKA_PRESENT_KEY, Boolean.class).orElse(false);
+        this.rabbitPresent =
+                config.getOptionalValue(RABBIT_PRESENT_KEY, Boolean.class).orElse(false);
+        this.webSocketsPresent =
+                config.getOptionalValue(WEBSOCKETS_PRESENT_KEY, Boolean.class).orElse(false);
+        this.restClientTracePresent = config.getOptionalValue(REST_CLIENT_TRACE_PRESENT_KEY, Boolean.class)
+                .orElse(false);
+        boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
+                .orElse(false);
+        boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)
+                .orElse(false);
+        this.securityLogsAvailable = securityPresent && eventsEnabled;
+        this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
+        this.profilesActive = activeProfiles(config);
+        this.restApiPresent =
+                config.getOptionalValue(REST_API_PRESENT_KEY, Boolean.class).orElse(false);
+        this.copilotPanelAvailable = !nativeRuntime && agentDirectoryPresent(new QuarkusCopilotProperties(config));
+        this.claudeCodePanelAvailable =
+                !nativeRuntime && agentDirectoryPresent(new QuarkusClaudeCodeProperties(config));
+        this.accessConfig = new QuarkusPanelAccessConfig(config);
+        this.dynamicAvailability = Map.ofEntries(
+                Map.entry(BootUiPanels.HIBERNATE, hibernatePresent),
+                Map.entry(BootUiPanels.HIBERNATE_STATISTICS, hibernatePresent),
+                Map.entry(BootUiPanels.SCHEDULED, schedulingPresent),
+                Map.entry(BootUiPanels.FAULT_TOLERANCE, faultTolerancePresent),
+                Map.entry(BootUiPanels.CACHE, cachePresent),
+                Map.entry(BootUiPanels.FLYWAY, flywayPresent),
+                Map.entry(BootUiPanels.LIQUIBASE, liquibasePresent),
+                Map.entry(BootUiPanels.DATABASE_CONNECTION_POOLS, connectionPoolsPresent),
+                Map.entry(BootUiPanels.DEV_SERVICES, devServicesPresent),
+                Map.entry(BootUiPanels.EMAIL, emailPresent),
+                Map.entry(BootUiPanels.KAFKA, kafkaPresent),
+                Map.entry(BootUiPanels.RABBITMQ, rabbitPresent),
+                Map.entry(BootUiPanels.WEBSOCKETS, webSocketsPresent),
+                Map.entry(
+                        BootUiPanels.RUNTIME_INSIGHTS,
+                        config.getOptionalValue("bootui.runtime-journal.enabled", Boolean.class)
+                                .orElse(true)),
+                Map.entry(BootUiPanels.REST_CLIENT_TRACE, restClientTracePresent),
+                Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
+                Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),
+                Map.entry(BootUiPanels.POSTGRESQL, connectionPoolsPresent && postgresConfigured),
+                Map.entry(
+                        BootUiPanels.MYSQL,
+                        connectionPoolsPresent && mySqlJdbcDriverPresent && mySqlConfigured(config)),
+                Map.entry(BootUiPanels.PROFILE_DIFF, profilesActive),
+                Map.entry(BootUiPanels.REST_API, restApiPresent),
+                Map.entry(BootUiPanels.COPILOT, copilotPanelAvailable),
+                Map.entry(BootUiPanels.CLAUDE_CODE, claudeCodePanelAvailable));
+    }
+
+    private static boolean agentDirectoryPresent(io.github.jdubois.bootui.spi.agent.AgentSessionProperties settings) {
+        if (!settings.enabledOn() && !settings.enabledAuto()) {
+            return false;
+        }
+        return Files.isDirectory(AgentSessionStore.resolveDir(settings));
+    }
+
+    /**
+     * Whether this application declares a PostgreSQL datasource, read from configuration only.
+     *
+     * <p>The PostgreSQL panel reads {@code pg_stat_*}/{@code pg_catalog}, so it is meaningless against any
+     * other database and is not offered at all unless PostgreSQL is configured. Quarkus declares its
+     * datasources in configuration ({@code db-kind}, or a JDBC URL), which makes this decidable without
+     * opening a connection — the panel must contact nothing until the explicit read action.</p>
+     */
+    private static boolean postgresConfigured(Config config) {
+        for (String name : config.getPropertyNames()) {
+            if (name == null || !name.startsWith("quarkus.datasource.")) {
+                continue;
+            }
+            boolean dbKind = name.endsWith(".db-kind");
+            if (!dbKind && !name.endsWith(".jdbc.url")) {
+                continue;
+            }
+            String value = configValue(config, name);
+            if (dbKind
+                    ? PostgresDataSourceDetection.isPostgresDbKind(value)
+                    : PostgresDataSourceDetection.isPostgresJdbcUrl(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reads declarations only: even resolving a lazy datasource bean can activate a pool. Final server
+     * flavor detection belongs to the explicit read, not manifest or MCP discovery.
+     */
+    private static boolean mySqlConfigured(Config config) {
+        for (String name : config.getPropertyNames()) {
+            if (name == null || !name.startsWith("quarkus.datasource.")) {
+                continue;
+            }
+            boolean dbKind = name.endsWith(".db-kind");
+            if (!dbKind && !name.endsWith(".jdbc.url")) {
+                continue;
+            }
+            String prefix = name.substring(0, name.length() - (dbKind ? ".db-kind".length() : ".jdbc.url".length()));
+            // quarkus.datasource[."name"].jdbc is the JDBC-datasource toggle: DataSourceJdbcBuildTimeConfig
+            // declares enabled() with @WithParentName, so the key is the group's own name, not ".jdbc.enabled"
+            // (which Quarkus does not define at all). A datasource turned off there has no pool to read.
+            if ("false".equalsIgnoreCase(configValue(config, prefix + ".active"))
+                    || "false".equalsIgnoreCase(configValue(config, prefix + ".jdbc"))) {
+                continue;
+            }
+            String kind = configValue(config, prefix + ".db-kind");
+            // A declared different vendor wins over an ambiguous wrapping URL.
+            if (kind != null && !kind.isBlank() && !MySqlDataSourceDetection.isMySqlDbKind(kind)) {
+                continue;
+            }
+            if (MySqlDataSourceDetection.isMySqlDbKind(kind)
+                    || MySqlDataSourceDetection.isMySqlJdbcUrl(configValue(config, prefix + ".jdbc.url"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean mySqlJdbcDriverPresent() {
+        try {
+            // Loading without initialization cannot register a driver, start a pool, or contact a server.
+            Class.forName(
+                    "com.mysql.cj.jdbc.Driver", false, Thread.currentThread().getContextClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError absent) {
+            return false;
+        }
+    }
+
+    /** Reads one property defensively: an unresolvable expression must not fail the whole manifest. */
+    private static String configValue(Config config, String name) {
+        try {
+            return config.getOptionalValue(name, String.class).orElse(null);
+        } catch (RuntimeException unresolvable) {
+            return null;
+        }
+    }
+
+    private static boolean activeProfiles(Config config) {
+        try {
+            return !config.unwrap(SmallRyeConfig.class).getProfiles().isEmpty();
+        } catch (UnsupportedOperationException notSmallRye) {
+            return false;
+        }
+    }
+
+    public PanelsReport manifest() {
+        return new PanelsReport(
+                PanelsReport.PLATFORM_QUARKUS,
+                BootUiPanels.all().stream().map(this::toDto).toList());
+    }
+
+    /**
+     * Builds the manifest entry for a single panel: {@code available} is platform-specific (computed by
+     * {@link #isPanelAvailable}); {@code enabled} and {@code readOnly} are config-driven, computed the same
+     * way regardless of availability (mirroring the Spring adapter's {@code PanelsController.panel()},
+     * which does not gate {@code enabled}/{@code readOnly} on availability either). The Configuration
+     * panel's own inherent read-only-ness (it has no write path on Quarkus yet — a separate, unrelated gap)
+     * is preserved as-is and OR'd with the new config-driven read-only check.
+     */
+    private PanelDto toDto(BootUiPanels.Panel panel) {
+        boolean available = isPanelAvailable(panel.id());
+        String unavailableReason = available ? null : unavailableReason(panel.id());
+        boolean enabled = accessConfig.isPanelEnabled(panel.id());
+        boolean configReadOnly = available && BootUiPanels.CONFIG.equals(panel.id());
+        boolean accessReadOnly = panel.actionCapable() && accessConfig.isPanelReadOnly(panel.id());
+        boolean readOnly = configReadOnly || accessReadOnly;
+        String readOnlyReason = configReadOnly
+                ? CONFIG_READONLY
+                : (accessReadOnly ? accessConfig.panelReadOnlyReason(panel.id()) : null);
+        return new PanelDto(panel.id(), panel.title(), available, unavailableReason, enabled, readOnly, readOnlyReason);
+    }
+
+    /**
+     * Whether the panel with the given id is available on this Quarkus runtime.
+     *
+     * <p>This is the single source of truth for panel availability — the manifest ({@link #toDto})
+     * and the MCP tool catalog ({@code QuarkusMcpTools}) both consult it so a tool is advertised iff
+     * its backing panel is live. It combines the static {@link #AVAILABLE_PANELS} set with the
+     * precomputed {@link #dynamicAvailability} map (build-time capability flags — Hibernate ORM,
+     * Scheduler, Cache, Flyway, Liquibase, Agroal pools, Dev Services, REST API — plus the
+     * active-profiles and agent-directory detectors and the security-events gate) and the GitHub
+     * special case, which is deliberately <em>not</em> memoized: it reads the working directory and
+     * git config fresh on every call.
+     */
+    public boolean isPanelAvailable(String panelId) {
+        if (nativeRuntime && !BootUiNativeCapabilities.supported(panelId)) {
+            return false;
+        }
+        return AVAILABLE_PANELS.contains(panelId)
+                || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
+                || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable())
+                || (BootUiPanels.CODE_INVENTORY.equals(panelId) && codeInventoryUnavailableReason() == null)
+                || (BootUiPanels.CODE_PATHS.equals(panelId) && codePathsUnavailableReason() == null)
+                || (BootUiPanels.SIDE_EFFECTS.equals(panelId) && sideEffectsUnavailableReason() == null);
+    }
+
+    /** Why Code Inventory is unavailable: the BootUI agent's inventory sensor does not record this run. */
+    private String codeInventoryUnavailableReason() {
+        try {
+            Instance<CodeInventoryService> services = codeInventory;
+            if (services == null || !services.isResolvable()) {
+                return JavaAgentService.INVENTORY_REQUIREMENT + ".";
+            }
+            return services.get().unavailableReason();
+        } catch (RuntimeException ex) {
+            return JavaAgentService.INVENTORY_REQUIREMENT + ".";
+        }
+    }
+
+    /** Why Code Paths is unavailable: the BootUI agent's code-paths sensor does not record this run. */
+    private String codePathsUnavailableReason() {
+        try {
+            Instance<CodePathsService> services = codePaths;
+            if (services == null || !services.isResolvable()) {
+                return JavaAgentService.CODE_PATHS_REQUIREMENT + ".";
+            }
+            return services.get().unavailableReason();
+        } catch (RuntimeException ex) {
+            return JavaAgentService.CODE_PATHS_REQUIREMENT + ".";
+        }
+    }
+
+    /** Why Side Effects is unavailable: the BootUI agent is not armed for this run with Side Effects support. */
+    private String sideEffectsUnavailableReason() {
+        try {
+            Instance<SideEffectsService> services = sideEffects;
+            if (services == null || !services.isResolvable()) {
+                return JavaAgentService.SIDE_EFFECTS_REQUIREMENT + ".";
+            }
+            return services.get().unavailableReason();
+        } catch (RuntimeException ex) {
+            return JavaAgentService.SIDE_EFFECTS_REQUIREMENT + ".";
+        }
+    }
+
+    /** Whether the panel is enabled by the live per-panel access policy. */
+    public boolean isPanelEnabled(String panelId) {
+        return accessConfig.isPanelEnabled(panelId);
+    }
+
+    /** Returns the platform-specific reason for an unavailable panel, or {@code null} when available. */
+    public String panelUnavailableReason(String panelId) {
+        return isPanelAvailable(panelId) ? null : unavailableReason(panelId);
+    }
+
+    /**
+     * Reason a not-currently-available panel is unavailable: the dynamic GitHub case first (computed
+     * fresh, mirroring {@link #isPanelAvailable}), then the capability-gated panels via
+     * {@link #CAPABILITY_ABSENT}, then the permanently-inapplicable panels via {@link #NOT_APPLICABLE},
+     * then any panel-specific not-yet reason, and finally the generic {@link #NOT_YET_AVAILABLE}
+     * fallback.
+     */
+    private String unavailableReason(String panelId) {
+        if (nativeRuntime && !BootUiNativeCapabilities.supported(panelId)) {
+            return NOT_APPLICABLE.getOrDefault(panelId, BootUiNativeCapabilities.unavailableReason(panelId));
+        }
+        if (BootUiPanels.GITHUB.equals(panelId)) {
+            return githubUnavailableReason();
+        }
+        if (BootUiPanels.CODE_INVENTORY.equals(panelId)) {
+            String reason = codeInventoryUnavailableReason();
+            return reason == null ? JavaAgentService.INVENTORY_REQUIREMENT + "." : reason;
+        }
+        if (BootUiPanels.CODE_PATHS.equals(panelId)) {
+            String reason = codePathsUnavailableReason();
+            return reason == null ? JavaAgentService.CODE_PATHS_REQUIREMENT + "." : reason;
+        }
+        if (BootUiPanels.SIDE_EFFECTS.equals(panelId)) {
+            String reason = sideEffectsUnavailableReason();
+            return reason == null ? JavaAgentService.SIDE_EFFECTS_REQUIREMENT + "." : reason;
+        }
+        return CAPABILITY_ABSENT.getOrDefault(
+                panelId,
+                NOT_APPLICABLE.getOrDefault(
+                        panelId, NOT_YET_AVAILABLE_REASONS.getOrDefault(panelId, NOT_YET_AVAILABLE)));
+    }
+
+    /**
+     * GitHub panel availability is <em>dynamic</em>, mirroring the Spring adapter's
+     * {@code PanelsController.githubAvailable()}: the panel is available only when the host application's
+     * working directory is a git checkout with a GitHub-origin remote on an allow-listed API host. Uses the
+     * shared engine {@link GitHubRepositoryDetector}, so both adapters light up the panel under identical
+     * conditions. Detection is local-only (reads the git config / filesystem) and never calls the network.
+     */
+    private boolean githubAvailable() {
+        return GitHubRepositoryDetector.detect(githubWorkingDirectory(), githubAllowedApiHosts)
+                .isPresent();
+    }
+
+    private String githubUnavailableReason() {
+        return GitHubRepositoryDetector.unavailableReason(githubWorkingDirectory(), githubAllowedApiHosts);
+    }
+
+    private static Path githubWorkingDirectory() {
+        return Path.of(System.getProperty("user.dir", "."));
+    }
+}

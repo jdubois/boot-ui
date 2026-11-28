@@ -78,6 +78,19 @@ class InternalPackageMatcherTest {
     }
 
     @Test
+    void sharedMatcherHidesQuarkus4InternalsWithoutHidingItsApplications() {
+        assertThat(InternalPackageMatcher.BOOTUI.matchesName("io.github.jdubois.bootui.quarkus4"))
+                .isTrue();
+        assertThat(InternalPackageMatcher.BOOTUI.matchesName(
+                        "io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation"))
+                .isTrue();
+        assertThat(InternalPackageMatcher.BOOTUI.matchesName("io.github.jdubois.bootui.quarkus4sample.Application"))
+                .isFalse();
+        assertThat(InternalPackageMatcher.BOOTUI.matchesName("io.github.jdubois.bootui.quarkus4fixture.Application"))
+                .isFalse();
+    }
+
+    @Test
     void quarkusAdapterDoesNotHideTheRelocatedSampleApp() {
         // Regression guard. The Quarkus sample app was once nested under the adapter's own namespace
         // (io.github.jdubois.bootui.quarkus.sample.**); because the matcher uses a dotted-prefix boundary,

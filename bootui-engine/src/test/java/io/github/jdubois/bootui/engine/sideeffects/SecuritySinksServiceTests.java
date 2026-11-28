@@ -108,6 +108,24 @@ class SecuritySinksServiceTests {
     }
 
     @Test
+    void aBroadApplicationPackageDoesNotMistakeTheEngineSinkForItsCaller() {
+        start(List.of("sideeffectsapp", "io.github.jdubois.bootui"));
+        String value = seeded("alice-smith");
+        inRequest(
+                FIRST,
+                "name",
+                value,
+                () -> Launcher.sql("select * from users where name = '" + value + "'", context.get()));
+
+        assertThat(rows()).singleElement().satisfies(row -> {
+            assertThat(row.kind()).isEqualTo(SideEffectsCatalog.SQL_TEXT);
+            assertThat(row.target()).isEqualTo("select * from users where name = '{name}'");
+            assertThat(row.callSite()).isEqualTo("sideeffectsapp.Launcher#sql");
+            assertThat(row.attribution()).isEqualTo("GET /api/sample/search");
+        });
+    }
+
+    @Test
     void aSecondRequestWithAnotherValueConfirmsTheRow() {
         start();
         inRequest(
@@ -292,12 +310,16 @@ class SecuritySinksServiceTests {
     }
 
     private void start() {
+        start(List.of("sideeffectsapp"));
+    }
+
+    private void start(List<String> packages) {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class),
                 "shop",
                 "shop-owner",
                 "dev",
-                List.of("sideeffectsapp"),
+                packages,
                 new AgentSensorSettings(
                         List.of("processes", "files", AgentSensorSettings.SECURITY_SINKS),
                         List.of(),

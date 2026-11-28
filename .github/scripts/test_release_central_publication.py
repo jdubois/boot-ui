@@ -12,6 +12,7 @@ import unittest
 import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
@@ -21,8 +22,11 @@ from assemble_central_bundle import ARTIFACT_IDS, BundleError, assemble  # noqa:
 VERSION = "1.2.3"
 # Installed with the publication reactor, never published: bootui-agent shades the bridge, and every published
 # module carries a flattened, parentless POM.
-UNPUBLISHED = ("bootui-parent", "bootui-quarkus-parent", "bootui-agent-bridge")
-POM_ONLY = {"bootui-parent", "bootui-quarkus-parent"}
+UNPUBLISHED = (
+    "bootui-parent", "bootui-quarkus-parent", "bootui-quarkus-4-parent", "bootui-agent-bridge",
+    "bootui-quarkus-4-sample-app", "bootui-quarkus-4-integration-tests-aggregator",
+)
+POM_ONLY = {"bootui-parent", "bootui-quarkus-parent", "bootui-quarkus-4-parent"}
 
 
 def install(repository, artifact_id, extra=(), signed=True):
@@ -62,6 +66,11 @@ class AssembleCentralBundleTests(unittest.TestCase):
             with self.subTest(artifact_id=artifact_id):
                 self.assertFalse([n for n in names if f"/{artifact_id}/" in n])
         self.assertIn("com/julien-dubois/bootui/bootui-agent/1.2.3/bootui-agent-1.2.3.jar", names)
+        self.assertIn("com/julien-dubois/bootui/bootui-quarkus-4/1.2.3/bootui-quarkus-4-1.2.3.jar", names)
+        self.assertIn(
+            "com/julien-dubois/bootui/bootui-quarkus-4-deployment/1.2.3/bootui-quarkus-4-deployment-1.2.3.jar",
+            names,
+        )
 
     def test_an_unsigned_bundle_is_assembled_only_on_request(self):
         unsigned = Path(self.directory.name) / "unsigned"
@@ -184,7 +193,10 @@ class PublishCentralBundleTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.bundle = Path(directory.name) / "central-bundle.zip"
-        self.bundle.write_bytes(b"zip-content")
+        repository = Path(directory.name) / "repository"
+        for artifact in ARTIFACT_IDS:
+            install(repository, artifact, ("bootui-cli-1.2.3-all.jar",) if artifact == "bootui-cli" else ())
+        assemble(repository, VERSION, self.bundle)
 
     def publish(self, states, auto_publish="true", username="user", timeout="5"):
         FakePortal.states = list(states)
@@ -213,7 +225,11 @@ class PublishCentralBundleTests(unittest.TestCase):
         self.assertEqual(authorization, "Bearer dXNlcjpzM2NyZXQ=")
         self.assertTrue(content_type.startswith("multipart/form-data; boundary="))
         self.assertIn(b'name="bundle"; filename="central-bundle.zip"', body)
-        self.assertIn(b"zip-content", body)
+        self.assertIn(self.bundle.read_bytes(), body)
+        with zipfile.ZipFile(self.bundle) as archive:
+            coordinates = {name.split("/")[3] for name in archive.namelist()}
+        self.assertEqual(coordinates, set(ARTIFACT_IDS))
+        self.assertEqual(len(coordinates), 9)
         self.assertNotIn("s3cret", result.stdout + result.stderr)
 
     def test_user_managed_publication_stops_at_validated(self):
@@ -237,6 +253,42 @@ class PublishCentralBundleTests(unittest.TestCase):
         result = self.publish(["PUBLISHED"], username="")
         self.assertEqual(result.returncode, 1)
         self.assertIn("MAVEN_CENTRAL_USERNAME and MAVEN_CENTRAL_PASSWORD must be set", result.stderr)
+        self.assertEqual(FakePortal.requests, [])
+
+    def rewrite_bundle(self, *, remove=None, extra=None, oversized=False):
+        with zipfile.ZipFile(self.bundle) as archive:
+            contents = {name: archive.read(name) for name in archive.namelist()}
+        if remove:
+            contents = {name: value for name, value in contents.items() if f"/{remove}/" not in name}
+        if extra:
+            contents[f"com/julien-dubois/bootui/{extra}/{VERSION}/{extra}-{VERSION}.pom"] = b"parent"
+        if oversized:
+            name = next(name for name in contents if name.endswith(".jar"))
+            contents[name] = b"x" * 20_000_000
+        with zipfile.ZipFile(self.bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, content in contents.items():
+                archive.writestr(name, content)
+
+    def test_partial_distributions_are_refused_before_the_upload(self):
+        self.rewrite_bundle(remove="bootui-quarkus-4-deployment")
+        result = self.publish(["PUBLISHED"])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("all 9 signed published coordinates", result.stderr)
+        self.assertEqual(FakePortal.requests, [])
+
+    def test_parent_coordinates_are_refused_before_the_upload(self):
+        self.rewrite_bundle(extra="bootui-quarkus-4-parent")
+        result = self.publish(["PUBLISHED"])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("all 9 signed published coordinates", result.stderr)
+        self.assertEqual(FakePortal.requests, [])
+
+    def test_compression_or_ci_size_bypass_cannot_hide_an_over_budget_upload(self):
+        self.rewrite_bundle(oversized=True)
+        with patch.dict(os.environ, BOOTUI_SKIP_RELEASE_SIZE_CHECK="true"):
+            result = self.publish(["PUBLISHED"])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("below 20,000,000 bytes", result.stderr)
         self.assertEqual(FakePortal.requests, [])
 
 

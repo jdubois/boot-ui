@@ -165,7 +165,7 @@ def publication_ready(root, central_url="https://repo.maven.apache.org/maven2"):
     version = data["version"]
     paths = [
         f"{module}/{version}/{module}-{version}.{extension}"
-        for module in bundle.PUBLISHED
+        for module in bundle.published_for_version(version)
         for extension in ("pom", "jar")
     ]
     paths.extend(

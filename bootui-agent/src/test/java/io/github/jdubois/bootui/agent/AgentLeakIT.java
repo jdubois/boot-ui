@@ -1,11 +1,21 @@
 package io.github.jdubois.bootui.agent;
 
+import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sun.management.HotSpotDiagnosticMXBean;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Modifier;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.MethodCall;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -97,6 +107,83 @@ class AgentLeakIT {
             assertThat(reached).containsKey(1);
         } else {
             assertThat(reached).isEmpty();
+        }
+    }
+
+    @Test
+    void quarkus4ModuleThreadsAreNotAgentRootsButAdjacentApplicationThreadsAre() throws Exception {
+        Path dump = ChildJvm.WORK.resolve("heap-walk-quarkus4-boundaries.hprof");
+        Files.createDirectories(ChildJvm.WORK);
+        Files.deleteIfExists(dump);
+        String runClass = "heapwalkfixture.Run";
+        Class<?> sentinelClass = new ByteBuddy()
+                .subclass(Object.class)
+                .name("heapwalkfixture.Sentinel")
+                .defineField("run", int.class, Modifier.PUBLIC)
+                .make()
+                .load(getClass().getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
+                .getLoaded();
+        CountDownLatch started = new CountDownLatch(3);
+        List<CountDownLatch> releases = new ArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+        try {
+            int run = 0;
+            for (String namespace : List.of("quarkus4", "quarkus4sample", "quarkus4fixture")) {
+                Object sentinel = sentinelClass.getConstructor().newInstance();
+                sentinelClass.getField("run").setInt(sentinel, ++run);
+                Class<?> type = new ByteBuddy()
+                        .subclass(Object.class)
+                        .name(runClass)
+                        .defineField("SENTINEL", Object.class, Modifier.PUBLIC | Modifier.STATIC)
+                        .make()
+                        .load(getClass().getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
+                        .getLoaded();
+                type.getField("SENTINEL").set(null, sentinel);
+                Class<?> taskClass = new ByteBuddy()
+                        .subclass(Object.class)
+                        .name("io.github.jdubois.bootui." + namespace + ".DrainTask")
+                        .implement(Runnable.class)
+                        .defineField("retained", Object.class, Modifier.PUBLIC)
+                        .defineField("started", CountDownLatch.class, Modifier.PUBLIC)
+                        .defineField("release", CountDownLatch.class, Modifier.PUBLIC)
+                        .method(named("run"))
+                        .intercept(MethodCall.invoke(CountDownLatch.class.getMethod("countDown"))
+                                .onField("started")
+                                .andThen(MethodCall.invoke(CountDownLatch.class.getMethod("await"))
+                                        .onField("release")))
+                        .make()
+                        .load(getClass().getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
+                        .getLoaded();
+                Object task = taskClass.getConstructor().newInstance();
+                taskClass.getField("retained").set(task, type.getConstructor().newInstance());
+                // A shared wait queue would link the control thread to the application threads.
+                CountDownLatch release = new CountDownLatch(1);
+                releases.add(release);
+                taskClass.getField("started").set(task, started);
+                taskClass.getField("release").set(task, release);
+                Thread thread = new Thread((Runnable) task, "bootui-agent-heap-walk-" + namespace);
+                thread.setContextClassLoader(null);
+                threads.add(thread);
+                thread.start();
+            }
+            assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+            ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class)
+                    .dumpHeap(dump.toAbsolutePath().toString(), true);
+            HeapWalk heap = HeapWalk.read(dump);
+            assertThat(heap.runsReachedFromThreads(
+                            "bootui-agent-heap-walk-", "io/github/jdubois/bootui/agent/", runClass.replace('.', '/')))
+                    .as("the control walk reaches each run retained by its live thread")
+                    .containsOnlyKeys(1, 2, 3);
+            assertThat(heap.runsReachedByAgent("io/github/jdubois/bootui/agent/", runClass.replace('.', '/')))
+                    .as("only genuine application tasks count as agent-thread roots")
+                    .containsOnlyKeys(2, 3);
+        } finally {
+            releases.forEach(CountDownLatch::countDown);
+            for (Thread thread : threads) {
+                thread.join(10_000);
+                assertThat(thread.isAlive()).isFalse();
+            }
+            discard(dump);
         }
     }
 

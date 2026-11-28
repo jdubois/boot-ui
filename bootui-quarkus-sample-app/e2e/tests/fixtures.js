@@ -16,6 +16,7 @@ export const test = base.extend({
   // Code Inventory, Code Paths) read it instead of guessing from the server's answer, so neither leg can pass on the
   // other's state.
   agentAttached: [false, {option: true}],
+  quarkusGeneration: [process.env.BOOTUI_QUARKUS_GENERATION || '3', {option: true}],
 
   openView: async ({page}, use) => {
     /**

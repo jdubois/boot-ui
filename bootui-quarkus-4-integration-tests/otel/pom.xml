@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-integration-tests-aggregator</artifactId>
+        <version>2.5.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-4-otel-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (OpenTelemetry Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-opentelemetry on top of the bootui-quarkus-4
+        extension and proves the in-process span-capture path: a GenAI-style span emitted through the real OTel
+        SDK flows via the BootUI SpanProcessor into the shared TelemetryStore and surfaces on the Traces and AI
+        Usage panels. Kept separate from bootui-quarkus-4-integration-tests (which deliberately has NO OpenTelemetry)
+        so the OTel-absent safety path and the OTel-present capture path are each proven in isolation.</description>
+
+    <!--
+        Like bootui-quarkus-4-integration-tests, this module needs no Docker: its only datasource is an in-memory
+        H2 pool, so a @QuarkusTest boots without any container. It is never published.
+    -->
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-4-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Adds the OpenTelemetry SDK + tracer. Its presence flips the BootUI extension's OPENTELEMETRY_TRACER
+             capability gate on, so the deployment processor registers the in-process SpanProcessor producer and
+             spans emitted here are captured into the shared TelemetryStore. Not a test of OTLP export — the test
+             resources set quarkus.otel.traces.exporter=none, so no network is touched. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-opentelemetry</artifactId>
+        </dependency>
+
+        <!-- An in-memory H2 datasource (with its transitive Agroal pool). Its presence flips the AGROAL
+             capability on, so the BootUI extension wires the SQL-trace recorder and connection-pool panels; here
+             it lets a test endpoint run real JDBC on a worker thread, proving that the OpenTelemetry trace id
+             propagates across the event-loop→worker hop and that the engine nests that SQL under its owning
+             request in the Live Activity feed. In-memory only — still Docker-free. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-agroal</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- forkCount=1: avoids a Quarkus @QuarkusTest classloading race between concurrent Surefire
+                 forks in the same module (test-classes.idx); see
+                 bootui-quarkus-4-integration-tests/base/pom.xml for the full rationale. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
