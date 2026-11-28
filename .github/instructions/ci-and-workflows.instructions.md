@@ -41,7 +41,10 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   `jdk-compatibility.yml` set `MAVEN_OPTS` at workflow level to the resolver's retry and timeout properties
   (`aether.transport.http.*`, read as system properties, since `mvnw` ignores `MAVEN_ARGS`): only 429 and 5xx answers
   are retried, never a 404 or a timeout, and a stalled transfer fails after 120 s instead of hanging. A step that sets
-  its own `MAVEN_OPTS` should append to it. `.mvn/maven.config` stays git-ignored for per-worktree overrides. The
+  its own `MAVEN_OPTS` should append to it. Both workflows disable only prefix-file auto-discovery for the four
+  transitive JBoss repository IDs: persistent 503s on that optional metadata can exhaust the job timeout. Keep configured
+  prefix filters, Central's auto-discovery, and normal artifact/checksum resolution enabled.
+  `.mvn/maven.config` stays git-ignored for per-worktree overrides. The
   agent-attached legs and `agent-integration-tests` run on pushes and pull requests into either `main` or `v2` only
   when an agent-related path in `.github/scripts/agent-changes.sh` changes. Overhead uses a narrower list: the agent
   and bridge, engine/adapter agent runtime, runtime journal, benchmark fixtures and build configuration. Its costlier

@@ -28,6 +28,8 @@ concurrency:
 # a transfer that sends nothing for two minutes now fails then instead of hanging for the default thirty. The
 # repository's mvnw passes MAVEN_OPTS to the JVM that runs Maven, whose resolver reads these as system properties
 # (MAVEN_ARGS is not read by it).
+# JBoss's optional prefix metadata can return persistent 503s. Skip only its auto-discovery, keeping configured prefix
+# filters, Central's discovery, and normal artifact/checksum resolution; retrying each JBoss alias exhausts the job.
 env:
   MAVEN_OPTS: >-
     -Daether.transport.http.connectTimeout=30000
@@ -36,6 +38,10 @@ env:
     -Daether.transport.http.retryHandler.interval=10000
     -Daether.transport.http.retryHandler.intervalMax=60000
     -Daether.transport.http.retryHandler.serviceUnavailable=429,500,502,503,504
+    -Daether.remoteRepositoryFilter.prefixes.resolvePrefixFiles.jboss-public-repository=false
+    -Daether.remoteRepositoryFilter.prefixes.resolvePrefixFiles.jboss-public-repository-group=false
+    -Daether.remoteRepositoryFilter.prefixes.resolvePrefixFiles.jboss-deprecated-repository=false
+    -Daether.remoteRepositoryFilter.prefixes.resolvePrefixFiles.jbossThirdParty=false
 
 permissions:
   contents: read
