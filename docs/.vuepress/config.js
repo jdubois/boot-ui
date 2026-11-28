@@ -72,6 +72,9 @@ export default defineUserConfig({
   theme: defaultTheme({
     hostname: 'https://www.julien-dubois.com',
     themePlugins: {
+      // Passive hash updates trigger VuePress's scroll restoration, snapping the article back
+      // to headings and looping when headings are close. Only explicit links should navigate.
+      activeHeaderLinks: false,
       seo: {
         canonical: toCanonicalUrl
       }

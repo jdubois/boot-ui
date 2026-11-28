@@ -789,6 +789,22 @@ icon needs no extra steps — just reference its `bi-*` class. If you add an ico
 while `npm run dev` is already running, restart the dev server so the subset is
 regenerated.
 
+## Documentation website
+
+Build the VuePress site from the repository root with `npm ci && npm run docs:build`.
+Run its desktop and mobile browser checks with:
+
+```bash
+cd bootui-spring-sample-app/e2e
+npm ci
+npx playwright install chromium
+npm test -- --config=playwright.docs.config.js
+```
+
+Heading links navigate only when explicitly followed. Keep the theme's `activeHeaderLinks` plugin disabled:
+its passive hash updates trigger VuePress scroll restoration and can cause heading-to-heading scrolling loops.
+The browser checks cover stable reading positions, closely spaced headings, explicit links, and history navigation.
+
 ## Publishing
 
 ### CI documentation and examples
