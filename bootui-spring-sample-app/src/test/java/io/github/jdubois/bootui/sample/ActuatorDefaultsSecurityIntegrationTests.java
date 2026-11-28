@@ -13,7 +13,7 @@ import org.springframework.test.annotation.DirtiesContext;
         properties = {
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
-            "server.address=127.0.0.1",
+            "server.address=0.0.0.0",
             "bootui.allow-non-localhost=true",
             "bootui.authentication.token=" + ActuatorSecurityContract.TOKEN,
             "bootui.show-banner=false",
@@ -42,14 +42,14 @@ class ActuatorDefaultsSecurityIntegrationTests {
         properties = {
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
-            "server.address=127.0.0.1",
+            "server.address=0.0.0.0",
             "bootui.allow-non-localhost=true",
             "bootui.authentication.token=" + ActuatorSecurityContract.TOKEN,
             "bootui.show-banner=false",
             "management.endpoint.health.probes.enabled=true",
             "management.server.port=0",
             "server.forward-headers-strategy=NATIVE",
-            "management.server.address=127.0.0.1",
+            "management.server.address=0.0.0.0",
             "management.server.base-path=/manage",
             "management.endpoints.web.base-path=/actuator/private",
             "management.endpoints.web.path-mapping.env=environment",
@@ -82,7 +82,7 @@ class ActuatorManagementSecurityIntegrationTests {
         properties = {
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
-            "server.address=127.0.0.1",
+            "server.address=0.0.0.0",
             "bootui.allow-non-localhost=true",
             "bootui.authentication.token=" + ActuatorSecurityContract.TOKEN,
             "bootui.show-banner=false",
@@ -108,12 +108,12 @@ class ActuatorHostExposureSecurityIntegrationTests {
         properties = {
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
-            "server.address=127.0.0.1",
+            "server.address=0.0.0.0",
             "bootui.show-banner=false",
             "management.endpoint.health.probes.enabled=true",
             "management.endpoint.health.probes.add-additional-paths=true",
             "management.server.port=0",
-            "management.server.address=127.0.0.1",
+            "management.server.address=0.0.0.0",
             "bootui.overrides-file=target/actuator-security/application-bootui.properties"
         })
 @DirtiesContext

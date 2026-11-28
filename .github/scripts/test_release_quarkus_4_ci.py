@@ -12,6 +12,25 @@ NS = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 
 class Quarkus4CiTests(unittest.TestCase):
+    def test_q4_module_parents_match_their_local_parent_poms(self):
+        for pom in ROOT.glob("bootui-quarkus-4*/**/pom.xml"):
+            if any(part in {"target", ".m2", "node_modules"} for part in pom.parts):
+                continue
+            parent = ET.parse(pom).getroot().find("m:parent", NS)
+            local = pom.parent / parent.findtext("m:relativePath", default="../pom.xml", namespaces=NS)
+            model = ET.parse(local).getroot()
+            expected = (
+                model.findtext("m:groupId", namespaces=NS)
+                or model.findtext("m:parent/m:groupId", namespaces=NS),
+                model.findtext("m:artifactId", namespaces=NS),
+                model.findtext("m:version", namespaces=NS)
+                or model.findtext("m:parent/m:version", namespaces=NS),
+            )
+            actual = tuple(parent.findtext(f"m:{field}", namespaces=NS)
+                           for field in ("groupId", "artifactId", "version"))
+            with self.subTest(pom=str(pom.relative_to(ROOT))):
+                self.assertEqual(actual, expected, "Maven must resolve the parent locally, not from a warmed cache")
+
     def test_native_fixture_matrix_and_evidence_cannot_silently_drop_orm_coverage(self):
         from test_release_integrity import ReleaseIntegrityTests
 

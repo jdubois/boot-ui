@@ -223,6 +223,23 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "discovery lease"):
                 acceptance.verify_discovery(self.root / "cli.jar", "http://127.0.0.1:8124")
 
+    def test_discovery_accepts_the_spring_localhost_alias_of_the_owned_loopback_url(self):
+        result = subprocess.CompletedProcess([], 0, '{"instances":[{"baseUrl":"http://localhost:8123"}]}', "")
+        with patch.object(acceptance, "run", return_value=result), \
+                patch.object(acceptance.time, "monotonic", side_effect=[0, 1, 31]), \
+                patch.object(acceptance.time, "sleep"):
+            acceptance.verify_discovery(self.root / "cli.jar", "http://127.0.0.1:8123")
+
+    def test_discovery_alias_does_not_accept_a_different_host_or_scheme(self):
+        for advertised in ("http://other-host:8123", "https://localhost:8123"):
+            result = subprocess.CompletedProcess([], 0, '{"instances":[{"baseUrl":"' + advertised + '"}]}', "")
+            with self.subTest(advertised=advertised), \
+                    patch.object(acceptance, "run", return_value=result), \
+                    patch.object(acceptance.time, "monotonic", side_effect=[0, 1, 31]), \
+                    patch.object(acceptance.time, "sleep"):
+                with self.assertRaisesRegex(AssertionError, "discovery lease"):
+                    acceptance.verify_discovery(self.root / "cli.jar", "http://127.0.0.1:8123")
+
     def test_quarkus_production_fast_jar_rejects_embedded_bootui_classes(self):
         project = self.root / "production"
         libraries = project / "target/quarkus-app/lib/main"

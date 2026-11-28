@@ -252,7 +252,7 @@ cancel an observation first to stop it.
 
 Collection, clearing, cancellation, and exports require confirmation and obey read-only policy. Text downloads use
 BootUI's custom format; retained JSON uses `bootui-thread-capture` schema version 1. Neither is a native JVM dump.
-See [Threads specification](../SPECIFICATION.md#520-threads-panel) for limits and API routes.
+See [Threads specification](../SPECIFICATION.md#_5-20-threads-panel) for limits and API routes.
 
 ## Startup Timeline
 

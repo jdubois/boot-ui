@@ -3,7 +3,7 @@
 **One Action step. A live application assessment in your job Summary.**
 
 <!-- bootui-ci:release:start -->
-> **Example release: BootUI 2.5.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.5.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
+> **Example release: BootUI 2.6.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.6.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
 <!-- bootui-ci:release:end -->
 
 ## Add BootUI to GitHub Actions <a id="quick-start-github-actions"></a>
@@ -14,7 +14,7 @@ then add this step after your usual checkout and Java setup:
 <!-- bootui-ci:source:snippets/action.yml.template:start -->
 ```yaml
 - name: BootUI diagnostics
-  uses: jdubois/boot-ui@v2.5.0
+  uses: jdubois/boot-ui@v2.6.0
 ```
 <!-- bootui-ci:source:snippets/action.yml.template:end -->
 

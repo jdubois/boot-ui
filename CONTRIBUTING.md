@@ -382,6 +382,11 @@ installing the reactor dependencies, run the affected conformance class:
 ./mvnw -B -ntp -pl bootui-quarkus-4-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
 ```
 
+Real-peer security fixtures bind their test listeners to `0.0.0.0` and send source-bound requests through the same local
+network interface, retaining the original Host header. Windows does not support a non-loopback source connecting to
+`127.0.0.1`. These synthetic fixtures still assert the real-peer rejection and token policies; normal application
+binding is unchanged.
+
 The Quarkus base API profile supplies a test-only, plain H2 datasource: the shared activity-persistence
 confirmation and keyed-finding dismissal/restore assertions execute against a real database and HTTP backend.
 Other base profiles still have no datasource or optional extensions. SQL Trace and Flyway intentionally remain

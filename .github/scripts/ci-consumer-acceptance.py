@@ -1031,11 +1031,12 @@ def exercise_managed_start(project, repository, version, stack, cli, work, senti
 
 
 def verify_discovery(cli, url):
+    owned_urls = {url, url.replace("://127.0.0.1:", "://localhost:", 1)}
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         result = run(["java", "-jar", str(cli), "instances", "--json"])
         entries = json.loads(result.stdout).get("instances", [])
-        if any(entry.get("baseUrl") == url for entry in entries):
+        if any(entry.get("baseUrl") in owned_urls for entry in entries):
             return
         time.sleep(0.25)
     raise AssertionError(f"The managed consumer did not publish its local discovery lease for {url}")

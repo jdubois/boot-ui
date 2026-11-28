@@ -971,7 +971,7 @@ verify it against the same workload. They do not automatically repair the applic
 Each analysis section has independent page metadata. These MCP analysis/observation reads accept `id` only:
 do not send unsupported `query`, `limit`, or `offset` arguments. If `hasMore` or a truncated-ID flag is set, the first
 answer does not cover every thread. Follow returned IDs or use the same capture's bounded
-[REST analysis and filtered thread pages](SPECIFICATION.md#520-threads-panel); do not silently acquire again.
+[REST analysis and filtered thread pages](SPECIFICATION.md#_5-20-threads-panel); do not silently acquire again.
 Expired explicit IDs return a tool error, never a recapture.
 Comparison continuation uses `GET <api-base>/threads/observations/<session-id>?offset=25&limit=25`.
 Unresolved acquisitions appear before idle waits; comparison rows prioritize consecutive sampled acquisitions,

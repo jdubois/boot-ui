@@ -40,7 +40,7 @@ For the separate Quarkus 4 JVM evidence and pending acceptance, see [Quarkus sup
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-quarkus</artifactId>
-  <version>2.5.0</version>
+  <version>2.6.0</version>
 </dependency>
 ```
 
@@ -48,12 +48,12 @@ For the separate Quarkus 4 JVM evidence and pending acceptance, see [Quarkus sup
 
 ```groovy
 // Groovy DSL (build.gradle)
-implementation 'com.julien-dubois.bootui:bootui-quarkus:2.5.0'
+implementation 'com.julien-dubois.bootui:bootui-quarkus:2.6.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-implementation("com.julien-dubois.bootui:bootui-quarkus:2.5.0")
+implementation("com.julien-dubois.bootui:bootui-quarkus:2.6.0")
 ```
 
 :::
