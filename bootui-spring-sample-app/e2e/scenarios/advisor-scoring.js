@@ -976,11 +976,12 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
 
     test('scores usable partial findings and separates failed and unscanned reports', async ({page}) => {
       let status = 'NOT_SCANNED'
+      let nextStatus = 'SCANNED'
       let scans = 0
       await page.route(`**${apiPath}/architecture{,/scan}`, async (route) => {
         if (route.request().method() === 'POST') {
           scans++
-          if (scans === 1) status = 'SCANNED'
+          status = nextStatus
         }
         await route.fulfill({json: scans === 0 ? unscannedReport() : architectureReport(status)})
       })
@@ -992,21 +993,25 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await card.getByRole('button', {name: 'Run scan', exact: true}).click()
       await expect(card.locator('.scanner-score')).toHaveText('90')
       await expect(overall).toContainText('1 of 2 advisors assessed')
-      status = 'PARTIAL'
+      nextStatus = 'PARTIAL'
       await card.getByRole('button', {name: 'Re-run scan', exact: true}).click()
+      await expect.poll(() => scans).toBe(2)
       await expect(card.locator('.scanner-score')).toHaveText('90')
       await expect(overall).toContainText('1 of 2 advisors assessed')
       await expect(
         overall.getByRole('img', {name: 'Overall score: 90 out of 100 — Average of 1 score', exact: true})
       ).toHaveCount(1)
       for (const next of ['ERROR', 'DISABLED', 'NOT_SCANNED']) {
-        status = next
+        const expectedScans = scans + 1
+        nextStatus = next
         await card.getByRole('button', {name: 'Re-run scan', exact: true}).click()
+        await expect.poll(() => scans).toBe(expectedScans)
         await expect(card.locator('.scanner-score')).toHaveCount(0)
         await expect(card).toContainText('1 high')
         await expect(overall).toContainText('0 of 2 advisors assessed')
         await expect(overall.getByRole('img')).toHaveCount(0)
       }
+      expect(scans).toBe(5)
       status = 'PARTIAL'
       await card.getByRole('link', {name: 'Open panel'}).click()
       await expect(page.locator('.advisor-score-card')).toContainText('Results available')

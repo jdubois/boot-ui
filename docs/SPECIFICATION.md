@@ -27,6 +27,12 @@ BootUI currently targets:
 - Spring Boot servlet web applications, Spring Boot WebFlux (reactive) applications, and Quarkus (Vert.x / RESTEasy
   Reactive) applications.
 
+Additive Quarkus 4 work uses separate `bootui-quarkus-4` runtime/deployment modules and Java 21+, without replacing
+the published Quarkus 3 path or raising its Java 17 minimum. It retains the `quarkus` discriminator and the shared
+UI/DTO/REST/MCP/CLI contracts. Publication status and the JVM/native verification boundaries are recorded in
+[Quarkus setup](setup/quarkus.md) and [Quarkus support](QUARKUS-SUPPORT.md#quarkus-4); source implementation is not a
+claim that any selected release contains this adapter. Verify that release's artifact set.
+
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all ten panel-buffer signal types merge identically to the servlet adapter — see

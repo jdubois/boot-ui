@@ -1,0 +1,202 @@
+package io.github.jdubois.bootui.quarkus4.activity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.quarkus4.QuarkusExposurePolicy;
+import io.github.jdubois.bootui.quarkus4.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.quarkus4.web.LiveActivityResource;
+import io.smallrye.config.PropertiesConfigSource;
+import io.smallrye.config.SmallRyeConfig;
+import io.smallrye.config.SmallRyeConfigBuilder;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.UnsatisfiedResolutionException;
+import jakarta.enterprise.util.TypeLiteral;
+import java.lang.annotation.Annotation;
+import java.time.Duration;
+import java.util.Iterator;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Pins {@link QuarkusActivityCapture}'s lifecycle: with persistence disabled (the default), {@link
+ * QuarkusActivityCapture#onStart} must start no background thread and {@link
+ * QuarkusActivityCapture#onStop} must not fail even though no capture was ever created; with persistence
+ * enabled but no runtime journal, 2.0's only capture source, nothing polls the panel buffers either.
+ */
+class QuarkusActivityCaptureTests {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nativeDenialResolvesNoPersistenceSettingsResourceOrStoresAtStartupOrShutdown() {
+        Instance<SwitchableActivityStore> activities = mock(Instance.class);
+        Instance<ActivityPersistenceSettings> settings = mock(Instance.class);
+        Instance<LiveActivityResource> resources = mock(Instance.class);
+        Instance<DurableJournalStore> journals = mock(Instance.class);
+        try (var activation = mockStatic(BootUiNativeActivation.class)) {
+            activation.when(BootUiNativeActivation::isNativeInactive).thenReturn(true);
+            QuarkusActivityCapture capture = new QuarkusActivityCapture(activities, settings, resources, journals);
+            capture.onStart(null);
+            capture.onStop(null);
+            verifyNoInteractions(activities, settings, resources, journals);
+        }
+    }
+
+    @Test
+    void onStartDoesNotStartACaptureThreadWhenPersistenceDisabled() throws Exception {
+        QuarkusActivityCapture capture = new QuarkusActivityCapture(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings(), liveActivityResource());
+
+        capture.onStart(null);
+
+        assertThat(awaitThreadNamed("bootui-activity-capture")).isNull();
+
+        // Must not throw even though onStart created no capture.
+        capture.onStop(null);
+    }
+
+    @Test
+    void withoutARuntimeJournalPersistenceStartsNoCaptureThreadAndStopsCleanly() throws Exception {
+        QuarkusActivityCapture capture = new QuarkusActivityCapture(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                enabledSettings(Duration.ofMillis(50)),
+                liveActivityResource());
+
+        capture.onStart(null);
+
+        assertThat(awaitThreadNamed("bootui-activity-capture"))
+                .as("2.0.0 removed the poller of the panel buffers")
+                .isNull();
+        capture.onStop(null);
+    }
+
+    private static ActivityPersistenceSettings disabledSettings() {
+        return settings(false, Duration.ofSeconds(2));
+    }
+
+    private static ActivityPersistenceSettings enabledSettings(Duration captureInterval) {
+        return settings(true, captureInterval);
+    }
+
+    private static ActivityPersistenceSettings settings(boolean enabled, Duration captureInterval) {
+        return new ActivityPersistenceSettings(
+                enabled,
+                ActivityPersistenceSettings.DataSourceMode.SHARED,
+                null,
+                null,
+                null,
+                null,
+                "bootui_activity",
+                Duration.ofSeconds(5),
+                500,
+                Duration.ofDays(7),
+                "instance-a");
+    }
+
+    private static LiveActivityResource liveActivityResource() {
+        SmallRyeConfig config = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(Map.<String, String>of(), "test", 1000))
+                .build();
+        return new LiveActivityResource(
+                new HttpExchangeBuffer(50),
+                new QuarkusExposurePolicy(config),
+                new UnsatisfiedInstance<>(),
+                new ExceptionStore(10, 10, 10),
+                new ExceptionsService(new QuarkusExposurePolicy(config)),
+                new UnsatisfiedInstance<EmailCaptureService>(),
+                new SecurityEventBuffer(10),
+                new ScheduledTaskRunStore(10),
+                new QuarkusPanelAvailability(config),
+                null,
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                new UnsatisfiedInstance<>(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                new RabbitActivityRecorder(true, false, 200, 16),
+                new FaultToleranceEventRecorder(true, 200),
+                new RestClientTraceRecorder(true, true, false, false, 200, 1000, 256, 256, 5));
+    }
+
+    private static Thread awaitThreadNamed(String name) throws InterruptedException {
+        for (int i = 0; i < 100; i++) {
+            for (Thread thread : Thread.getAllStackTraces().keySet()) {
+                if (name.equals(thread.getName())) {
+                    return thread;
+                }
+            }
+            Thread.sleep(10);
+        }
+        return null;
+    }
+
+    /** Minimal always-unsatisfied {@link Instance} fake — see {@code LiveActivityResourceTests} for details. */
+    private static final class UnsatisfiedInstance<T> implements Instance<T> {
+
+        @Override
+        public Instance<T> select(Annotation... qualifiers) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public <U extends T> Instance<U> select(Class<U> subtype, Annotation... qualifiers) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public <U extends T> Instance<U> select(TypeLiteral<U> subtype, Annotation... qualifiers) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean isUnsatisfied() {
+            return true;
+        }
+
+        @Override
+        public boolean isAmbiguous() {
+            return false;
+        }
+
+        @Override
+        public void destroy(T instance) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Instance.Handle<T> getHandle() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Iterable<? extends Instance.Handle<T>> handles() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Iterator<T> iterator() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public T get() {
+            throw new UnsatisfiedResolutionException("no SqlTraceRecorder bean produced in this test");
+        }
+    }
+}

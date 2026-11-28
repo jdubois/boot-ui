@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 
 
 GROUPS = {"com.julien-dubois.bootui", "io.github.jdubois.bootui"}
-ARTIFACTS = {"bootui-spring-boot-starter", "bootui-quarkus"}
+ARTIFACTS = {"bootui-spring-boot-starter", "bootui-quarkus", "bootui-quarkus-4"}
 STABLE_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 PROFILE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 

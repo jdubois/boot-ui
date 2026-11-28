@@ -1,0 +1,210 @@
+package io.github.jdubois.bootui.quarkus4.it;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
+import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
+import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
+import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
+import io.quarkus.test.common.http.TestHTTPResource;
+import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.QuarkusTestProfile;
+import io.quarkus.test.junit.TestProfile;
+import jakarta.inject.Inject;
+import java.net.URL;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.junit.jupiter.api.Test;
+
+@QuarkusTest
+@TestProfile(BootUiCustomPathBootTest.CustomPathProfile.class)
+class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
+
+    private static final Pattern ASSET = Pattern.compile("(?:src|href)=\"\\./(assets/[^\"]+)\"");
+
+    @TestHTTPResource
+    URL baseUrl;
+
+    @Inject
+    TelemetryStore telemetryStore;
+
+    @Override
+    protected TelemetryStore telemetryStore() {
+        return telemetryStore;
+    }
+
+    private BootUiHttpProbe probe() {
+        String serverRoot = baseUrl.getProtocol() + "://" + baseUrl.getHost() + ":" + baseUrl.getPort();
+        return new BootUiHttpProbe(serverRoot);
+    }
+
+    @Override
+    protected String baseUrl() {
+        return baseUrl.getProtocol() + "://" + baseUrl.getHost() + ":" + baseUrl.getPort();
+    }
+
+    @Override
+    protected String expectedPanelsResource() {
+        return "/io/github/jdubois/bootui/conformance/expected-panels-quarkus.json";
+    }
+
+    @Override
+    protected Runtime runtime() {
+        return Runtime.QUARKUS;
+    }
+
+    @Override
+    protected Set<String> actionlessPanels() {
+        return Set.of("config");
+    }
+
+    @Override
+    protected String applicationPath() {
+        return "/host";
+    }
+
+    @Override
+    protected String uiPath() {
+        return "/host/dev-console";
+    }
+
+    @Override
+    protected String apiPath() {
+        return "/host/internal/bootui-api";
+    }
+
+    @Override
+    protected Path dismissalFile() {
+        return Path.of("target/custom-path-conformance/boot-ui.yml");
+    }
+
+    @Test
+    void advisorDetailReadsUseTheCustomMountAndDoNotTriggerScans() {
+        for (String root : java.util.List.of(
+                "architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            Response before = probe().get(apiPath() + "/" + root);
+            if (before.status() != 200) {
+                assertThat(probe().get(apiPath() + "/" + root + "/rules/RULE/violations?scanId=stale")
+                                .status())
+                        .isIn(403, 404);
+                continue;
+            }
+            String details = apiPath() + "/" + root + "/rules/RULE/violations";
+            assertThat(probe().get(details).status()).as(root).isEqualTo(400);
+            assertThat(probe().get(details + "?scanId=stale").status()).as(root).isEqualTo(409);
+            assertThat(probe().get(details + "?scanId=stale&offset=1.5").status())
+                    .as(root)
+                    .isEqualTo(400);
+            assertThat(probe().get(apiPath() + "/" + root).json().path("violationDetails"))
+                    .isEqualTo(before.json().path("violationDetails"));
+        }
+    }
+
+    @Test
+    void shellAndApiComposeWithTheQuarkusRootPath() {
+        BootUiHttpProbe probe = probe();
+        Response shell = probe.get("/host/dev-console/");
+        Response bareShell = probe.get("/host/dev-console");
+        Response api = probe.get("/host/internal/bootui-api/overview");
+        Matcher asset = ASSET.matcher(shell.body());
+
+        assertThat(shell.status()).isEqualTo(200);
+        assertThat(bareShell.status()).isEqualTo(200);
+        assertThat(shell.body())
+                .contains("<base href=\"/host/dev-console/\" />")
+                .contains("content=\"/host/\" name=\"bootui-application-path\"")
+                .contains("content=\"/host/internal/bootui-api\" name=\"bootui-api-path\"");
+        assertThat(asset.find()).isTrue();
+        assertThat(probe.get("/host/dev-console/" + asset.group(1)).status()).isEqualTo(200);
+        assertThat(api.status()).isEqualTo(200);
+        assertThat(api.json().path("applicationName").isTextual()).isTrue();
+    }
+
+    @Test
+    void reroutePreservesQueryParameters() {
+        Response response = probe().get("/host/internal/bootui-api/mappings/flat?offset=0&limit=1");
+
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().path("basePath").asText()).isEqualTo("/host");
+        assertThat(response.json().path("page").path("limit").asInt()).isEqualTo(1);
+        assertThat(response.json().path("mappings").size()).isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    void oldInternalMountIsNotExposed() {
+        assertThat(probe().get("/host/bootui/").status()).isEqualTo(404);
+        assertThat(probe().get("/host/bootui").status()).isEqualTo(404);
+        assertThat(probe().get("/host/bootui/api/overview").status()).isEqualTo(404);
+    }
+
+    @Test
+    void securityAndStreamingEndpointsUseTheConfiguredApiPath() {
+        BootUiHttpProbe probe = probe();
+        Response rejected = probe.post(
+                "/host/internal/bootui-api/overview",
+                Map.of("Origin", "http://evil.example.com", "Sec-Fetch-Site", "cross-site"));
+        Response stream = probe.getStreaming("/host/internal/bootui-api/activity/stream");
+        Response logger = probe.request(
+                "POST",
+                "/host/internal/bootui-api/loggers/bootui.custom.path.test",
+                Map.of("Content-Type", "application/json"),
+                "{\"level\":\"INFO\"}");
+        Response download = probe.post("/host/internal/bootui-api/threads/download", Map.of());
+
+        assertThat(rejected.status()).isEqualTo(403);
+        assertThat(rejected.json().path("error").asText())
+                .isEqualTo("BootUI rejected a cross-site request to a state-changing endpoint.");
+        assertThat(stream.status()).isEqualTo(200);
+        assertThat(stream.contentType()).contains("text/event-stream");
+        assertThat(logger.status()).isEqualTo(200);
+        assertThat(download.status()).isEqualTo(200);
+        assertThat(download.header("content-disposition")).contains("thread-dump.txt");
+    }
+
+    @Test
+    void bootUiTrafficOnTheCustomMountIsExcludedFromHttpExchanges() {
+        BootUiHttpProbe probe = probe();
+        probe.get("/host/api/hello");
+        probe.get("/host/internal/bootui-api/overview");
+
+        Response report = probe.get("/host/internal/bootui-api/http-exchanges");
+        assertThat(report.status()).isEqualTo(200);
+
+        boolean foundHello = false;
+        for (JsonNode exchange : report.json().path("exchanges")) {
+            String path = exchange.path("path").asText("");
+            assertThat(path)
+                    .as("console traffic on the configured mounts must never be retained as host telemetry")
+                    .doesNotContain("/dev-console")
+                    .doesNotContain("bootui-api")
+                    .doesNotContain("/host/bootui");
+            if (path.equals("/host/api/hello")) {
+                foundHello = true;
+            }
+        }
+        assertThat(foundHello)
+                .as("host-application traffic on the same root path must still be captured")
+                .isTrue();
+    }
+
+    public static final class CustomPathProfile implements QuarkusTestProfile {
+        @Override
+        public Map<String, String> getConfigOverrides() {
+            return Map.of(
+                    "quarkus.http.root-path", "/host",
+                    "bootui.path", "/dev-console/",
+                    "bootui.api-path", "/internal/bootui-api/",
+                    "bootui.overrides-file", "target/custom-path-conformance/application-bootui.properties",
+                    "bootui.panels.copilot.enabled", "false",
+                    "bootui.panels.heap-dump.read-only", "true",
+                    "bootui.heap-dump.capture-enabled", "false",
+                    "bootui.claude-code.enabled", "OFF",
+                    "bootui.conformance.api-token", "conformance-raw-secret-value");
+        }
+    }
+}

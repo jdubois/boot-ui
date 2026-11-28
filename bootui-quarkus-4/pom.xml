@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-parent</artifactId>
+        <version>2.6.0</version>
+        <relativePath>../bootui-quarkus-4-parent/pom.xml</relativePath>
+    </parent>
+    <artifactId>bootui-quarkus-4</artifactId>
+    <name>BootUI :: Quarkus 4 Extension (Runtime)</name>
+    <description>Quarkus 4 adapter over the framework-neutral BootUI engine.</description>
+    <properties>
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+    <dependencies>
+        <!-- Framework-neutral engine (the DTO/wire contract and the logic shared with the Spring adapter) + the
+             shared Vue UI bundle. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-engine</artifactId>
+        </dependency>
+        <!-- bootui-ui ships the pre-built SPA under META-INF/resources/bootui/, served automatically by
+             Quarkus' static-resource handler from this dependency jar — no Node required by consumers. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-ui</artifactId>
+        </dependency>
+
+        <!-- CDI + JAX-RS (Quarkus REST) + Jackson for the /bootui/api/** endpoints. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.smallrye.common</groupId>
+            <artifactId>smallrye-common-vertx5-context</artifactId>
+        </dependency>
+
+        <!-- OpenTelemetry SDK, compile-only (provided): needed solely to compile the in-process span-capture
+             producer (BootUiOtelProducer) and the engine BootUiSpanExporter it wraps. provided scope is NOT
+             transitive, so an application that depends on this extension but does not add quarkus-opentelemetry
+             never gets the OTel SDK on its classpath, and the capability-gated build step never registers the
+             producer that would reference it (R2/BF2). When an app DOES add quarkus-opentelemetry, the SDK is
+             supplied (at the same quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- SmallRye Health, compile-only (provided): needed solely to compile the in-process health-capture
+             producer (BootUiHealthProducer) and QuarkusHealthProvider, which read the aggregated MicroProfile
+             Health report via SmallRyeHealthReporter. provided scope is NOT transitive, so an application that
+             depends on this extension but does not add quarkus-smallrye-health never gets SmallRye Health on its
+             classpath, and the capability-gated build step never registers the producer that would reference it
+             (R2). When an app DOES add quarkus-smallrye-health, SmallRye Health is supplied (at the same
+             quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.smallrye</groupId>
+            <artifactId>smallrye-health</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Jakarta Persistence API, compile-only (provided): needed solely to compile the optional
+             entity-discovery path of the Hibernate (ORM mapping) advisor (BootUiHibernateProducer /
+             QuarkusEntityDiscovery), which reads the JPA metamodel from the application's EntityManagerFactory
+             beans. provided scope is NOT transitive, so an application that depends on this extension but does
+             not add quarkus-hibernate-orm never gets jakarta.persistence on its classpath, and the
+             capability-gated build step excludes the producer that would reference it (R2). When an app DOES add
+             quarkus-hibernate-orm, the API is supplied (at the same quarkus-bom-managed version) by that
+             extension. -->
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Hibernate ORM extension, compile-only (provided): needed solely to compile the optional
+             SQL Trace ORM-capture path (BootUiHibernateStatementInspector), which registers an
+             org.hibernate.resource.jdbc.spi.StatementInspector into the persistence unit via the Quarkus
+             io.quarkus.hibernate.orm.PersistenceUnitExtension marker so Hibernate-issued SQL (which bypasses
+             the wrapped CDI DataSource) is recorded into the shared engine recorder. provided scope is NOT
+             transitive, so an application that depends on this extension but does not add quarkus-hibernate-orm
+             never gets org.hibernate / io.quarkus.hibernate.orm on its classpath, and the capability-gated
+             build step excludes the inspector that would reference them (R2). When an app DOES add
+             quarkus-hibernate-orm, the API is supplied (at the same quarkus-bom-managed version) by that
+             extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Cache extension, compile-only (provided): needed solely to compile the optional Cache panel
+             path (BootUiCacheProducer / QuarkusCacheProvider), which reads the live cache topology from the
+             application's io.quarkus.cache.CacheManager and Caffeine cache sizes. provided scope is NOT
+             transitive, so an application that depends on this extension but does not add quarkus-cache never
+             gets io.quarkus.cache on its classpath, and the capability-gated build step excludes the producer
+             that would reference it (R2). When an app DOES add quarkus-cache, the API is supplied (at the same
+             quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-cache</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Flyway extension, compile-only (provided): needed solely to compile the optional Flyway panel
+             path (BootUiFlywayProducer / QuarkusFlywayProvider), which enumerates the application's active
+             io.quarkus.flyway.runtime.FlywayContainer beans and runs the org.flywaydb.core.Flyway migrate/clean
+             primitives. provided scope is NOT transitive, so an application that depends on this extension but does
+             not add quarkus-flyway never gets io.quarkus.flyway / org.flywaydb on its classpath, and the
+             capability-gated build step excludes the producer that would reference it (R2). When an app DOES add
+             quarkus-flyway, the API is supplied (at the same quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Liquibase extension, compile-only (provided): needed solely to compile the optional
+             Liquibase panel path (BootUiLiquibaseProducer / QuarkusLiquibaseProvider), which reads the
+             change-log history and runs the update action through the application's
+             io.quarkus.liquibase.LiquibaseFactory beans. provided scope is NOT transitive, so an application
+             that depends on this extension but does not add quarkus-liquibase never gets io.quarkus.liquibase /
+             liquibase on its classpath, and the capability-gated build step excludes the producer that would
+             reference it (R2). When an app DOES add quarkus-liquibase, the API is supplied (at the same
+             quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-liquibase</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Agroal extension, compile-only (provided): needed solely to compile the optional Database
+             Connection Pools panel path (BootUiAgroalProducer / QuarkusAgroalConnectionPoolProvider), which
+             reads the live pool configuration and AgroalDataSourceMetrics from the application's active Agroal
+             datasources. provided scope is NOT transitive, so an application that depends on this extension but
+             does not add a JDBC datasource extension never gets io.agroal on its classpath, and the
+             capability-gated build step excludes the producer that would reference it (R2). When an app DOES add
+             a JDBC datasource (e.g. quarkus-jdbc-h2), the API is supplied (at the same quarkus-bom-managed
+             version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-agroal</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Security, compile-only (provided): needed solely to compile the Security Logs capture
+             observer (QuarkusSecurityEventCapture), which observes io.quarkus.security.spi.runtime.SecurityEvent
+             CDI events into the shared SecurityEventBuffer. provided scope is NOT transitive, so an application
+             that does not add quarkus-security never gets these types, and the capability-gated build step
+             excludes the observer that would reference them (R2). When an app DOES add a security extension, the
+             SPI is supplied (at the same quarkus-bom-managed version) and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Messaging Kafka extension, compile-only (provided): needed solely to compile the optional
+             Live Activity Kafka capture interceptors (QuarkusKafkaProducerCapture / QuarkusKafkaConsumerCapture),
+             which implement SmallRye Reactive Messaging's OutgoingInterceptor / IncomingInterceptor SPI and read
+             io.smallrye.reactive.messaging.kafka.api Kafka record metadata into the shared KafkaActivityRecorder.
+             provided scope is NOT transitive: BootUI does not add the messaging APIs to the application.
+             registerKafkaCapture checks for the SmallRye Kafka connector class on the application's runtime
+             classpath and excludes both interceptors when it is absent (R2). quarkus-messaging-kafka supplies
+             the APIs at the Quarkus BOM-managed version. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-messaging-kafka</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- LangChain4j core, compile-only (provided): needed solely to compile QuarkusAiCallListener, the
+             ChatModelListener that records Quarkus LangChain4j's model calls in the runtime journal (M3-9).
+             provided scope is NOT transitive, and the class-presence-gated build step (registerAiCalls) excludes
+             the listener when an application has no LangChain4j, so its types are never linked (R2). -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-core</artifactId>
+            <version>${langchain4j.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus WebSockets Next extension, compile-only (provided): needed solely to compile the optional
+             WebSockets panel runtime bindings (QuarkusWebSocketSessionProvider and
+             QuarkusWebSocketConnectionCapture), which read io.quarkus.websockets.next OpenConnections /
+             WebSocketConnection state and observe @Open/@Closed connection events. provided scope is NOT
+             transitive, so an application that depends on this extension but does not add
+             quarkus-websockets-next never gets io.quarkus.websockets.next on its classpath, and the
+             class-presence-gated build step (registerWebSockets) excludes the beans that would reference
+             them (R2). -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-websockets-next</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Messaging RabbitMQ extension, compile-only (provided): needed solely to compile the optional
+             Live Activity RabbitMQ capture interceptors (QuarkusRabbitProducerCapture / QuarkusRabbitConsumerCapture),
+             which implement SmallRye Reactive Messaging's OutgoingInterceptor / IncomingInterceptor SPI and read
+             io.smallrye.reactive.messaging.rabbitmq.* metadata into the shared RabbitActivityRecorder.
+             provided scope is NOT transitive, so an application that depends on this extension but does not add
+             quarkus-messaging-rabbitmq never gets io.smallrye.reactive.messaging.rabbitmq on its classpath, and the
+             class-presence-gated build step (registerRabbitCapture) excludes the interceptors that would reference
+             them (R2). When an app DOES add quarkus-messaging-rabbitmq, the API is supplied by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-messaging-rabbitmq</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus REST Client Reactive, compile-only (provided): needed solely to compile
+             QuarkusRestClientTraceListener (implements org.eclipse.microprofile.rest.client.spi.RestClientListener)
+             and QuarkusRestClientTraceFilter (registers itself on RestClientBuilder). The deployment build step
+             (registerRestClientTrace) emits a generated service-provider entry only when the REST Client Reactive
+             capability is present and excludes the optional listener type otherwise, preventing it from being linked
+             from the indexed runtime JAR when quarkus-rest-client is absent.
+             provided scope is NOT transitive, so an application that does not add quarkus-rest-client never
+             gets the microprofile-rest-client-api on its classpath. When an app DOES add quarkus-rest-client,
+             the API is supplied (at the same quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Scheduler, compile-only (provided): needed solely to compile the Live Activity
+             scheduled-task-run capture observer (QuarkusScheduledTaskRunRecorder), which observes
+             io.quarkus.scheduler.SuccessfulExecution / FailedExecution CDI events (fired by BaseScheduler
+             after every @Scheduled invocation) into the shared engine ScheduledTaskRunStore. This is a
+             separate runtime import from the existing build-time-only Scheduled Tasks panel
+             (QuarkusScheduledTaskProvider), which deliberately avoids importing io.quarkus.scheduler.* at
+             runtime. provided scope is NOT transitive, so an application that does not add quarkus-scheduler
+             never gets these types, and the capability-gated build step excludes the observer that would
+             reference them (R2). When an app DOES add quarkus-scheduler, the API is supplied (at the same
+             quarkus-bom-managed version) and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Quarkus Mailer, compile-only (provided): needed solely to compile the optional Email Viewer capture
+             observer (QuarkusEmailCapture), which observes io.quarkus.mailer.SentMail CDI events into the shared
+             EmailCaptureService. provided scope is NOT transitive, so an application that does not add quarkus-mailer
+             never gets io.quarkus.mailer on its classpath, and the class-presence-gated build step (registerEmail)
+             excludes the observer that would reference it (R2). When an app DOES add quarkus-mailer, the API is
+             supplied (at the same quarkus-bom-managed version) by that extension and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mailer</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- SmallRye Fault Tolerance, compile-only (provided): needed solely to compile the optional Fault
+             Tolerance panel port (SmallRyeCircuitBreakerStates), which reads live circuit-breaker state through
+             io.smallrye.faulttolerance.api.CircuitBreakerMaintenance. provided scope is NOT transitive, so an
+             application that does not add quarkus-smallrye-fault-tolerance never gets the fault-tolerance API on
+             its classpath, and the capability-gated build step (registerFaultTolerancePolicies) excludes the bean that
+             would reference it (R2). When an app DOES add the extension, the API is supplied (at the same
+             quarkus-bom-managed version) by that extension and the bean is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Unit-test deps (quarkus-bom managed). Same-package white-box tests stay in this runtime module
+             rather than an integration-test module so Quarkus augmentation never sees split packages across
+             application archives. QuarkusHealthProviderTest also needs SmallRye's jakarta.json API + the
+             Parsson implementation, both already supplied on the test classpath by smallrye-health above. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-oidc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Native OIDC preset fixtures generate SmallRye config mappings outside Quarkus augmentation. -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Test-scope only: LiveActivityResourceTests exercises the "Use the existing datasource" runtime
+          switch against a real, disposable database rather than hand-rolling a java.sql.DataSource/
+          Connection fake (SwitchableActivityStore/BufferedActivityStore are final, so they cannot be
+          mocked either, and this module has no Mockito). Mirrors the identical bootui-engine
+          (JdbcActivityStoreTests) and bootui-spring-boot-starter (LiveActivityControllerTests) test
+          dependency for the same feature. H2's version is managed by the imported quarkus-bom.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${quarkus4.platform.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>io.github.jdubois.bootui.quarkus4</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-extension-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate-extension-descriptor</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>extension-descriptor</goal>
+                        </goals>
+                        <configuration>
+                            <deployment>${project.groupId}:bootui-quarkus-4-deployment:${project.version}</deployment>
+                            <requiresQuarkusCore>[4.0,)</requiresQuarkusCore>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

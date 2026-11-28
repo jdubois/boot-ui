@@ -740,6 +740,12 @@ class CodeInventoryTests {
         assertThat(Exclusions.excluded("com.example.Shop_Subclass")).isTrue();
         assertThat(Exclusions.excluded("com.example.Shop_ClientProxy")).isTrue();
         assertThat(Exclusions.excluded("io.github.jdubois.bootui.engine.X")).isTrue();
+        assertThat(Exclusions.excluded("io.github.jdubois.bootui.quarkus4.javaagent.QuarkusAgentClaim"))
+                .isTrue();
+        assertThat(Exclusions.excluded("io.github.jdubois.bootui.quarkus4sample.Application"))
+                .isFalse();
+        assertThat(Exclusions.excluded("io.github.jdubois.bootui.quarkus4fixture.BootstrapResource"))
+                .isFalse();
         assertThat(Exclusions.excluded(null)).isTrue();
         String[] prefixes = Exclusions.prefixes();
         prefixes[0] = "changed.";

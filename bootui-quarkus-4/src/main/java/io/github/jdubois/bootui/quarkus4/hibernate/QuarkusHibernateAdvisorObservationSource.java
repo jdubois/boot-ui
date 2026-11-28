@@ -1,0 +1,146 @@
+package io.github.jdubois.bootui.quarkus4.hibernate;
+
+import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource;
+import io.github.jdubois.bootui.engine.hibernate.HibernateApplicationFacts;
+import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettingsReader;
+import io.github.jdubois.bootui.engine.hibernate.HibernateObservationDiagnostic;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePersistenceUnitObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePoolAttribution;
+import io.github.jdubois.bootui.engine.hibernate.JpaMetamodelReader;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
+import jakarta.enterprise.inject.Instance;
+import jakarta.persistence.EntityManagerFactory;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Set;
+import org.eclipse.microprofile.config.Config;
+import org.hibernate.Version;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
+
+/** Instantiated exclusively by the ORM-capability-gated producer, not a CDI-discovered bean. */
+public final class QuarkusHibernateAdvisorObservationSource implements HibernateAdvisorObservationSource {
+    private final Instance<EntityManagerFactory> factories;
+    private final Instance<ConnectionPoolProvider> pools;
+    private final Config config;
+
+    public QuarkusHibernateAdvisorObservationSource(Instance<EntityManagerFactory> factories, Config config) {
+        this(factories, null, config);
+    }
+
+    /** {@code pools} is optional: without a pool backend no persistence unit is attributed to a pool. */
+    public QuarkusHibernateAdvisorObservationSource(
+            Instance<EntityManagerFactory> factories, Instance<ConnectionPoolProvider> pools, Config config) {
+        this.factories = factories;
+        this.pools = pools;
+        this.config = config;
+    }
+
+    @Override
+    public HibernateAdvisorObservation observe() {
+        List<HibernateObservationDiagnostic> diagnostics = new ArrayList<>();
+        List<HibernatePersistenceUnitObservation> units = new ArrayList<>();
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        try {
+            int index = 0;
+            for (Instance.Handle<EntityManagerFactory> handle : factories.handles()) {
+                String label = "unit-" + (++index);
+                EntityManagerFactory emf = null;
+                try {
+                    // Instance.iterator().next() creates the bean before a foreach body can catch failures.
+                    // Handles enumerate metadata only. Do not close/destroy application-owned factories.
+                    emf = handle.get();
+                    SessionFactoryImplementor factory = emf.unwrap(SessionFactoryImplementor.class);
+                    if (factory == null) throw new IllegalStateException();
+                    if (!seen.add(factory)) continue;
+                    String proposed = HibernatePersistenceUnitObservation.safeLabel(unitName(factory));
+                    if (!"persistence-unit".equals(proposed)
+                            && units.stream().noneMatch(unit -> unit.label().equals(proposed))) label = proposed;
+                    EntityDiscovery entities = JpaMetamodelReader.readEntities(List.of(emf));
+                    if (!entities.errors().isEmpty())
+                        diagnostics.add(new HibernateObservationDiagnostic(
+                                label, HibernateObservationDiagnostic.Reason.METAMODEL_UNAVAILABLE));
+                    units.add(new HibernatePersistenceUnitObservation(
+                            "unit-" + units.size(),
+                            label,
+                            entities.entities(),
+                            List.of(),
+                            Version.getVersionString(),
+                            HibernateFactorySettingsReader.read(factory, label, diagnostics),
+                            true,
+                            HibernatePoolAttribution.observe(factory, label, poolProvider(), diagnostics)));
+                } catch (RuntimeException | LinkageError ex) {
+                    diagnostics.add(new HibernateObservationDiagnostic(
+                            label, HibernateObservationDiagnostic.Reason.FACTORY_UNAVAILABLE));
+                    EntityDiscovery readable = JpaMetamodelReader.readEntities(emf == null ? List.of() : List.of(emf));
+                    if (!readable.entities().isEmpty())
+                        units.add(new HibernatePersistenceUnitObservation(
+                                "unavailable-" + units.size(),
+                                label,
+                                readable.entities(),
+                                List.of(),
+                                null,
+                                null,
+                                true));
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            diagnostics.add(new HibernateObservationDiagnostic(
+                    "application", HibernateObservationDiagnostic.Reason.FACTORY_UNAVAILABLE));
+        }
+        List<String> profiles = resolveProfiles(config);
+        HibernateApplicationFacts facts = new HibernateApplicationFacts(
+                profiles,
+                false,
+                org.jboss.logging.Logger.getLogger("org.hibernate.SQL").isDebugEnabled(),
+                org.jboss.logging.Logger.getLogger("org.hibernate.orm.jdbc.bind")
+                        .isTraceEnabled(),
+                org.jboss.logging.Logger.getLogger("org.hibernate.orm.jdbc.extract")
+                        .isTraceEnabled(),
+                config.getOptionalValue("bootui.internal.hibernate-panache-enhancement", Boolean.class)
+                        .orElse(false));
+        return new HibernateAdvisorObservation(units, facts, diagnostics);
+    }
+
+    private static List<String> resolveProfiles(Config config) {
+        if (config == null) {
+            return List.of();
+        }
+        try {
+            List<String> profiles =
+                    config.unwrap(io.smallrye.config.SmallRyeConfig.class).getProfiles();
+            if (profiles != null && !profiles.isEmpty()) {
+                return List.copyOf(profiles);
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Fall back to quarkus.profile when Config is a test double that does not unwrap to SmallRyeConfig.
+        }
+        return Arrays.stream(config.getOptionalValue("quarkus.profile", String.class)
+                        .orElse("")
+                        .split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toList();
+    }
+
+    private ConnectionPoolProvider poolProvider() {
+        if (pools == null) return null;
+        try {
+            return pools.isResolvable() ? pools.get() : null;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static String unitName(SessionFactoryImplementor factory) {
+        try {
+            return factory.getName();
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+}

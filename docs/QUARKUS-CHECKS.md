@@ -23,6 +23,12 @@ scripts or convention plugins, or organization-managed CI configuration.
 OIDC checks aggregate the active default tenant and active named tenants; a tenant with
 `quarkus.oidc[.<tenant>].tenant-enabled=false` is excluded.
 
+Legacy-property exceptions below apply to **Quarkus 3**, not Quarkus 4. The Quarkus 4 adapter ignores removed
+OIDC/OIDC-client `tls.verification` declarations and the old `quarkus.http.cors` enable alias; it retains current
+TLS-registry, HTTP-endpoint, and `cors.enabled` observations. Existing declaration-cleanup diagnostics are separate
+from effective security observations. See [generation selection and release availability](setup/quarkus.md) and
+[the focused correction evidence](QUARKUS-SUPPORT.md#quarkus-4).
+
 ::: tip Reading more than the preview
 Quarkus Security keeps its twenty-entry `sampleViolations` preview and full `violationCount`. **View violations**
 and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded, sanitized details
@@ -315,7 +321,8 @@ Dismissed rules remove all of their findings from the score.
 - **Detects**: `quarkus.tls.hostname-verification-algorithm=NONE`, the equivalent setting on a named TLS registry
   bucket, or legacy OIDC `tls.verification=certificate-validation` validates certificate chains without checking that
   the certificate belongs to the requested host. A named OIDC TLS configuration supersedes the legacy OIDC setting and
-  avoids a duplicate/obsolete finding.
+  avoids a duplicate/obsolete finding on Quarkus 3. Quarkus 4 ignores that removed OIDC key; current TLS-registry
+  observations remain eligible.
 - **Recommendation**: Enable hostname verification for each applicable consumer. TLS-registry defaults depend on the
   consumer; the presence of a bucket alone does not establish a connection using it.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/tls-registry-reference#trusting-all-certificates-and-hostname-verification>
@@ -343,7 +350,9 @@ Dismissed rules remove all of their findings from the score.
 - **Detects**: Enabled CORS permits universal **noncredentialed** response sharing. A literal `*` is universal only
   as the sole origin; recognized universal regexes (`/.*/` or `/^.*$/`) also match universally inside a list.
   `*,https://app.example` is not a universal literal wildcard, while `/.*/,https://app.example` is universal.
-  Empty origins remain restrictive. Explicit `quarkus.http.cors.enabled=false` wins over the legacy enable setting.
+  Empty origins remain restrictive. On Quarkus 3, explicit `quarkus.http.cors.enabled=false` wins over the legacy enable
+  setting. Quarkus 4 uses only `quarkus.http.cors.enabled` and its framework default; the removed `quarkus.http.cors`
+  root neither enables CORS nor overrides the current key.
   Arbitrary regexes are not executed or classified as safe.
 - **Recommendation**: Confirm public response sharing is intentional, or configure trusted origins. CORS is not an
   authentication or authorization boundary.
@@ -461,7 +470,8 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: HIGH
 - **Detects**: `quarkus.oidc.tls.verification=none` disables provider certificate validation. This legacy setting is
   deprecated in Quarkus 3.33 in favor of a TLS registry configuration. Only active tenants are considered; a selected
-  named TLS configuration overrides the legacy setting.
+  named TLS configuration overrides the legacy setting. Quarkus 4 ignores this removed declaration, including named
+  tenants; it cannot trigger this finding there.
 - **Recommendation**: Sometimes used against a local dev provider, but must never reach production.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/tls-registry-reference#trusting-all-certificates-and-hostname-verification>
 
@@ -551,7 +561,7 @@ Dismissed rules remove all of their findings from the score.
 ### QS-OIDC-006 - OIDC client endpoints must use HTTPS and verify TLS
 
 - **Severity**: HIGH
-- **Detects**: An active default or named `quarkus.oidc-client[.<id>]` configuration (`quarkus.oidc-client.enabled=true` and `client-enabled=true`) uses plain HTTP (`http://`) for `auth-server-url`, `token-path`, or `revoke-path`, or disables certificate validation with `tls.verification=none` without a overriding `tls.tls-configuration-name`. Client credentials and access tokens cross these endpoints; only bounded property names are reported.
+- **Detects**: An active default or named `quarkus.oidc-client[.<id>]` configuration (`quarkus.oidc-client.enabled=true` and `client-enabled=true`) uses plain HTTP (`http://`) for `auth-server-url`, `token-path`, or `revoke-path`, or, on Quarkus 3, disables certificate validation with `tls.verification=none` without an overriding `tls.tls-configuration-name`. Quarkus 4 ignores that removed verification key; HTTP endpoints still trigger this rule, while current TLS-registry observations remain assessed by the TLS checks. Client credentials and access tokens cross these endpoints; only bounded property names are reported.
 - **Recommendation**: Use HTTPS for all `quarkus.oidc-client` endpoints and keep TLS certificate verification enabled.
 - **Learn more**: <https://quarkus.io/version/3.33/guides/security-openid-connect-client-reference>
 

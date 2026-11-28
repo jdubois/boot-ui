@@ -344,18 +344,19 @@ class QuickActionTests(unittest.TestCase):
             ("bootui-spring-boot-starter", "", "dev"),
             ("bootui-spring-boot-starter", "<optional>true</optional>", "local-ui"),
             ("bootui-quarkus", "<scope>runtime</scope>", "diagnostic"),
+            ("bootui-quarkus-4", "<scope>runtime</scope>", "diagnostic-q4"),
         ):
             with self.subTest(artifact=artifact, profile=profile):
                 project = self.maven_project(
                     "<profiles>" + self.profile(profile, self.dependency(artifact, extra=extra)) + "</profiles>"
                 )
-                if artifact == "bootui-quarkus":
+                if artifact.startswith("bootui-quarkus"):
                     pom = project / "pom.xml"
                     pom.write_text(pom.read_text().replace("spring-boot-maven-plugin", "quarkus-maven-plugin"))
                 app = self.detect(project)
                 self.assertEqual(app.returncode, 0, app.stderr)
                 self.assertIn(f"-P{profile} ", app.stdout)
-                self.assertIn("quarkus:dev" if artifact == "bootui-quarkus" else "spring-boot:run", app.stdout)
+                self.assertIn("quarkus:dev" if artifact.startswith("bootui-quarkus") else "spring-boot:run", app.stdout)
                 workload = self.detect(project, "test")
                 self.assertEqual(workload.stdout, "./mvnw verify\n")
                 version = self.resolve(project)

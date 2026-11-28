@@ -63,6 +63,50 @@ PLUGIN_VERSION_CHECK = "if (plugin.version !== process.argv[1]) {"
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
+    def test_quarkus_4_runtime_and_deployment_are_both_polled(self):
+        for artifact in ("bootui-quarkus-4", "bootui-quarkus-4-deployment"):
+            line = f'            "{artifact}/${{VERSION}}/{artifact}-${{VERSION}}.jar"\n'
+            self.assertEqual(WORKFLOW.read_text().count(line), 1)
+            result = self.check(content=WORKFLOW.read_text().replace(line, ""))
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("availability must poll exactly", result.stderr)
+
+    def test_digit_bearing_foreign_coordinates_cannot_bypass_poll_inventory(self):
+        line = AGENT_AVAILABILITY.rstrip("\n")
+        result = self.check(content=WORKFLOW.read_text().replace(
+            line, '"bootui-agent-2/${VERSION}/bootui-agent-2-${VERSION}.jar"'
+        ))
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("published coordinates", result.stderr)
+
+    def test_quarkus_4_release_marker_commands_cannot_be_removed_or_soft_failed(self):
+        command = 'python3 .github/scripts/release-quarkus-4-docs.py'
+        content = WORKFLOW.read_text()
+        for mode in ("update", "check"):
+            indent = " " * (10 if mode == "update" else 9)
+            line = f'{indent}{command} {mode} "$VERSION"\n'
+            self.assertEqual(content.count(line), 1)
+            for replacement in ("", line.replace(command, "# " + command), line.rstrip() + " || true\n"):
+                result = self.check(content=content.replace(line, replacement))
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("Quarkus 4 release documentation", result.stderr)
+
+    def test_quarkus_4_jvm_native_and_candidate_lanes_remain_blocking(self):
+        source = (ROOT / ".github/workflows/build.yml").read_text()
+        for old, new in (
+            ("  quarkus-4:\n", "  quarkus-4:\n    if: false\n"),
+            ("  quarkus-4-native:\n", "  quarkus-4-native:\n    continue-on-error: true\n"),
+            ("runner: ubuntu-24.04-arm", "runner: ubuntu-24.04"),
+            ("runner: macos-15", "runner: macos-15-intel"),
+            ("java: [ '21', '25' ]", "java: [ '21' ]"),
+            ('echo "SMOKE_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"',
+             'echo "SMOKE_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_OUTPUT"'),
+        ):
+            with self.subTest(mutation=old):
+                self.assertIn(old, source)
+                result = self.check(root_files={".github/workflows/build.yml": source.replace(old, new)})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
     def check(
         self,
         content=None,
@@ -562,7 +606,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
         ui = '            "bootui-ui/${VERSION}/bootui-ui-${VERSION}.jar"\n'
         self.assert_rejected(self.mutate(ui, ""), "poll exactly the published coordinates")
         for new, message in (
-            (cli + '            "bootui-parent/${VERSION}/bootui-parent-${VERSION}.pom"\n', "neither parent POM"),
+            (cli + '            "bootui-parent/${VERSION}/bootui-parent-${VERSION}.pom"\n', "no parent POM"),
             (cli + '            "bootui-client/${VERSION}/bootui-client-${VERSION}.jar"\n', "poll exactly"),
         ):
             with self.subTest(new=new):
@@ -657,7 +701,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             "      - name: Decide documentation redeploy\n", check_step + "      - name: Decide documentation redeploy\n", 1
         )
         self.assert_rejected(moved, "before anything is signed or tagged")
-        jdk = "      - name: Set up JDK 17\n"
+        jdk = "      - name: Set up JDK 25\n"
         before_jdk = self.mutate(check_step, "").replace(jdk, check_step + jdk, 1)
         self.assert_rejected(before_jdk, "after it is imported")
         name = "      - name: Check the release signing key\n"
@@ -1119,7 +1163,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             sys.path.pop(0)
         content = WORKFLOW.read_text(encoding="utf-8")
         step = content.split("- name: Wait for Maven Central availability", 1)[1].split("- name: ", 1)[0]
-        polled = set(re.findall(r'"(bootui-[a-z-]+)/\$\{VERSION\}/', step))
+        polled = set(re.findall(r'"(bootui-[a-z0-9-]+)/\$\{VERSION\}/', step))
         self.assertEqual(polled, set(ARTIFACT_IDS))
         self.assertEqual(set(ARTIFACT_IDS), set(PUBLISHED))
 

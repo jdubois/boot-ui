@@ -9,6 +9,9 @@ import java.util.Map;
  * never acquires a connection, initializes a region, creates a session or retains native objects.
  */
 public final class HibernateFactorySettingsReader {
+    /** Scalar recorded from completed mapping metadata, not an application configuration default. */
+    public static final String DEFAULT_TO_ONE_FETCH_TYPE = "bootui.internal.hibernate-default-to-one-fetch-type";
+
     private static final String JAKARTA_DATABASE_ACTION = "jakarta.persistence.schema-generation.database.action";
     private static final String JAVAX_DATABASE_ACTION = "javax.persistence.schema-generation.database.action";
     private static final String HBM2DDL_AUTO = "hibernate.hbm2ddl.auto";
@@ -82,7 +85,14 @@ public final class HibernateFactorySettingsReader {
                 dialectFamily(dialect, "org.hibernate.dialect.OracleDialect"),
                 dialectFamily(dialect, "org.hibernate.dialect.PostgreSQLDialect"),
                 reader.bool(options, "doesConnectionProviderDisableAutoCommit"),
-                transactionMode(reader, transactionCoordinator));
+                transactionMode(reader, transactionCoordinator),
+                defaultToOneFetchType(settings.get(DEFAULT_TO_ONE_FETCH_TYPE)));
+    }
+
+    private static HibernateFactorySettings.ToOneFetchType defaultToOneFetchType(Object value) {
+        if ("EAGER".equals(value)) return HibernateFactorySettings.ToOneFetchType.EAGER;
+        if ("LAZY".equals(value)) return HibernateFactorySettings.ToOneFetchType.LAZY;
+        return HibernateFactorySettings.ToOneFetchType.UNKNOWN;
     }
 
     /**

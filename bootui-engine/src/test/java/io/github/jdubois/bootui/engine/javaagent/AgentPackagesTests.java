@@ -32,10 +32,22 @@ class AgentPackagesTests {
                         "io.github.jdubois.bootui.core.dto",
                         "io.github.jdubois.bootui.spi",
                         "io.github.jdubois.bootui.quarkus.web",
+                        "io.github.jdubois.bootui.quarkus4.javaagent",
                         "io.github.jdubois.bootui.agent.bridge",
                         "io.github.jdubois.bootui.sample")))
                 .containsExactly("io.github.jdubois.bootui.sample");
         assertThat(AgentPackages.reduce(null)).isEmpty();
+    }
+
+    @Test
+    void quarkus4SiblingPackagesRemainApplicationCode() {
+        assertThat(AgentPackages.isBootUi("io.github.jdubois.bootui.quarkus4")).isTrue();
+        assertThat(AgentPackages.isBootUi("io.github.jdubois.bootui.quarkus4sample"))
+                .isFalse();
+        assertThat(AgentPackages.isBootUi("io.github.jdubois.bootui.quarkus4fixture"))
+                .isFalse();
+        assertThat(AgentPackages.reduce(List.of("io.github.jdubois.bootui.quarkus4sample.web")))
+                .containsExactly("io.github.jdubois.bootui.quarkus4sample.web");
     }
 
     @Test

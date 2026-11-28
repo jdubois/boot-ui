@@ -295,6 +295,143 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Quarkus 4 is additive: these blocking lanes never replace the Java 17/Q3 baseline.
+  quarkus-4:
+    name: Quarkus 4 JVM contracts (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      - name: Check Quarkus 4 formatting
+        run: ./mvnw -B -ntp spotless:check
+
+      - name: Install and test Quarkus 4 with critical coverage
+        run: >
+          ./mvnw -T 1C -B -ntp -Pcoverage
+          -pl bootui-quarkus-4-deployment,bootui-quarkus-4-integration-tests/base,bootui-cli
+          -am -Dbootui.skipQuarkus4ExtensionIts clean install
+
+      - name: Test all Quarkus 4 optional integration fixtures
+        run: >
+          ./mvnw -T 1C -B -ntp
+          -pl 'bootui-quarkus-4-integration-tests,!bootui-quarkus-4-integration-tests/base'
+          -amd verify
+
+      - name: Run the Quarkus 4 MySQL HTTP contract
+        run: >
+          ./mvnw -B -ntp -pl bootui-quarkus-4-integration-tests/datasource
+          -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
+
+      - name: Require the executed Quarkus 4 MySQL contract
+        run: >
+          python3 .github/scripts/check-mysql-live-tests.py
+          bootui-quarkus-4-integration-tests/datasource/target/surefire-reports
+          BootUiQuarkusMySqlLiveTest
+
+      - name: Exercise Quarkus 4 Action startup and discovery
+        run: >
+          python3 -B .github/scripts/ci-consumer-acceptance.py
+          --maven-repository "$HOME/.m2/repository" --quarkus-generation 4 --stacks quarkus
+
+      - name: Upload Quarkus 4 JVM evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: quarkus-4-jvm-java-${{ matrix.java }}
+          path: |
+            bootui-quarkus-4*/target/surefire-reports/
+            bootui-quarkus-4*/target/failsafe-reports/
+            bootui-quarkus-4-integration-tests/*/target/surefire-reports/
+            bootui-quarkus-4*/target/site/jacoco/
+          if-no-files-found: error
+          retention-days: 7
+
+  quarkus-4-native:
+    name: Quarkus 4 native execution (${{ matrix.target }}, ${{ matrix.fixture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ linux-x86_64, linux-arm64, macos-arm64 ]
+        fixture: [ jdbc, hibernate ]
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: macos-arm64
+            runner: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up prerequisite JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      - name: Isolate the native lane Maven repository
+        run: echo "MAVEN_OPTS=$MAVEN_OPTS -Dmaven.repo.local=$GITHUB_WORKSPACE/.m2" >> "$GITHUB_ENV"
+
+      - name: Install the native fixture prerequisites
+        run: >
+          ./mvnw -T 1C -B -ntp
+          -pl bootui-quarkus-4-deployment,bootui-cli,bootui-conformance
+          -am -DskipTests install
+
+      - name: Install checksum-pinned GraalVM CE 25.2.4
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+        run: bash .github/scripts/setup-quarkus-4-graalvm.sh "$NATIVE_TARGET" target/ci/graalvm-quarkus-4
+
+      - name: Compile and execute the actual native console
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+          NATIVE_FIXTURE: ${{ matrix.fixture }}
+        run: >
+          python3 -B .github/scripts/quarkus-4-native-acceptance.py
+          --target "$NATIVE_TARGET" --fixture "$NATIVE_FIXTURE" --maven-repo "$GITHUB_WORKSPACE/.m2"
+          --output "target/quarkus-4-native-evidence/$NATIVE_TARGET/$NATIVE_FIXTURE"
+
+      - name: Upload native compiler and execution evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: quarkus-4-native-${{ matrix.target }}-${{ matrix.fixture }}
+          path: target/quarkus-4-native-evidence/${{ matrix.target }}/${{ matrix.fixture }}/
+          if-no-files-found: error
+          retention-days: 14
+
   quarkus-extension-its:
     name: Quarkus extension integration tests (Java 17)
     runs-on: ubuntu-latest
@@ -756,7 +893,7 @@ jobs:
   # consumer-smoke-tests.sh). release.yml runs the same scripts before tagging; this catches a broken consumer
   # POM, or a starter that chooses the application's web stack, in the pull request that causes it.
   release-candidate:
-    name: Staged release candidate smoke tests (Java 17)
+    name: Complete staged release candidate (Java 25; legacy consumers Java 17)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -768,6 +905,24 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      - name: Preserve the legacy consumer JDK
+        run: echo "SMOKE_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up Quarkus 4 consumer JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Preserve the Quarkus 4 consumer JDK
+        run: echo "SMOKE_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up complete candidate JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -1703,7 +1858,7 @@ jobs:
           retention-days: 30
 
   quarkus-e2e:
-    name: Quarkus end-to-end (${{ matrix.suite.name }}, Java 17)
+    name: Quarkus ${{ matrix.generation.id }} end-to-end (${{ matrix.suite.name }}, Java ${{ matrix.generation.java }})
     runs-on: ubuntu-latest
     # A leg takes 4 to 16 minutes on v2; a hung one stops here, not at GitHub's 6-hour default.
     timeout-minutes: 45
@@ -1714,11 +1869,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        generation:
+          - id: '3'
+            java: '17'
+            module: bootui-quarkus-sample-app
+          - id: '4'
+            java: '21'
+            module: bootui-quarkus-4-sample-app
+          - id: '4'
+            java: '25'
+            module: bootui-quarkus-4-sample-app
         suite:
           - id: default
             name: default
             script: test
-            modules: bootui-quarkus-sample-app
             report-name: Quarkus end-to-end tests (Playwright)
             report-dir: playwright-report
             results-dir: test-results
@@ -1729,7 +1893,6 @@ jobs:
           - id: agent
             name: with the BootUI agent
             script: test:agent
-            modules: bootui-quarkus-sample-app,bootui-agent
             report-name: Quarkus agent end-to-end tests (Playwright)
             report-dir: playwright-report-agent
             results-dir: test-results-agent
@@ -1745,12 +1908,12 @@ jobs:
 
       # The Quarkus sample app can augment on JDK 17/21/25 (Hibernate ORM ByteBuddy cannot read
       # JDK 26+ class files), while the authoritative end-to-end baseline remains Java 17.
-      - name: Set up JDK 17
+      - name: Set up JDK ${{ matrix.generation.java }}
         if: env.SKIP_LEG != 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ matrix.generation.java }}
           cache: maven
 
       - name: Set up Node.js
@@ -1775,7 +1938,13 @@ jobs:
       # provided-scope bootui-quarkus-deployment dependency called out above.
       - name: Build BootUI Quarkus extension and sample app
         if: env.SKIP_LEG != 'true'
-        run: ./mvnw -T 1C -B -ntp -pl "${{ matrix.suite.modules }}" -am -DskipTests install
+        env:
+          SAMPLE_MODULE: ${{ matrix.generation.module }}
+          AGENT_LEG: ${{ matrix.suite.id == 'agent' }}
+        run: |
+          modules="$SAMPLE_MODULE"
+          if [[ "$AGENT_LEG" == 'true' ]]; then modules="$modules,bootui-agent"; fi
+          ./mvnw -T 1C -B -ntp -pl "$modules" -am -DskipTests install
 
       - name: Check the BootUI agent jar
         if: env.SKIP_LEG != 'true' && (matrix.suite.id == 'agent')
@@ -1793,7 +1962,9 @@ jobs:
       - name: Check Playwright formatting
         if: env.SKIP_LEG != 'true' && (matrix.suite.id == 'default')
         working-directory: bootui-quarkus-sample-app/e2e
-        run: npm run format:check
+        run: |
+          npm run format:check
+          npm run test:fixtures
 
       # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
       # runner image and Playwright version, read from the lock file, so a leg downloads them only when either changes.
@@ -1833,13 +2004,15 @@ jobs:
       - name: Run Quarkus Playwright end-to-end tests
         if: env.SKIP_LEG != 'true'
         working-directory: bootui-quarkus-sample-app/e2e
+        env:
+          BOOTUI_QUARKUS_GENERATION: ${{ matrix.generation.id }}
         run: npm run "${{ matrix.suite.script }}"
 
       - name: Publish Quarkus end-to-end test report
         if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         with:
-          name: ${{ matrix.suite.report-name }}
+          name: ${{ matrix.suite.report-name }} (Quarkus ${{ matrix.generation.id }}, Java ${{ matrix.generation.java }})
           path: bootui-quarkus-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
           reporter: jest-junit
           fail-on-error: false
@@ -1849,7 +2022,7 @@ jobs:
         if: env.SKIP_LEG != 'true' && (!cancelled())
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.suite.artifact }}
+          name: ${{ matrix.suite.artifact }}-quarkus-${{ matrix.generation.id }}-java-${{ matrix.generation.java }}
           path: |
             bootui-quarkus-sample-app/e2e/${{ matrix.suite.report-dir }}/
             bootui-quarkus-sample-app/e2e/${{ matrix.suite.results-dir }}/

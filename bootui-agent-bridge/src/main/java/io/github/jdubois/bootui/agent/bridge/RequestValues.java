@@ -655,8 +655,7 @@ public final class RequestValues {
             if (request == 0L) {
                 return;
             }
-            // The application frame only: the first frame outside the JDK is the recorder's, BootUI's own.
-            long frames = SideEffects.frames(claim) & 0xFFFFFFFFL;
+            long frames = SideEffects.sinkFrames(claim);
             publish(
                     claim,
                     request,

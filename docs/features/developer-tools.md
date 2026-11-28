@@ -128,8 +128,9 @@ transactions, traces, and REST client traces, plus `postgresql_read`, `mysql_rea
 
 The server inherits BootUI's full safety model:
 
-- It is live only while BootUI itself is active. On Quarkus it is absent from a production build, with no flag that
-  turns it on. On Spring the `prod` and `production` profiles disable BootUI, and only an explicit `bootui.enabled=ON`
+- It is live only while BootUI itself is active. On Quarkus it is absent from packaged JVM production builds, with no
+  JVM activation override. Native verification boundaries are [separate](../QUARKUS-SUPPORT.md#quarkus-4).
+  On Spring the `prod` and `production` profiles disable BootUI, and only an explicit `bootui.enabled=ON`
   overrides that.
 - The endpoint sits behind `LocalhostOnlyFilter`, with its loopback source check, `Host` allow-list, and cross-site
   write protection. It is exempt from the SPA CSRF token, which only browsers can present, so non-browser clients
@@ -157,6 +158,8 @@ The protocol core lives in the shared engine, so requests and responses are byte
 declares 100 tools against Spring MVC's 116, before runtime capability filtering, and withholds tools behind Spring-only
 panels: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring
 Security, JMS, DevTools, and every transaction tool. `spring_scan` runs the Quarkus-native idiom advisor.
+The additive Quarkus 4 adapter retains that contract and `quarkus` discriminator. It does not bridge to Quarkus's
+experimental Dev MCP or embed the Vue console in Dev UI; see the [Dev UI assessment](../QUARKUS-SUPPORT.md#dev-ui-assessment).
 
 **Spring Boot WebFlux** uses a reactive tool catalog that binds the WebFlux Live Activity, Exceptions, Security Logs,
 SQL Trace, and Log Tail controllers and reuses the shared controllers elsewhere.

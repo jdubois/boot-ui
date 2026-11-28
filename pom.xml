@@ -73,6 +73,8 @@
         <spring-boot.version>4.2.0</spring-boot.version>
         <!-- Latest Quarkus LTS, shared by the extension, integration tests, and sample app. -->
         <quarkus.platform.version>3.40.1.2</quarkus.platform.version>
+        <!-- Independent Quarkus 4 line; 4.0 is non-LTS and requires its Java 21 adapter subtree. -->
+        <quarkus4.platform.version>4.0.1</quarkus4.platform.version>
         <!-- Neither Resilience4j nor Spring Retry is managed by the Spring Boot 4.2 BOM, so both are
              pinned here and shared by the optional autoconfigure dependencies and the sample apps. -->
         <resilience4j.version>2.4.0</resilience4j.version>
@@ -183,6 +185,16 @@
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-quarkus-deployment</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-quarkus-4</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-quarkus-4-deployment</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
@@ -417,6 +429,27 @@
                             -->
                             <excludeArtifact>bootui-parent</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-parent</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-parent</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-sample-app</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-integration-tests-aggregator</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-cache-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-datasource-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-email-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-fault-tolerance-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-flyway-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-health-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-hibernate-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-liquibase-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-micrometer-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-native-console-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-otel-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-prod-shell-guard-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-rabbit-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-rest-client-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-scheduler-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-security-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-4-websockets-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-conformance</excludeArtifact>
                             <excludeArtifact>bootui-agent-bridge</excludeArtifact>
                             <excludeArtifact>bootui-coverage</excludeArtifact>
@@ -498,6 +531,19 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>quarkus-4</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <modules>
+                <module>bootui-quarkus-4-parent</module>
+                <module>bootui-quarkus-4</module>
+                <module>bootui-quarkus-4-deployment</module>
+                <module>bootui-quarkus-4-integration-tests</module>
+                <module>bootui-quarkus-4-sample-app</module>
+            </modules>
+        </profile>
         <profile>
             <id>coverage</id>
             <modules>
@@ -615,6 +661,8 @@
                                                 <include>io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpPanelPolicy</include>
                                                 <include>io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy</include>
                                                 <include>io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpPanelPolicy</include>
+                                                <include>io.github.jdubois.bootui.quarkus4.QuarkusExposurePolicy</include>
+                                                <include>io.github.jdubois.bootui.quarkus4.mcp.QuarkusMcpPanelPolicy</include>
                                             </includes>
                                             <limits>
                                                 <limit>

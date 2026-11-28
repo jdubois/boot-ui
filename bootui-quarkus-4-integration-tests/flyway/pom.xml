@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-integration-tests-aggregator</artifactId>
+        <version>2.6.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-4-flyway-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Flyway Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-flyway + quarkus-jdbc-h2 (in-memory) on top
+        of the bootui-quarkus-4 extension and proves the Flyway panel light-up: the migration history read from
+        the application's active io.quarkus.flyway.runtime.FlywayContainer beans by the QuarkusFlywayProvider is
+        shaped by the shared engine FlywayService, and the panel is surfaced on
+        GET /bootui/api/flyway/migrations. Kept separate from bootui-quarkus-4-integration-tests (which
+        deliberately has NO quarkus-flyway, so the capability gate keeps the flyway panel unavailable) so the
+        flyway-present and flyway-absent paths are each proven in isolation — the same split used for the
+        Cache-present/absent and SmallRye-Health-present/absent coverage.</description>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${sample-h2.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!--
+        Uses an in-memory H2 datasource (quarkus-jdbc-h2), so a @QuarkusTest boots without Docker. Never published.
+    -->
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-4-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Adds the Quarkus Flyway extension. Its presence makes the FLYWAY capability available, so the
+             deployment build step wires BootUiFlywayProducer and the flyway panel is reported available; the
+             active FlywayContainer beans expose the migration history the panel reads. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+
+        <!-- An in-memory datasource for Flyway to manage; H2 keeps the @QuarkusTest Docker-free. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- forkCount=1: avoids a Quarkus @QuarkusTest classloading race between concurrent Surefire
+                 forks in the same module (test-classes.idx); see
+                 bootui-quarkus-4-integration-tests/base/pom.xml for the full rationale. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

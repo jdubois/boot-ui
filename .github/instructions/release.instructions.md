@@ -8,25 +8,33 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   every npm package and lock file, and `plugins/bootui/plugin.json`. The portable plugin version is part of the signed
   release contents and must match the release version before publication. Leave `.claude-plugin/plugin.json` inside
   the plugin version-free so Claude Code retains commit-SHA updates.
-- Keep `quarkus.platform.version` independent from the BootUI project version.
-- Exactly seven coordinates are published: `bootui-engine` (with the core DTO package), `bootui-ui`,
+- Keep `quarkus.platform.version` and `quarkus4.platform.version` independent from the BootUI project version.
+- The prepared Quarkus 4-capable distribution contains exactly nine coordinates to publish:
+  `bootui-engine` (with the core DTO package), `bootui-ui`,
   `bootui-spring-boot-starter` (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux),
-  `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli` (the CLI and its dependency-free client package, plus
+  `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-quarkus-4`, `bootui-quarkus-4-deployment`,
+  `bootui-cli` (the CLI and its dependency-free client package, plus
   the shaded `all` classifier), and the `bootui-agent` `-javaagent` jar. The same list lives in `release.yml`'s
   availability poll,
   `check-central-bundle.py` (whose `PUBLISHED` the bundle assembler and the release tests read),
   `consumer-smoke-tests.sh`, and `check-release-integrity.sh`; change them together.
+- Historical CI-kit releases through 2.6.0 have seven coordinates, without either Quarkus 4 artifact.
+  `ci-docs-version.py` selects that historical Pages inventory through `published_for_version`; it must not demand
+  artifacts absent from the immutable release. Prepared-bundle checks always require all nine current coordinates,
+  regardless of their test/development version. An `available=true` manifest is not proof of completed publication:
+  Pages still requires every selected POM/jar and the CLI all jar/signature to be public on Maven Central.
 - Publication never runs Maven's `deploy` phase: under Maven 3.10, `central-publishing-maven-plugin` stages resolver
   bookkeeping that Central rejects. `release.yml` installs the publication-only reactor, signed, then
   `assemble_central_bundle.py` bundles exactly the published coordinates from the local repository,
   `check-central-bundle.py` checks the bundle, `verify-release-signatures.sh bundle` checks every signature in it, and
   `publish_central_bundle.py` uploads it through the Central Portal API. The assembler's list is an allow-list, so
   the parents and `bootui-agent-bridge` never reach the bundle.
-- Neither `bootui-parent` nor `bootui-quarkus-parent` is published. Each published module declares
-  `flatten-maven-plugin` (configured in the root POM, `ossrh` mode), so its installed and published POM has no
-  `<parent>`, resolved dependency versions, scopes, optional flags and exclusions, and the root's Central metadata.
+- None of `bootui-parent`, `bootui-quarkus-parent`, or `bootui-quarkus-4-parent` is published.
+  Each published module declares `flatten-maven-plugin` (configured in the root POM, `ossrh` mode), so its installed
+  and published POM has no `<parent>`, resolved dependency versions, scopes, optional flags and exclusions, and the
+  root's Central metadata.
   The flattened POM stays beside `pom.xml`: Quarkus 3.33 breaks in-reactor builds when it lives under `target/`. A new
-  published module must declare the plugin too. Both parents stay in the publication reactor and in `excludeArtifacts`.
+  published module must declare the plugin too. All three parents stay in the publication reactor and in `excludeArtifacts`.
 - Sample apps, integration tests, coverage, and conformance must retain `maven.deploy.skip=true`, remain in the Central
   plugin's `excludeArtifacts` list, and stay outside the publication-only reactor in `release.yml`.
 - The consumer smoke tests live in `.github/scripts/consumer-smoke-tests.sh`. Normal preparation runs them against the
@@ -36,6 +44,8 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   against Maven Central after publication, including `resume_after_publish` recovery. Every run requires each resolved BootUI file to come from
   the source under test and the consumers to resolve exactly the published coordinates. `build.yml`'s
   `release-candidate` job runs the staged smoke on every change.
+- Build and sign the complete Quarkus 4-capable candidate/release reactor on JDK 25. Preserve the separate Java 17
+  legacy and Java 21 Quarkus 4 consumer homes; the build JDK must not replace their runtime compatibility checks.
 - `bootui-agent-bridge` is built but never published: `bootui-agent` shades it in and declares it, like Byte Buddy,
   `<optional>`. It is the one non-distribution jar module inside the publication-only reactor, so it keeps
   `maven.deploy.skip=true` and its `excludeArtifacts` entry, and is never polled on Maven Central. The consumer smoke tests

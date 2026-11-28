@@ -35,12 +35,26 @@ public final class ManagedTasks {
      * @param context the task's context, from {@link #taskContext}; {@code null} clears the thread's context
      */
     public static BootUiCorrelation.Scope open(CorrelationContext context) {
+        return open(context, false);
+    }
+
+    /** The same task reuse and clearing policy, without initializing or calling JVM resource metering. */
+    public static BootUiCorrelation.Scope openUnmetered(CorrelationContext context) {
+        return open(context, true);
+    }
+
+    private static BootUiCorrelation.Scope open(CorrelationContext context, boolean unmetered) {
         if (context != null
                 && context.requestId() != null
                 && context.requestId().equals(BootUiCorrelation.current().requestId())) {
             return null;
         }
         // Clearing is explicit rather than merely absent, so an adapter with an ambient context honours it.
+        if (unmetered) {
+            return context == null
+                    ? BootUiCorrelation.openClearedUnmetered()
+                    : BootUiCorrelation.openUnmetered(context);
+        }
         return context == null ? BootUiCorrelation.openCleared() : BootUiCorrelation.open(context);
     }
 

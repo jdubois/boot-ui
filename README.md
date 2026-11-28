@@ -14,6 +14,14 @@ activates only in local development.
 
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
+<!-- bootui-quarkus-4:next-release:start -->
+> **Next release:** Releases before the first Quarkus 4-carrying BootUI release do not include the new coordinates. Select a published release that contains this adapter; until then, using Quarkus 4 requires an explicit source build.
+<!-- bootui-quarkus-4:next-release:end -->
+
+For Quarkus 3, keep `bootui-quarkus` and Java 17+. The additive Quarkus 4 adapter uses `bootui-quarkus-4` and
+Java 21+; do not install both extensions. See the [side-by-side setup](docs/setup/quarkus.md) for coordinates,
+compatibility, and verification boundaries. JVM tests do not establish native executable support.
+
 > **BootUI is available on Maven Central**, with exact correlation, a durable SQL runtime journal, historical
 > profiles, Runtime Insights, run comparison, and optional Java-agent instrumentation. Follow the
 > [setup guide](docs/SETUP.md), read its

@@ -1,0 +1,1994 @@
+package io.github.jdubois.bootui.quarkus4;
+
+import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
+import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
+import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
+import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.architecture.ArchitecturePlatform;
+import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.beans.BeansService;
+import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.codepaths.CodePathsService;
+import io.github.jdubois.bootui.engine.codepaths.JournalRequestOutcomes;
+import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
+import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
+import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
+import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
+import io.github.jdubois.bootui.engine.email.EmailCaptureService;
+import io.github.jdubois.bootui.engine.email.EmailStore;
+import io.github.jdubois.bootui.engine.errorcontract.ErrorContractService;
+import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceService;
+import io.github.jdubois.bootui.engine.flyway.FlywayService;
+import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
+import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
+import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
+import io.github.jdubois.bootui.engine.health.HealthService;
+import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
+import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryHistory;
+import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
+import io.github.jdubois.bootui.engine.inventory.CodeInventorySettings;
+import io.github.jdubois.bootui.engine.inventory.JournalRequestRoutes;
+import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentCaughtExceptions;
+import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
+import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
+import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.AgentEvidence;
+import io.github.jdubois.bootui.engine.journal.DurableJournalIdentity;
+import io.github.jdubois.bootui.engine.journal.DurableJournalRuntime;
+import io.github.jdubois.bootui.engine.journal.DurableJournalSettings;
+import io.github.jdubois.bootui.engine.journal.DurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.InactiveDurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.JdbcDurableJournalStore;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
+import io.github.jdubois.bootui.engine.journal.RunHistory;
+import io.github.jdubois.bootui.engine.journal.RunSummary;
+import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.github.jdubois.bootui.engine.mappings.MappingsService;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
+import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
+import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.engine.memory.MemoryScanner;
+import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
+import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.model.StructureSnapshots;
+import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
+import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
+import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
+import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
+import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
+import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
+import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.engine.resources.ResourceSettings;
+import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
+import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
+import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.sideeffects.JournalExecutions;
+import io.github.jdubois.bootui.engine.sideeffects.JournalNetworkCapture;
+import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
+import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
+import io.github.jdubois.bootui.engine.threads.ThreadAnalysisService;
+import io.github.jdubois.bootui.engine.threads.ThreadCaptureSettings;
+import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.engine.web.HttpProbeService;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
+import io.github.jdubois.bootui.engine.websocket.WebSocketService;
+import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
+import io.github.jdubois.bootui.quarkus4.beans.QuarkusBeanProvider;
+import io.github.jdubois.bootui.quarkus4.config.QuarkusConfigProvider;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusThreadKinds;
+import io.github.jdubois.bootui.quarkus4.databaseadvisor.QuarkusDatabaseAdvisorDataSourceProvider;
+import io.github.jdubois.bootui.quarkus4.databaseadvisor.QuarkusDatabaseAdvisorEvidenceProvider;
+import io.github.jdubois.bootui.quarkus4.errorcontract.QuarkusErrorContractProvider;
+import io.github.jdubois.bootui.quarkus4.faulttolerance.QuarkusFaultTolerancePolicyProvider;
+import io.github.jdubois.bootui.quarkus4.health.QuarkusHealthGuidance;
+import io.github.jdubois.bootui.quarkus4.hibernate.QuarkusHibernatePropertyLookup;
+import io.github.jdubois.bootui.quarkus4.javaagent.QuarkusAgentClaim;
+import io.github.jdubois.bootui.quarkus4.logging.QuarkusLogCoverage;
+import io.github.jdubois.bootui.quarkus4.logging.QuarkusLoggerProvider;
+import io.github.jdubois.bootui.quarkus4.mappings.QuarkusMappingProvider;
+import io.github.jdubois.bootui.quarkus4.mcp.QuarkusMcpPanelPolicy;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.quarkus4.pentesting.QuarkusPentestingObservationCollector;
+import io.github.jdubois.bootui.quarkus4.quarkusapp.QuarkusAppSnapshotProviderImpl;
+import io.github.jdubois.bootui.quarkus4.scheduled.QuarkusScheduledTaskProvider;
+import io.github.jdubois.bootui.quarkus4.security.QuarkusSecuritySnapshotProviderImpl;
+import io.github.jdubois.bootui.quarkus4.web.DeclaredRouteTemplates;
+import io.github.jdubois.bootui.quarkus4.web.GitHubApiClient;
+import io.github.jdubois.bootui.quarkus4.web.QuarkusGitHubSettings;
+import io.github.jdubois.bootui.quarkus4.websocket.QuarkusWebSocketMetadataProvider;
+import io.github.jdubois.bootui.spi.CacheProvider;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.FlywayProvider;
+import io.github.jdubois.bootui.spi.HealthProvider;
+import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
+import io.github.jdubois.bootui.spi.LiquibaseProvider;
+import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.MappingProvider;
+import io.github.jdubois.bootui.spi.WebSocketSessionProvider;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.quarkus.runtime.ImageMode;
+import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.StartupEvent;
+import io.smallrye.config.SmallRyeConfig;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.AmbiguousResolutionException;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Disposes;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.spi.BeanManager;
+import jakarta.inject.Singleton;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import javax.sql.DataSource;
+import org.eclipse.microprofile.config.Config;
+import tools.jackson.databind.ObjectMapper;
+
+/**
+ * Produces the framework-neutral {@code bootui-engine} services as CDI singletons for the Quarkus
+ * adapter.
+ *
+ * <p>This is the Quarkus analogue of the Spring adapter's {@code BootUiEngineConfiguration}: the engine
+ * services are annotation-free, so each adapter builds them from its own inputs. A service that needs a
+ * <em>live</em> policy ({@link ThreadDumpService}) is given the <em>concrete</em>
+ * {@link QuarkusExposurePolicy} bean — mirroring Spring injecting the concrete {@code BootUiExposure}
+ * rather than the SPI interface — so adding more {@code ExposurePolicy} beans later can never make this
+ * wiring ambiguous. A service that needs only <em>static</em> settings ({@link HeapDumpService}) instead
+ * receives an immutable {@link HeapDumpSettings} record mapped inline from {@code bootui.heap-dump.*},
+ * matching the Spring factory's defaults. The {@link MemoryReportProvider} follows the live-policy shape
+ * too: it is given the concrete {@link QuarkusMemoryRuntimeConfig} bean so future
+ * {@code MemoryRuntimeConfig} beans can never make this wiring ambiguous.</p>
+ */
+@ApplicationScoped
+public class BootUiEngineProducer {
+
+    void validateAdvisorRetention(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        advisorRetentionLimit(config);
+    }
+
+    void validatePostgresqlLimits(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        postgresRowLimits(config);
+    }
+
+    void validateMySqlLimits(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        mySqlRowLimits(config);
+    }
+
+    /**
+     * Rejects a non-positive {@code bootui.runtime-insights.ai-token-threshold} at startup, as Spring's property binder
+     * does, rather than at the first Runtime Insights request: {@code RuntimeInsightsResource} is a REST resource that
+     * Quarkus constructs lazily, so without this observer a mistyped threshold would surface as a failed request
+     * instead of a failed start.
+     */
+    void validateRuntimeInsightsThreshold(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        runtimeInsightsTokenThreshold(config);
+    }
+
+    /**
+     * Rejects {@code bootui.activity.feed-source=buffers}, which 2.0.0 removed, and any unknown value at startup, as
+     * Spring's property binder does: {@code LiveActivityResource} is a REST resource that Quarkus constructs lazily.
+     */
+    void validateActivityFeedSource(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        activityFeedSource(config);
+    }
+
+    /** The validated {@code bootui.activity.feed-source}. */
+    public static ActivityFeedSource activityFeedSource(Config config) {
+        return ActivityFeedSource.parseConfigured(config.getOptionalValue(ActivityFeedSource.PROPERTY, String.class)
+                .orElse(null));
+    }
+
+    /** The validated {@code bootui.runtime-insights.ai-token-threshold}. */
+    public static long runtimeInsightsTokenThreshold(Config config) {
+        String property = "bootui.runtime-insights.ai-token-threshold";
+        // An explicitly empty value must fail conversion, not silently select the default, which is what
+        // getOptionalValue would do with it.
+        return config.getConfigValue(property).getRawValue() == null
+                ? AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
+                : AiUsageByRoute.validateTokenThreshold(config.getValue(property, Long.class));
+    }
+
+    @Produces
+    @Singleton
+    ApiTokenAuthenticator apiTokenAuthenticator(Config config) {
+        return new ApiTokenAuthenticator(config.getOptionalValue("bootui.authentication.token", String.class)
+                .orElse(null));
+    }
+
+    /**
+     * MicroProfile OpenAPI's {@code @Operation} annotation, brought onto the classpath by
+     * {@code quarkus-smallrye-openapi}. Its presence is the Quarkus analogue of the Spring adapter's
+     * {@code ClassUtils.isPresent("io.swagger.v3.oas.annotations.Operation", ...)} probe: both signal that
+     * OpenAPI documentation annotations are available for RAPI-DOC-001/002/003 to evaluate.
+     */
+    private static final String MP_OPENAPI_OPERATION_ANNOTATION =
+            "org.eclipse.microprofile.openapi.annotations.Operation";
+
+    private static final boolean MP_OPENAPI_PRESENT = isMpOpenApiPresent();
+
+    private static boolean isMpOpenApiPresent() {
+        try {
+            Class.forName(MP_OPENAPI_OPERATION_ANNOTATION, false, BootUiEngineProducer.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * The Java Agent panel's service ({@code docs/PLAN-v2.md} §5.13), reading the claim {@code BootUiAgentRecorder}
+     * made at static init. Production never wires it, so its disabled state is only ever reported defensively.
+     */
+    @Produces
+    @Singleton
+    public JavaAgentService javaAgentService(Instance<QuarkusAgentClaim> claim) {
+        return javaAgentService(
+                AgentBridgeAccess.locate(),
+                claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none(),
+                LaunchMode.current());
+    }
+
+    /**
+     * The service for {@code claim}, with the build-time {@code bootui.agent.enabled} the static-init claim was decided
+     * with: a runtime value of that build-time property changes nothing, so the panel never reports it.
+     */
+    static JavaAgentService javaAgentService(AgentBridgeAccess access, QuarkusAgentClaim claim, LaunchMode launchMode) {
+        return new JavaAgentService(
+                access,
+                claim::claim,
+                JavaAgentSettings.of(
+                        AgentSetupSnippets.QUARKUS,
+                        claim.enabled(),
+                        launchMode == LaunchMode.NORMAL ? "Quarkus production mode" : null));
+    }
+
+    /**
+     * Code Inventory ({@code docs/PLAN-v2.md} §5.15): this run's executed and changed application methods and its
+     * dependency use, from the BootUI agent's inventory sensor. {@code QuarkusAgentClaimLifecycle} starts it at startup
+     * once this start's claim is armed; it stops its drain and scan threads when the application stops, which a live
+     * reload does. It scans the class files the application class loader of this start sees.
+     */
+    @Produces
+    @Singleton
+    public CodeInventoryService codeInventoryService(
+            Instance<QuarkusAgentClaim> claim,
+            JavaAgentService javaAgent,
+            QuarkusDependencyProvider dependencies,
+            Instance<JournalAggregates> aggregates,
+            Instance<RuntimeJournal> journal,
+            AgentEvidence evidence,
+            Config config) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        CodeInventoryService service = new CodeInventoryService(
+                AgentBridgeAccess.locate(),
+                current::claim,
+                javaAgent::inventoryUnavailableReason,
+                () -> loader,
+                dependencies::inventory,
+                () -> aggregates.isResolvable() ? aggregates.get().runReadyAtEpochMillis() : null,
+                new CodeInventorySettings(
+                        config.getOptionalValue("bootui.code-inventory.max-classes", Integer.class)
+                                .orElse(CodeInventorySettings.DEFAULT_MAX_CLASSES),
+                        config.getOptionalValue("bootui.code-inventory.scan-timeout", Duration.class)
+                                .orElse(CodeInventorySettings.DEFAULT_SCAN_TIMEOUT)),
+                CodeInventoryHistory.shared(),
+                // Its panel and HTTP Exchanges, which owns request routes, gate its reads (docs/PLAN-v2.md §8).
+                evidence);
+        JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
+        service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        return service;
+    }
+
+    /**
+     * The agent evidence contract ({@code docs/PLAN-v2.md} §5.17, M5-11), from the same
+     * {@code bootui.runtime-journal.agent-evidence-max-bytes} key and default as the Spring adapter: Code Paths and Code
+     * Inventory read their evidence through it under the panels' live state, and, as a listener of the journal, every
+     * clear of the journal clears it too. A panel is visible when it is available and enabled; the services give the
+     * agent's own reason first, so a missing agent never reads as a disabled panel.
+     */
+    @Produces
+    @Singleton
+    public AgentEvidence agentEvidence(
+            Config config, RuntimeJournal journal, Instance<QuarkusPanelAvailability> panels) {
+        AgentEvidence evidence = new AgentEvidence(
+                panel -> panelVisible(panels, panel),
+                RuntimeJournalSettings.parseBytes(
+                        config.getOptionalValue("bootui.runtime-journal.agent-evidence-max-bytes", String.class)
+                                .orElse(null),
+                        "bootui.runtime-journal.agent-evidence-max-bytes"));
+        evidence.listenTo(journal);
+        return evidence;
+    }
+
+    /** Stops clearing the agent evidence with the journal when the application stops. */
+    public void closeAgentEvidence(@Disposes AgentEvidence evidence, RuntimeJournal journal) {
+        journal.removeListener(evidence);
+    }
+
+    private static boolean panelVisible(Instance<QuarkusPanelAvailability> panels, String panel) {
+        if (!panels.isResolvable()) {
+            return false;
+        }
+        QuarkusPanelAvailability availability = panels.get();
+        return availability.isPanelAvailable(panel) && availability.isPanelEnabled(panel);
+    }
+
+    /** Stops Code Inventory's drain and scan threads with the application. */
+    public void closeCodeInventoryService(@Disposes CodeInventoryService service) {
+        service.close();
+    }
+
+    /**
+     * Code Paths ({@code docs/PLAN-v2.md} §5.14, M5-4a): routes the agent's {@code code-paths} fragments of this start's
+     * claim into request trees and decides the sensor's adaptive exclusion. {@code QuarkusAgentClaimLifecycle} starts it
+     * at startup; a live reload's next start claims again and produces a new one.
+     */
+    @Produces
+    @Singleton
+    public CodePathsService codePathsService(
+            Instance<QuarkusAgentClaim> claim,
+            JavaAgentService javaAgent,
+            Instance<JournalAggregates> aggregates,
+            Instance<RuntimeJournal> journal,
+            AgentEvidence evidence,
+            Instance<QuarkusBeanProvider> beans,
+            QuarkusExposurePolicy exposure) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        // Its panel and HTTP Exchanges, which owns route trees and request outcomes, gate its reads (docs/PLAN-v2.md
+        // §8).
+        CodePathsService service = new CodePathsService(
+                AgentBridgeAccess.locate(), current::claim, javaAgent::codePathsUnavailableReason, evidence);
+        JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
+        service.setRequestOutcomes(JournalRequestOutcomes.of(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        // Beans at runtime reads the Beans panel's beans and their declared dependencies (M5-4c).
+        service.setStructure(() -> StructureSnapshots.read(null, beans.isResolvable() ? beans.get() : null, null));
+        // Method probes' argument and return shapes follow the live bootui.expose-values (M5-8, D44).
+        service.setExposure(exposure);
+        return service;
+    }
+
+    /** Stops routing Code Paths' fragments with the application. */
+    public void closeCodePathsService(@Disposes CodePathsService service) {
+        service.close();
+    }
+
+    /**
+     * Side Effects ({@code docs/PLAN-v2.md} §5.16, M5-5a): routes the agent's side-effect records of this start's claim
+     * into bounded rows per sensor, attributed to their request's route through HTTP Exchanges.
+     * {@code QuarkusAgentClaimLifecycle} starts it at startup; a live reload's next start claims again and produces a new
+     * one.
+     */
+    @Produces
+    @Singleton
+    public SideEffectsService sideEffectsService(
+            Instance<QuarkusAgentClaim> claim,
+            JavaAgentService javaAgent,
+            Instance<JournalAggregates> aggregates,
+            Instance<RuntimeJournal> journal,
+            AgentEvidence evidence,
+            Config config,
+            RequestPhases requestPhases) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        SideEffectsService service = new SideEffectsService(
+                AgentBridgeAccess.locate(),
+                current::claim,
+                javaAgent::sideEffectsUnavailableReason,
+                javaAgent::sideEffectsCoverage,
+                evidence);
+        JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
+        service.setRequestRoutes(JournalRequestRoutes.of(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes()));
+        service.setExecutionLabels(JournalExecutions.of(journal.isResolvable() ? journal.get() : null));
+        // Whether a panel shows a network connection's work (M5-5b).
+        service.setNetworkCapture(JournalNetworkCapture.of(journal.isResolvable() ? journal.get() : null));
+        // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
+        service.setExporterEndpoints(
+                key -> config.getOptionalValue(key, String.class).orElse(null));
+        // Each request's end, as the capture filter marks it, so the thread-activity sensor checks what it left
+        // running.
+        service.listenToRequestEnds(requestPhases);
+        if (journalAggregates != null) {
+            // The run's side-effect keys go into its summary, for the next start's comparison (M5-7b).
+            journalAggregates.setRunSideEffects(service::runSideEffects);
+        }
+        // A sensor switched at run time (M5-14): the run is not compared for it (M5-7b), and a side-effect sensor
+        // switched on records from now on, even before the panel is read.
+        javaAgent.onSensorSwitched(id -> {
+            service.sensorSwitched(id);
+            service.start();
+        });
+        return service;
+    }
+
+    /** Stops routing Side Effects' records with the application. */
+    public void closeSideEffectsService(@Disposes SideEffectsService service) {
+        service.close();
+    }
+
+    /**
+     * The engine side of the BootUI agent's opt-in {@code caught-exceptions} sensor ({@code docs/PLAN-v2.md} M5-6a):
+     * routes its records into the runtime journal, which is installed on it at startup as on every recorder.
+     * {@code QuarkusAgentClaimLifecycle} starts it; a live reload's next start claims again and produces a new one.
+     */
+    @Produces
+    @Singleton
+    public AgentCaughtExceptions agentCaughtExceptions(Instance<QuarkusAgentClaim> claim) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        return new AgentCaughtExceptions(AgentBridgeAccess.locate(), current::claim);
+    }
+
+    /** Stops routing caught exceptions with the application. */
+    public void closeAgentCaughtExceptions(@Disposes AgentCaughtExceptions caught) {
+        caught.close();
+    }
+
+    /**
+     * The Exceptions panel's <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6): what became of
+     * the exceptions application code caught, from the agent's {@code caught-exceptions} sensor, with the JBoss
+     * LogManager's coverage. Without the sensor it reports why; a read drains the agent and starts nothing else.
+     */
+    @Produces
+    @Singleton
+    public QuarkusLogCoverage logCoverage() {
+        return new QuarkusLogCoverage();
+    }
+
+    @Produces
+    @Singleton
+    public CaughtExceptionsReader caughtExceptionsReader(
+            RuntimeJournal journal, Instance<AgentCaughtExceptions> caught, QuarkusLogCoverage logs) {
+        return new CaughtExceptionsReader(
+                journal,
+                () -> ImageMode.current() == ImageMode.JVM && caught.isResolvable() ? caught.get() : null,
+                logs,
+                RunningHandoffs.shared());
+    }
+
+    /**
+     * The engine side of the BootUI agent's executor propagation ({@code docs/PLAN-v2.md} M5-2), which
+     * {@code QuarkusAgentClaimLifecycle} attaches to this start's claim at startup. It reads the request's context from
+     * the thread scope, else the request's Vert.x duplicated context. Without the agent, nothing calls it.
+     */
+    @Produces
+    @Singleton
+    public AgentHandoffs agentHandoffs(RequestPhases phases, Instance<QuarkusAgentClaim> claim) {
+        AgentClaim current = claim.isResolvable() ? claim.get().claim() : null;
+        return new AgentHandoffs(
+                QuarkusRequestCorrelation::current,
+                phases,
+                current == null
+                        ? AgentHandoffs.DEFAULT_MAX_HANDOFF
+                        : current.sensors().maxHandoff());
+    }
+
+    @Produces
+    @Singleton
+    public ThreadDumpService threadDumpService(QuarkusExposurePolicy exposure, ThreadCaptureSettings settings) {
+        return new ThreadDumpService(exposure, settings);
+    }
+
+    @Produces
+    @Singleton
+    public ThreadCaptureSettings threadCaptureSettings(Config config) {
+        ThreadCaptureSettings defaults = ThreadCaptureSettings.defaults();
+        return new ThreadCaptureSettings(
+                config.getOptionalValue("bootui.threads.max-threads", Integer.class)
+                        .orElse(defaults.maxThreads()),
+                config.getOptionalValue("bootui.threads.max-stack-depth", Integer.class)
+                        .orElse(defaults.maxStackDepth()),
+                config.getOptionalValue("bootui.threads.max-owned-locks", Integer.class)
+                        .orElse(defaults.maxOwnedLocks()),
+                config.getOptionalValue("bootui.threads.capture-deadline-millis", Long.class)
+                        .orElse(defaults.captureDeadlineMillis()),
+                config.getOptionalValue("bootui.threads.include-synchronizers", Boolean.class)
+                        .orElse(defaults.includeSynchronizers()),
+                config.getOptionalValue("bootui.threads.max-captures", Integer.class)
+                        .orElse(defaults.maxCaptures()),
+                config.getOptionalValue("bootui.threads.max-retained-bytes", Long.class)
+                        .orElse(defaults.maxRetainedBytes()),
+                config.getOptionalValue("bootui.threads.max-capture-bytes", Long.class)
+                        .orElse(defaults.maxCaptureBytes()),
+                config.getOptionalValue("bootui.threads.ttl-millis", Long.class).orElse(defaults.ttlMillis()),
+                config.getOptionalValue("bootui.threads.observation-samples", Integer.class)
+                        .orElse(defaults.observationSamples()),
+                config.getOptionalValue("bootui.threads.observation-interval-millis", Long.class)
+                        .orElse(defaults.observationIntervalMillis()));
+    }
+
+    @Produces
+    @Singleton
+    public ThreadAnalysisService threadAnalysisService(
+            ThreadDumpService reader,
+            ThreadCaptureSettings settings,
+            QuarkusApplicationInfo application,
+            QuarkusExposurePolicy exposure,
+            Config config,
+            LowFootprintService lowFootprint) {
+        return new ThreadAnalysisService(
+                reader,
+                settings,
+                application.run(),
+                exposure,
+                new QuarkusMcpPanelPolicy(new QuarkusPanelAccessConfig(config)),
+                lowFootprint::active);
+    }
+
+    public void closeThreadAnalysis(@Disposes ThreadAnalysisService service) {
+        service.close();
+    }
+
+    @Produces
+    @Singleton
+    public MemoryReportProvider memoryReportProvider(
+            QuarkusMemoryRuntimeConfig runtimeConfig, QuarkusExposurePolicy exposure) {
+        return new MemoryReportProvider(runtimeConfig, exposure);
+    }
+
+    /**
+     * <b>Free BootUI memory</b> for the Live Memory, JVM Tuning, Heap Dump, and Memory panels, over the BootUI stores
+     * ArC has already created ({@link QuarkusMemoryOffloadCandidates}), re-read on every call.
+     */
+    @Produces
+    @Singleton
+    public MemoryOffloadService memoryOffloadService() {
+        return new MemoryOffloadService(QuarkusMemoryOffloadCandidates::created);
+    }
+
+    /**
+     * Low-footprint mode: pauses the BootUI recorders ArC has already created ({@link
+     * QuarkusMemoryOffloadCandidates#createdLowFootprint()}), then runs the offload above.
+     */
+    @Produces
+    @Singleton
+    public LowFootprintService lowFootprintService(MemoryOffloadService offloadService) {
+        return new LowFootprintService(QuarkusMemoryOffloadCandidates::createdLowFootprint, offloadService);
+    }
+
+    /**
+     * The Memory advisor scanner over the shared {@link ThreadDumpService}. Always available — the
+     * scanner reads only JMX management beans (heap/GC/threads/class-loading) present on every JVM, so
+     * no capability gate or optional dependency is involved. {@code @Singleton} matches the scanner's
+     * cross-scan GC-trend state (a {@code previousGcSample} baseline), mirroring the
+     * {@link ArchitectureScanner} and {@link ThreadDumpService} producers; the heap-content histogram
+     * requests GC when included, so the {@code POST /scan} resource method runs blocking, off the event loop.
+     */
+    @Produces
+    @Singleton
+    public MemoryScanner memoryScanner(ThreadDumpService threadDumpService, Config config) {
+        MemoryScanner scanner = MemoryScanner.create(
+                threadDumpService,
+                Clock.systemUTC(),
+                config.getOptionalValue("bootui.memory.include-histogram", Boolean.class)
+                        .orElse(true));
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    /**
+     * The HTTP Probe service over the Quarkus {@link QuarkusServerPortSupplier}. Mirrors the live-policy
+     * shape: the concrete {@link QuarkusServerPortSupplier} bean is injected (not the
+     * {@link io.github.jdubois.bootui.spi.ServerPortSupplier} interface) so adding another supplier later
+     * can never make this wiring ambiguous. The engine probes the application's own loopback port, read
+     * live on every probe.
+     */
+    @Produces
+    @Singleton
+    public HttpProbeService httpProbeService(QuarkusServerPortSupplier serverPort) {
+        return new HttpProbeService(serverPort);
+    }
+
+    /**
+     * The Quarkus-only HTTP exchange buffer fed by the Vert.x capture filter — Quarkus has no
+     * Actuator {@code HttpExchangeRepository}, so this is the capture source for the HTTP Exchanges and
+     * Live Activity panels. Capacity bounds memory ({@code bootui.http-exchanges.max-exchanges}, default
+     * 200), and {@code bootui.http-exchanges.reserved-share-percent} (default 25) of it is reserved for
+     * {@code 5xx} and slow exchanges, where slow means at or above {@code bootui.activity.request-slow-threshold-ms}
+     * (default 1,000 ms) — the same keys and defaults as the Spring adapter's {@code BootUiProperties}. The buffer
+     * also carries that threshold to the Live Activity assembler, so both agree on which requests are slow. The
+     * buffer caps and orders, the engine service masks. A singleton so writes and reads share one bounded buffer.
+     */
+    /**
+     * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), which name a request's route
+     * from the declared JAX-RS mappings, since Quarkus records no route template. When the application stops, as
+     * before a live reload, they keep the run's summary in the JVM's run history, and in the baseline file when one is
+     * set ({@code docs/PLAN-v2.md} §5.8).
+     */
+    @Produces
+    @Singleton
+    public JournalAggregates journalAggregates(
+            Instance<MappingProvider> mappings, QuarkusApplicationInfo application, Config config) {
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappings));
+        aggregates.recordRunIn(
+                RunHistory.shared(),
+                application.run(),
+                RunBaselineFile.of(
+                        config.getOptionalValue("bootui.runtime-journal.baseline-file", String.class)
+                                .orElse(null),
+                        config.getOptionalValue("quarkus.application.name", String.class)
+                                .orElse("application")),
+                runApplicationKey(config, LaunchMode.current()));
+        return aggregates;
+    }
+
+    /**
+     * The key of this application's runs ({@code RunSummary.applicationKey}), so run comparison never compares a run
+     * with one of another application sharing the JVM: its mode, as the BootUI agent's claim slot names it
+     * ({@code bootui.agent.mode}, else {@code test} in test launch mode and {@code dev} otherwise), then
+     * {@code quarkus.application.name}.
+     */
+    static String runApplicationKey(Config config, LaunchMode launchMode) {
+        String configured = config.getOptionalValue("bootui.agent.mode", String.class)
+                .orElse("auto")
+                .strip()
+                .toLowerCase(java.util.Locale.ROOT);
+        String mode = AgentClaim.DEV.equals(configured) || AgentClaim.TEST.equals(configured)
+                ? configured
+                : launchMode == LaunchMode.TEST ? AgentClaim.TEST : AgentClaim.DEV;
+        return RunSummary.applicationKey(
+                mode,
+                config.getOptionalValue("quarkus.application.name", String.class)
+                        .orElse("application"));
+    }
+
+    /**
+     * The runtime journal of this application start ({@code docs/PLAN-v2.md} §5.2), from the same
+     * {@code bootui.runtime-journal.*} keys and defaults as the Spring adapter. The SQL recorder and the HTTP capture
+     * filter publish to it, so it exists from the first request. Its aggregates listen from its creation.
+     */
+    @Produces
+    @Singleton
+    public RuntimeJournal runtimeJournal(
+            Config config, QuarkusApplicationInfo application, JournalAggregates aggregates) {
+        RuntimeJournalSettings settings = RuntimeJournalSettings.of(
+                config.getOptionalValue("bootui.runtime-journal.enabled", Boolean.class)
+                        .orElse(true),
+                config.getOptionalValue("bootui.runtime-journal.max-events", Integer.class)
+                        .orElse(RuntimeJournalSettings.DEFAULT_MAX_EVENTS),
+                RuntimeJournalSettings.parseBytes(
+                        config.getOptionalValue("bootui.runtime-journal.max-bytes", String.class)
+                                .orElse(null)),
+                config.getOptionalValue("bootui.runtime-journal.queue-capacity", Integer.class)
+                        .orElse(RuntimeJournalSettings.DEFAULT_QUEUE_CAPACITY),
+                config.getOptionalValue("bootui.runtime-journal.sources", String.class)
+                        .orElse(null));
+        if (ImageMode.current() == ImageMode.NATIVE_RUN) {
+            settings = nativeRuntimeJournalSettings(settings);
+        }
+        RuntimeJournal journal = new RuntimeJournal(settings, application.run());
+        journal.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        journal.setThreadKindClassifier(new QuarkusThreadKinds());
+        journal.addListener(aggregates);
+        if (ImageMode.current() == ImageMode.JVM) {
+            journal.startGcSource();
+            journal.startResourceSampler(
+                    new ResourceSettings(
+                            config.getOptionalValue("bootui.resources.sample-interval", Duration.class)
+                                    .orElse(ResourceSettings.DEFAULT_SAMPLE_INTERVAL),
+                            config.getOptionalValue("bootui.resources.max-threads", Integer.class)
+                                    .orElse(ResourceSettings.DEFAULT_MAX_THREADS),
+                            config.getOptionalValue("bootui.resources.jfr.max-duration", Duration.class)
+                                    .orElse(ResourceSettings.DEFAULT_JFR_MAX_DURATION)),
+                    aggregates.resourceTrack());
+        }
+        return journal;
+    }
+
+    static RuntimeJournalSettings nativeRuntimeJournalSettings(RuntimeJournalSettings settings) {
+        EnumSet<JournalSource> sources = EnumSet.noneOf(JournalSource.class);
+        sources.addAll(settings.sources());
+        sources.removeAll(EnumSet.of(
+                JournalSource.GC,
+                JournalSource.RESOURCES,
+                JournalSource.AGENT_EXECUTORS,
+                JournalSource.AGENT_CAUGHT_EXCEPTIONS));
+        return new RuntimeJournalSettings(
+                settings.enabled(),
+                settings.maxEvents(),
+                settings.maxBytes(),
+                settings.queueCapacity(),
+                settings.reservedSharePercent(),
+                settings.reservedQueueSharePercent(),
+                sources);
+    }
+
+    /**
+     * Installs the runtime journal on every recorder when the application starts ({@code docs/PLAN-v2.md} §5.2):
+     * each recorder's producer declares it as a {@link RuntimeEventPublisher}, so CDI lists them all here, and they
+     * publish from the first request.
+     */
+    void installRuntimeJournal(
+            @Observes StartupEvent event,
+            Instance<RuntimeJournal> journal,
+            @Any Instance<RuntimeEventPublisher> publishers) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        RuntimeJournal current = journal.get();
+        for (Instance.Handle<RuntimeEventPublisher> publisher : publishers.handles()) {
+            if (ImageMode.current() != ImageMode.JVM
+                    && publisher.getBean().getTypes().contains(AgentCaughtExceptions.class)) {
+                continue;
+            }
+            publisher.get().setRuntimeEventSink(current);
+        }
+    }
+
+    /** Stops the journal's dispatcher when the application stops, including before a live reload. */
+    void closeRuntimeJournal(@Disposes RuntimeJournal journal) {
+        journal.close();
+    }
+
+    @Produces
+    @Singleton
+    public HttpExchangeBuffer httpExchangeBuffer(Config config) {
+        int maxExchanges = config.getOptionalValue("bootui.http-exchanges.max-exchanges", Integer.class)
+                .orElse(200);
+        int reservedSharePercent = config.getOptionalValue(
+                        "bootui.http-exchanges.reserved-share-percent", Integer.class)
+                .orElse(TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
+        long requestSlowThresholdMs = config.getOptionalValue("bootui.activity.request-slow-threshold-ms", Long.class)
+                .orElse(RequestSlowThreshold.DEFAULT_MILLIS);
+        return new HttpExchangeBuffer(maxExchanges, reservedSharePercent, requestSlowThresholdMs);
+    }
+
+    /**
+     * The Quarkus-only security-event ring buffer fed by the CDI security-event observer — Quarkus has no
+     * Actuator {@code AuditEventRepository}, so this is the capture source for the Security Logs panel.
+     * Capacity bounds memory ({@code bootui.security-logs.max-logs}, default 500, matching the Spring panel
+     * cap); the buffer caps and reverses, the engine service masks. A singleton so writes and reads share
+     * one bounded buffer.
+     */
+    @Produces
+    @Singleton
+    public SecurityEventBuffer securityEventBuffer(Config config) {
+        int capacity = config.getOptionalValue("bootui.security-logs.max-logs", Integer.class)
+                .orElse(500);
+        return new SecurityEventBuffer(capacity);
+    }
+
+    /**
+     * The Quarkus-only scheduled-task-run ring buffer fed by {@code QuarkusScheduledTaskRunRecorder}
+     * (the CDI {@code SuccessfulExecution}/{@code FailedExecution} observer — see {@code docs/features/live-activity.md}).
+     * Always produced, mirroring the always-produced pattern the other optional-dependency
+     * buffers use: when {@code quarkus-scheduler} is absent (or the capability-gated observer is
+     * excluded), nothing ever calls {@link ScheduledTaskRunStore#record}, so the Live Activity panel
+     * simply renders no {@code SCHEDULED} entries. Capacity bounds memory
+     * ({@code bootui.activity.max-scheduled-task-runs}, default 200, matching the Spring adapter's
+     * {@code BootUiProperties.Activity.getMaxScheduledTaskRuns()} default) so the same config key works
+     * identically on both adapters.
+     */
+    @Produces
+    @Singleton
+    public ScheduledTaskRunStore scheduledTaskRunStore(Config config) {
+        int maxRuns = config.getOptionalValue("bootui.activity.max-scheduled-task-runs", Integer.class)
+                .orElse(200);
+        return new ScheduledTaskRunStore(maxRuns);
+    }
+
+    /**
+     * The framework-neutral Email Viewer capture service, always produced (like the engine
+     * {@code CacheService}) so {@code GET /bootui/api/email} never fails even when {@code quarkus-mailer} is
+     * absent; the resource then reports the panel unavailable via {@link QuarkusPanelAvailability#EMAIL_PRESENT_KEY}.
+     * When {@code quarkus-mailer} <em>is</em> present, {@code QuarkusEmailCapture} (registered by the
+     * deployment {@code registerEmail} build step) observes {@code io.quarkus.mailer.SentMail} and feeds this
+     * service's {@link EmailStore}. Capacity bounds memory ({@code bootui.email.max-entries}, default 100,
+     * matching the Spring panel cap), and each captured body is additionally bounded by
+     * {@code bootui.email.max-body-length} (default {@link EmailStore#DEFAULT_MAX_BODY_LENGTH}) so one
+     * oversized message cannot spike memory before the entry-count cap would evict it.
+     *
+     * <p>Unlike Spring's {@code bootui.email.dev-trap} (which intercepts <em>before</em> the send and can block
+     * it), Quarkus fires {@code SentMail} <em>after</em> the send, so BootUI cannot trap the message. Instead the
+     * service's dev-trap flag is mapped to the effective {@code quarkus.mailer.mock} value (which defaults to
+     * {@code true} in dev/test — the only launch modes where the console is wired): mock mode records the message
+     * without handing it to a real transport, so {@code sent=false} is the honest report, exactly matching what
+     * the engine's {@code sent=!devTrapEnabled} already computes.</p>
+     *
+     * <p>Captured content is revealed by default ({@code bootui.email.mask-content}, default {@code false}),
+     * matching the Spring adapter and the engine's own rationale (see {@code EmailCaptureService}'s class
+     * Javadoc): email content is not a config secret, so it should not require flipping the global secret-
+     * exposure flag to read.</p>
+     */
+    @Produces
+    @Singleton
+    public EmailCaptureService emailCaptureService(
+            QuarkusExposurePolicy exposure, Config config, Instance<TraceIdSource> traceIdProvider) {
+        int maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
+                .orElse(100);
+        int maxBodyLength = config.getOptionalValue("bootui.email.max-body-length", Integer.class)
+                .orElse(EmailStore.DEFAULT_MAX_BODY_LENGTH);
+        boolean mock = config.getOptionalValue("quarkus.mailer.mock", Boolean.class)
+                .orElseGet(() -> LaunchMode.current().isDevOrTest());
+        boolean maskContent = config.getOptionalValue("bootui.email.mask-content", Boolean.class)
+                .orElse(false);
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(maxEntries, maxBodyLength), exposure, mock, maskContent);
+        service.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
+        return service;
+    }
+
+    /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by the filters and recorders. */
+    @Produces
+    @Singleton
+    public RequestPhases requestPhases() {
+        return new RequestPhases();
+    }
+
+    /**
+     * The correlation context of the work being recorded ({@code docs/PLAN-v2.md} §5.1): the open thread scope, else
+     * the context {@code QuarkusHttpExchangeCaptureFilter} attached to the request's Vert.x duplicated context, with
+     * the trace id filled in from OpenTelemetry when it is present.
+     */
+    /**
+     * The journal and correlation of the {@code orm} source ({@code docs/PLAN-v2.md} §5.18, M4-9), for the session listener
+     * Hibernate creates itself: installed by the startup observer that installs every publisher, uninstalled at
+     * shutdown so a live reload's next run installs its own.
+     */
+    @Produces
+    @Singleton
+    public io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher ormSessionEventsPublisher() {
+        io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher publisher =
+                new io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher();
+        publisher.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        return publisher;
+    }
+
+    void closeOrmSessionEventsPublisher(
+            @jakarta.enterprise.inject.Disposes
+                    io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher publisher) {
+        publisher.close();
+    }
+
+    @Produces
+    @Singleton
+    public CorrelationContextProvider correlationContextProvider(Instance<TraceIdSource> traceIdProvider) {
+        return new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null);
+    }
+
+    /**
+     * The Live Activity persistence settings, mapped once from {@code bootui.activity.persistence.*}
+     * (matching the Spring adapter's {@code BootUiProperties.ActivityPersistence} defaults). Exposed as
+     * its own producer — not inlined into the {@link SwitchableActivityStore} producer — because two
+     * independent consumers must agree on the exact same resolved values, in particular the same resolved
+     * {@code instanceId}: the {@link SwitchableActivityStore} bean bakes it into the durable store's own
+     * query/prune scope, and {@code QuarkusActivityCapture} stamps it onto every entry its capture
+     * coordinator captures. {@code @Singleton} guarantees both see one, consistently resolved value — in
+     * particular, a generated instance id is computed exactly once per process, not independently by each
+     * consumer.
+     */
+    @Produces
+    @Singleton
+    public ActivityPersistenceSettings activityPersistenceSettings(Config config) {
+        boolean enabled = config.getOptionalValue("bootui.activity.persistence.enabled", Boolean.class)
+                .orElse(Boolean.FALSE);
+        String dataSourceModeValue = config.getOptionalValue(
+                        "bootui.activity.persistence.data-source-mode", String.class)
+                .orElse("SHARED");
+        ActivityPersistenceSettings.DataSourceMode dataSourceMode = "DEDICATED".equalsIgnoreCase(dataSourceModeValue)
+                ? ActivityPersistenceSettings.DataSourceMode.DEDICATED
+                : ActivityPersistenceSettings.DataSourceMode.SHARED;
+        String instanceId = ActivityInstanceIds.resolveOrDefault(
+                config.getOptionalValue("bootui.activity.persistence.instance-id", String.class)
+                        .orElse(null),
+                config.getOptionalValue("quarkus.application.name", String.class)
+                        .orElse(null));
+        return new ActivityPersistenceSettings(
+                enabled,
+                dataSourceMode,
+                config.getOptionalValue("bootui.activity.persistence.dedicated-jdbc-url", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.dedicated-username", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.dedicated-password", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.dedicated-driver-class-name", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.table-name", String.class)
+                        .orElse("bootui_activity"),
+                config.getOptionalValue("bootui.activity.persistence.flush-interval", Duration.class)
+                        .orElse(Duration.ofSeconds(5)),
+                config.getOptionalValue("bootui.activity.persistence.buffer-max-entries", Integer.class)
+                        .orElse(500),
+                config.getOptionalValue("bootui.activity.persistence.retention", Duration.class)
+                        .orElse(Duration.ofDays(7)),
+                instanceId);
+    }
+
+    /**
+     * Static durable runtime-journal identity and buffering settings. Datasource selection remains
+     * separate from this producer so applications and schema provisioning can be wired later without
+     * changing the configuration contract.
+     */
+    @Produces
+    @Singleton
+    public DurableJournalSettings durableJournalSettings(Config config, QuarkusApplicationInfo application) {
+        DurableJournalIdentity identity = DurableJournalIdentity.create(
+                config.getOptionalValue("bootui.activity.persistence.namespace-id", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.instance-id", String.class)
+                        .orElse(null),
+                config.getOptionalValue("bootui.activity.persistence.application-id", String.class)
+                        .orElse(null),
+                runApplicationKey(config, LaunchMode.current()));
+        Long maxPendingBytes = RuntimeJournalSettings.parseBytes(
+                config.getOptionalValue("bootui.activity.persistence.max-pending-bytes", String.class)
+                        .orElse(null),
+                "bootui.activity.persistence.max-pending-bytes");
+        DurableJournalIdentity aligned = identity.withRunId(application.run().id());
+        return new DurableJournalSettings(
+                aligned,
+                config.getOptionalValue("bootui.activity.persistence.enabled", Boolean.class)
+                        .orElse(Boolean.FALSE),
+                config.getOptionalValue("bootui.activity.persistence.flush-interval", Duration.class)
+                        .orElse(DurableJournalSettings.DEFAULT_FLUSH_INTERVAL),
+                config.getOptionalValue("bootui.activity.persistence.max-pending-entries", Integer.class)
+                        .orElse(DurableJournalSettings.DEFAULT_MAX_PENDING_ENTRIES),
+                maxPendingBytes == null ? DurableJournalSettings.DEFAULT_MAX_PENDING_BYTES : maxPendingBytes,
+                config.getOptionalValue("bootui.activity.persistence.hot-max-entries", Integer.class)
+                        .orElse(DurableJournalSettings.DEFAULT_HOT_MAX_ENTRIES),
+                config.getOptionalValue("bootui.activity.persistence.table-name", String.class)
+                        .orElse(DurableJournalSettings.DEFAULT_TABLE_PREFIX),
+                config.getOptionalValue("bootui.activity.persistence.retention", Duration.class)
+                        .orElse(DurableJournalSettings.DEFAULT_RETENTION),
+                config.getOptionalValue("bootui.activity.persistence.reader-archive-cross-namespace", Boolean.class)
+                        .orElse(Boolean.FALSE));
+    }
+
+    /**
+     * Durable journal JDBC boundary. Shared mode reuses the application's selected {@link DataSource};
+     * dedicated mode uses the same explicit-connection datasource policy as legacy migration storage.
+     */
+    @Produces
+    @Singleton
+    public DurableJournalStore durableJournalStore(
+            ActivityPersistenceSettings persistence, DurableJournalSettings durable, Instance<DataSource> dataSources) {
+        if (!durable.enabled()) {
+            return new InactiveDurableJournalStore();
+        }
+        DataSource dataSource =
+                ActivityStoreFactory.resolveDataSource(persistence, () -> resolveDataSource(dataSources));
+        return new JdbcDurableJournalStore(dataSource, durable.tablePrefix());
+    }
+
+    @Produces
+    @Singleton
+    public DurableJournalRuntime durableJournalRuntime() {
+        return new DurableJournalRuntime();
+    }
+
+    /**
+     * The Live Activity durable store. Produced <em>unconditionally</em> (like the Cache/Flyway/Liquibase/
+     * Connection-Pools services): {@link ActivityStoreFactory#create} itself branches on {@code
+     * settings.enabled()}, returning a {@link SwitchableActivityStore} wrapping a bare {@code
+     * InMemoryActivityStore} — no background thread, connection or JDBC type touched — when persistence is
+     * off, so there is no need to gate this producer on a build-time capability the way the
+     * optional-dependency panels do. When enabled with {@code data-source-mode=SHARED}, the host
+     * application's own {@code DataSource} bean is resolved live through {@link Instance}, mirroring
+     * {@link #resolveRegistry}.
+     *
+     * <p>Declared to return the concrete {@link SwitchableActivityStore} type (not the {@code ActivityStore}
+     * interface) so {@code LiveActivityResource} and {@code QuarkusActivityCapture} can inject the concrete
+     * type and call {@code persistent()} / {@code attemptSwitchToPersistent(...)} — the same bean also
+     * satisfies {@code ActivityStore} injection points, since a CDI producer's bean types include every
+     * supertype of the declared return type.</p>
+     *
+     * <p>Unlike Spring — whose inferred-destroy-method convention auto-invokes a bean's {@code close()}
+     * at context shutdown — CDI/Arc has no equivalent automatic behavior, so this store is explicitly
+     * closed by {@code QuarkusActivityCapture}'s {@code ShutdownEvent} observer instead.</p>
+     */
+    @Produces
+    @Singleton
+    public SwitchableActivityStore activityStore(
+            ActivityPersistenceSettings settings, DurableJournalSettings durable, Instance<DataSource> dataSources) {
+        if (durable.enabled()) {
+            return new SwitchableActivityStore(new io.github.jdubois.bootui.engine.activity.InMemoryActivityStore(
+                    Math.max(1, settings.bufferMaxEntries())));
+        }
+        return ActivityStoreFactory.create(settings, () -> resolveDataSource(dataSources));
+    }
+
+    /**
+     * Resolves the shared {@code DataSource} to reuse for Live Activity persistence, mirroring {@link
+     * #resolveRegistry}. Public (unlike most other package-private producer helpers) since {@code
+     * LiveActivityResource} also calls this directly to resolve {@code dataSourceAvailable} and to feed
+     * the "Use the existing datasource" switch action — the Quarkus analogue of the Spring adapter's
+     * public {@code resolveActivityDataSource}.
+     */
+    public static DataSource resolveDataSource(Instance<DataSource> dataSources) {
+        if (dataSources.isUnsatisfied()) {
+            return null;
+        }
+        try {
+            return dataSources.get();
+        } catch (AmbiguousResolutionException ex) {
+            // Multiple DataSource beans (e.g. several named datasources): pick the first, like the Spring adapter.
+            return dataSources.stream().findFirst().orElse(null);
+        }
+    }
+
+    /**
+     * The Metrics service over Micrometer. Micrometer is a sanctioned {@code bootui-engine} dependency, so
+     * its API is always on the classpath, but a {@link MeterRegistry} <em>bean</em> exists only when the
+     * application adds a {@code quarkus-micrometer} registry. The registry is therefore resolved live per
+     * request through an {@link Instance} (mirroring the Spring adapter's {@code ObjectProvider} handle):
+     * absent &rarr; {@code null} &rarr; the engine renders the panel as unavailable; present &rarr; the live
+     * composite registry is read on every report. The meter-visibility predicate is the shared engine
+     * {@link MeterSelfFilter} built from the single {@link SelfTelemetryClassifier} bean produced in
+     * {@link BootUiTelemetryProducer} (honoring {@code bootui.monitoring.exclude-self} and
+     * {@code bootui.path}) — the same instance the Traces read model and the capture-side span processor
+     * use — so the panel never reports BootUI's own {@code /bootui/**} traffic, exactly as the Spring
+     * adapter feeds {@code BootUiSelfDataFilter::shouldIncludeMeter}.
+     */
+    @Produces
+    @Singleton
+    public MetricsReportProvider metricsReportProvider(
+            Instance<MeterRegistry> registries, SelfTelemetryClassifier selfClassifier) {
+        MeterSelfFilter meterFilter = new MeterSelfFilter(selfClassifier);
+        return new MetricsReportProvider(() -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
+    }
+
+    static MeterRegistry resolveRegistry(Instance<MeterRegistry> registries) {
+        if (registries.isUnsatisfied()) {
+            return null;
+        }
+        try {
+            return registries.get();
+        } catch (AmbiguousResolutionException ex) {
+            // Multiple registries (e.g. several Micrometer backends): pick the first, like the Spring adapter.
+            return registries.stream().findFirst().orElse(null);
+        }
+    }
+
+    @Produces
+    @Singleton
+    public HeapDumpService heapDumpService(Config config) {
+        HeapDumpSettings settings = new HeapDumpSettings(
+                config.getOptionalValue("bootui.heap-dump.output-dir", String.class)
+                        .orElse(".bootui/heap-dumps"),
+                config.getOptionalValue("bootui.heap-dump.capture-enabled", Boolean.class)
+                        .orElse(Boolean.TRUE),
+                config.getOptionalValue("bootui.heap-dump.allow-raw-download", Boolean.class)
+                        .orElse(Boolean.FALSE),
+                config.getOptionalValue("bootui.heap-dump.max-dumps", Integer.class)
+                        .orElse(5),
+                config.getOptionalValue("bootui.heap-dump.max-classes", Integer.class)
+                        .orElse(1000),
+                config.getOptionalValue("bootui.heap-dump.top-classes", Integer.class)
+                        .orElse(25));
+        return new HeapDumpService(settings);
+    }
+
+    /**
+     * The Loggers service over the Quarkus {@link QuarkusLoggerProvider} (the JBoss LogManager). Mirrors
+     * the Spring {@code bootUiLoggersService} factory's two-predicate split: a read-visibility predicate
+     * that honors {@code bootui.monitoring.exclude-self} (default {@code true}, hiding BootUI's own
+     * loggers from the panel) and an independent write guard pinned to BootUI-owned loggers regardless of
+     * that preference, so a read toggle can never fail the write open. The internal-package boundary is
+     * the shared engine {@link InternalPackageMatcher} fed the Quarkus adapter's own packages (plus the
+     * shared {@code core}), exactly as the Spring adapter feeds its {@code autoconfigure} package.
+     */
+    @Produces
+    @Singleton
+    public LoggersService loggersService(Config config) {
+        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
+                .orElse(Boolean.TRUE);
+        InternalPackageMatcher internalPackages = new InternalPackageMatcher(
+                List.of("io.github.jdubois.bootui.quarkus4", "io.github.jdubois.bootui.core"));
+        LoggerProvider provider = new QuarkusLoggerProvider();
+        Predicate<String> readVisible = name -> !excludeSelf || !internalPackages.matchesName(name);
+        Predicate<String> writeBlocked = internalPackages::matchesName;
+        return new LoggersService(provider, readVisible, writeBlocked);
+    }
+
+    /**
+     * The shared Log Tail ring buffer fed by {@code QuarkusLogTailHandler} (the JBoss LogManager) and read
+     * by {@code LogTailResource}. Mirrors the Spring adapter's buffer: capped to {@code 500} lines and an
+     * approximate byte budget ({@code bootui.log-tail.max-bytes}, default unbounded) so a long-lived dev
+     * process stays bounded while a normal short-lined tail keeps all 500 lines.
+     */
+    @Produces
+    @Singleton
+    public LogTailBuffer logTailBuffer(Config config) {
+        long maxBytes =
+                config.getOptionalValue("bootui.log-tail.max-bytes", Long.class).orElse(0L);
+        return new LogTailBuffer(LogTailBuffer.DEFAULT_MAX_LINES, maxBytes);
+    }
+
+    /**
+     * The shared, bounded {@link ExceptionStore} fed by {@code QuarkusExceptionLogHandler} (the JBoss
+     * LogManager) and {@code QuarkusExceptionFailureFilter} (the Vert.x failure handler), read by
+     * {@code ExceptionsResource}. Mirrors the Spring adapter's store: cause-chain identity dedup keeps a
+     * single logical failure seen by both feeders from counting twice, caps bound memory, and host base
+     * packages flag application frames. A singleton so writes and reads share one store.
+     */
+    @Produces
+    @Singleton
+    public ExceptionStore exceptionStore(
+            Config config, QuarkusBasePackageProvider basePackages, Instance<SpanEnricher> spanEnricher) {
+        ExceptionStore store = new ExceptionStore(
+                config.getOptionalValue("bootui.exceptions.max-groups", Integer.class)
+                        .orElse(100),
+                config.getOptionalValue("bootui.exceptions.max-occurrences-per-group", Integer.class)
+                        .orElse(25),
+                config.getOptionalValue("bootui.exceptions.max-stack-frames", Integer.class)
+                        .orElse(50));
+        store.setApplicationPackages(basePackages.basePackages());
+        store.setBindingDiagnosticExtractor(
+                io.github.jdubois.bootui.quarkus4.exceptions.QuarkusExceptionCapture.bindingDiagnosticExtractor());
+        // When OpenTelemetry is present, install the span enricher so each captured exception stamps
+        // bootui.exception.* on the active request span; absent OpenTelemetry it is unresolvable and the
+        // store keeps the neutral no-op.
+        if (spanEnricher.isResolvable()) {
+            store.setSpanEnricher(spanEnricher.get());
+        }
+        store.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        return store;
+    }
+
+    /**
+     * Display masking + DTO assembly for the Exceptions panel, shared with Spring so the wire is identical.
+     */
+    @Produces
+    @Singleton
+    public ExceptionsService exceptionsService(QuarkusExposurePolicy exposure, ErrorContractService errorContract) {
+        // The error-contract seam cross-links a retained failure to its declared exception mapper. It is the
+        // same conservative engine resolver Spring wires, so an ambiguous or unmatched failure stays unlinked
+        // on every stack.
+        return new ExceptionsService(exposure, errorContract);
+    }
+
+    /**
+     * The REST API panel's error-contract catalogue service. Discovery happens at build time in the
+     * deployment processor's {@code registerErrorContract} step (where the Jandex index carries the
+     * annotations and generic signatures Quarkus does not expose at runtime); the engine
+     * {@link ErrorContractService} owns classification, precedence resolution, ordering, bounding, query and
+     * paging. The concrete {@link QuarkusErrorContractProvider} is injected (not the SPI interface) so
+     * adding another provider later can never make this wiring ambiguous.
+     */
+    @Produces
+    @Singleton
+    public ErrorContractService errorContractService(QuarkusErrorContractProvider errorContractProvider) {
+        return new ErrorContractService(errorContractProvider);
+    }
+
+    /**
+     * The Health service over the Quarkus {@link HealthProvider}. The provider is gated by the deployment
+     * processor on the {@code quarkus-smallrye-health} capability (R2), so when SmallRye Health is absent there
+     * is no {@code HealthProvider} bean: {@code providers.isUnsatisfied()} is {@code true} and the service is
+     * built with a {@code null} provider, which makes the engine render the DISABLED root with
+     * {@link QuarkusHealthGuidance}'s setup steps. The service is produced <em>unconditionally</em> (it holds no
+     * SmallRye types) so {@code HealthResource} is wired and the panel renders its guidance on every platform.
+     * {@code isUnsatisfied()} (rather than {@code isResolvable()}) is used deliberately: an impossible-but-future
+     * ambiguous {@code HealthProvider} surfaces loudly via {@link Instance#get()} instead of silently disabling.
+     */
+    @Produces
+    @Singleton
+    public HealthService healthService(Instance<HealthProvider> healthProviders) {
+        HealthProvider provider = healthProviders.isUnsatisfied() ? null : healthProviders.get();
+        return new HealthService(provider, QuarkusHealthGuidance.INSTANCE);
+    }
+
+    /**
+     * The Pentesting (local OWASP hygiene) scanner. Mirrors the Spring {@code bootUiPentestingScanner}
+     * factory: the framework-neutral observation (server port + context path, plus a deliberately neutral
+     * endpoint/security/config snapshot — see {@link QuarkusPentestingObservationCollector}) is collected
+     * live on every scan, and the engine owns the probe methodology (synthetic loopback URI assembly +
+     * GET/OPTIONS probes), firing them only on demand ({@code POST /scan}), never at construction. The
+     * concrete {@link QuarkusServerPortSupplier} bean is injected (not the
+     * {@link io.github.jdubois.bootui.spi.ServerPortSupplier} interface) so adding another supplier later
+     * can never make this wiring ambiguous, exactly as the HTTP Probe and Architecture producers do.
+     */
+    @Produces
+    @Singleton
+    public PentestingScanner pentestingScanner(QuarkusServerPortSupplier serverPort, Config config) {
+        QuarkusPentestingObservationCollector collector = new QuarkusPentestingObservationCollector(config, serverPort);
+        return PentestingScanner.usingObservation(collector::collect, Clock.systemUTC());
+    }
+
+    /**
+     * The Quarkus-native Security advisor scanner over a config-driven {@link QuarkusSecuritySnapshotProviderImpl}.
+     * Evaluates a Quarkus ruleset (Elytron/OIDC/HTTP auth, TLS, CORS, headers) into the shared report.
+     */
+    @Produces
+    @Singleton
+    public QuarkusSecurityScanner quarkusSecurityScanner(Config config) {
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(
+                new QuarkusSecuritySnapshotProviderImpl(config)::snapshot,
+                Clock.systemUTC(),
+                () -> Path.of(System.getProperty("user.dir", ".")));
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    /**
+     * The Quarkus application advisor over resolved build metadata and bounded native configuration.
+     * Unavailable evidence remains explicit in the shared Spring advisor report.
+     */
+    @Produces
+    @Singleton
+    public QuarkusAppScanner quarkusAppScanner(Config config) {
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(
+                new QuarkusAppSnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    /**
+     * The Architecture (ArchUnit) hygiene scanner over the {@link QuarkusBasePackageProvider}. Mirrors the
+     * live-policy shape: the concrete {@link QuarkusBasePackageProvider} bean is injected (not the
+     * {@link io.github.jdubois.bootui.spi.BasePackageProvider} interface) so adding another provider later
+     * can never make this wiring ambiguous. The base packages are read <em>live</em> on every scan through
+     * the supplier (never snapshotted at construction), exactly as the Spring adapter binds its scanner over
+     * {@code AutoConfigurationPackages}; the ArchUnit import itself runs only on the explicit
+     * {@code POST /scan} action, never at construction.
+     */
+    @Produces
+    @Singleton
+    public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages, Config config) {
+        ArchitectureScanner scanner = ArchitectureScanner.usingClasspath(
+                basePackages::basePackages, ArchitecturePlatform.QUARKUS, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    /**
+     * The REST API advisor over the application's JAX-RS resources. Mirrors {@link #architectureScanner}: the
+     * shared engine {@link RestApiScanner} imports the host classes with ArchUnit bounded to the build-time
+     * discovered base packages and runs the same curated ruleset (the engine now models JAX-RS resources
+     * alongside Spring controllers and skips the few Spring-only rules honestly). The OpenAPI documentation
+     * rules (RAPI-DOC-001/002/003) probe for the framework-neutral MicroProfile OpenAPI {@code @Operation}
+     * annotation on the classpath — brought in by {@code quarkus-smallrye-openapi} — the same way the Spring
+     * adapter probes for Swagger's {@code @Operation}; the import runs only on POST /scan.
+     */
+    @Produces
+    @Singleton
+    public RestApiScanner restApiScanner(QuarkusBasePackageProvider basePackages, Config config) {
+        RestApiScanner scanner =
+                RestApiScanner.usingClasspath(basePackages::basePackages, () -> MP_OPENAPI_PRESENT, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    /**
+     * The Beans panel over the Arc/CDI container. Mirrors the live-policy shape: the concrete
+     * {@link QuarkusBeanProvider} bean is injected (not the {@link io.github.jdubois.bootui.spi.BeanProvider}
+     * interface) so adding another provider later can never make this wiring ambiguous. The provider holds
+     * the {@link BeanManager} and enumerates beans live on every request; the engine {@link BeansService}
+     * only sorts, classification/free-text filters and pages — exactly as the Spring adapter builds its
+     * {@code BeansService} over the Actuator-backed {@code SpringBeanProvider}.
+     */
+    @Produces
+    @Singleton
+    public QuarkusBeanProvider quarkusBeanProvider(BeanManager beanManager) {
+        return new QuarkusBeanProvider(beanManager);
+    }
+
+    @Produces
+    @Singleton
+    public BeansService beansService(QuarkusBeanProvider beanProvider) {
+        return new BeansService(beanProvider);
+    }
+
+    /**
+     * The Mappings panel service. The engine {@link MappingsService} owns only the framework-neutral sort,
+     * free-text query and paging; the flattening + BootUI self-data filtering happen at build time in the
+     * deployment processor's {@code registerMappings} step (where both the request path and the resource
+     * class FQN are available). The concrete {@link QuarkusMappingProvider} is injected (not the
+     * {@code MappingProvider} interface) so adding another provider later can never make this wiring
+     * ambiguous — exactly as the Spring adapter builds its {@code MappingsService} over the Actuator-backed
+     * {@code SpringMappingProvider}.
+     */
+    @Produces
+    @Singleton
+    public MappingsService mappingsService(QuarkusMappingProvider mappingProvider) {
+        return new MappingsService(mappingProvider);
+    }
+
+    /**
+     * The Configuration + Profile Diff panel service. The cache-/Jackson-free engine {@link ConfigService}
+     * masks, sorts, filters, pages and profile-groups the raw entries from {@link QuarkusConfigProvider}
+     * (SmallRye Config), honoring the live {@link QuarkusExposurePolicy} — exactly as the Spring adapter
+     * builds it over {@code SpringConfigProvider}. The concrete policy impl is injected (not the SPI) so
+     * adding another policy later can't make resolution ambiguous. Read-only on Quarkus: the Spring
+     * runtime-override write path is not ported.
+     */
+    @Produces
+    @Singleton
+    public ConfigService configService(QuarkusConfigProvider provider, QuarkusExposurePolicy exposure) {
+        return new ConfigService(provider, exposure);
+    }
+
+    /**
+     * The GitHub dashboard service over a Jackson-2 {@link GitHubApiClient}. The shared engine
+     * {@link GitHubDashboardService} is framework- and JSON-library-free; this factory mirrors the Spring
+     * adapter's {@code GitHubController} composition root, reading the same {@code bootui.github.*} keys (with
+     * the same defaults) from MicroProfile {@link Config} and feeding the engine an already-wired client.
+     *
+     * <p>The host allow-list is read once and passed to <em>both</em> the engine
+     * {@link GitHubDashboardConfig} (which the engine consults during repository detection) and the client's
+     * {@link QuarkusGitHubSettings} (which the client enforces before issuing any request), exactly as Spring
+     * shares one {@code BootUiProperties.GitHub}. {@code Arrays.asList(...)} is used (not {@code List.of(...)})
+     * to stay null-safe, matching the Spring factory. The credential lookup reuses the framework-free shared
+     * {@link DefaultGitHubTokenProvider} (env tokens + {@code gh} CLI). No network call happens at construction
+     * or on render: only the explicit {@code POST /bootui/api/github/refresh} action calls GitHub.</p>
+     */
+    @Produces
+    @Singleton
+    public GitHubDashboardService gitHubDashboardService(Config config) {
+        boolean apiEnabled = config.getOptionalValue("bootui.github.api-enabled", Boolean.class)
+                .orElse(Boolean.TRUE);
+        Duration requestTimeout = config.getOptionalValue("bootui.github.request-timeout", Duration.class)
+                .orElse(Duration.ofSeconds(5));
+        int maxPullRequests = config.getOptionalValue("bootui.github.max-pull-requests", Integer.class)
+                .orElse(10);
+        int maxIssues = config.getOptionalValue("bootui.github.max-issues", Integer.class)
+                .orElse(25);
+        int maxWorkflowRuns = config.getOptionalValue("bootui.github.max-workflow-runs", Integer.class)
+                .orElse(20);
+        int quotaSafetyThreshold = config.getOptionalValue("bootui.github.quota-safety-threshold", Integer.class)
+                .orElse(10);
+        int maxApiCalls = config.getOptionalValue("bootui.github.max-api-calls", Integer.class)
+                .orElse(17);
+        int maxSecurityAlerts = config.getOptionalValue("bootui.github.max-security-alerts", Integer.class)
+                .orElse(50);
+        List<String> allowedApiHosts = gitHubAllowedApiHosts(config);
+
+        QuarkusGitHubSettings settings = new QuarkusGitHubSettings(
+                requestTimeout,
+                maxPullRequests,
+                maxIssues,
+                maxWorkflowRuns,
+                quotaSafetyThreshold,
+                maxApiCalls,
+                maxSecurityAlerts,
+                allowedApiHosts);
+        GitHubApiClient client = new GitHubApiClient(
+                settings,
+                BootUiHttpClients.newBuilder().connectTimeout(requestTimeout).build(),
+                new ObjectMapper(),
+                DefaultGitHubTokenProvider.create());
+        return GitHubDashboardService.using(
+                Path.of(System.getProperty("user.dir", ".")),
+                new GitHubDashboardConfig(apiEnabled, allowedApiHosts),
+                client);
+    }
+
+    /**
+     * Reads {@code bootui.github.allowed-api-hosts} (comma-separated) from MicroProfile {@link Config}, falling
+     * back to {@code api.github.com}. {@code Arrays.asList} keeps it null-safe, matching the Spring adapter's
+     * {@code Arrays.asList(properties.getGithub().getAllowedApiHosts())}.
+     */
+    static List<String> gitHubAllowedApiHosts(Config config) {
+        String[] hosts = config.getOptionalValue("bootui.github.allowed-api-hosts", String[].class)
+                .orElse(new String[] {"api.github.com"});
+        return Arrays.asList(hosts);
+    }
+
+    /**
+     * The shared advisor dismissed-rules store. Resolves the same {@code .bootui/boot-ui.yml} path the Spring
+     * adapter's {@code bootUiDismissedRulesStore} factory builds: the parent directory of
+     * {@code bootui.overrides-file} (default {@code .bootui/application-bootui.properties}), falling back to
+     * {@code .bootui}. The store is pure {@code java.nio} and shared by every ArchUnit advisor, so the
+     * Architecture dismiss controls round-trip identically on both platforms.
+     */
+    @Produces
+    @Singleton
+    public DismissedRulesStore dismissedRulesStore(Config config) {
+        String overridesFile = config.getOptionalValue("bootui.overrides-file", String.class)
+                .orElse(".bootui/application-bootui.properties");
+        Path parent = (overridesFile != null && !overridesFile.isBlank())
+                ? Paths.get(overridesFile).getParent()
+                : null;
+        String dir = (parent != null) ? parent.toString() : ".bootui";
+        return new DismissedRulesStore(Paths.get(dir, "boot-ui.yml"));
+    }
+
+    /**
+     * The Hibernate (ORM mapping) advisor scanner. Produced <em>unconditionally</em> because it holds no
+     * {@code jakarta.persistence} type: the JPA-importing entity discovery lives behind the gated
+     * {@link EntityDiscoverySource} that {@link BootUiHibernateProducer} produces only when
+     * {@code quarkus-hibernate-orm} is present (R2). When that source is unsatisfied the scanner is given a
+     * supplier yielding an {@link EntityDiscovery#empty(String) empty discovery}, so {@code POST /scan}
+     * renders a DISABLED report instead of failing.
+     *
+     * <p>Configuration is read through {@link QuarkusHibernatePropertyLookup}, which maps the engine rules'
+     * Spring/native-Hibernate keys onto the {@code quarkus.hibernate-orm.*} namespace (and neutralizes the
+     * Spring-only Open-Session-in-View concern). The active profiles come from {@link SmallRyeConfig}, exactly
+     * as {@link QuarkusApplicationInfo#activeProfiles()} resolves them — never the {@code quarkus.profile}
+     * key — so the production-profile-sensitive rules behave identically to Spring.</p>
+     */
+    @Produces
+    @Singleton
+    public HibernateScanner hibernateScanner(
+            Instance<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource> sources,
+            Config config) {
+        HibernateScanner scanner = HibernateScanner.observing(
+                sources.isUnsatisfied()
+                        ? () -> new io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation(
+                                List.of(), null, List.of())
+                        : sources.get(),
+                Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    /**
+     * The standalone Hibernate Statistics (Database group) panel service, independent of the Hibernate
+     * Advisor above. Produced <em>unconditionally</em> because it holds no Hibernate ORM type directly: the
+     * {@code SessionFactory}/{@code Statistics}-importing {@link HibernateStatisticsProvider} lives behind
+     * the gated {@link BootUiHibernateProducer#hibernateStatisticsProvider} bean, wired only when the
+     * {@code HIBERNATE_ORM} capability is present (R2, mirroring {@link #hibernateScanner} exactly). When
+     * that provider is unsatisfied the engine is given a {@code null} provider, so
+     * {@code GET /hibernate-statistics} renders the panel unavailable instead of failing.
+     */
+    @Produces
+    @Singleton
+    public HibernateStatisticsService hibernateStatisticsService(Instance<HibernateStatisticsProvider> providers) {
+        HibernateStatisticsProvider provider = providers.isUnsatisfied() ? null : providers.get();
+        return new HibernateStatisticsService(provider);
+    }
+
+    /**
+     * The Database Advisor scanner. Produced <em>unconditionally</em> because {@code javax.sql.DataSource} is
+     * core JDK (unlike Hibernate's {@code EntityManagerFactory}): {@link QuarkusDatabaseAdvisorDataSourceProvider}
+     * is constructed directly here (never behind a capability-gated producer) and simply returns an empty list
+     * when {@code Instance<DataSource>} is unsatisfied, so the scan reports "no DataSource beans were found"
+     * instead of failing. The Hibernate cross-reference half reuses the same, already-gated
+     * {@link EntityDiscoverySource} as {@link #hibernateScanner}, so the check only activates when a Hibernate
+     * metamodel is also available.
+     */
+    @Produces
+    @Singleton
+    public DatabaseAdvisorScanner databaseAdvisorScanner(
+            @Any Instance<DataSource> dataSources,
+            Instance<EntityDiscoverySource> entityDiscoverySources,
+            Instance<SqlTraceRecorder> sqlTraceRecorders,
+            @Any Instance<ConnectionPoolProvider> connectionPools,
+            Instance<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource> hibernateObservations,
+            BeanManager beanManager,
+            Config config) {
+        QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
+        Supplier<EntityDiscovery> discovery;
+        if (entityDiscoverySources.isUnsatisfied()) {
+            discovery = () -> EntityDiscovery.absent("Hibernate ORM is not configured on this Quarkus application.");
+        } else {
+            EntityDiscoverySource source = entityDiscoverySources.get();
+            discovery = source::discover;
+        }
+        // Statement evidence for the runtime-SQL checks, read from the SQL Trace buffer that is already
+        // being filled. Empty when SQL Trace is off (no Agroal datasource wrapped), and those rules then
+        // skip rather than report a clean result they have no basis for.
+        Supplier<List<SqlTraceEntryDto>> observedStatements =
+                () -> sqlTraceRecorders.isResolvable() ? sqlTraceRecorders.get().entries(false) : List.of();
+        // Driver evidence reaches the pool and the Hibernate observations only through Instances that are unsatisfied
+        // without the AGROAL or HIBERNATE_ORM capability, so no io.agroal or Hibernate type is linked here.
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
+                dataSourceProvider::discover,
+                discovery,
+                observedStatements,
+                new QuarkusDatabaseAdvisorEvidenceProvider(
+                        dataSources, beanManager, connectionPools, hibernateObservations),
+                Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    static int advisorRetentionLimit(Config config) {
+        int limit = config.getOptionalValue("bootui.advisors.max-retained-violations", Integer.class)
+                .orElse(10_000);
+        if (limit <= 0) {
+            throw new IllegalArgumentException("bootui.advisors.max-retained-violations must be positive.");
+        }
+        return limit;
+    }
+
+    /**
+     * The PostgreSQL "vital signs" service. Produced <em>unconditionally</em> for the same reason as
+     * {@link #databaseAdvisorScanner}: {@code javax.sql.DataSource} is core JDK, so
+     * {@link QuarkusDatabaseAdvisorDataSourceProvider} is constructed directly here and simply returns an
+     * empty discovery when {@code Instance<DataSource>} is unsatisfied — the read then renders a
+     * NOT_READ/empty report instead of failing. It is given the concrete {@link QuarkusExposurePolicy} bean
+     * (the live-policy shape, mirroring {@link #threadDumpService}) so adding more {@code ExposurePolicy}
+     * beans later can never make this wiring ambiguous. The read never runs on page render — it is only
+     * invoked by {@code POST /bootui/api/postgresql/read} — and every query it issues is read-only, bounded
+     * by row count and a wall-clock budget on the database session. The panel's honest availability (a JDBC
+     * datasource must be present) is decided separately by {@code QuarkusPanelAvailability}.
+     */
+    @Produces
+    @Singleton
+    public PostgresInsightService postgresInsightService(
+            @Any Instance<DataSource> dataSources,
+            QuarkusExposurePolicy exposure,
+            Config config,
+            BeanManager beanManager) {
+        QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
+        return PostgresInsightService.using(
+                dataSourceProvider::discover, exposure, Clock.systemUTC(), postgresRowLimits(config));
+    }
+
+    static PostgresRowLimits postgresRowLimits(Config config) {
+        PostgresRowLimits defaults = PostgresRowLimits.defaults();
+        return new PostgresRowLimits(
+                postgresRowLimit(config, "max-sessions", defaults.maxSessions()),
+                postgresRowLimit(config, "max-statements", defaults.maxStatements()),
+                postgresRowLimit(config, "max-indexes", defaults.maxIndexes()),
+                postgresRowLimit(config, "max-tables", defaults.maxTables()),
+                postgresRowLimit(config, "max-vacuum-tables", defaults.maxVacuumTables()),
+                postgresRowLimit(config, "max-replicas", defaults.maxReplicas()),
+                postgresRowLimit(config, "max-settings", defaults.maxSettings()));
+    }
+
+    private static int postgresRowLimit(Config config, String name, int defaultValue) {
+        String property = "bootui.postgresql." + name;
+        // An explicitly empty value must fail conversion, not silently select the default.
+        return config.getConfigValue(property).getRawValue() == null
+                ? defaultValue
+                : config.getValue(property, Integer.class);
+    }
+
+    /**
+     * Always safe to wire in dev/test, including applications without Agroal or a MySQL driver.
+     * Discovery is deferred until the explicit read; neither factory nor cached GET resolves pool beans.
+     */
+    @Produces
+    @Singleton
+    public MySqlInsightService mySqlInsightService(
+            @Any Instance<DataSource> dataSources,
+            QuarkusExposurePolicy exposure,
+            Config config,
+            BeanManager beanManager) {
+        QuarkusDatabaseAdvisorDataSourceProvider provider =
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
+        return MySqlInsightService.using(provider::discover, exposure, Clock.systemUTC(), mySqlRowLimits(config));
+    }
+
+    static MySqlRowLimits mySqlRowLimits(Config config) {
+        MySqlRowLimits defaults = MySqlRowLimits.defaults();
+        return new MySqlRowLimits(
+                mySqlRowLimit(config, "max-sessions", defaults.maxSessions()),
+                mySqlRowLimit(config, "max-statements", defaults.maxStatements()),
+                mySqlRowLimit(config, "max-indexes", defaults.maxIndexes()),
+                mySqlRowLimit(config, "max-tables", defaults.maxTables()),
+                mySqlRowLimit(config, "max-lock-waits", defaults.maxLockWaits()),
+                mySqlRowLimit(config, "max-replication-channels", defaults.maxReplicationChannels()),
+                mySqlRowLimit(config, "max-settings", defaults.maxSettings()));
+    }
+
+    private static int mySqlRowLimit(Config config, String name, int defaultValue) {
+        String property = "bootui.mysql." + name;
+        // An explicitly blank value is an error, not a request for the default.
+        int value = config.getConfigValue(property).getRawValue() == null
+                ? defaultValue
+                : config.getValue(property, Integer.class);
+        return MySqlRowLimits.requireValid(property, value);
+    }
+
+    /**
+     * The Cache panel service. Produced <em>unconditionally</em> because it holds no {@code io.quarkus.cache}
+     * type: the cache-API-importing {@link CacheProvider} lives behind the gated {@link BootUiCacheProducer}
+     * that is wired only when the {@code CACHE} capability is present (R2). When that provider is unsatisfied
+     * the engine is given a {@code null} provider, so {@code GET /cache} renders the panel unavailable
+     * and {@code POST /clear} reports it unavailable instead of failing.
+     *
+     * <p>Cache metrics are read live from the same {@link MeterRegistry} the Metrics panel uses (present only
+     * when the application adds a {@code quarkus-micrometer} registry), through the identical
+     * {@link MeterSelfFilter} self-visibility predicate built from the shared {@link SelfTelemetryClassifier}
+     * bean, so BootUI's own meters stay hidden — exactly as the Spring adapter feeds
+     * {@code BootUiSelfDataFilter::shouldIncludeMeter}.</p>
+     */
+    @Produces
+    @Singleton
+    public CacheService cacheService(
+            Instance<CacheProvider> cacheProviders,
+            Instance<MeterRegistry> registries,
+            SelfTelemetryClassifier selfClassifier) {
+        CacheProvider provider = cacheProviders.isUnsatisfied() ? null : cacheProviders.get();
+        MeterSelfFilter meterFilter = new MeterSelfFilter(selfClassifier);
+        return new CacheService(provider, () -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
+    }
+
+    /**
+     * The Live Activity Kafka capture buffer. Produced <em>unconditionally</em> because
+     * {@link KafkaActivityRecorder} holds no Kafka-client or messaging type of its own (only JDK types):
+     * the {@code io.smallrye.reactive.messaging}-importing capture beans ({@code QuarkusKafkaProducerCapture}
+     * / {@code QuarkusKafkaConsumerCapture}) that feed it are gated on the SmallRye Kafka connector (R2),
+     * and {@code LiveActivityResource} reads it directly. When {@code quarkus-messaging-kafka} is absent the
+     * capture beans are not wired, so nothing is ever recorded and the recorder simply stays empty —
+     * Live Activity renders no {@code MESSAGING} entries, exactly as on Spring without {@code spring-kafka}.
+     *
+     * <p>The {@code bootui.kafka.*} keys and their defaults (enabled/capture-key {@code true},
+     * max-entries {@code 200}, max-key-length {@code 16}) are kept unified with the Spring adapter's
+     * {@code BootUiProperties.Kafka}, so the same values size and gate capture identically on both
+     * frameworks. Disabling the dedicated Kafka panel also disables its underlying capture, while
+     * disabling Live Activity alone does not.</p>
+     */
+    @Produces
+    @Singleton
+    public KafkaActivityRecorder kafkaActivityRecorder(Config config) {
+        boolean enabled =
+                config.getOptionalValue("bootui.kafka.enabled", Boolean.class).orElse(true)
+                        && config.getOptionalValue("bootui.panels.kafka.enabled", Boolean.class)
+                                .orElse(true);
+        boolean captureKey = config.getOptionalValue("bootui.kafka.capture-key", Boolean.class)
+                .orElse(true);
+        int maxEntries = config.getOptionalValue("bootui.kafka.max-entries", Integer.class)
+                .orElse(200);
+        int maxKeyLength = config.getOptionalValue("bootui.kafka.max-key-length", Integer.class)
+                .orElse(16);
+        return new KafkaActivityRecorder(enabled, captureKey, maxEntries, maxKeyLength);
+    }
+
+    /**
+     * The Live Activity RabbitMQ capture buffer. Produced <em>unconditionally</em> because
+     * {@link RabbitActivityRecorder} holds no RabbitMQ-client or messaging type of its own (only JDK types):
+     * the {@code io.smallrye.reactive.messaging}-importing capture beans ({@code QuarkusRabbitProducerCapture}
+     * / {@code QuarkusRabbitConsumerCapture}) that feed it live behind the {@code RABBITMQ} capability gate
+     * (R2), and {@code LiveActivityResource} reads it directly. When {@code quarkus-messaging-rabbitmq} is
+     * absent the capture beans are not wired, so nothing is ever recorded and the recorder simply stays empty
+     * — Live Activity renders no RabbitMQ {@code MESSAGING} entries, exactly as on Spring without
+     * {@code spring-rabbit}.
+     *
+     * <p>The {@code bootui.rabbitmq.*} keys and their defaults are kept unified with the Spring adapter's
+     * {@code BootUiProperties.Rabbitmq}, so the same values size and gate capture identically on both
+     * frameworks. Disabling the dedicated RabbitMQ panel also disables its underlying capture, while
+     * disabling Live Activity alone does not.</p>
+     */
+    @Produces
+    @Singleton
+    public RabbitActivityRecorder rabbitActivityRecorder(Config config) {
+        boolean enabled = config.getOptionalValue("bootui.rabbitmq.enabled", Boolean.class)
+                        .orElse(true)
+                && config.getOptionalValue("bootui.panels.rabbitmq.enabled", Boolean.class)
+                        .orElse(true);
+        boolean captureCorrelationId = config.getOptionalValue("bootui.rabbitmq.capture-correlation-id", Boolean.class)
+                .orElse(false);
+        int maxEntries = config.getOptionalValue("bootui.rabbitmq.max-entries", Integer.class)
+                .orElse(200);
+        int maxCorrelationIdLength = config.getOptionalValue("bootui.rabbitmq.max-correlation-id-length", Integer.class)
+                .orElse(16);
+        return new RabbitActivityRecorder(enabled, captureCorrelationId, maxEntries, maxCorrelationIdLength);
+    }
+
+    /**
+     * The Flyway panel service. Produced <em>unconditionally</em> because it holds no {@code org.flywaydb.*}
+     * type: the Flyway-API-importing {@link FlywayProvider} lives behind the gated {@link BootUiFlywayProducer}
+     * that is wired only when the {@code FLYWAY} capability is present (R2). When that provider is unsatisfied
+     * the engine is given a {@code null} provider, so {@code GET /flyway/migrations} renders the panel
+     * unavailable ({@code flywayPresent=false}) and the {@code migrate}/{@code clean} actions report it
+     * unavailable instead of failing.
+     */
+    @Produces
+    @Singleton
+    public FlywayService flywayService(Instance<FlywayProvider> flywayProviders) {
+        FlywayProvider provider = flywayProviders.isUnsatisfied() ? null : flywayProviders.get();
+        return new FlywayService(provider);
+    }
+
+    /**
+     * The Liquibase panel service. Produced <em>unconditionally</em> because it holds no {@code liquibase} /
+     * {@code io.quarkus.liquibase} type: the liquibase-API-importing {@link LiquibaseProvider} lives behind the
+     * gated {@link BootUiLiquibaseProducer} that is wired only when the {@code LIQUIBASE} capability is present
+     * (R2). When that provider is unsatisfied the engine is given a {@code null} provider, so
+     * {@code GET /liquibase/changesets} renders the panel unavailable and {@code POST /update} reports it
+     * unavailable instead of failing.
+     */
+    @Produces
+    @Singleton
+    public LiquibaseService liquibaseService(Instance<LiquibaseProvider> liquibaseProviders) {
+        LiquibaseProvider provider = liquibaseProviders.isUnsatisfied() ? null : liquibaseProviders.get();
+        return new LiquibaseService(provider);
+    }
+
+    /**
+     * The Database Connection Pools panel service. Produced <em>unconditionally</em> because it holds no
+     * {@code io.agroal} type: the Agroal-API-importing {@link ConnectionPoolProvider} lives behind the gated
+     * {@link BootUiAgroalProducer} that is wired only when the {@code AGROAL} capability is present (R2). When
+     * that provider is unsatisfied the engine is given a {@code null} provider, so
+     * {@code GET /database-connection-pools/pools} renders the panel unavailable (empty report).
+     *
+     * <p>It is given the concrete {@link QuarkusExposurePolicy} bean (not the {@code ExposurePolicy} SPI
+     * interface) so the engine masks the JDBC URL and pool username live — mirroring the Spring backend config
+     * passing {@code BootUiExposure} — and so adding more {@code ExposurePolicy} beans later can never make
+     * this wiring ambiguous.</p>
+     */
+    @Produces
+    @Singleton
+    public ConnectionPoolService connectionPoolService(
+            Instance<ConnectionPoolProvider> providers, QuarkusExposurePolicy exposure) {
+        ConnectionPoolProvider provider = providers.isUnsatisfied() ? null : providers.get();
+        return new ConnectionPoolService(provider, exposure);
+    }
+
+    private static List<String> activeProfiles(Config config) {
+        try {
+            return List.copyOf(config.unwrap(SmallRyeConfig.class).getProfiles());
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
+    }
+
+    /**
+     * The OSV.dev vulnerability scanner over the JDK {@link java.net.http.HttpClient} and Jackson 2. It
+     * follows the engine's <em>static settings record</em> extraction template: vulnerabilities has no live
+     * UI override / re-bind path, so the immutable {@link QuarkusVulnerabilitySettings} is mapped once from
+     * {@code bootui.vulnerabilities.*} (matching the Spring factory's defaults). The companion
+     * {@link QuarkusDependencyProvider} (the build-time-captured local inventory) is a plain {@code @Singleton}
+     * bean rather than a producer-method bean. The scanner is produced (not annotated as a bean itself) so its
+     * concrete type can be injected into {@code VulnerabilitiesResource} without making CDI resolution
+     * ambiguous — and it is never invoked except by the user-initiated {@code POST /scan}.
+     */
+    @Produces
+    @Singleton
+    public OsvVulnerabilityScanner osvVulnerabilityScanner(Config config) {
+        return new OsvVulnerabilityScanner(QuarkusVulnerabilitySettings.from(config));
+    }
+
+    /**
+     * The Scheduled Tasks service over the Quarkus {@link QuarkusScheduledTaskProvider}. Mirrors the Spring
+     * {@code bootUiScheduledTasksService} factory: the engine {@link ScheduledTasksService} owns only the
+     * framework-neutral sort + {@code schedulingPresent}/{@code total} wrapping, while the provider (the
+     * adapter) maps the build-time-captured {@code @Scheduled} metadata to the neutral DTO and self-filters.
+     *
+     * <p>The service is produced <em>unconditionally</em> (it holds no scheduler types), so
+     * {@code ScheduledResource} is wired and the panel renders on every platform; when {@code quarkus-scheduler}
+     * is absent the provider's captured-tasks {@code Instance} is unsatisfied, so it reports unavailable and
+     * the engine renders an empty {@code schedulingPresent=false} report. The concrete
+     * {@link QuarkusScheduledTaskProvider} is injected (not the {@code ScheduledTaskProvider} interface) so
+     * adding another provider later can never make this wiring ambiguous, exactly as the other producers do.
+     */
+    @Produces
+    @Singleton
+    public ScheduledTasksService scheduledTasksService(QuarkusScheduledTaskProvider provider) {
+        return new ScheduledTasksService(provider);
+    }
+
+    /**
+     * The Fault Tolerance panel's bounded, metadata-only capture buffer. Produced <em>unconditionally</em> because
+     * {@link FaultToleranceEventRecorder} holds no fault-tolerance type of its own (only JDK types): the
+     * {@code io.smallrye.faulttolerance}-importing port ({@code SmallRyeCircuitBreakerStates}) that feeds it
+     * lives behind the {@code SMALLRYE_FAULT_TOLERANCE} capability gate (R2), and {@code LiveActivityResource}
+     * reads the recorder directly. When the extension is absent nothing is ever recorded and the buffer simply
+     * stays empty, so Live Activity renders no {@code FAULT_TOLERANCE} entries.
+     *
+     * <p>The {@code bootui.fault-tolerance.*} keys and their defaults (enabled {@code true}, max-events
+     * {@code 200}) are kept unified with the Spring adapter's {@code BootUiProperties.FaultTolerance}, so the same
+     * values size and gate capture identically on both frameworks. Disabling the Fault Tolerance panel also
+     * disables its underlying capture, and a disabled recorder registers no listener at all.</p>
+     */
+    @Produces
+    @Singleton
+    public FaultToleranceEventRecorder faultToleranceEventRecorder(
+            Config config, Instance<TraceIdSource> traceIdProvider) {
+        boolean enabled = config.getOptionalValue("bootui.fault-tolerance.enabled", Boolean.class)
+                        .orElse(true)
+                && config.getOptionalValue("bootui.panels.fault-tolerance.enabled", Boolean.class)
+                        .orElse(true);
+        int maxEvents = config.getOptionalValue("bootui.fault-tolerance.max-events", Integer.class)
+                .orElse(200);
+        FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(enabled, maxEvents);
+        recorder.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
+        return recorder;
+    }
+
+    /**
+     * The Fault Tolerance panel report assembler. The engine {@link FaultToleranceService} owns only the neutral
+     * ordering, caps, per-type aggregation and availability wrapping; the Quarkus
+     * {@link QuarkusFaultTolerancePolicyProvider} maps the build-time-captured SmallRye Fault Tolerance
+     * annotations to the neutral DTO. The concrete provider is injected (not the SPI) so resolution can never
+     * become ambiguous, mirroring the other producers.
+     *
+     * <p>Produced <em>unconditionally</em> (it holds no fault-tolerance type): when
+     * {@code quarkus-smallrye-fault-tolerance} is absent the provider's captured-policies {@code Instance} is
+     * unsatisfied, so it reports unavailable and the engine renders {@code faultTolerancePresent=false}.</p>
+     */
+    @Produces
+    @Singleton
+    public FaultToleranceService faultToleranceService(
+            Config config, QuarkusFaultTolerancePolicyProvider provider, FaultToleranceEventRecorder recorder) {
+        int maxEvents = config.getOptionalValue("bootui.fault-tolerance.max-events", Integer.class)
+                .orElse(200);
+        return new FaultToleranceService(List.of(provider), recorder, maxEvents);
+    }
+
+    /**
+     * The Dev Services panel report assembler. The engine {@link DevServicesReportService} owns only the
+     * framework-neutral sort + count + wrap; {@link io.github.jdubois.bootui.quarkus4.devservices.QuarkusDevServicesProvider}
+     * supplies the build-time-captured
+     * services (masked) and presence flags. The concrete provider is injected (not the SPI) so resolution can
+     * never become ambiguous, mirroring the other producers.
+     */
+    @Produces
+    @Singleton
+    public DevServicesReportService devServicesReportService() {
+        return new DevServicesReportService();
+    }
+
+    /**
+     * The WebSockets panel settings. Frame <em>metadata</em> only: there is deliberately no property that
+     * could turn message-payload capture on, because BootUI never captures a payload on any stack.
+     */
+    @Produces
+    @Singleton
+    public WebSocketSettings webSocketSettings(Config config) {
+        return new WebSocketSettings(
+                config.getOptionalValue("bootui.websockets.enabled", Boolean.class)
+                        .orElse(true),
+                config.getOptionalValue("bootui.websockets.capturing", Boolean.class)
+                        .orElse(true),
+                config.getOptionalValue("bootui.websockets.max-endpoints", Integer.class)
+                        .orElse(200),
+                config.getOptionalValue("bootui.websockets.max-sessions", Integer.class)
+                        .orElse(200),
+                config.getOptionalValue("bootui.websockets.max-subscriptions", Integer.class)
+                        .orElse(500),
+                config.getOptionalValue("bootui.websockets.max-activity-entries", Integer.class)
+                        .orElse(500),
+                config.getOptionalValue("bootui.websockets.max-tracked-sessions", Integer.class)
+                        .orElse(2_000));
+    }
+
+    /**
+     * The WebSockets panel activity recorder. Produced <em>unconditionally</em> because it holds no
+     * {@code io.quarkus.websockets.next} type; the connection-observing beans that feed it are gated
+     * separately (see {@code BootUiQuarkusProcessor.registerWebSockets}). Without them the recorder simply
+     * stays empty and the panel reports itself unavailable.
+     */
+    @Produces
+    @Singleton
+    public WebSocketActivityRecorder webSocketActivityRecorder(WebSocketSettings settings) {
+        return new WebSocketActivityRecorder(settings);
+    }
+
+    /**
+     * The WebSockets panel service. The session provider is optional: it exists only when
+     * {@code quarkus-websockets-next} is on the classpath, and its absence simply means no live sessions are
+     * listed rather than a broken panel.
+     */
+    @Produces
+    @Singleton
+    public WebSocketService webSocketService(
+            QuarkusWebSocketMetadataProvider metadataProvider,
+            Instance<WebSocketSessionProvider> sessionProvider,
+            WebSocketActivityRecorder recorder,
+            WebSocketSettings settings,
+            QuarkusExposurePolicy exposure) {
+        return new WebSocketService(
+                metadataProvider,
+                sessionProvider.isResolvable() ? sessionProvider.get() : null,
+                recorder,
+                settings,
+                exposure);
+    }
+
+    /**
+     * The REST Client Trace panel recorder. Produced <em>unconditionally</em> because it holds no
+     * {@code quarkus-rest-client-reactive} type: the MicroProfile {@code RestClientListener} that
+     * registers a {@code QuarkusRestClientTraceFilter} on each proxy is gated separately (see
+     * {@code BootUiQuarkusProcessor.registerRestClientTrace}). When no REST client has been instrumented yet,
+     * {@code RestClientTraceRecorder#hasInstrumentedClient()} returns {@code false} and the panel reports
+     * itself unavailable; recording and the panel manifest flag are driven by
+     * {@code QuarkusPanelAvailability.REST_CLIENT_TRACE_PRESENT_KEY}.
+     */
+    @Produces
+    @Singleton
+    public RestClientTraceRecorder restClientTraceRecorder(Config config, Instance<TraceIdSource> traceIdProvider) {
+        boolean enabled = config.getOptionalValue("bootui.rest-client-trace.enabled", Boolean.class)
+                .orElse(true);
+        boolean recording = config.getOptionalValue("bootui.rest-client-trace.recording", Boolean.class)
+                .orElse(true);
+        boolean captureCallSite = config.getOptionalValue("bootui.rest-client-trace.capture-call-site", Boolean.class)
+                .orElse(true);
+        int maxEntries = config.getOptionalValue("bootui.rest-client-trace.max-entries", Integer.class)
+                .orElse(200);
+        long slowCallThresholdMillis = config.getOptionalValue(
+                        "bootui.rest-client-trace.slow-call-threshold-millis", Long.class)
+                .orElse(1000L);
+        int maxUriLength = config.getOptionalValue("bootui.rest-client-trace.max-uri-length", Integer.class)
+                .orElse(2000);
+        int maxHeaderValueLength = config.getOptionalValue(
+                        "bootui.rest-client-trace.max-header-value-length", Integer.class)
+                .orElse(200);
+        int chattyCallThreshold = config.getOptionalValue(
+                        "bootui.rest-client-trace.chatty-call-threshold", Integer.class)
+                .orElse(5);
+        int reservedSharePercent = config.getOptionalValue(
+                        "bootui.rest-client-trace.reserved-share-percent", Integer.class)
+                .orElse(TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
+        // Quarkus capture is deliberately metadata-only: arbitrary request headers are never retained,
+        // even if the Spring-oriented capture-headers property is configured.
+        RestClientTraceRecorder recorder = new RestClientTraceRecorder(
+                enabled,
+                recording,
+                false,
+                captureCallSite,
+                maxEntries,
+                slowCallThresholdMillis,
+                maxUriLength,
+                maxHeaderValueLength,
+                chattyCallThreshold,
+                reservedSharePercent);
+        recorder.setThreadKindClassifier(new QuarkusThreadKinds());
+        recorder.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
+        return recorder;
+    }
+}

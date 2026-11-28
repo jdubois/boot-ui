@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.engine.correlation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.mockStatic;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.Scope;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +29,39 @@ class BootUiCorrelationTests {
     @Test
     void currentIsNoneWhenNoScopeIsOpen() {
         assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void unmeteredScopesRestoreNestedClearingAndFailuresWithoutCallingTheJvmMeter() {
+        CorrelationContext request = CorrelationContext.forRequest("native-request");
+        try (var meter = mockStatic(SegmentMeter.class)) {
+            try (Scope outer = BootUiCorrelation.openUnmetered(request)) {
+                try (Scope cleared = BootUiCorrelation.openClearedUnmetered()) {
+                    Scope nested = BootUiCorrelation.openUnmetered(CorrelationContext.forExecution("native-task"));
+                    assertThat(BootUiCorrelation.current().executionId()).isEqualTo("native-task");
+                    nested.close();
+                    nested.close();
+                    assertThat(BootUiCorrelation.cleared()).isTrue();
+                }
+                assertThat(BootUiCorrelation.current()).isEqualTo(request);
+                assertThatThrownBy(() -> {
+                            try (Scope ignored = BootUiCorrelation.openUnmetered(null)) {
+                                throw new IllegalStateException("native-work-failed");
+                            }
+                        })
+                        .isInstanceOf(IllegalStateException.class);
+                assertThat(BootUiCorrelation.current()).isEqualTo(request);
+                assertThat(ManagedTasks.openUnmetered(request.withExecutionId("caller-runs")))
+                        .isNull();
+                try (Scope ignored = ManagedTasks.openUnmetered(null)) {
+                    assertThat(BootUiCorrelation.cleared()).isTrue();
+                }
+                assertThat(BootUiCorrelation.current()).isEqualTo(request);
+            }
+            assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+            assertThat(BootUiCorrelation.cleared()).isFalse();
+            meter.verifyNoInteractions();
+        }
     }
 
     @Test

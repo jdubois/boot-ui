@@ -1014,6 +1014,35 @@ class HibernateAdvisorObservationTests {
     }
 
     @Test
+    void generatorDeprecationKeepsPerUnitVersionApplicabilityAndReportCounts() {
+        var entities = List.of(HibernateEntityModel.fromClass(HibernateRulesTests.FieldGenericGeneratorEntity.class));
+        var old = new HibernatePersistenceUnitObservation(
+                "legacy", "legacy", entities, List.of(), "7.2.19.Final", settings(25), false);
+        var modern = new HibernatePersistenceUnitObservation(
+                "modern", "modern", entities, List.of(), "8.0.0.CR2", settings(25), false);
+
+        HibernateReport modernOnly = scanner(List.of(modern), List.of(), List.of(new DeprecatedGenericGeneratorRule()))
+                .scan();
+        assertThat(modernOnly.results()).isEmpty();
+        assertThat(modernOnly.violationsFound()).isZero();
+        assertThat(modernOnly.evidence().usable()).isFalse();
+
+        HibernateReport mixed = scanner(List.of(old, modern), List.of(), List.of(new DeprecatedGenericGeneratorRule()))
+                .scan();
+        assertThat(mixed.violationsFound()).isEqualTo(1);
+        assertThat(mixed.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("HIB-MAP-027");
+            assertThat(result.violationCount()).isEqualTo(1);
+            assertThat(result.sampleViolations()).singleElement().asString().contains("[legacy]");
+        });
+        assertThat(mixed.severityCounts().stream()
+                        .mapToInt(count -> count.count())
+                        .sum())
+                .isEqualTo(1);
+        assertThat(mixed.evidence().usable()).isTrue();
+    }
+
+    @Test
     void actualAttributeSelectionAndCompletionAreOwnedByTheEvaluator() {
         HibernateContext scalar = HibernateContext.observed(
                 new HibernatePersistenceUnitObservation(

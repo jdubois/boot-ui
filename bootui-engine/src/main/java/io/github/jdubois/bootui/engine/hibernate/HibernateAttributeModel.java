@@ -377,6 +377,16 @@ public record HibernateAttributeModel(
         return value instanceof Boolean booleanValue ? booleanValue : null;
     }
 
+    Annotation[] annotationArrayValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Annotation[] annotationsValue ? annotationsValue : null;
+    }
+
+    String[] annotationStringArrayValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof String[] stringsValue ? stringsValue : null;
+    }
+
     boolean annotationEnumArrayContains(Annotation annotation, String attributeName, String expectedName) {
         Object value = annotationValue(annotation, attributeName);
         if (!(value instanceof Object[] values)) {

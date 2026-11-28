@@ -172,6 +172,11 @@ Dismissing a rule removes all of its findings from the score.
   entity graphs, or DTO queries, and verify the actual query plan.
 - **Ownership**: eager collections belong to HIB-FETCH-010 at HIGH, not to this rule. An unreadable fetch declaration
   (including an XML-only mapping) is incomplete evidence, not a confirmed lazy mapping or a complete pass.
+- **Persistence 4**: `FetchType.DEFAULT` is resolved from that persistence unit's observed bootstrap defaults, not
+  assumed to mean `EAGER`. Quarkus 4 records the completed Hibernate mapping default without opening a session or
+  executing SQL. Missing defaults leave this check incomplete while preserving explicit `EAGER` findings.
+  A graph-free `@jakarta.persistence.Fetch(type = ...)` overrides the association's fetch declaration, including
+  when stored in its repeatable container. Named-graph and subgraph options do not redefine the ordinary declaration.
 
 ::: warning Eager-fetch dismissal migration
 HIB-FETCH-001 now covers to-one mappings only. Existing rule and single-finding dismissals remain attached to
@@ -195,6 +200,8 @@ XML configuration alone is not a CI failure. See the [CI policy reference](ci/re
   graphs, or DTO queries. Bound loading to the use case; do not directly page collection fetch joins.
 - **Evidence**: collection ownership uses relationship metadata, including map-valued element collections, not a Java
   return-type guess. Unreadable fetch declarations remain incomplete; known findings and their counts are retained.
+  On Hibernate 8, graph-free Jakarta `@Fetch` overrides are included, and collection `FetchType.DEFAULT` resolves to
+  `LAZY`, independently of the unit's to-one default.
 
 ### HIB-FETCH-003 - Collection fetch joins should not be paged directly
 
@@ -691,11 +698,18 @@ upgrade.
 - **Severity**: LOW
 - **Inspects**: class-level and attribute-level `@org.hibernate.annotations.GenericGenerator` and `@GenericGenerators`
   declarations.
-- **Fires when**: an entity or mapped attribute declares `@GenericGenerator` or `@GenericGenerators`.
+- **Fires when**: an entity or mapped attribute declares `@GenericGenerator` or `@GenericGenerators` on Hibernate ORM
+  **6.5 through 7.x**.
 - **Why it matters**: `@GenericGenerator` and `@GenericGenerators` were deprecated in Hibernate ORM 6.5 and 7.0 in favor
   of type-safe generator annotations.
 - **Recommendation**: replace `@GenericGenerator` with a meta-annotated `@IdGeneratorType` annotation, `@UuidGenerator`,
   or standard JPA `@SequenceGenerator` / `@TableGenerator`.
+- **Version applicability**: Hibernate ORM 8 reworked `@GenericGenerator` and reversed its deprecation; this rule is
+  skipped there, not counted as a conclusive pass. It also skips pre-6.5 versions and preserves missing-version
+  evidence rather than guessing. The rule ID remains reserved and existing 6.5–7.x findings/dismissals retain their
+  meaning. See the [ORM 8 migration guide](https://docs.hibernate.org/orm/8.0/migration-guide/) and the actual
+  [8.0.0.CR2 annotation](https://github.com/hibernate/hibernate-orm/blob/8.0.0.CR2/hibernate-core/src/main/java/org/hibernate/annotations/GenericGenerator.java)
+  managed by the Quarkus 4.0.1 platform.
 
 ## Entity design
 

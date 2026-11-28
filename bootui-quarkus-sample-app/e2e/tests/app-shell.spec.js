@@ -90,7 +90,7 @@ async function expandAllSidebarGroups(page) {
 }
 
 test.describe('BootUI app shell (Quarkus)', () => {
-  test('navbar shows the application name and Quarkus / Java versions', async ({page}) => {
+  test('navbar shows the application name and Quarkus / Java versions', async ({page, quarkusGeneration}) => {
     await page.goto('/bootui/')
 
     const theme = await page.request.get('/bootui/bootui-theme.css')
@@ -100,9 +100,11 @@ test.describe('BootUI app shell (Quarkus)', () => {
       await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bootui-green').trim())
     ).toBe('#198754')
     await expect(page.locator('.brand-name')).toHaveText('BootUI')
-    await expect(page.locator('.topbar-title')).toContainText('bootui-quarkus-sample')
+    await expect(page.locator('.topbar-title')).toContainText(
+      quarkusGeneration === '4' ? 'bootui-quarkus-4-sample' : 'bootui-quarkus-sample'
+    )
     const subtitle = page.locator('.topbar-subtitle')
-    await expect(subtitle).toContainText(/Quarkus \d+\.\d+/)
+    await expect(subtitle).toContainText(new RegExp(`Quarkus ${quarkusGeneration}\\.\\d+`))
     await expect(subtitle).toContainText(/Java /)
   })
 

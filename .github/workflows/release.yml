@@ -53,15 +53,33 @@ jobs:
       - name: Check release workflow integrity
         run: bash .github/scripts/check-release-integrity.sh
 
-      - name: Set up JDK 17
-        # Releases stay on the Java 17 baseline; broader JDK compatibility is
-        # validated in CI by .github/workflows/jdk-compatibility.yml.
+      - name: Set up legacy consumer JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preserve the legacy consumer JDK
+        run: echo "SMOKE_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up Quarkus 4 consumer JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Preserve the Quarkus 4 consumer JDK
+        run: echo "SMOKE_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 25
+        # Build all nine coordinates together. Shared/Spring/Q3 classfiles remain Java 17;
+        # Q4 classfiles target Java 21. Legacy consumers still execute on Java 17.
         uses: actions/setup-java@v6
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
           cache: maven
           server-id: central
           server-username-env-var: MAVEN_CENTRAL_USERNAME
@@ -157,6 +175,7 @@ jobs:
           # substitution above does not reach it.
           perl -0pi -e 's{^VERSION=[0-9][0-9A-Za-z.\-]*$}{VERSION=$ENV{VERSION}}mg' docs/CLI.md
           python3 .github/scripts/workshop-version.py update "$VERSION"
+          python3 .github/scripts/release-quarkus-4-docs.py update "$VERSION"
           # Pin the committed release source's Action before sealing the versioned contents.
           python3 .github/scripts/ci-docs-version.py update "$VERSION"
           python3 .github/scripts/ci-examples.py render
@@ -433,6 +452,7 @@ jobs:
          echo "$RELEASE_TAG is on origin/$RELEASE_BRANCH."
 
          python3 .github/scripts/workshop-version.py check "$VERSION"
+         python3 .github/scripts/release-quarkus-4-docs.py check "$VERSION"
          # Tag entry and resume check signed contents only; never repair them in place.
          python3 .github/scripts/ci-docs-version.py check "$VERSION"
          python3 .github/scripts/ci-examples.py check
@@ -499,7 +519,7 @@ jobs:
           # shades it into the published -javaagent jar, and the two parents only because they parent
           # the reactor; every published module carries a flattened, parentless POM.
           ./mvnw -B -ntp -Prelease clean install \
-            -pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
+            -pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-4-parent,bootui-quarkus-4,bootui-quarkus-4-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
             -am
 
           # The bundle is assembled from the installed, signed files rather than by
@@ -535,6 +555,8 @@ jobs:
             "bootui-spring-boot-starter/${VERSION}/bootui-spring-boot-starter-${VERSION}.jar"
             "bootui-quarkus/${VERSION}/bootui-quarkus-${VERSION}.jar"
             "bootui-quarkus-deployment/${VERSION}/bootui-quarkus-deployment-${VERSION}.jar"
+            "bootui-quarkus-4/${VERSION}/bootui-quarkus-4-${VERSION}.jar"
+            "bootui-quarkus-4-deployment/${VERSION}/bootui-quarkus-4-deployment-${VERSION}.jar"
             "bootui-cli/${VERSION}/bootui-cli-${VERSION}.jar"
             # The runnable CLI is the shaded artifact, not the thin jar, so it is checked on its own:
             # a release that published bootui-cli but lost the shade execution would otherwise look fine

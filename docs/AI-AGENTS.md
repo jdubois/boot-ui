@@ -40,6 +40,10 @@ Both surfaces give the agent identical data: the same registry, the same panel p
 The CLI can neither offer a diagnostic the MCP server lacks nor miss one it has, because its command table is generated
 from the tool registry at build time.
 
+Quarkus 3 and Quarkus 4 select different extension coordinates but retain the `quarkus` discriminator and the same
+BootUI tool/DTO contract. Check [generation-specific setup and release availability](setup/quarkus.md) before
+installing an adapter. Quarkus Dev MCP is experimental and separate: enabling it does not enable or bridge BootUI MCP.
+
 Use the [MCP server](#connect-an-agent-to-the-bootui-mcp-server) when your agent or IDE speaks MCP natively. The agent
 discovers tools, schemas, and descriptions automatically and calls them as native tool calls, with no shell commands
 and no JSON parsing glue. This is the path the rest of this page follows, and what the agent skill, the Claude Code
@@ -1079,8 +1083,9 @@ advisory whole. The PostgreSQL and MySQL reports cap each section's rows and fla
 
 The MCP server inherits BootUI's full safety posture, so handing it to an agent stays safe by construction:
 
-- It is only ever live while BootUI itself is active. On Quarkus that means it is **absent from a production build**,
-  with no flag that turns it on. On Spring the `prod` and `production` profiles disable BootUI, and only an explicit
+- It is only ever live while BootUI itself is active. On Quarkus it is **absent from packaged JVM production builds**,
+  with no JVM activation override. Quarkus 3 native binaries also exclude it; Quarkus 4 native acceptance is
+  [not yet established](QUARKUS-SUPPORT.md#quarkus-4). On Spring the `prod` and `production` profiles disable BootUI, and only an explicit
   `bootui.enabled=ON` overrides that.
 - Read tools require the backing panel to be enabled; all action tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error instead of running.

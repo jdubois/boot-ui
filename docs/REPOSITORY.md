@@ -20,11 +20,15 @@
   consumers; it stays dormant until a BootUI application claims it.
 - `bootui-spring-sample-app`: Spring MVC sample app + Playwright e2e coverage.
 - `bootui-spring-webflux-sample-app`: Spring WebFlux sample app.
-- `bootui-quarkus-parent`: shared Quarkus platform BOM and plugin management.
-- `bootui-quarkus`: Quarkus runtime adapter.
-- `bootui-quarkus-deployment`: Quarkus build-time wiring module.
-- `bootui-quarkus-integration-tests`: Quarkus `@QuarkusTest` suites.
-- `bootui-quarkus-sample-app`: Quarkus sample app.
+- `bootui-quarkus-parent`: Quarkus 3 platform BOM and plugin management.
+- `bootui-quarkus`: Quarkus 3 runtime adapter.
+- `bootui-quarkus-deployment`: Quarkus 3 build-time wiring module.
+- `bootui-quarkus-integration-tests`: Quarkus 3 `@QuarkusTest` suites.
+- `bootui-quarkus-sample-app`: Quarkus 3 sample app.
+- `bootui-quarkus-4-parent`, `bootui-quarkus-4`, `bootui-quarkus-4-deployment`: the independent Java 21 / Quarkus 4
+  subtree, using the distinct `io.github.jdubois.bootui.quarkus4` namespace and no Quarkus 3 adapter dependency.
+- `bootui-quarkus-4-integration-tests`, `bootui-quarkus-4-sample-app`: non-published Quarkus 4 validation and sample
+  modules. The `quarkus-4` reactor profile activates on JDK 21+ without changing the existing Java 17 modules.
 
 ## Compatibility version source of truth
 
@@ -32,28 +36,50 @@ Spring Boot and Quarkus compatibility references for the published adapters shou
 
 - `spring-boot.version`
 - `quarkus.platform.version`
+- `quarkus4.platform.version` (independent Quarkus 4 baseline)
 
 When these are updated, refresh matching documentation references in the same pull request (`README.md`,
 `docs/SETUP.md`, `docs/features/`, `AGENTS.md`, and
-`.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`). All Quarkus modules inherit
+`.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`). The Quarkus 3 modules inherit
 `bootui-quarkus-parent`, which imports the Quarkus BOM closer than the root parent imports Spring Boot's BOM. This keeps
 the two frameworks' shared transitive dependencies isolated while giving the extension, tests, and sample app one
 Quarkus build baseline. The published extension also supports the older Quarkus 3.33 LTS line: its
 `requiresQuarkusCore` range and `build.yml`'s `quarkus-lts` job pin that separately. The root build currently uses
 Quarkus 3.40.1.2; it is not the name of the older LTS compatibility target.
 
+The Quarkus 4 subtree imports its nearer BOM through `bootui-quarkus-4-parent`. Its baseline is **4.0.1**,
+its declared minimum is **core 4.0.0**, and its class-file target is **Java 21**. Existing modules keep Java 17.
+Quarkus 3 keeps its LTS policy; Quarkus 4 is initially non-LTS. See [Framework support](FRAMEWORK-SUPPORT.md)
+for generation selection, and [Quarkus support](QUARKUS-SUPPORT.md#quarkus-4) for execution evidence.
+
 ## Published artifacts
 
-Maven Central receives seven coordinates under `com.julien-dubois.bootui`: `bootui-engine`, `bootui-ui`,
+The historical **2.5.0** release illustrates the pre-Quarkus-4 distribution: seven coordinates under
+`com.julien-dubois.bootui`: `bootui-engine`, `bootui-ui`,
 `bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli` (with its `all` classifier),
-and `bootui-agent`. Their POMs are flattened by `flatten-maven-plugin`: no `<parent>`, every dependency version
-resolved, and the project metadata inlined, so neither `bootui-parent` nor `bootui-quarkus-parent` is published. Every
-other module is built but never published. The release installs the publication reactor and uploads a bundle that
-`.github/scripts/assemble_central_bundle.py` assembles from exactly those seven coordinates.
+and `bootui-agent`.
+
+<!-- bootui-quarkus-4:next-release:start -->
+> **Next release:** Releases before the first Quarkus 4-carrying BootUI release do not include the new coordinates. Select a published release that contains this adapter; until then, using Quarkus 4 requires an explicit source build.
+<!-- bootui-quarkus-4:next-release:end -->
+
+The additive distribution target is **nine** coordinates: those seven plus `bootui-quarkus-4` and
+`bootui-quarkus-4-deployment`. No release number is assigned here. Only the new runtime and deployment are published;
+`bootui-parent`, both Quarkus parents, samples, fixtures, conformance, coverage, and the standalone agent bridge remain
+unpublished. Distribution POMs are flattened by `flatten-maven-plugin`: no `<parent>`, resolved dependency versions,
+and inlined project metadata.
+
+The release installs the publication reactor and uploads the allow-listed bundle assembled by
+`.github/scripts/assemble_central_bundle.py`. Historical release manifests retain their own artifact set; adding
+Quarkus 4 must not make a published seven-coordinate release appear incomplete.
 `.github/scripts/stage-release-candidate.sh` builds the same bundle, unsigned, into a local file repository, and `.github/scripts/consumer-smoke-tests.sh <version> <directory>` runs the release's
 consumer smoke tests against it. `.github/scripts/published-cli-smoke.sh <spring-sample-jar>` runs the newest published
 `bootui-cli`, pinned by SHA-256, against the Spring sample built from the checkout, so a server change that breaks the
 CLI users already have fails the build.
+
+Complete candidate/release builds use JDK 25 without raising the Java 17/21 class-file targets. Set
+`SMOKE_JAVA17_HOME` for actual legacy consumer execution and `SMOKE_JAVA21_HOME` for Quarkus 4 consumers;
+a newer build JDK with `--release` is not a substitute for the baseline runtime checks.
 
 ## Documentation website
 

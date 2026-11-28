@@ -14,10 +14,12 @@ registerHomeGuideTests(test, expect)
 test.describe('Scorecard view (Quarkus)', () => {
   test.beforeEach(async ({page}) => stubUnscannedAdvisorReports(page))
 
-  test('renders the panel header and the scanner dashboard', async ({openView}) => {
+  test('renders the panel header and the scanner dashboard', async ({openView, quarkusGeneration}) => {
     const page = await openView('scorecard', 'Scorecard')
 
-    await expect(page.locator('.topbar-title')).toContainText('bootui-quarkus-sample')
+    await expect(page.locator('.topbar-title')).toContainText(
+      quarkusGeneration === '4' ? 'bootui-quarkus-4-sample' : 'bootui-quarkus-sample'
+    )
     await expect(page.locator('.topbar-subtitle')).toContainText(/Quarkus/)
     await expect(page.locator('.topbar-subtitle')).toContainText(/Java/)
 

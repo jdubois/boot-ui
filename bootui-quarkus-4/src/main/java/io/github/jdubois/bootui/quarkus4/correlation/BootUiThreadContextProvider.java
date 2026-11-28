@@ -1,0 +1,71 @@
+package io.github.jdubois.bootui.quarkus4.correlation;
+
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.ManagedTasks;
+import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.quarkus.runtime.ImageMode;
+import java.util.Map;
+import org.eclipse.microprofile.context.spi.ThreadContextProvider;
+import org.eclipse.microprofile.context.spi.ThreadContextSnapshot;
+
+/**
+ * Carries the submitting request's correlation into tasks that SmallRye Context Propagation hands to managed executors
+ * on Quarkus ({@code docs/PLAN-v2.md} D30, M4-15), such as {@code ManagedExecutor} tasks, so their work is an execution
+ * of the request that submitted it. Registered as a service; the context type is BootUI's own, so propagating or
+ * clearing it never touches another context.
+ */
+public final class BootUiThreadContextProvider implements ThreadContextProvider {
+
+    public static final String CONTEXT_TYPE = "BootUI";
+
+    @Override
+    public ThreadContextSnapshot currentContext(Map<String, String> props) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return () -> () -> {};
+        }
+        CorrelationContext context = ManagedTasks.taskContext(QuarkusRequestCorrelation.current());
+        return () -> {
+            if (BootUiNativeActivation.isNativeInactive()) {
+                return () -> {};
+            }
+            // The same request already current on this thread keeps its context: no empty nested execution.
+            boolean nativeRuntime = ImageMode.current() != ImageMode.JVM;
+            BootUiCorrelation.Scope scope =
+                    nativeRuntime ? ManagedTasks.openUnmetered(context) : ManagedTasks.open(context);
+            if (scope == null) {
+                return () -> {};
+            }
+            // The task's thread-locals scope on its worker, inside its context (docs/PLAN-v2.md §5.16, M5-5f).
+            long threadLocals = nativeRuntime ? 0L : AgentThreadLocals.open();
+            return () -> {
+                try {
+                    if (!nativeRuntime) {
+                        AgentThreadLocals.close(threadLocals);
+                    }
+                } finally {
+                    scope.close();
+                }
+            };
+        };
+    }
+
+    @Override
+    public ThreadContextSnapshot clearedContext(Map<String, String> props) {
+        return () -> {
+            if (BootUiNativeActivation.isNativeInactive()) {
+                return () -> {};
+            }
+            BootUiCorrelation.Scope scope = ImageMode.current() != ImageMode.JVM
+                    ? BootUiCorrelation.openClearedUnmetered()
+                    : BootUiCorrelation.openCleared();
+            return scope::close;
+        };
+    }
+
+    @Override
+    public String getThreadContextType() {
+        return CONTEXT_TYPE;
+    }
+}

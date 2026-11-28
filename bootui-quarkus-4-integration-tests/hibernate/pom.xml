@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-integration-tests-aggregator</artifactId>
+        <version>2.6.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-4-hibernate-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Hibernate ORM Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-hibernate-orm (on an in-memory H2 database) on
+        top of the bootui-quarkus-4 extension and proves the Hibernate (ORM mapping) advisor light-up end to end:
+        the app's mapped @Entity classes are read from the EntityManagerFactory metamodel by the engine
+        JpaMetamodelReader (via the capability-gated QuarkusEntityDiscovery), the shared engine HibernateScanner
+        runs its curated rule registry on POST /bootui/api/hibernate/scan, and the QuarkusHibernatePropertyLookup
+        maps the engine's config keys onto the quarkus.hibernate-orm.* namespace. Kept separate from
+        bootui-quarkus-4-integration-tests (which deliberately has NO Hibernate ORM) so the ORM-absent
+        not-configured path and the ORM-present scan path are each proven in isolation — the same split used for
+        the SmallRye-Health and OpenTelemetry present/absent coverage.</description>
+
+    <!-- Hibernate augmentation joins the Q4 fixture reactor on JDK 21 to 27. An explicit in-memory H2 URL
+         prevents Dev Services; this test module is never published. -->
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-4-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Adds Hibernate ORM. Its presence flips the BootUI extension's HIBERNATE_ORM capability gate on, so the
+             deployment processor registers the in-process BootUiHibernateProducer (the jakarta.persistence-reading
+             EntityDiscoverySource) and the Hibernate panel is lit up in the manifest. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm</artifactId>
+        </dependency>
+
+        <!-- In-memory H2 database with an explicit JDBC URL (see application.properties), so Hibernate has a real
+             datasource to build its metamodel against without requiring Docker / Dev Services. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- forkCount=1: avoids a Quarkus @QuarkusTest classloading race between concurrent Surefire
+                 forks in the same module (test-classes.idx); see
+                 bootui-quarkus-4-integration-tests/base/pom.xml for the full rationale. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

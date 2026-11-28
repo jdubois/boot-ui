@@ -1,0 +1,490 @@
+package io.github.jdubois.bootui.quarkus4.web;
+
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
+import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
+import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import io.github.jdubois.bootui.quarkus4.BootUiQuarkusSafetyFilter;
+import io.github.jdubois.bootui.quarkus4.QuarkusBootUiPaths;
+import io.github.jdubois.bootui.quarkus4.QuarkusPanelAccessConfig;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusThreadKinds;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.quarkus.runtime.ImageMode;
+import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.vertx.http.runtime.filters.Filters;
+import io.quarkus.vertx.http.runtime.security.QuarkusHttpUser;
+import io.vertx.core.Context;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.HttpServerResponse;
+import io.vertx.ext.auth.User;
+import io.vertx.ext.web.RoutingContext;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import org.eclipse.microprofile.config.Config;
+import org.jboss.logging.Logger;
+
+/**
+ * Captures completed HTTP exchanges into the shared {@link HttpExchangeBuffer} — the Quarkus analogue of
+ * Spring's Actuator {@code HttpExchangeRepository}, which has no Quarkus counterpart. Registered as a
+ * Vert.x route filter (like {@code BootUiQuarkusSafetyFilter}); it is wired only in dev/test launch
+ * modes, so production stays dark.
+ *
+ * <p>It records in {@link HttpServerResponse#bodyEndHandler} so status, headers, byte count and duration
+ * are final (a route filter runs before the response is sent, where those are all defaulted). BootUI's
+ * own traffic is excluded before recording so the panel never shows its own polling and the self counter
+ * mirrors Spring; the exclusion goes through {@link QuarkusBootUiPaths#isBootUiRequest} so it holds under a
+ * non-default {@code quarkus.http.root-path} and for a custom {@code bootui.path} mount alike. The buffer
+ * caps size and masks downstream, so this filter does minimal, non-blocking work on the event loop.</p>
+ *
+ * <p>Capture never disturbs the request: every callback is guarded, and a capture failure is logged under
+ * BootUI's own logger (which the Exceptions panel ignores) instead of propagating into Vert.x, where
+ * {@code QuarkusErrorHandler} would report it as the application's failure. Response headers are read from a
+ * copy taken in {@code headersEndHandler} whenever the response is ended off the event loop, because the live
+ * map may then still be mutated by the event loop while the body-end handler runs.</p>
+ *
+ * <p>When an OpenTelemetry {@link TraceIdSource} is present (capability-gated), the active server span's
+ * trace id is resolved <em>at filter entry</em> — on the event loop, where the span is current — and stamped
+ * on the captured exchange so the Live Activity timeline can nest this request's SQL and exceptions under it.
+ * The provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace
+ * id stays {@code null}, leaving the feed flat.</p>
+ *
+ * <p>The authenticated principal is resolved <em>at {@code bodyEndHandler} time</em> instead — after
+ * routing/business logic has run, so Quarkus's auth mechanism (a core {@code quarkus-vertx-http} concern,
+ * independent of whether the {@code quarkus-security} extension is added) has had a chance to authenticate.
+ * {@link SecurityIdentity} and {@link QuarkusHttpUser} ship as non-optional transitive dependencies of
+ * {@code quarkus-vertx-http}, so this needs no capability gate, unlike the CDI security-event capture in
+ * {@code QuarkusSecurityEventCapture}. An unauthenticated or anonymous request stamps {@code null}, matching
+ * the Spring adapter's {@code HttpExchange.getPrincipal()} contract.</p>
+ *
+ * <p>Each request also gets BootUI's own request id at filter entry ({@code docs/PLAN-v2.md} §5.1). Its
+ * {@link CorrelationContext} is attached to the request's Vert.x duplicated context, which Quarkus carries to the
+ * worker or virtual thread that may continue the request, and made current on the event loop while the rest of the
+ * chain runs synchronously. The captured exchange is stamped with that id, whether or not OpenTelemetry is
+ * present.</p>
+ */
+@ApplicationScoped
+public class QuarkusHttpExchangeCaptureFilter {
+
+    /** After the safety filter (priority 1000); only ever records, never short-circuits. */
+    private static final int PRIORITY = 900;
+
+    static final String EXPOSE_REQUEST_ID_HEADER_KEY = "bootui.http-exchanges.expose-request-id-header";
+
+    private static final Logger LOG = Logger.getLogger(QuarkusHttpExchangeCaptureFilter.class);
+
+    private final java.util.function.Supplier<HttpExchangeBuffer> buffer;
+    private final java.util.function.Supplier<TraceIdSource> traceIdProvider;
+    private final Config config;
+    private final java.util.function.Supplier<RequestPhases> phases;
+    private final java.util.function.Supplier<RuntimeEventSink> journal;
+    private final QuarkusPanelAccessConfig panelAccessConfig;
+    private final java.util.function.Supplier<BootUiQuarkusSafetyFilter> safetyFilter;
+    private final java.util.concurrent.atomic.AtomicBoolean loggedInvalidExposeHeaderConfig =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    public QuarkusHttpExchangeCaptureFilter(
+            HttpExchangeBuffer buffer, Instance<TraceIdSource> traceIdProvider, Config config) {
+        this(buffer, traceIdProvider, config, null, null, null);
+    }
+
+    /**
+     * @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none
+     * @param journal the runtime journal, which receives one {@code HTTP} event per request ({@code docs/PLAN-v2.md}
+     *     §5.2); {@code null} publishes nothing
+     */
+    public QuarkusHttpExchangeCaptureFilter(
+            HttpExchangeBuffer buffer,
+            Instance<TraceIdSource> traceIdProvider,
+            Config config,
+            RequestPhases phases,
+            RuntimeJournal journal) {
+        this(buffer, traceIdProvider, config, phases, journal, null);
+    }
+
+    /**
+     * @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none
+     * @param journal the runtime journal, which receives one {@code HTTP} event per request ({@code docs/PLAN-v2.md}
+     *     §5.2); {@code null} publishes nothing
+     * @param safetyFilter the shared localhost/trusted-peer guard reused to gate opt-in request-id response headers
+     */
+    @Inject
+    public QuarkusHttpExchangeCaptureFilter(
+            Instance<HttpExchangeBuffer> buffer,
+            Instance<TraceIdSource> traceIdProvider,
+            Config config,
+            Instance<RequestPhases> phases,
+            Instance<RuntimeJournal> journal,
+            Instance<BootUiQuarkusSafetyFilter> safetyFilter) {
+        this.buffer = buffer::get;
+        this.traceIdProvider = () -> traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
+        this.config = config;
+        this.phases = phases::get;
+        this.journal = journal::get;
+        this.panelAccessConfig = new QuarkusPanelAccessConfig(config);
+        this.safetyFilter = safetyFilter::get;
+    }
+
+    public QuarkusHttpExchangeCaptureFilter(
+            HttpExchangeBuffer buffer,
+            Instance<TraceIdSource> traceIdProvider,
+            Config config,
+            RequestPhases phases,
+            RuntimeJournal journal,
+            BootUiQuarkusSafetyFilter safetyFilter) {
+        this.buffer = () -> buffer;
+        this.traceIdProvider = () -> traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
+        this.config = config;
+        this.phases = () -> phases;
+        this.journal = () -> journal == null ? RuntimeEventSink.NONE : journal;
+        this.panelAccessConfig = new QuarkusPanelAccessConfig(config);
+        this.safetyFilter = new java.util.function.Supplier<>() {
+            private BootUiQuarkusSafetyFilter resolved = safetyFilter;
+
+            @Override
+            public synchronized BootUiQuarkusSafetyFilter get() {
+                if (resolved == null) {
+                    resolved = new BootUiQuarkusSafetyFilter(config);
+                }
+                return resolved;
+            }
+        };
+    }
+
+    public void register(@Observes Filters filters) {
+        filters.register(this::handle, PRIORITY);
+    }
+
+    void handle(RoutingContext rc) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            rc.next();
+            return;
+        }
+        // Routed on a Vert.x event loop: the agent's blocking sensor watches it (M5-5c).
+        boolean nativeRuntime = ImageMode.current() == ImageMode.NATIVE_RUN;
+        if (!nativeRuntime) {
+            QuarkusThreadKinds.registerIfEventLoop();
+        }
+        CorrelationContext correlation = null;
+        try {
+            correlation = correlate(rc);
+        } catch (RuntimeException failure) {
+            logCaptureFailure(failure);
+        }
+        if (correlation == null) {
+            rc.next();
+            return;
+        }
+        if (nativeRuntime) {
+            // The duplicated Vert.x context already carries the request across native workers. The JVM scope also
+            // opens SegmentMeter, which must not initialize for the basic native HTTP/correlation capability.
+            if (correlation != CorrelationContext.BOOTUI) {
+                try {
+                    observe(rc, correlation);
+                } catch (RuntimeException failure) {
+                    logCaptureFailure(failure);
+                }
+            }
+            rc.next();
+            return;
+        }
+        // The request's measurement starts inside its correlation scope, not before it: a scope hands back the request
+        // its thread was metered for when it opened, so a meter begun outside would follow this event loop on to the
+        // next request it serves once routing returns with the response still pending.
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
+            if (correlation == CorrelationContext.BOOTUI) {
+                rc.next();
+                return;
+            }
+            try {
+                observe(rc, correlation);
+            } catch (RuntimeException failure) {
+                logCaptureFailure(failure);
+            }
+            // The BootUI agent's code-paths fragment of this request on the event loop (docs/PLAN-v2.md M5-4a): a
+            // blocking resource method runs on a worker, where its own fragment starts at its outermost bean call.
+            AgentCodePaths.begin();
+            AgentCodePaths.phase(RequestPhase.FILTERS);
+            try {
+                rc.next();
+            } finally {
+                AgentCodePaths.end();
+            }
+        }
+    }
+
+    /**
+     * Correlates the request on its Vert.x duplicated context and returns the correlation to run the rest of its
+     * routing under, without yet measuring anything.
+     */
+    private CorrelationContext correlate(RoutingContext rc) {
+        String path = rc.normalizedPath();
+        if (QuarkusBootUiPaths.isBootUiRequest(config, path)) {
+            // BootUI's own request: never recorded, and the work it does, on the event loop or a worker, stays out of
+            // the runtime journal (docs/PLAN-v2.md §5.2).
+            QuarkusRequestCorrelation.attach(CorrelationContext.BOOTUI);
+            return CorrelationContext.BOOTUI;
+        }
+        CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
+        QuarkusRequestCorrelation.attach(correlation, rc.request().method().name(), path);
+        return correlation;
+    }
+
+    /** Starts observing the correlated request, from inside its correlation scope. */
+    private void observe(RoutingContext rc, CorrelationContext correlation) {
+        boolean nativeRuntime = ImageMode.current() == ImageMode.NATIVE_RUN;
+        HttpExchangeBuffer buffer = this.buffer.get();
+        RequestPhases phases = this.phases.get();
+        RuntimeEventSink journal = this.journal.get();
+        String path = rc.normalizedPath();
+        String requestId = correlation.requestId();
+        long startNanos = System.nanoTime();
+        Instant started = Instant.now();
+        if (phases != null) {
+            phases.begin(requestId);
+        }
+        if (!nativeRuntime && journal.records(JournalSource.RESOURCES)) {
+            SegmentMeter.shared().begin(requestId);
+        }
+        HttpServerRequest request = rc.request();
+        Map<String, List<String>> requestHeaders = headers(request.headers());
+        String traceId = currentTraceId();
+        String thread = Thread.currentThread().getName();
+        AtomicReference<Map<String, List<String>>> committedResponseHeaders = new AtomicReference<>();
+        rc.addHeadersEndHandler(v -> {
+            if (BootUiNativeActivation.isNativeInactive()) {
+                return;
+            }
+            exposeRequestIdHeaderIfAllowed(rc, requestId);
+            try {
+                committedResponseHeaders.set(headers(rc.response().headers()));
+            } catch (RuntimeException failure) {
+                logCaptureFailure(failure);
+            }
+        });
+        java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.function.IntConsumer complete = status -> {
+            if (BootUiNativeActivation.isNativeInactive()) {
+                return;
+            }
+            // A late body end can run on a different worker after close-time capture; its phase must still clear.
+            if (!nativeRuntime) {
+                AgentCodePaths.clearPhase();
+            }
+            if (!completed.compareAndSet(false, true)) {
+                return;
+            }
+            // Runs on the thread that ended the response: on a worker, no end() closes the request's scope, so the
+            // code-paths phase its response filter marked is cleared here, before the worker takes other work.
+            try {
+                long durationNanos = System.nanoTime() - startNanos;
+                long durationMs = durationNanos / 1_000_000L;
+                HttpServerResponse response = rc.response();
+                // Ends the request's measurement (docs/PLAN-v2.md §5.11), closing the segment its worker left open.
+                ResourceUsage resources =
+                        nativeRuntime ? null : SegmentMeter.shared().take(requestId);
+                if (phases != null) {
+                    phases.end(requestId);
+                }
+                try {
+                    journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            started.toEpochMilli(),
+                            durationNanos,
+                            correlation,
+                            traceId,
+                            thread,
+                            null,
+                            RequestSlowThreshold.isFailedOrSlow(status, durationMs, buffer.slowThresholdMillis()),
+                            new HttpPayload(
+                                    request.method().name(),
+                                    path,
+                                    null,
+                                    null,
+                                    status,
+                                    resources,
+                                    RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+                } catch (RuntimeException ex) {
+                    // Publishing never disturbs the request it observes.
+                }
+                buffer.record(new CapturedHttpExchange(
+                        started,
+                        request.method().name(),
+                        toUri(request),
+                        status,
+                        durationMs,
+                        remoteAddr(rc),
+                        principal(rc),
+                        null,
+                        requestHeaders,
+                        responseHeaders(response, committedResponseHeaders.get()),
+                        traceId,
+                        null,
+                        requestId));
+            } catch (RuntimeException failure) {
+                logCaptureFailure(failure);
+            }
+        };
+        rc.addBodyEndHandler(v -> complete.accept(rc.response().getStatusCode()));
+        rc.addEndHandler(
+                ended -> complete.accept(rc.response().ended() ? rc.response().getStatusCode() : 0));
+        if (rc.response().ended() || rc.response().closed()) {
+            complete.accept(rc.response().ended() ? rc.response().getStatusCode() : 0);
+        }
+    }
+
+    /**
+     * The response headers as sent. Vert.x hands the live header map to the channel and only then runs the
+     * body-end handler. On the event loop that write is synchronous, so the live map is final and also carries
+     * the {@code Set-Cookie} headers Vert.x appends after {@code headersEndHandler}. On any other thread (a
+     * worker or virtual thread ending the response) the event loop may still be mutating that map, so reading
+     * it can throw; the copy taken in {@code headersEndHandler}, just before the hand-off, is used instead. Vert.x
+     * Web runs headers-end handlers in reverse registration order, so this early filter's copy also sees headers
+     * added by handlers registered after it.
+     */
+    private static Map<String, List<String>> responseHeaders(
+            HttpServerResponse response, Map<String, List<String>> committed) {
+        Map<String, List<String>> fallback = committed == null ? Map.of() : committed;
+        if (!Context.isOnEventLoopThread()) {
+            return fallback;
+        }
+        try {
+            return headers(response.headers());
+        } catch (RuntimeException failure) {
+            return fallback;
+        }
+    }
+
+    /**
+     * The active span's trace id, or {@code null} when OpenTelemetry is absent (no provider) or no span is in
+     * context. Fully guarded so capture never disrupts request handling.
+     */
+    private String currentTraceId() {
+        try {
+            TraceIdSource provider = traceIdProvider.get();
+            return provider == null ? null : provider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * The authenticated principal's name, or {@code null} when the request is unauthenticated, the resolved
+     * identity is anonymous, or no {@link QuarkusHttpUser} is set on the routing context. Mirrors Spring's
+     * {@code HttpExchange.getPrincipal()} contract (null, not the literal string {@code "anonymous"}), so the
+     * two adapters render this field identically. Fully guarded so capture never disrupts request handling,
+     * mirroring {@link #currentTraceId()}.
+     */
+    private static String principal(RoutingContext rc) {
+        try {
+            User user = rc.user();
+            if (!(user instanceof QuarkusHttpUser quarkusUser)) {
+                return null;
+            }
+            SecurityIdentity identity = quarkusUser.getSecurityIdentity();
+            if (identity == null || identity.isAnonymous()) {
+                return null;
+            }
+            Principal identityPrincipal = identity.getPrincipal();
+            return identityPrincipal == null ? null : identityPrincipal.getName();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static URI toUri(HttpServerRequest request) {
+        try {
+            return new URI(request.absoluteURI());
+        } catch (URISyntaxException | RuntimeException ex) {
+            try {
+                return new URI(request.uri());
+            } catch (URISyntaxException ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static String remoteAddr(RoutingContext rc) {
+        return io.github.jdubois.bootui.quarkus4.BootUiQuarkusSafetyFilter.rawPeerAddress(rc.request());
+    }
+
+    private void exposeRequestIdHeaderIfAllowed(RoutingContext rc, String requestId) {
+        try {
+            if (!shouldExposeRequestIdHeader(rc)) {
+                return;
+            }
+            HttpServerResponse response = rc.response();
+            if (response == null || response.headWritten()) {
+                return;
+            }
+            io.vertx.core.MultiMap responseHeaders = response.headers();
+            if (responseHeaders != null && !responseHeaders.contains(RequestIds.RESPONSE_HEADER)) {
+                responseHeaders.set(RequestIds.RESPONSE_HEADER, requestId);
+            }
+        } catch (RuntimeException ex) {
+            // Diagnostics header emission never disturbs response commitment or exchange capture.
+        }
+    }
+
+    private boolean shouldExposeRequestIdHeader(RoutingContext rc) {
+        return isExposeRequestIdHeaderEnabled()
+                && panelAccessConfig.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES)
+                && safetyFilter.get().isTrustedSource(remoteAddr(rc));
+    }
+
+    private boolean isExposeRequestIdHeaderEnabled() {
+        if (config == null) {
+            return false;
+        }
+        try {
+            return config.getOptionalValue(EXPOSE_REQUEST_ID_HEADER_KEY, Boolean.class)
+                    .orElse(Boolean.TRUE);
+        } catch (IllegalArgumentException ex) {
+            if (loggedInvalidExposeHeaderConfig.compareAndSet(false, true)) {
+                LOG.warnf(
+                        "Ignoring invalid BootUI property '%s'; falling back to false.", EXPOSE_REQUEST_ID_HEADER_KEY);
+            }
+            return false;
+        }
+    }
+
+    private static void logCaptureFailure(RuntimeException failure) {
+        LOG.warnf(
+                "BootUI skipped a Quarkus HTTP exchange capture (%s)",
+                failure.getClass().getSimpleName());
+    }
+
+    private static Map<String, List<String>> headers(io.vertx.core.MultiMap headers) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : headers) {
+            result.computeIfAbsent(entry.getKey(), k -> new ArrayList<>(1)).add(entry.getValue());
+        }
+        return result;
+    }
+}

@@ -36,8 +36,9 @@ Before changing anything:
 2. Identify the framework and web stack:
    - Spring Boot servlet
    - Spring Boot WebFlux
-   - Quarkus
-3. Confirm Java 17 or later and a supported framework version (Spring Boot 4.x or Quarkus 3.x).
+   - Quarkus, including its major generation
+3. Confirm the framework range and JDK: Spring Boot 4.x and Quarkus 3.33+ within 3.x use Java 17+;
+   the separate Quarkus 4 target is core 4.0.0+ within 4.x and requires Java 21+. Check release availability below.
 4. Find the runnable module, active development profile, configured HTTP port, and existing BootUI dependency.
 5. Run the project's existing focused tests before and after changes when practical.
 
@@ -59,14 +60,24 @@ Choose exactly one dependency:
 | Application | Maven coordinates |
 | --- | --- |
 | Spring Boot (Spring MVC or WebFlux) | `com.julien-dubois.bootui:bootui-spring-boot-starter` |
-| Quarkus | `com.julien-dubois.bootui:bootui-quarkus` |
+| Quarkus 3 | `com.julien-dubois.bootui:bootui-quarkus` |
+| Quarkus 4 | `com.julien-dubois.bootui:bootui-quarkus-4` |
+
+<!-- bootui-quarkus-4:next-release:start -->
+> **Next release:** Releases before the first Quarkus 4-carrying BootUI release do not include the new coordinates. Select a published release that contains this adapter; until then, using Quarkus 4 requires an explicit source build.
+<!-- bootui-quarkus-4:next-release:end -->
+
+Verify that the chosen release contains the selected adapter; do not assume a BootUI version published for Quarkus 3
+also contains Quarkus 4. Do not substitute adapters, install both generations, or silently build a source candidate
+when the user asked for a stable dependency. Quarkus 3 keeps its Java 17 and older 3.33 LTS path.
 
 The Spring starter brings no web stack: keep the application's own `spring-boot-starter-web` or
 `spring-boot-starter-webflux`, which decides the stack BootUI binds to. Before BootUI 2.0, WebFlux applications used
 `bootui-spring-boot-starter-reactive` instead.
 
 For Spring, prefer a runtime-only Gradle configuration when that matches the build. The Quarkus extension may remain an
-implementation dependency. Do not add `bootui-quarkus-deployment` directly.
+implementation dependency. Do not add `bootui-quarkus-deployment` or `bootui-quarkus-4-deployment` directly;
+Quarkus resolves the matching deployment artifact.
 
 Activate and run the application in development:
 
@@ -76,8 +87,12 @@ Activate and run the application in development:
 - Quarkus Gradle: `./gradlew quarkusDev`
 
 BootUI normally opens at `http://localhost:<port>/bootui`. On Spring, `dev` or `local`, DevTools, or
-`bootui.enabled=ON` activates it. On Quarkus, dev and test launch modes activate it; production builds remain dark and
-cannot be forced on.
+`bootui.enabled=ON` activates it. On either Quarkus generation, JVM dev and test launch modes activate it;
+packaged JVM production builds remain dark and cannot be forced on. Quarkus 3 native builds exclude the console.
+Quarkus 4 native-console acceptance is not yet verified; do not invent an activation recipe or infer native
+capabilities from JVM results. Read the [generation-specific guide](https://www.julien-dubois.com/boot-ui/setup/quarkus).
+Both generations use the same Vue/DTO/REST/MCP/CLI contract and `quarkus` discriminator. Quarkus Dev MCP is experimental
+and separate; do not enable or bridge it as a substitute for BootUI MCP.
 
 After installation, verify the application starts, the BootUI banner or URL appears, and
 `GET http://127.0.0.1:<port>/bootui/api/overview` returns JSON — `bootui overview --url http://127.0.0.1:<port>` does
@@ -569,7 +584,8 @@ to BootUI. If BootUI MCP tools are already in your tool list, just call them.
 - **Connection refused:** verify that the application is running and use its actual port.
 - **404 on Spring:** activate a real `dev` or `local` profile, include DevTools, or deliberately set
   `bootui.enabled=ON`. A default profile alone may not be active.
-- **404 on Quarkus:** run in dev or test mode. A production build intentionally has no BootUI API.
+- **404 on Quarkus JVM:** run in dev or test mode with the matching generation's adapter. Packaged JVM production
+  intentionally has no BootUI API; do not work around that boundary.
 - **403 non-loopback/host rejection:** use `127.0.0.1` or `localhost`; inspect the rejection reason before changing safety
   configuration.
 - **403 panel access:** check the panel's `enabled` and `read-only` settings and the global `bootui.read-only` setting.

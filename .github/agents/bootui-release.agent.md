@@ -45,7 +45,8 @@ These override any instinct carried over from ordinary pull-request work, where 
    stage: prepare and verify the versioned tree, commit exactly those contents, guard against source-branch
    advancement, create and verify the GPG-signed annotated tag, atomically push commit and tag, resolve the remote tag
    to its peeled SHA, check that SHA out detached, recheck Maven/npm/tag identity, publish the publication-only
-   reactor, poll every published coordinate, run the Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests,
+   reactor, poll every published coordinate, run the Spring MVC, Spring WebFlux, and both Quarkus generations'
+   consumer smoke tests,
    decide from the tags on origin whether the release is on the newest major, and only then dispatch `pages.yml` at
    the immutable tag. A patch to an older major skips the documentation redeploy by design.
 5. Recover by matching the failure to its documented path, never by retagging:
@@ -94,20 +95,28 @@ for detail.
    build, so change both in the same commit and run the guard locally before pushing. For the `v2` merge, the `1.x`
    maintenance branch, and the 2.0.0 release day, follow `docs/V2-RELEASE.md` and run
    `.github/scripts/rehearse_v2_merge.py --release-day --live` first.
-8. Keep publication scope exact when modules are added or renamed. Exactly seven coordinates are published: the engine
-   (which includes the core DTO package), UI, the one Spring starter, the Quarkus runtime and deployment, `bootui-cli`
+8. Keep publication scope exact when modules are added or renamed. The current Quarkus 4-capable source prepares
+   exactly nine coordinates: the engine (which includes the core DTO package), UI, the one Spring starter,
+   the Quarkus 3 runtime/deployment and separate Quarkus 4 runtime/deployment, `bootui-cli`
    (with its client package and the `all` classifier), and `bootui-agent` (smoke-tested as a dormant `-javaagent` with
-   an agent-only runtime classpath). Both parent POMs build the reactor but are excluded; published POMs are flattened
-   and parentless. Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list,
-   which the guard count-checks, and stays out of the publication reactor and the smoke-test step, with one exception:
+   an agent-only runtime classpath). All three parent POMs build the reactor but are excluded; published POMs are
+   flattened and parentless. Everything else keeps `maven.deploy.skip=true` and stays in the root POM
+   `excludeArtifacts` list, which the guard count-checks, and stays out of the publication reactor and the smoke-test step,
+   with one exception:
    `bootui-agent-bridge`, shaded into the agent, is built in the publication reactor but excluded from Central and never
-   polled.
+   polled. Historical CI-kit releases through 2.6.0 have seven coordinates and no Quarkus 4 artifacts: use their
+   immutable inventory for recovery and historical Pages probes, never the current prepared-bundle allow-list.
+   `available=true` in a CI manifest does not prove publication; every selected artifact must actually resolve on Central.
 9. Keep the coupled release surfaces aligned: the availability poll list matches the publication reactor, the
    `jbang-catalog.json` alias tracks the CLI shade execution and its `:all` classifier, every published jar module
    attaches an empty placeholder `javadoc.jar` during `package` before signing at `verify` (the release profile's
    `attach-empty-javadocs` execution, which the source-less `bootui-ui` overrides by id with
-   `skipIfEmpty=false`), and `quarkus.platform.version` stays independent of the BootUI project version.
-10. Releases stay on the Java 17 baseline. Broader JDK coverage belongs to `jdk-compatibility.yml`.
+   `skipIfEmpty=false`), and `quarkus.platform.version` and `quarkus4.platform.version` stay independent of the
+   BootUI project version.
+10. Build and sign the complete Quarkus 4-capable release on JDK 25. Shared/Spring/Quarkus 3/CLI/agent artifacts retain
+    the Java 17 baseline, while Quarkus 4 artifacts target Java 21. Preserve the separate Java 17 and Java 21 consumer
+    runtime homes; never replace those smoke checks with the release build JDK. Quarkus 4 has blocking Java 21/25
+    lanes in `build.yml`; broader compatibility checks also live in `jdk-compatibility.yml`.
 
 ## Non-negotiable review checklist
 

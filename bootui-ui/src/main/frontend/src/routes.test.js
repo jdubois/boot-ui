@@ -166,7 +166,7 @@ function parseQuarkusAvailability() {
 }
 
 function parseQuarkusSupportTable(markdown) {
-  const appendix = markdown.split('## 11. Appendix — full panel disposition')[1]
+  const appendix = markdown.split('## 11. Appendix — full panel disposition')[1]?.split(/^## /m)[0]
   if (!appendix) {
     throw new Error('Missing Quarkus support appendix')
   }

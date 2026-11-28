@@ -1882,6 +1882,7 @@ final class ApplicationMethodsSensor {
             "io/github/jdubois/bootui/spi/",
             "io/github/jdubois/bootui/autoconfigure/",
             "io/github/jdubois/bootui/quarkus/",
+            "io/github/jdubois/bootui/quarkus4/",
             "io/github/jdubois/bootui/client/",
             "io/github/jdubois/bootui/cli/",
             "io/github/jdubois/bootui/conformance/"

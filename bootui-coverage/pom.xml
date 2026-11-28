@@ -76,4 +76,29 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>quarkus-4-coverage</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.julien-dubois.bootui</groupId>
+                    <artifactId>bootui-quarkus-4</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>com.julien-dubois.bootui</groupId>
+                    <artifactId>bootui-quarkus-4-deployment</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>com.julien-dubois.bootui</groupId>
+                    <artifactId>bootui-quarkus-4-integration-tests</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

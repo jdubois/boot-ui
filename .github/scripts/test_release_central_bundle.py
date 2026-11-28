@@ -90,7 +90,10 @@ class CentralBundleTests(unittest.TestCase):
         self.assertEqual(self.errors(), [])
 
     def test_a_parent_pom_or_an_old_coordinate_is_rejected(self):
-        for extra in ("bootui-parent", "bootui-spring-boot-starter-reactive", "bootui-client"):
+        for extra in (
+            "bootui-parent", "bootui-quarkus-4-parent", "bootui-quarkus-4-sample-app",
+            "bootui-quarkus-4-hibernate-integration-tests", "bootui-spring-boot-starter-reactive", "bootui-client",
+        ):
             with self.subTest(extra=extra):
                 self.write(extra, pom(extra))
                 self.assert_error("the bundle must hold exactly")
@@ -107,6 +110,15 @@ class CentralBundleTests(unittest.TestCase):
         self.assert_error("missing bootui-cli-2.0.0-all.jar")
         (artifact_dir / f"bootui-cli-{VERSION}-sources.jar.sha1").unlink()
         self.assert_error("missing bootui-cli-2.0.0-sources.jar.sha1")
+
+    def test_prepared_historical_version_still_requires_both_q4_coordinates(self):
+        for artifact in ("bootui-quarkus-4", "bootui-quarkus-4-deployment"):
+            path = self.root / GROUP_PATH / artifact / VERSION / f"{artifact}-{VERSION}.pom"
+            original = path.read_bytes()
+            path.unlink()
+            self.assert_error(f"{artifact}: missing {artifact}-{VERSION}.pom")
+            path.write_bytes(original)
+        self.assertEqual(self.errors(), [])
 
     def test_signatures_are_accepted_beside_their_files(self):
         artifact_dir = self.root / GROUP_PATH / "bootui-agent" / VERSION

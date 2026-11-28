@@ -2,7 +2,11 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Beans view (Quarkus)', () => {
-  test('lists real Arc/CDI beans and supports filtering by name and classification', async ({openView, page}) => {
+  test('lists real Arc/CDI beans and supports filtering by name and classification', async ({
+    openView,
+    page,
+    quarkusGeneration
+  }) => {
     const beansPage = await openView('beans', 'Beans')
     await beansPage.getByRole('button', {name: 'List view'}).click()
 
@@ -35,9 +39,14 @@ test.describe('Beans view (Quarkus)', () => {
     })
     const body = await response.json()
     const bootUiLeak = body.beans.filter(
-      (bean) => bean.type && (bean.type.includes('bootui.quarkus') || bean.type.includes('bootui.core'))
+      (bean) => bean.type && /^io\.github\.jdubois\.bootui\.(?:quarkus4?|core)(?:\.|$)/.test(bean.type)
     )
     expect(bootUiLeak).toEqual([])
+    if (quarkusGeneration === '4') {
+      expect(body.beans.some((bean) => bean.type === 'io.github.jdubois.bootui.quarkus4sample.GreetingResource')).toBe(
+        true
+      )
+    }
   })
 
   test('keeps large bean lists responsive while filters search the full set', async ({openView, page}) => {

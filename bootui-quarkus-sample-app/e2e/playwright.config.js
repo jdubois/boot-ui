@@ -15,9 +15,14 @@ import {defineConfig, devices} from '@playwright/test'
  * starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**. Fixture-backed
  * runs always start their own app process so the deterministic OSV configuration cannot be bypassed.
  */
-const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || 8082)
+const GENERATION = process.env.BOOTUI_QUARKUS_GENERATION || '3'
+if (!['3', '4'].includes(GENERATION)) {
+  throw new Error('BOOTUI_QUARKUS_GENERATION must be 3 or 4')
+}
+const SAMPLE_MODULE = GENERATION === '4' ? 'bootui-quarkus-4-sample-app' : 'bootui-quarkus-sample-app'
+const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || (GENERATION === '4' ? 8084 : 8082))
 const BASE_URL = process.env.BOOTUI_BASE_URL || `http://localhost:${PORT}`
-const OSV_FIXTURE_PORT = Number(process.env.BOOTUI_OSV_FIXTURE_PORT || 18080)
+const OSV_FIXTURE_PORT = Number(process.env.BOOTUI_OSV_FIXTURE_PORT || (GENERATION === '4' ? 18081 : 18080))
 const OSV_FIXTURE_BASE_URL = `http://127.0.0.1:${OSV_FIXTURE_PORT}`
 const USE_LIVE_OSV = process.env.BOOTUI_OSV_LIVE === '1'
 
@@ -28,9 +33,12 @@ const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 300_000
 // The AI spec mocks every AI endpoint, so the LangChain4j Ollama Dev Services are disabled: they
 // would otherwise pull a multi-gigabyte Ollama image and llama3 model before the app accepts requests.
 const QUARKUS_COMMAND =
-  `../../mvnw -f ../pom.xml quarkus:dev -Dquarkus.http.port=${PORT}` +
+  `../../mvnw -f ../../${SAMPLE_MODULE}/pom.xml quarkus:dev -Dquarkus.http.port=${PORT}` +
   ' -Dquarkus.test.continuous-testing=disabled -Dquarkus.analytics.disabled=true' +
   ' -Dquarkus.langchain4j.devservices.enabled=false -Dquarkus.langchain4j.ollama.devservices.enabled=false' +
+  (GENERATION === '4'
+    ? ' -Dquarkus.otel.traces.exporter=none -Dquarkus.otel.metrics.exporter=none -Dquarkus.otel.logs.exporter=none'
+    : '') +
   ' -Dbootui.vulnerabilities.epss-enabled=false' +
   (USE_LIVE_OSV
     ? ' -Dbootui.vulnerabilities.request-timeout=10s' +
@@ -78,6 +86,7 @@ export default defineConfig({
           ? [
               {
                 command: 'node fixtures/osv-server.js',
+                env: {BOOTUI_OSV_FIXTURE_PORT: String(OSV_FIXTURE_PORT)},
                 url: `${OSV_FIXTURE_BASE_URL}/health`,
                 reuseExistingServer: false,
                 stdout: 'pipe',

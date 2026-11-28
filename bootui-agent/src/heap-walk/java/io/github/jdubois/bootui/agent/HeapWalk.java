@@ -42,7 +42,8 @@ public final class HeapWalk {
             "io/github/jdubois/bootui/core/",
             "io/github/jdubois/bootui/spi/",
             "io/github/jdubois/bootui/autoconfigure/",
-            "io/github/jdubois/bootui/quarkus/");
+            "io/github/jdubois/bootui/quarkus/",
+            "io/github/jdubois/bootui/quarkus4/");
 
     private final List<MappedByteBuffer> maps = new ArrayList<>();
     private int idSize;

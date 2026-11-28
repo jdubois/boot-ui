@@ -13,6 +13,15 @@ running console is always the authoritative answer for your own application.
 > of this document is kept as the design record the implementation follows; treat the phased plan in §9 as historical —
 > Phases 0–2 have shipped and Phase 3's capture panels are also live (§5.3).
 
+<!-- bootui-quarkus-4:next-release:start -->
+> **Next release:** Releases before the first Quarkus 4-carrying BootUI release do not include the new coordinates. Select a published release that contains this adapter; until then, using Quarkus 4 requires an explicit source build.
+<!-- bootui-quarkus-4:next-release:end -->
+
+The shipped design record below describes the **Quarkus 3 JVM adapter**. The additive Quarkus 4 adapter preserves
+its shared contract without depending on it; [§12](#quarkus-4) records the separate coordinates, migration,
+JVM evidence, Dev UI assessment, and outstanding native acceptance. Neither source implementation nor a passing
+JVM fixture establishes native support.
+
 ## 1. Goal
 
 Run the **same BootUI developer console — same Vue UI, same REST contract, same DTOs — on a Quarkus dev application**,
@@ -31,7 +40,8 @@ Concretely:
 
 ### Non-goals
 
-- **Native-image BootUI.** BootUI is dev-only; Quarkus dev mode is always JVM mode (see §6), so native is out of scope.
+- **Native-image BootUI on Quarkus 3.** Dev mode is JVM mode and Quarkus 3 native binaries exclude the console.
+  The separately approved Quarkus 4 local-native work is not yet verified (§12).
 - **Integrating into Quarkus's built-in Dev UI** (`/q/dev`). BootUI keeps its own standalone console (`/bootui/` by
   default). Quarkus Dev UI uses build-time Lit web components; reusing our Vue UI is what keeps the UI shared.
 - **100% panel parity.** A curated subset ships on Quarkus (§5). Spring-only panels are dropped or replaced.
@@ -78,12 +88,19 @@ SPRING ADAPTER
   bootui-spring-sample-app           Spring MVC demo/integration app + Playwright e2e
   bootui-spring-webflux-sample-app   Spring WebFlux demo/conformance app
 
-QUARKUS ADAPTER
-  bootui-quarkus-parent              Shared Quarkus platform BOM and plugin management
+QUARKUS 3 ADAPTER
+  bootui-quarkus-parent              Quarkus 3 platform BOM and plugin management
   bootui-quarkus                     Runtime JAX-RS/Vert.x resources, SPI implementations, and safety filters
   bootui-quarkus-deployment          Build-time wiring, capability gates, and production-dark activation
   bootui-quarkus-integration-tests   Docker-free @QuarkusTest conformance and smoke tests
   bootui-quarkus-sample-app          Demo/integration app
+
+QUARKUS 4 ADAPTER
+  bootui-quarkus-4-parent            Independent Quarkus 4 BOM/plugin management, Java 21 target
+  bootui-quarkus-4                   Runtime bindings in io.github.jdubois.bootui.quarkus4
+  bootui-quarkus-4-deployment        Matching build-time wiring and capability gates
+  bootui-quarkus-4-integration-tests Capability-specific, non-published fixtures
+  bootui-quarkus-4-sample-app        Non-published app; shares the existing Quarkus e2e workspace
 ```
 
 Dependency direction is one-way: inside `bootui-engine`, the engine and SPI packages depend on the JDK-only
@@ -339,6 +356,9 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `RabbitMQ`            | **Implemented** — the standalone panel over the shared `RabbitActivityRecorder` and class-presence gate described in the `Live Activity` row above; `GET`/`DELETE /bootui/api/rabbitmq` mirror Spring's list/clear contract. Capture is metadata-only, correlation IDs are omitted by default and hashed when explicitly enabled, and failures use generic text. Reports unavailable with a `quarkus-messaging-rabbitmq` hint when the connector is absent. `clear` (DELETE) behind the shared write and panel read-only gates |
 | `WebSockets`          | **Implemented** — endpoint topology is captured at build time from the Jandex index (`@WebSocket` classes and their `@OnOpen`/`@OnTextMessage`/… callbacks) and replayed through a synthetic `QuarkusWebSockets` bean; live connections come from `OpenConnections` plus `@Observes @Open`/`@Closed WebSocketConnection` events. Reduced fidelity: WebSockets Next exposes no message-interception SPI, so the report states `frameCaptureSupported=false` with that reason and the panel shows endpoints and connections only — no frame log. Gated on `quarkus-websockets-next` class presence with the two websockets-importing beans excluded when absent |
 
+Both Quarkus adapters capture ORM SQL preparations only for the **default persistence unit**. Named-unit ORM
+queries bypass the wrapped CDI datasource and have no BootUI statement inspector; their SQL is not captured.
+
 ::: details Live Activity — signals, trace-id correlation, and the N+1 badge
 
 The panel-buffer feed merges nine activity entry types: HTTP requests (via the Vert.x exchange buffer), SQL trace,
@@ -582,7 +602,7 @@ requests carrying effective forwarded-host metadata instead of trusting the rewr
 preserves Host and omits `Forwarded` host parameters and the configured forwarded-host header for BootUI requests.
 Address/protocol forwarding without host metadata remains supported; other application routes are unchanged.
 
-- **Dev-mode-only extension.** The `bootui-quarkus-deployment` module registers BootUI's routes and beans **only in dev
+- **Dev-mode-only Quarkus 3 extension.** The `bootui-quarkus-deployment` module registers BootUI's routes and beans **only in dev
   and test mode** via `@BuildStep` (never in `LaunchMode.NORMAL`). This is the natural Quarkus analogue of BootUI's "active only in `dev`/`local`, fail closed"
   rule, and it means BootUI is simply absent from production/native builds.
 - **The static shell is dark in production too, not just the API.** The launch-mode-gated `@BuildStep`s above stop
@@ -613,10 +633,9 @@ Address/protocol forwarding without host metadata remains supported; other appli
   `bootui-quarkus`). See `BootUiQuarkusProcessor`'s class Javadoc for the full investigation.
 
   :::
-- **Native is therefore a non-issue.** Quarkus dev mode always runs on the JVM, so the bytecode-scanning advisors,
-  classpath Maven metadata (`Vulnerabilities`), and JVM MXBeans all work exactly as on Spring. The native-image
-  limitations (no runtime classpath scan, stripped metadata) only apply to production native images, which BootUI never
-  ships in.
+- **JVM evidence is not native evidence.** Quarkus 3 excludes the console from native images. Its JVM bytecode
+  scanners, classpath metadata, and MXBean capabilities cannot be assumed available in a Quarkus 4 native
+  executable; each claimed native capability needs positive execution evidence (§12).
 - **Loopback safety preserved.** The shared `LocalhostGuard` enforces the same loopback / allowed-hosts / CSRF rules; the
   Quarkus adapter binds it as a high-priority Vert.x handler after configured public requests have been rerouted to the
   private mount, failing closed for non-loopback callers — matching `LocalhostOnlyFilter`'s `Integer.MIN_VALUE` servlet
@@ -842,3 +861,151 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Spring Data         | spring-only | Drop    | —                                | Panache, different model                    |
 | HTTP Sessions       | spring-only | Drop    | —                                | reactive/stateless stack                    |
 | Transactions        | spring-only | Drop    | —                                | `TransactionExecutionListener` has no Narayana/CDI-interceptor equivalent |
+
+<a id="quarkus-4"></a>
+
+## 12. Additive Quarkus 4 support
+
+### Generation and distribution choices
+
+| | Quarkus 3 | Quarkus 4 |
+| --- | --- | --- |
+| Runtime / deployment | `bootui-quarkus` / `bootui-quarkus-deployment` | `bootui-quarkus-4` / `bootui-quarkus-4-deployment` |
+| Java class-file minimum | 17 | 21 |
+| Independent root property | `quarkus.platform.version` | `quarkus4.platform.version` |
+| Build baseline | 3.40.1.2 LTS | 4.0.1, initially non-LTS |
+| Declared core range | 3.33+ within 3.x | 4.0.0+ within 4.x |
+
+The new runtime/deployment coordinates remain under `com.julien-dubois.bootui` and use the same BootUI release train.
+Only those two new modules are distribution artifacts; neither generation's parent, fixtures, or sample is published.
+Do not combine adapters or use the old extension's future-major warning as evidence of Quarkus 4 support.
+An invalid graph can fail framework linkage before BootUI's build step can diagnose it.
+
+The Java namespace is `io.github.jdubois.bootui.quarkus4`; shared behavior remains in the engine/SPI.
+The Vue artifact, immutable DTOs, REST paths, MCP tool schemas, CLI commands, and `quarkus` platform discriminator are
+unchanged. The §5 JVM availability limits still apply: no new Spring-only panels, native Java agent, Dev UI embedding,
+GraalVM-readiness advisor, or CRaC support is implied.
+
+### Migration and advisor semantics
+
+The [version-specific release announcement][q4-release] and [pinned migration guide][q4-migration] describe Java 21,
+Jackson 3, Vert.x 5, CDI 5, Jakarta REST 4, SmallRye Config 4, and the new persistence stack.
+The stable Quarkus **4.0.1** [BOM][q4-bom] manages Hibernate **8.0.0.CR2** and Jakarta Persistence **4.0.0-M8**;
+Quarkus core **4.0.0** [pins][q4-minimum-pom] ORM **8.0.0.CR1**. A stable platform does not make its managed
+candidates/milestones final releases. The sample's optional Quarkiverse LangChain4j **2.0.0.CR1** is a separate
+candidate extension, aligned with LangChain4j core **1.24.0**, not a Quarkus-platform stable-component claim.
+
+Two removed configuration keys must not retain Quarkus 3 fallback semantics:
+`quarkus.hibernate-orm.database.generation` and `quarkus.hibernate-orm.log.bind-param`.
+Quarkus 4 reads `schema-management.strategy` and `log.bind-parameters`, including named units.
+Legacy declarations can be reported as removed/ignored but must not hide destructive schema actions or invent binding logs.
+
+The Quarkus 4 security snapshot also ignores removed `quarkus.oidc[.<tenant>].tls.verification` and
+`quarkus.oidc-client[.<client>].tls.verification` declarations. They cannot establish disabled verification or an
+insecure endpoint. Current TLS-registry settings and plain-HTTP OIDC endpoints remain assessed. CORS reads
+`quarkus.http.cors.enabled`; the removed `quarkus.http.cors` root neither enables CORS nor overrides the current key.
+Quarkus 3's legacy behavior is unchanged; see [Quarkus security checks](QUARKUS-CHECKS.md).
+
+Hibernate applicability follows the actual ORM and unit metadata. On ORM 8, HIB-MAP-027's old
+`@GenericGenerator` deprecation advice is not applicable, not a conclusive pass; its ID stays reserved.
+Persistence 4 to-one defaults and direct/repeated Jakarta fetch overrides are resolved from verified unit metadata.
+Missing defaults remain incomplete evidence, not guessed eager/lazy settings. See the maintained
+[Hibernate check catalog](HIBERNATE-CHECKS.md) for rule-specific semantics.
+
+### JVM evidence and open acceptance
+
+This is an implementation snapshot, not a release certificate:
+
+| Executed scope | Evidence |
+| --- | --- |
+| Full runtime tests | 979 passed |
+| Full deployment tests | 124 passed, including actual agent reload |
+| Base HTTP/contract fixture | 385 discovered, no failures; 10 availability skips |
+| Sixteen optional fixture modules | 106 passed, zero skips; separate positive MySQL execution |
+| Latest focused Hibernate selection | 475 engine, 46 Quarkus 4 runtime, 2 deployment tests passed, zero skips; six real metadata/default/override cases |
+| Real Hibernate browser class plus scoring regressions | 12/12 passed across repeated runs |
+| Removed OIDC TLS / CORS source correction | Three regressions failed before the fix; 59 provider tests plus one unchanged declaration-control test passed on each of 4.0.1 and 4.0.0, zero skips |
+
+The security correction was compiled on 4.0.1 and executed against 4.0.0 with the **same baseline-compiled class
+bytes**, without recompilation. This is focused changed-source evidence, not a rebuilt full runtime/deployment
+artifact or a completed distribution/native acceptance gate.
+
+Actual REST/MCP execution exposed an overwritten connection-close handler in the original streaming binding.
+The corrected suspended REST lifecycle uses asynchronous `ServerHttpResponse` writes instead of a competing blocking
+output stream. Immediate cancellation and sibling HTTP/2 streaming isolation pass on the **same physical connection**;
+these results are JVM transport evidence, not native evidence.
+
+Quarkus 4 browser acceptance **with and without the BootUI agent** has passed, with documented skips.
+The final full Quarkus 3 normal/agent and affected Spring MVC/WebFlux/custom-path browser matrix also passed:
+1,283 passing cases, 40 documented capability, agent, and scheduled-live-test skips, and no failures or retries.
+Baseline-built artifacts also passed actual minimum-version consumers, wrong-generation/dual-adapter controls,
+signed distribution rehearsal, and cross-stack JVM API conformance on the applicable Java 17, 21, and 25 runtimes.
+The Java 17 baseline and complete mixed-generation Java 25 coverage reactor also pass, retaining Java 17
+bytecode for the existing modules and Java 21 bytecode for Quarkus 4.
+These results do not imply publication or native certification.
+
+An actual macOS ARM64 native smoke also passed on core Quarkus 4.0.0 using unchanged signed
+4.0.1-baseline artifacts, including ORM/Validation, JDBC/OTel, REST/MCP, the released CLI, and default-dark
+activation. This bounded minimum-version proof does not replace the complete native acceptance matrix.
+Chromium against that executable also verifies secret-property masking, unavailable Hibernate controls, and
+real correlated JDBC activity, without page-triggered writes or external requests.
+
+**Native-console support is not yet verified.** The JDBC and ORM/Validation native fixtures have passed on Linux ARM64, but the
+complete capability and platform matrix remains outstanding on
+**Linux x86-64, Linux ARM64, and macOS ARM64**. A native capability may only be declared available after its positive
+contract executes; JVM availability and a shell returning 200 are insufficient. Packaged JVM production stays dark,
+and BootUI never changes the host listener binding. No native install/build recipe is published here before those gates.
+
+Native ORM session recording does not make the Hibernate panel available: ORM feed and request-profile evidence
+remain hidden while their owning Hibernate panel is unavailable or disabled. The native fixture checks real
+default-unit session recording separately from that visibility policy and preserves named-unit host listeners.
+
+### Dev UI assessment
+
+This assessment uses **tagged Quarkus 4.0.1 source**, not an assumption that every Dev UI feature is new or exercised:
+
+| Capability | What the source establishes |
+| --- | --- |
+| Existing Dev UI | Extension cards/pages/actions, configuration/endpoints, continuous tests, and Dev Services predate Quarkus 4; `CardAction` exists in [3.40.1][q3-card-action]. |
+| New Observability dashboard | The [local-development processor][q4-observability] contributes one cross-extension page only when telemetry signals exist. |
+| Metric/trace cards and export | The [dashboard source][q4-dashboard] composes available signal/metric cards, distinguishes metric sources, and exports CSV. Grafana export is conditional on supported, unambiguous Prometheus naming; it does not configure an exporter. |
+| JSON-RPC API migration | The old `io.quarkus.devui.spi.JsonRPCProvidersBuildItem` is [deprecated][q4-jsonrpc] in favor of `io.quarkus.devjsonrpc.spi.JsonRPCProvidersBuildItem`. Older guide examples are not the API authority. |
+| Dev MCP | The [tagged guide][q4-dev-mcp] marks it experimental and recommends Quarkus Agent MCP for upstream agent integration. It is separate from BootUI MCP. |
+
+Dashboard meter selection controls its own sampling, not the host's exporter configuration. SPI presence or a
+forward-looking live-count field does not establish a supported BootUI integration. BootUI contributes no automatic
+bridge, telemetry cards, exporter/processor replacement, or embedded Vue page.
+
+**Clean JVM coexistence is verified on 4.0.1.** Four parentless applications passed real Chromium checks without
+CSP bypass or server-policy weakening:
+
+| BootUI | Telemetry | Observed result |
+| --- | --- | --- |
+| Present | Present | BootUI and Dev UI coexist; real trace/metric cards, CSV/Grafana export controls, and host Prometheus are available. |
+| Absent | Present | Dev UI retains the same telemetry cards/export controls and Prometheus; BootUI routes return 404. |
+| Present | Absent | BootUI and ordinary Dev UI remain available; no Observability dashboard or Prometheus endpoint. |
+| Absent | Absent | Ordinary Dev UI remains available; no BootUI routes, Observability dashboard, or Prometheus endpoint. |
+
+With both enabled, three identified host requests produced three distinct trace IDs and exactly one BootUI HTTP
+capture per request. BootUI excluded its own requests from its trace/exchange buffers; the host's independent Dev UI
+telemetry could still observe BootUI API requests. No exporter replacement or duplicate host-request capture was
+observed in this fixture. Export **controls** rendered; this does not certify downloaded export contents or Grafana imports.
+
+All four cells had no JavaScript errors or external application/telemetry requests, but upstream Dev UI fetched its
+Inter font from `fonts.googleapis.com` and `fonts.gstatic.com`. This is **not zero external browser traffic**.
+The earlier full-sample CSP-bypass diagnostic is not part of this passing evidence; restrictive host policies may still
+block Dev UI and must not be weakened merely to make a check pass. Dev MCP bridging, native behavior, and every
+application's telemetry configuration are outside this bounded matrix.
+
+BootUI's separate value is its shared advisors, bounded correlated runtime evidence, and cross-stack MCP/CLI contract.
+Dev UI embedding or exposing BootUI through Dev JSON-RPC/Dev MCP requires a separate design, not automatic migration work.
+
+[q4-release]: https://quarkus.io/blog/quarkus-4-0-released/
+[q4-migration]: https://github.com/quarkusio/quarkus/wiki/Migration-Guide-4.0/ad3207a2f1a93ba07ec04a862f888701455b624f
+[q4-bom]: https://repo.maven.apache.org/maven2/io/quarkus/platform/quarkus-bom/4.0.1/quarkus-bom-4.0.1.pom
+[q4-minimum-pom]: https://github.com/quarkusio/quarkus/blob/4.0.0/pom.xml
+[q3-card-action]: https://github.com/quarkusio/quarkus/blob/3.40.1/extensions/devui/deployment-spi/src/main/java/io/quarkus/devui/spi/page/CardAction.java
+[q4-observability]: https://github.com/quarkusio/quarkus/blob/4.0.1/extensions/devui/deployment/src/main/java/io/quarkus/devui/deployment/observability/ObservabilitySectionProcessor.java
+[q4-dashboard]: https://github.com/quarkusio/quarkus/blob/4.0.1/extensions/devui/resources/src/main/resources/dev-ui/qwc/qwc-observability-dashboard.js
+[q4-jsonrpc]: https://github.com/quarkusio/quarkus/blob/4.0.1/extensions/devui/deployment-spi/src/main/java/io/quarkus/devui/spi/JsonRPCProvidersBuildItem.java
+[q4-dev-mcp]: https://github.com/quarkusio/quarkus/blob/4.0.1/docs/src/main/asciidoc/dev-mcp.adoc

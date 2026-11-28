@@ -30,7 +30,65 @@ public record HibernateFactorySettings(
         Boolean oracle,
         Boolean postgresql,
         Boolean providerDisablesAutoCommit,
-        TransactionMode transactionMode) {
+        TransactionMode transactionMode,
+        ToOneFetchType defaultToOneFetchType) {
+
+    public enum ToOneFetchType {
+        EAGER,
+        LAZY,
+        UNKNOWN
+    }
+
+    public HibernateFactorySettings(
+            Integer jdbcBatchSize,
+            Integer defaultBatchFetchSize,
+            Boolean orderInserts,
+            Boolean orderUpdates,
+            Boolean secondLevelCache,
+            Boolean queryCache,
+            Boolean paginationGuard,
+            Boolean statisticsEnabled,
+            RegionFactory regionFactory,
+            ConnectionProvider connectionProvider,
+            SchemaAction schemaAction,
+            Boolean lazyLoadOutsideTransaction,
+            Boolean inClausePadding,
+            Integer slowQueryThreshold,
+            Boolean showSql,
+            Boolean formatSql,
+            Boolean sqlComments,
+            Boolean jdbcTimeZoneConfigured,
+            Integer jdbcFetchSize,
+            Boolean oracle,
+            Boolean postgresql,
+            Boolean providerDisablesAutoCommit,
+            TransactionMode transactionMode) {
+        this(
+                jdbcBatchSize,
+                defaultBatchFetchSize,
+                orderInserts,
+                orderUpdates,
+                secondLevelCache,
+                queryCache,
+                paginationGuard,
+                statisticsEnabled,
+                regionFactory,
+                connectionProvider,
+                schemaAction,
+                lazyLoadOutsideTransaction,
+                inClausePadding,
+                slowQueryThreshold,
+                showSql,
+                formatSql,
+                sqlComments,
+                jdbcTimeZoneConfigured,
+                jdbcFetchSize,
+                oracle,
+                postgresql,
+                providerDisablesAutoCommit,
+                transactionMode,
+                ToOneFetchType.UNKNOWN);
+    }
 
     public enum RegionFactory {
         AVAILABLE,
@@ -83,6 +141,7 @@ public record HibernateFactorySettings(
         connectionProvider = connectionProvider == null ? ConnectionProvider.UNKNOWN : connectionProvider;
         schemaAction = schemaAction == null ? SchemaAction.UNKNOWN : schemaAction;
         transactionMode = transactionMode == null ? TransactionMode.UNKNOWN : transactionMode;
+        defaultToOneFetchType = defaultToOneFetchType == null ? ToOneFetchType.UNKNOWN : defaultToOneFetchType;
     }
 
     public static HibernateFactorySettings unknown() {

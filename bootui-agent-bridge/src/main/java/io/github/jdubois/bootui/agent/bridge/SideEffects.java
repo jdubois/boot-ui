@@ -2440,6 +2440,12 @@ public final class SideEffects {
         return found == null ? 0L : found[0];
     }
 
+    /** The sink's application frame only, excluding BootUI recorders even under broad package claims. */
+    static long sinkFrames(Claim claim) {
+        long[] found = WALKER.walk(new FrameSummary(claim, true));
+        return found == null ? 0L : found[0] & 0xFFFFFFFFL;
+    }
+
     /** The JDK, this bridge, and the agent: never a frame of the summary. */
     static boolean jdkOrAgent(String className) {
         return className.startsWith("java.")
@@ -2453,9 +2459,15 @@ public final class SideEffects {
     static final class FrameSummary implements Function<Stream<StackWalker.StackFrame>, long[]> {
 
         private final Claim claim;
+        private final boolean excludeUninstrumentedApplication;
 
         FrameSummary(Claim claim) {
+            this(claim, false);
+        }
+
+        FrameSummary(Claim claim, boolean excludeUninstrumentedApplication) {
             this.claim = claim;
+            this.excludeUninstrumentedApplication = excludeUninstrumentedApplication;
         }
 
         @Override
@@ -2475,7 +2487,9 @@ public final class SideEffects {
                     outsideFound = true;
                     outside = internFrame(className, frame.getMethodName());
                 }
-                if (claim != null && ThreadPropagation.inPackages(className, claim)) {
+                if (claim != null
+                        && ThreadPropagation.inPackages(className, claim)
+                        && (!excludeUninstrumentedApplication || !Exclusions.excluded(className))) {
                     applicationFound = true;
                     application = internFrame(className, frame.getMethodName());
                 }

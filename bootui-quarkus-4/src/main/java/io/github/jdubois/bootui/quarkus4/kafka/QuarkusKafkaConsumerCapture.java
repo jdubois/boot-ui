@@ -1,0 +1,179 @@
+package io.github.jdubois.bootui.quarkus4.kafka;
+
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.TraceParents;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.quarkus4.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus4.nativeconsole.BootUiNativeActivation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.smallrye.reactive.messaging.IncomingInterceptor;
+import io.smallrye.reactive.messaging.kafka.api.IncomingKafkaRecordMetadata;
+import io.smallrye.reactive.messaging.providers.locals.LocalContextMetadata;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.reactive.messaging.Message;
+import org.jboss.logging.Logger;
+
+/**
+ * Captures SmallRye Reactive Messaging Kafka <em>deliveries</em> into the shared, framework-neutral
+ * {@link KafkaActivityRecorder} — the Quarkus analogue of the Spring adapter's
+ * {@code KafkaConsumerCaptureBeanPostProcessor}, feeding the exact same recorder so both adapters render
+ * identical {@code MESSAGING} entries in the Live Activity feed. Quarkus applications use SmallRye's
+ * {@code @Incoming} channel model (via {@code quarkus-messaging-kafka}), not Spring's imperative
+ * {@code @KafkaListener} API, so the interception point is SmallRye's {@link IncomingInterceptor} SPI: a
+ * global (default-qualified) interceptor bean SmallRye auto-discovers and applies to every incoming
+ * channel that has no channel-specific interceptor of its own.
+ *
+ * <p><strong>This class (with {@link QuarkusKafkaProducerCapture}) is the sole importer of
+ * {@code io.smallrye.reactive.messaging.*} and Kafka-connector metadata types in the Quarkus adapter's
+ * capture path (R2).</strong> Like its producer twin, it is registered only in non-production launches
+ * with the SmallRye Kafka connector (excluded with {@code ExcludedTypeBuildItem} otherwise), so Arc never
+ * links the messaging API in an app without {@code quarkus-messaging-kafka}.</p>
+ *
+ * <p><strong>Behavioral contract, preserved from the Spring capture mechanism:</strong> metadata only
+ * (never the payload — only topic/partition/offset and the key, when {@code bootui.kafka.capture-key} is
+ * on, enforced by the recorder itself); a no-op for non-Kafka channels (an in-memory, RabbitMQ or JMS
+ * delivery carries no {@link IncomingKafkaRecordMetadata}, so nothing is recorded — RabbitMQ and JMS are
+ * out of scope); pass-through / never disrupt the app ({@link #getPriority()} returns
+ * {@link Integer#MAX_VALUE}, and SmallRye applies only the lowest-priority interceptor per channel, so an
+ * application that registers its own incoming interceptor for a channel always wins and BootUI steps
+ * aside for it); and fail-open (any error while inspecting metadata or recording is caught and logged at
+ * warn, never disrupting the delivery or its ack/nack).</p>
+ *
+ * <p>Consumer duration is timed from {@link #afterMessageReceive} to the terminal ack/nack via a
+ * {@link CaptureStart} marker attached to the message: the same message instance {@code
+ * afterMessageReceive} returns is the one SmallRye hands to {@code onMessageAck}/{@code onMessageNack},
+ * so the marker travels with it and no shared per-message state is needed. The Kafka consumer group id is
+ * not exposed on {@link IncomingKafkaRecordMetadata}, so {@code groupId} stays {@code null}; the channel
+ * name is used as the listener id (the closest Quarkus analogue to a Spring listener id).</p>
+ */
+@ApplicationScoped
+public class QuarkusKafkaConsumerCapture implements IncomingInterceptor {
+
+    private static final Logger log = Logger.getLogger(QuarkusKafkaConsumerCapture.class);
+
+    private final java.util.function.Supplier<KafkaActivityRecorder> recorder;
+
+    @Inject
+    public QuarkusKafkaConsumerCapture(Instance<KafkaActivityRecorder> recorder) {
+        this.recorder = recorder::get;
+    }
+
+    public QuarkusKafkaConsumerCapture(KafkaActivityRecorder recorder) {
+        this.recorder = () -> recorder;
+    }
+
+    /**
+     * Highest priority value so SmallRye's ascending-priority, first-wins interceptor selection always
+     * prefers an application-defined interceptor over this one — BootUI never displaces the app's own.
+     */
+    @Override
+    public int getPriority() {
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * Stamps a {@link CaptureStart} marker on a Kafka message when capture is enabled, so the terminal
+     * ack/nack can time the delivery. Returns the message unchanged for non-Kafka channels (or when
+     * capture is disabled), and never throws.
+     */
+    @Override
+    public Message<?> afterMessageReceive(Message<?> message) {
+        if (BootUiNativeActivation.isNativeInactive() || !recorder.get().isEnabled()) {
+            return message;
+        }
+        try {
+            if (message.getMetadata(IncomingKafkaRecordMetadata.class).isEmpty()) {
+                return message;
+            }
+            return message.addMetadata(new CaptureStart(System.nanoTime(), openExecution(message)));
+        } catch (RuntimeException ex) {
+            log.warn("BootUI could not begin timing an incoming Kafka message; leaving it untouched", ex);
+            return message;
+        }
+    }
+
+    @Override
+    public void onMessageAck(Message<?> message) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        record(message, true, null);
+    }
+
+    @Override
+    public void onMessageNack(Message<?> message, Throwable failure) {
+        if (BootUiNativeActivation.isNativeInactive()) {
+            return;
+        }
+        record(message, false, failure == null ? null : failure.getMessage());
+    }
+
+    private void record(Message<?> message, boolean success, String errorMessage) {
+        if (BootUiNativeActivation.isNativeInactive() || !recorder.get().isEnabled()) {
+            return;
+        }
+        try {
+            IncomingKafkaRecordMetadata<?, ?> metadata =
+                    message.getMetadata(IncomingKafkaRecordMetadata.class).orElse(null);
+            if (metadata == null) {
+                return;
+            }
+            CaptureStart start = message.getMetadata(CaptureStart.class).orElse(null);
+            Long durationNanos = start == null ? null : Math.max(0L, System.nanoTime() - start.nanos());
+            CorrelationContext execution = start == null ? CorrelationContext.NONE : start.execution();
+            recorder.get()
+                    .recordConsumeNanos(
+                            metadata.getTopic(),
+                            metadata.getPartition(),
+                            metadata.getOffset(),
+                            keyOf(metadata.getKey()),
+                            durationNanos,
+                            success,
+                            errorMessage,
+                            null, // IncomingKafkaRecordMetadata exposes no consumer group id, so leave it null
+                            metadata.getChannel(),
+                            execution);
+        } catch (RuntimeException ex) {
+            log.warn("BootUI could not capture an incoming Kafka message; leaving it untouched", ex);
+        }
+    }
+
+    private static String keyOf(Object key) {
+        return key == null ? null : String.valueOf(key);
+    }
+
+    /**
+     * A monotonic-clock marker attached to an incoming Kafka message at reception, read back at ack/nack
+     * to time the delivery. Carried as message metadata so it travels with the (single) message instance
+     * and needs no shared per-message state.
+     */
+    /**
+     * Makes this delivery an execution of its own ({@code docs/PLAN-v2.md} §5.1): attaches a new execution context to
+     * the duplicated Vert.x context SmallRye Reactive Messaging processes the message on, so the listener's SQL,
+     * exceptions, and REST client calls carry its id on whichever thread they run, and carries it in the message's
+     * metadata for the ack or nack that records the delivery.
+     */
+    private static CorrelationContext openExecution(Message<?> message) {
+        CorrelationContext execution =
+                CorrelationContext.forExecution(RequestIds.next()).withLinkedTraceId(linkedTraceId(message));
+        message.getMetadata(LocalContextMetadata.class)
+                .ifPresent(local -> QuarkusRequestCorrelation.attach(local.context(), execution));
+        return execution;
+    }
+
+    /** The trace the record's {@code traceparent} header names, linking this delivery to its sender. */
+    private static String linkedTraceId(Message<?> message) {
+        try {
+            return message.getMetadata(IncomingKafkaRecordMetadata.class)
+                    .map(metadata -> metadata.getHeaders().lastHeader(TraceParents.HEADER))
+                    .map(header -> TraceParents.traceIdOf(header.value()))
+                    .orElse(null);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    record CaptureStart(long nanos, CorrelationContext execution) {}
+}

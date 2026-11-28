@@ -19,9 +19,10 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
  * when no scope is open, as Quarkus does with the request's Vert.x duplicated context, can tell a thread that was
  * deliberately cleared from one that simply has no scope ({@code docs/PLAN-v2.md} D30).</p>
  *
- * <p>Every change of context also tells the {@link SegmentMeter} which request the thread now works for, so a
+ * <p>Metered changes of context also tell the {@link SegmentMeter} which request the thread now works for, so a
  * request's CPU time, allocated bytes, and GC pauses are measured over exactly the segments its scopes cover
- * ({@code docs/PLAN-v2.md} §5.11).</p>
+ * ({@code docs/PLAN-v2.md} §5.11). Adapters without JVM resource metering use the unmetered scopes, which never
+ * initialize or call the meter.</p>
  */
 public final class BootUiCorrelation {
 
@@ -65,6 +66,13 @@ public final class BootUiCorrelation {
         return new Scope(previous, metered);
     }
 
+    /** Opens and restores only correlation, without initializing or calling JVM resource metering. */
+    public static Scope openUnmetered(CorrelationContext context) {
+        CorrelationContext previous = CURRENT.get();
+        set(context);
+        return new Scope(previous, null, false);
+    }
+
     /**
      * Clears the context on this thread until the returned scope is closed, so work that follows is correlated to no
      * request even on an adapter that would otherwise fall back to an ambient context, and stops metering it for any
@@ -77,6 +85,13 @@ public final class BootUiCorrelation {
         CURRENT.set(CLEARED);
         SegmentMeter.shared().switchTo(null);
         return new Scope(previous, metered);
+    }
+
+    /** An explicit clearing, including its ambient-context marker, without initializing or calling the meter. */
+    public static Scope openClearedUnmetered() {
+        CorrelationContext previous = CURRENT.get();
+        CURRENT.set(CLEARED);
+        return new Scope(previous, null, false);
     }
 
     /**
@@ -149,11 +164,17 @@ public final class BootUiCorrelation {
 
         private final CorrelationContext previous;
         private final String metered;
+        private final boolean restoreMeter;
         private boolean closed;
 
         private Scope(CorrelationContext previous, String metered) {
+            this(previous, metered, true);
+        }
+
+        private Scope(CorrelationContext previous, String metered, boolean restoreMeter) {
             this.previous = previous;
             this.metered = metered;
+            this.restoreMeter = restoreMeter;
         }
 
         @Override
@@ -161,7 +182,9 @@ public final class BootUiCorrelation {
             if (!closed) {
                 closed = true;
                 restore(previous);
-                SegmentMeter.shared().switchTo(metered);
+                if (restoreMeter) {
+                    SegmentMeter.shared().switchTo(metered);
+                }
             }
         }
     }

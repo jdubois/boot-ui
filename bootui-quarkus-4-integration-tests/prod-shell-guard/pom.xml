@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus-4-integration-tests-aggregator</artifactId>
+        <version>2.6.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-4-prod-shell-guard-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Prod Shell Guard Integration Tests)</name>
+    <description>Boots genuine LaunchMode.NORMAL (production) artifacts via QuarkusProdModeTest, proving
+        BootUiProdShellGuardFilter actually 404s /bootui and /bootui/** in a real production process and
+        exercising the Architecture engine's ThreadFactory analysis through a standalone fast-jar probe.
+        These are packaged processes, not the LaunchMode.TEST used by @QuarkusTest. Kept in its own module/JVM fork on
+        purpose: Quarkus's own test-framework ExclusivityChecker throws IllegalStateException if a
+        QuarkusProdModeTest and a @QuarkusTest run in the same JUnit Platform launcher session (i.e. the same
+        Surefire fork), so this test cannot live alongside base's (or any other submodule's) @QuarkusTest
+        classes. Never published.</description>
+
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so QuarkusProdModeTest's packaged artifact serves /bootui/ and
+             /bootui/api/** with no extra deps, exactly as a real host application would. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Explicit, provided-scope dependency on the deployment artifact — required for -T parallel-build
+             safety, not just an optional courtesy. See bootui-quarkus-4-integration-tests/base/pom.xml for why. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus-4-deployment</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the production process's responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- QuarkusProdModeTest/ProdModeTestResults: the standard Quarkus extension-author mechanism for
+             building and (optionally) running a REAL production-mode (LaunchMode.NORMAL) artifact from a
+             JUnit5 test. Transitively brings junit-jupiter-api/params/engine and shrinkwrap-depchain, so no
+             separate JUnit Jupiter or quarkus-junit dependency is needed here (this module deliberately has
+             no @QuarkusTest classes at all - see the class-level Javadoc on the exclusivity constraint). Note
+             the artifactId: this Quarkus version relocated it from quarkus-junit5-internal. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit-internal</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+              The shared Quarkus parent installs JBoss LogManager on every test fork's JVM command line.
+              QuarkusProdModeTest's own static initializer requires it (it casts the root
+              java.util.logging.Logger to org.jboss.logmanager.Logger).
+
+              forkCount=1: same override as every other bootui-quarkus-4-integration-tests/* submodule (and
+              bootui-quarkus-4 itself); see bootui-quarkus-4-integration-tests/base/pom.xml for the full
+              rationale (a Quarkus test-bootstrap classloading race between concurrent Surefire forks in the
+              same module). The production shell guard and the standalone Architecture probe share this
+              fork without mixing @QuarkusTest and QuarkusProdModeTest launcher sessions.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -308,6 +308,52 @@ class CiDocsVersionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Cannot determine"):
                 HELPER.publication_ready(self.root)
 
+    def test_historical_260_pages_manifest_uses_its_seven_coordinate_publication(self):
+        self.set_project("2.6.0")
+        self.synchronize("2.6.0", check=False)
+        before = (self.root / HELPER.MANIFEST).read_bytes()
+        central = FakeCentral()
+        self.addCleanup(central.close)
+        repository = Path(central.directory.name) / "com/julien-dubois/bootui"
+        for module in ("bootui-engine", "bootui-ui", "bootui-spring-boot-starter", "bootui-quarkus",
+                       "bootui-quarkus-deployment", "bootui-cli", "bootui-agent"):
+            directory = repository / module / "2.6.0"
+            directory.mkdir(parents=True)
+            for extension in ("pom", "jar"):
+                (directory / f"{module}-2.6.0.{extension}").write_bytes(b"published")
+        (repository / "bootui-cli/2.6.0/bootui-cli-2.6.0-all.jar").write_bytes(b"uberjar")
+        self.assertFalse(HELPER.publication_ready(self.root, central.url))
+        (repository / "bootui-cli/2.6.0/bootui-cli-2.6.0-all.jar.asc").write_bytes(b"signature")
+        self.assertTrue(HELPER.publication_ready(self.root, central.url))
+        (repository / "bootui-quarkus-deployment/2.6.0/bootui-quarkus-deployment-2.6.0.pom").unlink()
+        self.assertFalse(HELPER.publication_ready(self.root, central.url))
+        self.assertEqual((self.root / HELPER.MANIFEST).read_bytes(), before)
+
+    def test_historical_manifests_need_seven_but_q4_releases_need_all_nine(self):
+        # Post-2.6.0 versions here are hypothetical Q4 release fixtures, not a chosen release version.
+        for version, q4_required in (
+            ("2.5.0", False), ("2.6.0", False), ("2.6.1", True), ("2.7.0", True), ("3.0.0", True),
+        ):
+            self.set_project(version)
+            self.synchronize(version, check=False)
+            before = (self.root / HELPER.MANIFEST).read_bytes()
+            seen = []
+
+            def respond(request, *, timeout):
+                seen.append(request.full_url)
+                missing_q4 = "/bootui-quarkus-4" in request.full_url
+                return nullcontext(SimpleNamespace(status=404 if missing_q4 else 200))
+
+            with patch.object(HELPER.urllib.request, "build_opener") as factory:
+                factory.return_value.open.side_effect = respond
+                self.assertEqual(HELPER.publication_ready(self.root), not q4_required)
+                self.assertEqual(any("/bootui-quarkus-4" in url for url in seen), q4_required)
+                factory.return_value.open.return_value = nullcontext(SimpleNamespace(status=200))
+                factory.return_value.open.side_effect = None
+                self.assertTrue(HELPER.publication_ready(self.root))
+                self.assertEqual(factory.return_value.open.call_count, len(seen) + (20 if q4_required else 16))
+            self.assertEqual((self.root / HELPER.MANIFEST).read_bytes(), before)
+
     def test_publication_gate_retries_transient_failures_but_not_missing_artifacts(self):
         self.set_project("2.3.1")
         self.synchronize("2.3.1", check=False)

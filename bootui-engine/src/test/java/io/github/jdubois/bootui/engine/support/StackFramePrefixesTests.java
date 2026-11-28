@@ -26,7 +26,7 @@ class StackFramePrefixesTests {
     /** Second-level packages that hold the sample applications, which are application code on purpose. */
     /** Sample applications, and the test-only routes the correlation scenario adds to one. */
     private static final Set<String> SAMPLE_PACKAGES =
-            Set.of("sample", "webfluxsample", "scenario", "hibernatefixture");
+            Set.of("sample", "webfluxsample", "scenario", "hibernatefixture", "quarkus4fixture", "quarkus4sample");
 
     private static final Path BOOTUI_SOURCE_PATH = Path.of("java", "io", "github", "jdubois", "bootui");
 
@@ -83,6 +83,11 @@ class StackFramePrefixesTests {
                 .isTrue();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.quarkus.it.SomeIntegrationTest"))
                 .isTrue();
+        assertThat(StackFramePrefixes.isFrameworkClass(
+                        "io.github.jdubois.bootui.quarkus4.sqltrace.BootUiHibernateStatementInspector"))
+                .isTrue();
+        assertThat(StackFramePrefixes.isBootUiModule("io.github.jdubois.bootui.quarkus4.web.McpResource"))
+                .isTrue();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.client.BootUiClient"))
                 .isTrue();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.cli.BootUiCli"))
@@ -113,6 +118,8 @@ class StackFramePrefixesTests {
                 .isFalse();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.webfluxsample.notes.NoteRepository"))
                 .isFalse();
+        assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.quarkus4fixture.BootstrapResource"))
+                .isFalse();
     }
 
     @Test
@@ -137,6 +144,10 @@ class StackFramePrefixesTests {
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.engineering.Report"))
                 .isFalse();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.clients.OrderClient"))
+                .isFalse();
+        assertThat(StackFramePrefixes.isBootUiModule("io.github.jdubois.bootui.quarkus4sample.Application"))
+                .isFalse();
+        assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.quarkus4sample.Application"))
                 .isFalse();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.Application"))
                 .isFalse();
