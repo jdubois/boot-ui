@@ -669,6 +669,8 @@ UI, browser-facing API responses, or sample-app behavior:
 
 `BOOTUI_QUARKUS_GENERATION` accepts only `3` or `4`, defaults to `3`, and selects the matching sample module.
 Install that sample and the agent before its agent suite. Neither JVM browser suite proves native support.
+`npm run test:fixtures` in the same e2e workspace checks both generations' deterministic OSV startup/readiness
+without starting Maven, a browser, or Dev Services.
 Quarkus 4 native compile-and-run acceptance on Linux x86-64, Linux ARM64, and macOS ARM64 remains a separate,
 unverified gate. The clean 4.0.1 Dev UI telemetry/BootUI coexistence matrix passed in real Chromium without CSP bypass
 or server-policy changes; it is not native evidence. See [Quarkus support](docs/QUARKUS-SUPPORT.md#quarkus-4).

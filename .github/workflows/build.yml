@@ -1962,7 +1962,9 @@ jobs:
       - name: Check Playwright formatting
         if: env.SKIP_LEG != 'true' && (matrix.suite.id == 'default')
         working-directory: bootui-quarkus-sample-app/e2e
-        run: npm run format:check
+        run: |
+          npm run format:check
+          npm run test:fixtures
 
       # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
       # runner image and Playwright version, read from the lock file, so a leg downloads them only when either changes.

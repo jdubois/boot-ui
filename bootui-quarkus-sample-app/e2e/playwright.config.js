@@ -86,6 +86,7 @@ export default defineConfig({
           ? [
               {
                 command: 'node fixtures/osv-server.js',
+                env: {BOOTUI_OSV_FIXTURE_PORT: String(OSV_FIXTURE_PORT)},
                 url: `${OSV_FIXTURE_BASE_URL}/health`,
                 reuseExistingServer: false,
                 stdout: 'pipe',
